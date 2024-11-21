@@ -304,20 +304,6 @@ pub enum StateSyncDumpProgress {
     },
 }
 
-impl StateSyncDumpProgress {
-    // The `StateSyncDumpProgress` type includes information that is not read or used anywhere. We could
-    // simplify the type with a DB migration, but it's not really important, since the data is small. This
-    // function returns the two pieces of information that the state dump code actually does use, which is the
-    // `EpochId` we were last trying to dump, and whether we're finished with it.
-    pub fn epoch_done(&self) -> (EpochId, bool) {
-        match self {
-            Self::AllDumped { epoch_id, .. } => (epoch_id.clone(), true),
-            Self::Skipped { epoch_id, .. } => (epoch_id.clone(), true),
-            Self::InProgress { epoch_id, .. } => (epoch_id.clone(), false),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::state_sync::{get_num_state_parts, STATE_PART_MEMORY_LIMIT};

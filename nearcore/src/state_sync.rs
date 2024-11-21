@@ -8,7 +8,7 @@ use futures::{FutureExt, StreamExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::time::{Clock, Duration, Interval};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Error};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
     create_bucket_readwrite, external_storage_location, StateFileType,
@@ -205,21 +205,6 @@ async fn get_missing_part_ids_for_epoch(
         let missing_nums = (0..total_parts).collect();
         Ok(missing_nums)
     }
-}
-
-// TODO: implement it for real
-fn get_dump_progress(
-    chain: &Chain,
-    epoch_manager: &dyn EpochManagerAdapter,
-    fixme_current_epoch_id: &EpochId,
-) -> anyhow::Result<Vec<(ShardId, StateSyncDumpProgress)>> {
-    let shard_ids = epoch_manager.shard_ids(fixme_current_epoch_id)?;
-    let progress = match chain.chain_store().get_state_sync_dump_progress(shard_ids[0]) {
-        Ok(p) => p,
-        Err(Error::DBNotFoundErr(_)) => return Ok(vec![]),
-        Err(e) => return Err(e).context("failed looking up state dump progress"),
-    };
-    Ok(shard_ids.into_iter().map(|s| (s, progress.clone())).collect())
 }
 
 // State associated with dumping a shard's state
@@ -526,17 +511,19 @@ impl StateDumper {
         &mut self,
         epoch_id: &EpochId,
         dump: &mut DumpState,
+        senders: &mut HashMap<ShardId, oneshot::Sender<anyhow::Result<()>>>,
     ) -> anyhow::Result<()> {
-        let progress = get_dump_progress(&self.chain, self.epoch_manager.as_ref(), epoch_id)?;
-        for (shard_id, progress) in progress.iter() {
-            let (dumped_epoch_id, done) = progress.epoch_done();
+        for res in self.chain.chain_store().iter_state_sync_dump_progress() {
+            let (shard_id, (dumped_epoch_id, done)) =
+                res.context("failed iterating over stored dump progress")?;
             if &dumped_epoch_id != epoch_id {
                 self.chain
                     .chain_store()
-                    .set_state_sync_dump_progress(*shard_id, None)
+                    .set_state_sync_dump_progress(shard_id, None)
                     .context("failed setting state dump progress")?;
             } else if done {
-                dump.dump_state.remove(shard_id);
+                dump.dump_state.remove(&shard_id);
+                senders.remove(&shard_id);
             }
         }
         Ok(())
@@ -819,8 +806,12 @@ impl StateDumper {
                 continue;
             };
             match self.get_dump_state(&sync_header)? {
-                NewDump::Dump(mut dump, senders) => {
-                    self.check_old_progress(sync_header.epoch_id(), &mut dump)?;
+                NewDump::Dump(mut dump, mut senders) => {
+                    self.check_old_progress(sync_header.epoch_id(), &mut dump, &mut senders)?;
+                    if dump.dump_state.is_empty() {
+                        self.current_dump = CurrentDump::Done(*sync_header.epoch_id());
+                        return Ok(());
+                    }
 
                     self.check_stored_headers(&mut dump).await?;
                     self.store_headers(&mut dump).await?;
