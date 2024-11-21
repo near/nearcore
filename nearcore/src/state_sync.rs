@@ -94,7 +94,6 @@ impl StateSyncDumper {
 
         let chain_id = self.client_config.chain_id.clone();
         let keep_running = Arc::new(AtomicBool::new(true));
-        // Start a thread for each shard.
 
         let chain = Chain::new_for_view_client(
             self.clock.clone(),
