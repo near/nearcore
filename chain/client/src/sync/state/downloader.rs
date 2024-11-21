@@ -122,16 +122,16 @@ impl StateSyncDownloader {
         .boxed()
     }
 
-    /// Ensures that the shard part is downloaded and validated. If the part exists on disk,
-    /// just returns. Otherwise, downloads the part, validates it, and retries if needed.
+    /// Makes a single attempt to obtain a shard part. If the part exists on disk,
+    /// just returns. Otherwise, downloads the part and validates it.
     ///
-    /// This method will only return an error if the download cannot be completed even
-    /// with retries, or if the download is cancelled.
-    pub fn ensure_shard_part_downloaded(
+    /// This method will return an error if the download fails or is cancelled.
+    pub fn ensure_shard_part_downloaded_single_attempt(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: u64,
+        attempt_count: usize,
         header: ShardStateSyncResponseHeader,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
@@ -140,9 +140,7 @@ impl StateSyncDownloader {
         let preferred_source = self.preferred_source.clone();
         let fallback_source = self.fallback_source.clone();
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
-        let clock = self.clock.clone();
         let task_tracker = self.task_tracker.clone();
-        let retry_timeout = self.retry_timeout;
         async move {
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
@@ -151,61 +149,32 @@ impl StateSyncDownloader {
                 return Ok(());
             }
 
-            let i = AtomicUsize::new(0); // for easier Rust async capture
-            let attempt = || async {
-                let source = if fallback_source.is_some()
-                    && i.load(Ordering::Relaxed) >= num_attempts_before_fallback
-                {
+            let source =
+                if fallback_source.is_some() && attempt_count >= num_attempts_before_fallback {
                     fallback_source.as_ref().unwrap().as_ref()
                 } else {
                     preferred_source.as_ref()
                 };
-                let part = source
-                    .download_shard_part(
-                        shard_id,
-                        sync_hash,
-                        part_id,
-                        handle.clone(),
-                        cancel.clone(),
-                    )
-                    .await?;
-                let state_root = header.chunk_prev_state_root();
-                if runtime_adapter.validate_state_part(
-                    &state_root,
-                    PartId { idx: part_id, total: header.num_state_parts() },
-                    &part,
-                ) {
-                    let mut store_update = store.store_update();
-                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                    store_update.set(DBCol::StateParts, &key, &part);
-                    store_update.commit().map_err(|e| {
-                        near_chain::Error::Other(format!("Failed to store part: {}", e))
-                    })?;
-                } else {
-                    return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
-                }
-                Ok(())
-            };
 
-            loop {
-                match attempt().await {
-                    Ok(()) => return Ok(()),
-                    Err(err) => {
-                        handle.set_status(&format!(
-                            "Error: {}, will retry in {}",
-                            err, retry_timeout
-                        ));
-                        let deadline = clock.now() + retry_timeout;
-                        tokio::select! {
-                            _ = cancel.cancelled() => {
-                                return Err(near_chain::Error::Other("Cancelled".to_owned()));
-                            }
-                            _ = clock.sleep_until(deadline) => {}
-                        }
-                    }
-                }
-                i.fetch_add(1, Ordering::Relaxed);
+            let part = source
+                .download_shard_part(shard_id, sync_hash, part_id, handle.clone(), cancel.clone())
+                .await?;
+            let state_root = header.chunk_prev_state_root();
+            if runtime_adapter.validate_state_part(
+                &state_root,
+                PartId { idx: part_id, total: header.num_state_parts() },
+                &part,
+            ) {
+                let mut store_update = store.store_update();
+                let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+                store_update.set(DBCol::StateParts, &key, &part);
+                store_update.commit().map_err(|e| {
+                    near_chain::Error::Other(format!("Failed to store part: {}", e))
+                })?;
+            } else {
+                return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
             }
+            Ok(())
         }
         .instrument(tracing::debug_span!("StateSyncDownloader::ensure_shard_part_downloaded"))
         .boxed()

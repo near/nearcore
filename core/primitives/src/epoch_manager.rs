@@ -201,7 +201,8 @@ impl AllEpochConfig {
             // EpochConfig.
             config.epoch_length = self.epoch_length;
             if self.chain_id == near_primitives_core::chains::MOCKNET {
-                config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+                config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+                    true;
             }
             config
         } else {
