@@ -510,14 +510,6 @@ impl Chain {
         };
         store_update.commit()?;
 
-        let resharding_manager = ReshardingManager::new(
-            chain_store.store().clone(),
-            epoch_manager.clone(),
-            runtime_adapter.clone(),
-            chain_config.resharding_config,
-            resharding_sender,
-        );
-
         // We must load in-memory tries here, and not inside runtime, because
         // if we were initializing from genesis, the runtime would be
         // initialized when no blocks or flat storage were initialized. We
@@ -541,7 +533,7 @@ impl Chain {
             .collect();
 
         let head_protocol_version = epoch_manager.get_epoch_protocol_version(&tip.epoch_id)?;
-        let shard_uids_pending_resharding = resharding_manager
+        let shard_uids_pending_resharding = epoch_manager
             .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
         runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(
             &tracked_shards,
@@ -565,6 +557,13 @@ impl Chain {
         // Even though the channel is unbounded, the channel size is practically bounded by the size
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
+        let resharding_manager = ReshardingManager::new(
+            chain_store.store().clone(),
+            epoch_manager.clone(),
+            runtime_adapter.clone(),
+            chain_config.resharding_config,
+            resharding_sender,
+        );
         Ok(Chain {
             clock: clock.clone(),
             chain_store,
