@@ -1,3 +1,4 @@
+use crate::approval_verification::verify_approval_with_approvers_info;
 use crate::block_processing_utils::{
     ApplyChunksDoneWaiter, ApplyChunksStillApplying, BlockPreprocessInfo, BlockProcessingArtifact,
     BlocksInProcessing,
@@ -1061,11 +1062,13 @@ impl Chain {
         // producer, confirmation signatures and finality info.
         if *provenance != Provenance::PRODUCED {
             // first verify aggregated signature
-            if !self.epoch_manager.verify_approval(
+            let info = self.epoch_manager.get_epoch_block_approvers_ordered(prev_header.hash())?;
+            if !verify_approval_with_approvers_info(
                 prev_header.hash(),
                 prev_header.height(),
                 header.height(),
                 header.approvals(),
+                info,
             )? {
                 return Err(Error::InvalidApprovals);
             };
@@ -2308,7 +2311,7 @@ impl Chain {
             return Err(Error::InvalidGasPrice);
         }
         let minted_amount = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            Some(self.epoch_manager.get_epoch_minted_amount(header.next_epoch_id())?)
+            Some(self.epoch_manager.get_epoch_info(header.next_epoch_id())?.minted_amount())
         } else {
             None
         };

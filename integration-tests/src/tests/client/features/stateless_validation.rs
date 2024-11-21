@@ -257,7 +257,7 @@ fn run_chunk_validation_test(
 }
 
 #[test]
-fn test_chunk_validation_no_missing_chunks() {
+fn slow_test_chunk_validation_no_missing_chunks() {
     run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 
@@ -282,7 +282,7 @@ fn test_chunk_validation_protocol_upgrade_no_missing() {
 }
 
 #[test]
-fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
+fn slow_test_chunk_validation_protocol_upgrade_low_missing_prob() {
     run_chunk_validation_test(
         42,
         0.2,
@@ -292,7 +292,7 @@ fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
 }
 
 #[test]
-fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
+fn slow_test_chunk_validation_protocol_upgrade_mid_missing_prob() {
     run_chunk_validation_test(
         42,
         0.6,

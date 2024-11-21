@@ -432,7 +432,7 @@ mod tests {
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestValues, BandwidthSchedulerParams,
     };
-    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::{Gas, ShardId};
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
@@ -468,9 +468,11 @@ mod tests {
 
     fn make_trie_update() -> TrieUpdate {
         let shard_layout_version = 1;
-        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout_version, 2).build();
+        let shard_layout = ShardLayout::multi_shard(2, shard_layout_version);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
         let state_root = Trie::EMPTY_ROOT;
-        let shard_uid = ShardUId { version: shard_layout_version, shard_id: 0 };
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         TrieUpdate::new(trie)
     }

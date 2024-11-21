@@ -86,10 +86,11 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     // The `excluded_validator` will receive a chunk witness for the chunk in `block2`, but it won't
     // have `block1`, so it will become an orphaned chunk state witness.
     let tip = env.clients[0].chain.head().unwrap();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let block1_producer = env.get_block_producer_at_offset(&tip, 1);
     let block2_producer = env.get_block_producer_at_offset(&tip, 2);
-    let shard_id = ShardId::new(0);
     let block2_chunk_producer = env.get_chunk_producer_at_offset(&tip, 2, shard_id);
 
     // The excluded validator shouldn't produce any blocks or chunks in the next two blocks.

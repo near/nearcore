@@ -601,7 +601,7 @@ mod tests {
 
     use super::*;
     use crate::near_primitives::trie_key::TrieKey;
-    use near_store::{set, set_code};
+    use near_store::set;
     use near_vm_runner::ContractCode;
 
     /// Initial balance used in tests.
@@ -679,8 +679,7 @@ mod tests {
             if has_contract {
                 let code = vec![0; 100];
                 let code_hash = hash(&code);
-                set_code(
-                    &mut initial_state,
+                initial_state.set_code(
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );

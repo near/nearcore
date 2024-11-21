@@ -76,7 +76,6 @@ test_features = [
   "node-runtime/test_features",
 ]
 shadow_chunk_validation = []
-no_cache = ["near-store/no_cache"]
 
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",

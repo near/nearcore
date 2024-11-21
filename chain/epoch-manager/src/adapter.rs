@@ -2,7 +2,7 @@ use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::Tip;
-use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
@@ -18,7 +18,7 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
+    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
     ValidatorInfoIdentifier,
 };
 use near_primitives::version::ProtocolVersion;
@@ -277,9 +277,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         random_value: CryptoHash,
     ) -> Result<StoreUpdate, EpochError>;
 
-    /// Amount of tokens minted in given epoch.
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError>;
-
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(&self, epoch_id: &EpochId)
         -> Result<ProtocolVersion, EpochError>;
@@ -391,40 +388,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<bool, Error>;
 
-    /// Verify aggregated bls signature
-    fn verify_approval(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<bool, Error>;
-
-    /// Verify aggregated bls signature given block approvers info
-    fn verify_approval_with_approvers_info(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-        info: Vec<(ApprovalStake, bool)>,
-    ) -> Result<bool, Error>;
-
-    /// Verify approvals and check threshold, but ignore next epoch approvals and slashing
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        can_approved_block_be_produced: &dyn Fn(
-            &[Option<Box<Signature>>],
-            // (stake this in epoch, stake in next epoch, is_slashed)
-            &[(Balance, Balance, bool)],
-        ) -> bool,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<(), Error>;
-
     fn verify_chunk_endorsement_signature(
         &self,
         endorsement: &ChunkEndorsement,
@@ -442,7 +405,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError>;
@@ -823,11 +786,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.add_validator_proposals(block_info, random_value)
     }
 
-    fn get_epoch_minted_amount(&self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.minted_amount())
-    }
-
     fn get_epoch_protocol_version(
         &self,
         epoch_id: &EpochId,
@@ -967,102 +925,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
     }
 
-    fn verify_approval(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<bool, Error> {
-        let info = {
-            let epoch_manager = self.read();
-            epoch_manager.get_all_block_approvers_ordered(prev_block_hash)?
-        };
-        self.verify_approval_with_approvers_info(
-            prev_block_hash,
-            prev_block_height,
-            block_height,
-            approvals,
-            info,
-        )
-    }
-
-    fn verify_approval_with_approvers_info(
-        &self,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-        info: Vec<(ApprovalStake, bool)>,
-    ) -> Result<bool, Error> {
-        if approvals.len() > info.len() {
-            return Ok(false);
-        }
-
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if is_slashed || !signature.verify(message_to_sign.as_ref(), &validator.public_key)
-                {
-                    return Ok(false);
-                }
-            }
-        }
-        Ok(true)
-    }
-
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        can_approved_block_be_produced: &dyn Fn(
-            &[Option<Box<Signature>>],
-            &[(Balance, Balance, bool)],
-        ) -> bool,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<(), Error> {
-        let info = {
-            let epoch_manager = self.read();
-            epoch_manager.get_heuristic_block_approvers_ordered(epoch_id)?
-        };
-
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for (validator, may_be_signature) in info.iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
-                    return Err(Error::InvalidApprovals);
-                }
-            }
-        }
-        let stakes = info
-            .iter()
-            .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
-            .collect::<Vec<_>>();
-        if !can_approved_block_be_produced(approvals, &stakes) {
-            Err(Error::NotEnoughApprovals)
-        } else {
-            Ok(())
-        }
-    }
-
     fn verify_chunk_endorsement_signature(
         &self,
         endorsement: &ChunkEndorsement,
@@ -1143,7 +1005,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {

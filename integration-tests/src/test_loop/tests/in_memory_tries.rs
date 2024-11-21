@@ -3,8 +3,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{AccountId, ShardId};
-use near_store::ShardUId;
+use near_primitives::types::AccountId;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
@@ -47,6 +46,7 @@ fn test_load_memtrie_after_empty_chunks() {
         genesis_builder.add_user_account_simple(account.clone(), initial_balance);
     }
     let (genesis, epoch_config_store) = genesis_builder.build();
+    let shard_layout = genesis.config.shard_layout.clone();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
@@ -66,7 +66,9 @@ fn test_load_memtrie_after_empty_chunks() {
         Duration::seconds(10),
     );
 
-    // Find client currently tracking shard 0.
+    // Find client currently tracking shard with index 0.
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -77,33 +79,16 @@ fn test_load_memtrie_after_empty_chunks() {
         current_tracked_shards
             .iter()
             .enumerate()
-            .find_map(
-                |(idx, shards)| {
-                    if shards.contains(&ShardId::new(0)) {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                },
-            )
+            .find_map(|(idx, shards)| if shards.contains(&shard_id) { Some(idx) } else { None })
             .expect("Not found any client tracking shard 0")
     };
 
     // Unload memtrie and load it back, check that it doesn't panic.
-    let tip = clients[idx].chain.head().unwrap();
-    let shard_layout = clients[idx].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    clients[idx].runtime_adapter.get_tries().unload_mem_trie(&shard_uid);
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout));
-    clients[idx]
-        .runtime_adapter
-        .get_tries()
-        .load_mem_trie(
-            &ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout),
-            None,
-            true,
-        )
+        .load_mem_trie(&shard_uid, None, true)
         .expect("Couldn't load memtrie");
 
     // Give the test a chance to finish off remaining events in the event loop, which can

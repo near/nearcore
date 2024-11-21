@@ -25,14 +25,14 @@ use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
+    get_account, get_genesis_state_roots, set_access_key, set_account, Store, TrieUpdate,
 };
 use near_time::Utc;
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 pub use node_runtime::bootstrap_congestion_info;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -73,9 +73,9 @@ pub struct GenesisBuilder {
     store: Store,
     epoch_manager: Arc<EpochManagerHandle>,
     runtime: Arc<NightshadeRuntime>,
-    unflushed_records: BTreeMap<ShardId, Vec<StateRecord>>,
-    roots: BTreeMap<ShardId, StateRoot>,
-    state_updates: BTreeMap<ShardId, TrieUpdate>,
+    unflushed_records: HashMap<ShardId, Vec<StateRecord>>,
+    roots: HashMap<ShardId, StateRoot>,
+    state_updates: HashMap<ShardId, TrieUpdate>,
 
     // Things that can be set.
     additional_accounts_num: u64,
@@ -135,9 +135,15 @@ impl GenesisBuilder {
         // First, apply whatever is defined by the genesis config.
         let roots = get_genesis_state_roots(self.runtime.store())?
             .expect("genesis state roots not initialized.");
-        let genesis_shard_version = self.genesis.config.shard_layout.version();
-        self.roots =
-            roots.into_iter().enumerate().map(|(k, v)| (ShardId::new(k as u64), v)).collect();
+        let shard_layout = &self.genesis.config.shard_layout;
+        let genesis_shard_version = shard_layout.version();
+        self.roots = roots
+            .into_iter()
+            .enumerate()
+            .map(|(shard_index, state_root)| {
+                (shard_layout.get_shard_id(shard_index).unwrap(), state_root)
+            })
+            .collect();
         self.state_updates = self
             .roots
             .iter()
@@ -354,7 +360,7 @@ impl GenesisBuilder {
         records.push(access_key_record);
         if let Some(wasm_binary) = self.additional_accounts_code.as_ref() {
             let code = ContractCode::new(wasm_binary.clone(), None);
-            set_code(&mut state_update, account_id.clone(), &code);
+            state_update.set_code(account_id.clone(), &code);
             let contract_record = StateRecord::Contract { account_id, code: wasm_binary.clone() };
             records.push(contract_record);
         }

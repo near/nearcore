@@ -1,7 +1,8 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
-use super::{OptimizedValueRef, Trie, TrieWithReadLock, ValueAccessToken};
+use super::{OptimizedValueRef, Trie, TrieWithReadLock};
 use crate::contract::ContractStorage;
+use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
 use near_primitives::apply::ApplyChunkReason;
@@ -43,10 +44,19 @@ pub enum TrieUpdateValuePtr<'a> {
 }
 
 impl<'a> TrieUpdateValuePtr<'a> {
+    /// Returns the length (in num bytes) of the value pointed by this pointer.
     pub fn len(&self) -> u32 {
         match self {
             TrieUpdateValuePtr::MemoryRef(value) => value.len() as u32,
             TrieUpdateValuePtr::Ref(_, value_ref) => value_ref.len() as u32,
+        }
+    }
+
+    /// Returns the hash of the value pointed by this pointer.
+    pub fn value_hash(&self) -> CryptoHash {
+        match self {
+            TrieUpdateValuePtr::MemoryRef(value) => hash(*value),
+            TrieUpdateValuePtr::Ref(_, value_ref) => value_ref.value_hash(),
         }
     }
 
@@ -143,6 +153,43 @@ impl TrieUpdate {
         }
 
         self.prospective.insert(trie_key.to_vec(), TrieKeyValueUpdate { trie_key, value: None });
+    }
+
+    pub fn get_code(
+        &self,
+        account_id: AccountId,
+        code_hash: CryptoHash,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let key = TrieKey::ContractCode { account_id };
+        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
+    }
+
+    /// Returns the size (in num bytes) of the contract code for the given account.
+    ///
+    /// This is different from `get_code` in that it does not read the code from storage.
+    /// However, the trie nodes traversed to get the code size are recorded.
+    pub fn get_code_len(
+        &self,
+        account_id: AccountId,
+        code_hash: CryptoHash,
+    ) -> Result<Option<usize>, StorageError> {
+        let key = TrieKey::ContractCode { account_id };
+        let value_ptr = self.get_ref(&key, KeyLookupMode::FlatStorage)?;
+        if let Some(value_ptr) = value_ptr {
+            debug_assert_eq!(
+                code_hash,
+                value_ptr.value_hash(),
+                "Code-hash in trie does not match code-hash in account"
+            );
+            Ok(Some(value_ptr.len() as usize))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_code(&mut self, account_id: AccountId, code: &ContractCode) {
+        let key = TrieKey::ContractCode { account_id };
+        self.set(key, code.code().to_vec());
     }
 
     pub fn commit(&mut self, event: StateChangeCause) {
@@ -302,13 +349,8 @@ impl TrieUpdate {
                     Err(err)
                 }
             })?;
-        let contract_exists: bool = match contract_ref {
-            Some(OptimizedValueRef::Ref(value_ref)) => value_ref.hash == code_hash,
-            Some(OptimizedValueRef::AvailableValue(ValueAccessToken { value })) => {
-                hash(value.as_slice()) == code_hash
-            }
-            None => false,
-        };
+        let contract_exists =
+            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
         if contract_exists {
             self.contract_storage.record_call(code_hash);
         }
@@ -316,7 +358,7 @@ impl TrieUpdate {
     }
 }
 
-impl crate::TrieAccess for TrieUpdate {
+impl TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         self.get_from_updates(key, |k| self.trie.get(k))
     }
@@ -341,10 +383,10 @@ impl Drop for TrieCacheModeGuard {
 mod tests {
     use super::*;
     use crate::test_utils::TestTriesBuilder;
-    use crate::{ShardUId, TrieAccess as _};
+    use crate::ShardUId;
     use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
     const SHARD_VERSION: u32 = 1;
-    const COMPLEX_SHARD_UID: ShardUId = ShardUId { version: SHARD_VERSION, shard_id: 0 };
 
     fn test_key(key: Vec<u8>) -> TrieKey {
         TrieKey::ContractData { account_id: "alice".parse().unwrap(), key }
@@ -352,9 +394,12 @@ mod tests {
 
     #[test]
     fn trie() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let root = Trie::EMPTY_ROOT;
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, root);
+        let mut trie_update = tries.new_trie_update(shard_uid, root);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"dog2".to_vec()), b"puppy".to_vec());
         trie_update.set(test_key(b"xxx".to_vec()), b"puppy".to_vec());
@@ -362,9 +407,9 @@ mod tests {
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
-        let trie_update2 = tries.new_trie_update(COMPLEX_SHARD_UID, new_root);
+        let trie_update2 = tries.new_trie_update(shard_uid, new_root);
         assert_eq!(trie_update2.get(&test_key(b"dog".to_vec())), Ok(Some(b"puppy".to_vec())));
         let values = trie_update2
             .iter(&test_key(b"dog".to_vec()).to_vec())
@@ -379,47 +424,50 @@ mod tests {
 
     #[test]
     fn trie_remove() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
 
         // Delete non-existing element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
+        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update.commit(StateChangeCause::TransactionProcessing { tx_hash: Trie::EMPTY_ROOT });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add and right away delete element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
+        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
 
         // Add, apply changes and then delete element.
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, Trie::EMPTY_ROOT);
+        let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
         trie_update.set(test_key(b"dog".to_vec()), b"puppy".to_vec());
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_ne!(new_root, Trie::EMPTY_ROOT);
-        let mut trie_update = tries.new_trie_update(COMPLEX_SHARD_UID, new_root);
+        let mut trie_update = tries.new_trie_update(shard_uid, new_root);
         trie_update.remove(test_key(b"dog".to_vec()));
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
         let trie_changes = trie_update.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
-        let new_root = tries.apply_all(&trie_changes, COMPLEX_SHARD_UID, &mut store_update);
+        let new_root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
         store_update.commit().unwrap();
         assert_eq!(new_root, Trie::EMPTY_ROOT);
     }

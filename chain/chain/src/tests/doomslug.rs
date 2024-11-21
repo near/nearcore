@@ -284,8 +284,7 @@ fn one_iter(
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_fuzzy_doomslug_liveness_and_safety() {
+fn ultra_slow_test_fuzzy_doomslug_liveness_and_safety() {
     for (time_to_gst_millis, height_goal) in
         &[(0, 200), (1000, 200), (10000, 300), (100000, 400), (500000, 500)]
     {

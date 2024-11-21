@@ -58,9 +58,9 @@ use near_store::trie::update::TrieUpdateResult;
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure,
     get_received_data, has_received_data, remove_account, remove_postponed_receipt,
-    remove_promise_yield_receipt, set, set_access_key, set_account, set_code,
-    set_postponed_receipt, set_promise_yield_receipt, set_received_data, PartialStorage,
-    StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate,
+    remove_promise_yield_receipt, set, set_access_key, set_account, set_postponed_receipt,
+    set_promise_yield_receipt, set_received_data, PartialStorage, StorageError, Trie, TrieAccess,
+    TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -455,6 +455,7 @@ impl Runtime {
                     deploy_contract,
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.cache.as_deref(),
+                    apply_state.current_protocol_version,
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -1542,7 +1543,7 @@ impl Runtime {
                     let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
-                    set_code(state_update, account_id, &code);
+                    state_update.set_code(account_id, &code);
                     assert_eq!(*code.hash(), acc.code_hash());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
@@ -1711,8 +1712,8 @@ impl Runtime {
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
-        let local_receipts = std::mem::take(&mut processing_state.local_receipts);
         let local_receipt_count = processing_state.local_receipts.len();
+        let local_receipts = std::mem::take(&mut processing_state.local_receipts);
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
             let (front, back) = local_receipts.as_slices();

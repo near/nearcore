@@ -18,7 +18,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
-use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -332,12 +331,12 @@ impl KeyValueRuntime {
         epoch_manager: &MockEpochManager,
         no_gc: bool,
     ) -> Arc<Self> {
-        let num_shards = epoch_manager.shard_ids(&EpochId::default()).unwrap().len() as NumShards;
-        let epoch_length =
-            epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
+        let epoch_id = EpochId::default();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
         let tries = TestTriesBuilder::new()
             .with_store(store.clone())
-            .with_shard_layout(0, num_shards)
+            .with_shard_layout(shard_layout.clone())
             .build();
         let mut initial_amounts = HashMap::new();
         for (i, validator_stake) in epoch_manager
@@ -362,7 +361,8 @@ impl KeyValueRuntime {
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut store_update = store.store_update();
-        let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
+        let genesis_roots: Vec<CryptoHash> =
+            shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
         store_update.commit().expect("Store failed on genesis intialization");
@@ -371,7 +371,7 @@ impl KeyValueRuntime {
             store,
             tries,
             no_gc,
-            num_shards,
+            num_shards: shard_layout.num_shards(),
             epoch_length,
             headers_cache: RwLock::new(HashMap::new()),
             state: RwLock::new(state),
@@ -858,10 +858,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.store.store_update())
     }
 
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        Ok(0)
-    }
-
     fn get_epoch_protocol_version(
         &self,
         _epoch_id: &EpochId,
@@ -936,64 +932,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_approval(
-        &self,
-        _prev_block_hash: &CryptoHash,
-        _prev_block_height: BlockHeight,
-        _block_height: BlockHeight,
-        _approvals: &[Option<Box<Signature>>],
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approval_with_approvers_info(
-        &self,
-        _prev_block_hash: &CryptoHash,
-        _prev_block_height: BlockHeight,
-        _block_height: BlockHeight,
-        _approvals: &[Option<Box<Signature>>],
-        _info: Vec<(ApprovalStake, bool)>,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_approvals_and_threshold_orphan(
-        &self,
-        epoch_id: &EpochId,
-        can_approved_block_be_produced: &dyn Fn(
-            &[Option<Box<Signature>>],
-            &[(Balance, Balance, bool)],
-        ) -> bool,
-        prev_block_hash: &CryptoHash,
-        prev_block_height: BlockHeight,
-        block_height: BlockHeight,
-        approvals: &[Option<Box<Signature>>],
-    ) -> Result<(), Error> {
-        let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        let message_to_sign = Approval::get_data_for_sig(
-            &if prev_block_height + 1 == block_height {
-                ApprovalInner::Endorsement(*prev_block_hash)
-            } else {
-                ApprovalInner::Skip(prev_block_height)
-            },
-            block_height,
-        );
-
-        for (validator, may_be_signature) in validators.iter().zip(approvals.iter()) {
-            if let Some(signature) = may_be_signature {
-                if !signature.verify(message_to_sign.as_ref(), validator.public_key()) {
-                    return Err(Error::InvalidApprovals);
-                }
-            }
-        }
-        let stakes = validators.iter().map(|stake| (stake.stake(), 0, false)).collect::<Vec<_>>();
-        if !can_approved_block_be_produced(approvals, &stakes) {
-            Err(Error::NotEnoughApprovals)
-        } else {
-            Ok(())
-        }
-    }
-
     fn verify_chunk_endorsement_signature(
         &self,
         _endorsement: &ChunkEndorsement,
@@ -1017,15 +955,15 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
-        let epoch_valset = self.get_valset_for_epoch(&epoch_id).unwrap();
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let epoch_valset = self.get_valset_for_epoch(epoch_id).unwrap();
+        let shard_layout = self.get_shard_layout(epoch_id)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(epoch_valset, shard_index);
         for validator in chunk_producers {
