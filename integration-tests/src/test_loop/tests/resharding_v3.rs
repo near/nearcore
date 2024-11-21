@@ -379,32 +379,29 @@ fn call_burn_gas_contract(
             // Before resharding and one block after: call the test contract a few times per block.
             // The objective is to pile up receipts (e.g. delayed).
             if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
-                for _ in 0..(CALLS_PER_BLOCK_HEIGHT / signer_ids.len()
-                    + (CALLS_PER_BLOCK_HEIGHT % signer_ids.len()).min(1))
-                {
-                    for signer_id in &signer_ids {
-                        let signer: Signer = create_user_test_signer(&signer_id).into();
-                        nonce.set(nonce.get() + 1);
-                        let method_name = "burn_gas_raw".to_owned();
-                        let burn_gas: u64 = gas_burnt_per_call;
-                        let args = burn_gas.to_le_bytes().to_vec();
-                        let tx = SignedTransaction::call(
-                            nonce.get(),
-                            signer_id.clone(),
-                            receiver_id.clone(),
-                            &signer,
-                            0,
-                            method_name,
-                            args,
-                            gas_burnt_per_call + 10 * TGAS,
-                            tip.last_block_hash,
-                        );
-                        let mut txs_vec = txs.take();
-                        tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), "submitting transaction");
-                        txs_vec.push((tx.get_hash(), tip.height));
-                        txs.set(txs_vec);
-                        submit_tx(&node_datas, &rpc_id, tx);
-                    }
+                for i in 0..CALLS_PER_BLOCK_HEIGHT {
+                    let signer_id = &signer_ids[i % signer_ids.len()];
+                    let signer: Signer = create_user_test_signer(signer_id).into();
+                    nonce.set(nonce.get() + 1);
+                    let method_name = "burn_gas_raw".to_owned();
+                    let burn_gas: u64 = gas_burnt_per_call;
+                    let args = burn_gas.to_le_bytes().to_vec();
+                    let tx = SignedTransaction::call(
+                        nonce.get(),
+                        signer_id.clone(),
+                        receiver_id.clone(),
+                        &signer,
+                        0,
+                        method_name,
+                        args,
+                        gas_burnt_per_call + 10 * TGAS,
+                        tip.last_block_hash,
+                    );
+                    let mut txs_vec = txs.take();
+                    tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), "submitting transaction");
+                    txs_vec.push((tx.get_hash(), tip.height));
+                    txs.set(txs_vec);
+                    submit_tx(&node_datas, &rpc_id, tx);
                 }
             }
         },
@@ -700,7 +697,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child.clone()],
             receiver_account,
-            5 * TGAS,
+            10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account_in_right_child,
@@ -722,7 +719,7 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
         .add_loop_action(call_burn_gas_contract(
             vec![account_1_in_stable_shard.clone(), account_2_in_stable_shard],
             receiver_account,
-            5 * TGAS,
+            10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account_1_in_stable_shard,
