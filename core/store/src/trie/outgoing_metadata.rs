@@ -46,7 +46,7 @@ impl OutgoingMetadatas {
 
         let mut metadatas = BTreeMap::new();
         for shard_id in shard_ids.into_iter() {
-            let metadata = ReceiptGroupsQueue::load(trie, shard_id, groups_config)?;
+            let metadata = ReceiptGroupsQueue::load(trie, shard_id)?;
             if let Some(metadata) = metadata {
                 metadatas.insert(shard_id, metadata);
             }
@@ -63,11 +63,14 @@ impl OutgoingMetadatas {
         receipt_gas: Gas,
         state_update: &mut TrieUpdate,
     ) -> Result<(), StorageError> {
-        let metadata = self
-            .metadatas
-            .entry(shard_id)
-            .or_insert_with(|| ReceiptGroupsQueue::new(shard_id, self.groups_config));
-        metadata.update_on_receipt_pushed(receipt_size, receipt_gas, state_update)
+        let metadata =
+            self.metadatas.entry(shard_id).or_insert_with(|| ReceiptGroupsQueue::new(shard_id));
+        metadata.update_on_receipt_pushed(
+            receipt_size,
+            receipt_gas,
+            state_update,
+            &self.groups_config,
+        )
     }
 
     /// Update the metadata when a receipt is removed from the front of the outgoing receipts buffer.
@@ -230,18 +233,12 @@ pub struct ReceiptGroupsQueue {
     receiver_shard: ShardId,
     /// Persistent data, stored in the trie.
     data: ReceiptGroupsQueueDataV0,
-    /// Parameters which control size and gas of receipt groups.
-    groups_config: ReceiptGroupsConfig,
 }
 
 impl ReceiptGroupsQueue {
     /// Create a new empty queue.
-    pub fn new(receiver_shard: ShardId, config: ReceiptGroupsConfig) -> ReceiptGroupsQueue {
-        ReceiptGroupsQueue {
-            receiver_shard,
-            data: ReceiptGroupsQueueDataV0::default(),
-            groups_config: config,
-        }
+    pub fn new(receiver_shard: ShardId) -> ReceiptGroupsQueue {
+        ReceiptGroupsQueue { receiver_shard, data: ReceiptGroupsQueueDataV0::default() }
     }
 
     /// Load a queue from the trie.
@@ -249,11 +246,9 @@ impl ReceiptGroupsQueue {
     pub fn load(
         trie: &dyn TrieAccess,
         receiver_shard: ShardId,
-        config: ReceiptGroupsConfig,
     ) -> Result<Option<Self>, StorageError> {
         let data_opt = Self::load_data(trie, receiver_shard)?;
-        let receipt_groups_queue_opt =
-            data_opt.map(|data| Self { receiver_shard, data, groups_config: config });
+        let receipt_groups_queue_opt = data_opt.map(|data| Self { receiver_shard, data });
         Ok(receipt_groups_queue_opt)
     }
 
@@ -285,6 +280,7 @@ impl ReceiptGroupsQueue {
         receipt_size: ByteSize,
         receipt_gas: Gas,
         state_update: &mut TrieUpdate,
+        groups_config: &ReceiptGroupsConfig,
     ) -> Result<(), StorageError> {
         add_size_checked(&mut self.data.total_size, receipt_size);
         add_gas_checked(&mut self.data.total_gas, receipt_gas);
@@ -297,8 +293,7 @@ impl ReceiptGroupsQueue {
         // Take out the last group from the queue and inspect it.
         match self.pop_back(state_update)? {
             Some(mut last_group) => {
-                if self.groups_config.should_start_new_group(&last_group, receipt_size, receipt_gas)
-                {
+                if groups_config.should_start_new_group(&last_group, receipt_size, receipt_gas) {
                     // Adding the new receipt to the last group would make the group too large.
                     // Start a new group for the receipt.
                     self.push_back(state_update, &last_group).expect("Integer overflow on push");
@@ -482,7 +477,7 @@ mod tests {
         let trie_update = &mut make_trie_update();
         let config =
             ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::MAX };
-        let mut queue = ReceiptGroupsQueue::new(ShardId::new(0), config);
+        let mut queue = ReceiptGroupsQueue::new(ShardId::new(0));
 
         fn group_sizes(queue: &ReceiptGroupsQueue, trie: &TrieUpdate) -> Vec<u64> {
             queue.iter_receipt_group_sizes(trie, false).map(|size_res| size_res.unwrap()).collect()
@@ -495,25 +490,25 @@ mod tests {
 
         assert_eq!(group_sizes(&queue, trie_update), Vec::<u64>::new());
 
-        queue.update_on_receipt_pushed(ten_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_pushed(ten_kb, 10, trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![10_000]);
 
-        queue.update_on_receipt_pushed(ten_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_pushed(ten_kb, 10, trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![20_000]);
 
-        queue.update_on_receipt_pushed(fifty_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_pushed(fifty_kb, 10, trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![70_000]);
 
         queue.update_on_receipt_popped(ten_kb, 10, trie_update).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000]);
 
-        queue.update_on_receipt_pushed(hundred_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_pushed(hundred_kb, 10, trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000]);
 
-        queue.update_on_receipt_pushed(ten_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_pushed(ten_kb, 10, trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000]);
 
-        queue.update_on_receipt_pushed(two_hundred_kb, 10, trie_update).unwrap();
+        queue.update_on_receipt_pushed(two_hundred_kb, 10, trie_update, &config).unwrap();
         assert_eq!(group_sizes(&queue, trie_update), vec![60_000, 100_000, 10_000, 200_000]);
 
         queue.update_on_receipt_popped(ten_kb, 10, trie_update).unwrap();
@@ -552,15 +547,19 @@ mod tests {
     /// It's used to test the correctness of the trie-based implementation.
     struct TestReceiptGroupQueue {
         groups: VecDeque<TestReceiptGroup>,
-        config: ReceiptGroupsConfig,
     }
 
     impl TestReceiptGroupQueue {
-        pub fn new(config: ReceiptGroupsConfig) -> Self {
-            Self { groups: VecDeque::new(), config }
+        pub fn new() -> Self {
+            Self { groups: VecDeque::new() }
         }
 
-        pub fn update_on_receipt_pushed(&mut self, receipt_size: ByteSize, receipt_gas: Gas) {
+        pub fn update_on_receipt_pushed(
+            &mut self,
+            receipt_size: ByteSize,
+            receipt_gas: Gas,
+            config: &ReceiptGroupsConfig,
+        ) {
             let new_receipt_group = TestReceiptGroup {
                 total_size: receipt_size.as_u64().into(),
                 total_gas: receipt_gas.into(),
@@ -569,11 +568,8 @@ mod tests {
 
             match self.groups.pop_back() {
                 Some(last_group) => {
-                    if self.config.should_start_new_group(
-                        &last_group.into(),
-                        receipt_size,
-                        receipt_gas,
-                    ) {
+                    if config.should_start_new_group(&last_group.into(), receipt_size, receipt_gas)
+                    {
                         self.groups.push_back(last_group);
                         self.groups.push_back(new_receipt_group);
                     } else {
@@ -610,8 +606,8 @@ mod tests {
 
         let config =
             ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: 100_000 };
-        let mut groups_queue = ReceiptGroupsQueue::new(ShardId::new(0), config);
-        let mut test_queue = TestReceiptGroupQueue::new(config);
+        let mut groups_queue = ReceiptGroupsQueue::new(ShardId::new(0));
+        let mut test_queue = TestReceiptGroupQueue::new();
         let mut buffered_receipts: VecDeque<(ByteSize, Gas)> = VecDeque::new();
 
         let num_receipts = rng.gen_range(0..1000);
@@ -650,9 +646,9 @@ mod tests {
                 let (receipt_size, receipt_gas) = receipts[next_receipt_to_push_idx];
                 next_receipt_to_push_idx += 1;
                 groups_queue
-                    .update_on_receipt_pushed(receipt_size, receipt_gas, trie_update)
+                    .update_on_receipt_pushed(receipt_size, receipt_gas, trie_update, &config)
                     .unwrap();
-                test_queue.update_on_receipt_pushed(receipt_size, receipt_gas);
+                test_queue.update_on_receipt_pushed(receipt_size, receipt_gas, &config);
                 buffered_receipts.push_back((receipt_size, receipt_gas));
             } else {
                 let (receipt_size, receipt_gas) = buffered_receipts.pop_front().unwrap();
@@ -664,9 +660,8 @@ mod tests {
 
             if rng.gen::<bool>() {
                 // Reload the queue from trie. Tests that all changes are persisted after every operation.
-                groups_queue = ReceiptGroupsQueue::load(trie_update, ShardId::new(0), config)
-                    .unwrap()
-                    .unwrap();
+                groups_queue =
+                    ReceiptGroupsQueue::load(trie_update, ShardId::new(0)).unwrap().unwrap();
             }
 
             let groups_queue_groups: Vec<ReceiptGroup> =
@@ -722,11 +717,11 @@ mod tests {
             let initial_receipts_num = rng.gen_range(1..100);
 
             let mut buffered_receipts = VecDeque::new();
-            let mut test_queue = TestReceiptGroupQueue::new(groups_config);
+            let mut test_queue = TestReceiptGroupQueue::new();
             for _ in 0..initial_receipts_num {
                 let receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(receipt_size);
-                test_queue.update_on_receipt_pushed(receipt_size, 1);
+                test_queue.update_on_receipt_pushed(receipt_size, 1, &groups_config);
             }
 
             let pop_push_num = rng.gen_range(0..100);
@@ -763,7 +758,7 @@ mod tests {
                 // receipt sizes). (up to `max_receipt_size`)
                 let new_receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(new_receipt_size);
-                test_queue.update_on_receipt_pushed(new_receipt_size, 1);
+                test_queue.update_on_receipt_pushed(new_receipt_size, 1, &groups_config);
             }
         }
     }

@@ -268,13 +268,12 @@ fn verify_bandwidth_requests_in_chunk(
 
         // Read the sizes of receipt groups corresponding to the buffered receipts
         let groups_config = ReceiptGroupsConfig::default_config();
-        let receipt_group_sizes: Vec<u64> =
-            ReceiptGroupsQueue::load(&trie, target_shard_id, groups_config)
-                .unwrap()
-                .unwrap()
-                .iter_receipt_group_sizes(&trie, false)
-                .map(|res| res.unwrap())
-                .collect();
+        let receipt_group_sizes: Vec<u64> = ReceiptGroupsQueue::load(&trie, target_shard_id)
+            .unwrap()
+            .unwrap()
+            .iter_receipt_group_sizes(&trie, false)
+            .map(|res| res.unwrap())
+            .collect();
 
         // Verify that the groups match the receipts
         assert_groups_match_receipts(&buffered_receipt_sizes, &receipt_group_sizes, &groups_config);
