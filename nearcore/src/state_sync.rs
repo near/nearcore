@@ -356,7 +356,11 @@ impl PartUploader {
                 }
                 Err(error) => {
                     // TODO: return non retriable errors.
-                    tracing::warn!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error, "Failed to obtain state part. Retrying in 10 seconds.");
+                    tracing::warn!(
+                        target: "state_sync_dump",
+                        shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
+                        "Failed to obtain state part. Retrying in 200 millis."
+                    );
                     self.clock.sleep(Duration::milliseconds(200)).await;
                     continue;
                 }
@@ -392,7 +396,10 @@ impl PartUploader {
                     return Ok(());
                 }
                 Err(error) => {
-                    tracing::warn!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error, "Failed to upload state part. Retrying in 10 seconds.");
+                    tracing::warn!(
+                        target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
+                        "Failed to upload state part. Retrying in 200 millis."
+                    );
                     self.clock.sleep(Duration::milliseconds(200)).await;
                     continue;
                 }
