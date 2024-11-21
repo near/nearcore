@@ -418,6 +418,36 @@ pub fn run_tx(
     }
 }
 
+/// Run multiple transactions in parallel and wait for all of them to complete.
+/// The transactions are expected to be valid, the function will panic if any transaction fails.
+pub fn run_txs_parallel(
+    test_loop: &mut TestLoopV2,
+    txs: Vec<SignedTransaction>,
+    node_datas: &[TestData],
+    maximum_duration: Duration,
+) {
+    let mut tx_runners = txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect_vec();
+
+    let client_sender = &node_datas[0].client_sender;
+    let future_spawner = test_loop.future_spawner();
+
+    test_loop.run_until(
+        |tl_data| {
+            let client = &tl_data.get(&node_datas[0].client_sender.actor_handle()).client;
+            let mut all_ready = true;
+            for runner in tx_runners.iter_mut() {
+                match runner.poll_assert_success(client_sender, client, &future_spawner) {
+                    Poll::Pending => all_ready = false,
+                    Poll::Ready(_) => {}
+                }
+            }
+
+            all_ready
+        },
+        maximum_duration,
+    );
+}
+
 /// Submit a transaction and wait for the execution result.
 /// For invalid transactions returns an error.
 /// For valid transactions returns the execution result (which could have an execution error inside, check it!).
