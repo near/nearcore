@@ -38,16 +38,4 @@ impl ArchivalStorage for GoogleCloudArchiver {
         });
         Ok(value)
     }
-
-    fn delete(&self, path: &std::path::Path) -> io::Result<()> {
-        let async_runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
-        let _ = async_runtime
-            .block_on(async {
-                let filename = path.to_str().unwrap();
-                tracing::debug!(target: "archiver", ?filename, "Get from GCS");
-                self.gcs_client.object().delete(&self.bucket, filename).await
-            })
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
-        Ok(())
-    }
 }

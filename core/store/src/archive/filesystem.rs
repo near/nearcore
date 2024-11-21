@@ -62,15 +62,6 @@ impl ArchivalStorage for FilesystemArchiver {
         file.read_to_end(&mut buffer).unwrap();
         Ok(Some(buffer))
     }
-
-    fn delete(&self, path: &std::path::Path) -> io::Result<()> {
-        let file_path = path;
-        let result = rustix::fs::unlinkat(&self.base_dir, file_path, rustix::fs::AtFlags::empty());
-        match result {
-            Ok(_) | Err(rustix::io::Errno::NOENT) => Ok(()),
-            Err(e) => return Err(e.into()),
-        }
-    }
 }
 
 fn ignore_if_exists(result: io::Result<()>) -> io::Result<()> {

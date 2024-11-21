@@ -5,7 +5,6 @@ use filesystem::FilesystemArchiver;
 use near_primitives::block::Tip;
 use strum::IntoEnumIterator;
 
-use crate::db::assert_no_overwrite;
 use crate::db::refcount;
 use crate::db::DBOp;
 use crate::Store;
@@ -127,51 +126,34 @@ impl Archiver {
 
     fn write_to_external(&self, transaction: DBTransaction) -> io::Result<()> {
         let storage = self.external_storage.as_ref().unwrap();
-        for op in transaction.ops {
-            match op {
-                DBOp::Set { col, key, value } => {
-                    let path = self.get_path(col, &key);
-                    storage.put(&path, &value)
-                }
-                DBOp::Insert { col, key, value } => {
-                    let path = self.get_path(col, &key);
-                    if cfg!(debug_assertions) {
-                        if let Some(old_value) = storage.get(&path)? {
-                            assert_no_overwrite(col, &key, &value, &*old_value)
-                        }
-                    }
-                    storage.put(&path, &value)
-                }
+        transaction
+            .ops
+            .into_iter()
+            .filter_map(|op| match op {
+                DBOp::Set { col, key, value } => Some((col, key, value)),
                 DBOp::UpdateRefcount { col, key, value } => {
-                    let path = self.get_path(col, &key);
-                    let existing = storage.get(&path).unwrap();
-                    let operands = [value.as_slice()];
-                    let merged =
-                        refcount::refcount_merge(existing.as_ref().map(Vec::as_slice), operands);
-                    if merged.is_empty() {
-                        storage.delete(&path)
-                    } else {
-                        debug_assert!(
-                            refcount::decode_value_with_rc(&merged).1 > 0,
-                            "Inserting value with non-positive refcount"
-                        );
-                        storage.put(&path, &merged)
-                    }
+                    let (raw_value, refcount) = refcount::decode_value_with_rc(&value);
+                    assert!(raw_value.is_some(), "Failed to decode value with refcount");
+                    assert_eq!(refcount, 1, "Refcount should be 1 for cold storage");
+                    Some((col, key, value))
                 }
-                DBOp::Delete { .. } | DBOp::DeleteAll { .. } | DBOp::DeleteRange { .. } => {
-                    unreachable!("Delete operations unsupported")
+                DBOp::Insert { .. }
+                | DBOp::Delete { .. }
+                | DBOp::DeleteAll { .. }
+                | DBOp::DeleteRange { .. } => {
+                    unreachable!("Unexpected archival operation: {:?}", op);
                 }
-            }
-            .unwrap();
-        }
-        Ok(())
+            })
+            .try_for_each(|(col, key, value)| {
+                let path = self.get_path(col, &key);
+                storage.put(&path, &value)
+            })
     }
 }
 
 pub(crate) trait ArchivalStorage: Sync + Send {
     fn put(&self, _path: &std::path::Path, _value: &[u8]) -> io::Result<()>;
     fn get(&self, _path: &std::path::Path) -> io::Result<Option<Vec<u8>>>;
-    fn delete(&self, _path: &std::path::Path) -> io::Result<()>;
 }
 
 fn cold_column_dirname(col: DBCol) -> &'static str {
