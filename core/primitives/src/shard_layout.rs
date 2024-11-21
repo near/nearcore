@@ -807,7 +807,7 @@ impl ShardUId {
     }
 
     /// Returns the only shard uid in the ShardLayout::single_shard layout.
-    /// It is not suitable for use with any other shard layouts.
+    /// It is not suitable for use with any other shard layout.
     pub fn single_shard() -> Self {
         ShardLayout::single_shard().shard_uids().next().unwrap()
     }

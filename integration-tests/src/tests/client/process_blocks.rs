@@ -57,9 +57,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{
-    AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion, ShardId,
-};
+use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
@@ -1722,7 +1720,9 @@ fn ultra_slow_test_process_block_after_state_sync() {
         }
     };
     let sync_block = env.clients[0].chain.get_block(&sync_hash).unwrap();
-    let shard_id = ShardId::new(0);
+    let shard_layout =
+        env.clients[0].epoch_manager.get_shard_layout(sync_block.header().epoch_id()).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let header = env.clients[0].chain.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = header.chunk_prev_state_root();
@@ -2384,19 +2384,21 @@ fn test_validate_chunk_extra() {
         )
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
+    let epoch_id = *block.header().epoch_id();
     client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
     env.propagate_chunk_state_witnesses_and_endorsements(false);
     let client = &mut env.clients[0];
+    let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
     let chunks = client
         .chunk_inclusion_tracker
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
-    let shard_id = ShardId::new(0);
     let (chunk_header, _) = client
         .chunk_inclusion_tracker
         .get_chunk_header_and_endorsements(chunks.get(&shard_id).unwrap())
         .unwrap();
-    let chunk_extra =
-        client.chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
+    let chunk_extra = client.chain.get_chunk_extra(block1.hash(), &shard_uid).unwrap();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
         client.epoch_manager.as_ref(),
@@ -2478,7 +2480,11 @@ fn slow_test_catchup_gas_price_change() {
     let sync_prev_block = &blocks[sync_block_idx - 1];
 
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let shard_id = ShardId::new(0);
+
+    let epoch_id = sync_prev_block.header().epoch_id();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
+    let shard_id = shard_layout.shard_uids().next().unwrap().shard_id();
+
     let state_sync_header =
         env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
     let num_parts = state_sync_header.num_state_parts();
@@ -3708,13 +3714,14 @@ mod contract_precompilation_tests {
     const EPOCH_LENGTH: u64 = 25;
 
     fn state_sync_on_height(env: &TestEnv, height: BlockHeight) {
-        let shard_id = ShardId::new(0);
         let sync_block = env.clients[0].chain.get_block_by_height(height).unwrap();
         let sync_hash = *sync_block.hash();
+        let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
+        let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
         let state_sync_header =
             env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
         let state_root = state_sync_header.chunk_prev_state_root();
-        let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
         let sync_prev_header =
             env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
         let sync_prev_prev_hash = sync_prev_header.prev_hash();

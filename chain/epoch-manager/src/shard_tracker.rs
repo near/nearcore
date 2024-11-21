@@ -103,7 +103,7 @@ impl ShardTracker {
                 Ok(subset.contains(&shard_id))
             }
             TrackedConfig::ShadowValidator(account_id) => {
-                self.epoch_manager.cares_about_shard_in_epoch(*epoch_id, account_id, shard_id)
+                self.epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
             }
         }
     }

@@ -345,7 +345,7 @@ pub fn submit_tx(node_datas: &[TestData], rpc_id: &AccountId, tx: SignedTransact
 /// Otherwise, the transactions may not be found.
 pub fn check_txs(
     test_loop: &TestLoopV2,
-    node_datas: &Vec<TestData>,
+    node_datas: &[TestData],
     rpc_id: &AccountId,
     txs: &[CryptoHash],
 ) {
@@ -363,7 +363,7 @@ pub fn check_txs(
 /// Get the client for the provided rpd node account id.
 fn rpc_client<'a>(
     test_loop: &'a TestLoopV2,
-    node_datas: &'a Vec<TestData>,
+    node_datas: &'a [TestData],
     rpc_id: &AccountId,
 ) -> &'a Client {
     let node_data = get_node_data(node_datas, rpc_id);
