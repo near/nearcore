@@ -447,14 +447,14 @@ impl ShardTries {
     /// but which exact shards to load depends on configuration. This may only be called when flat
     /// storage is ready.
     ///
-    /// The `extra_load_mem_tries_for_shards` parameter is used to load memtries
+    /// The `shard_uids_pending_resharding` parameter is used to load memtries
     /// for shards that are not configured to be loaded but should be loaded
     /// anyway. This is used when a shard is about to be resharded and we need
     /// to have the memtries loaded for it.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
-        extra_load_mem_tries_for_shards: &HashSet<ShardUId>,
+        shard_uids_pending_resharding: &HashSet<ShardUId>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
@@ -463,7 +463,7 @@ impl ShardTries {
             .filter(|shard_uid| {
                 trie_config.load_mem_tries_for_tracked_shards
                     || trie_config.load_mem_tries_for_shards.contains(shard_uid)
-                    || extra_load_mem_tries_for_shards.contains(shard_uid)
+                    || shard_uids_pending_resharding.contains(shard_uid)
             })
             .collect_vec();
 
@@ -472,7 +472,7 @@ impl ShardTries {
             ?tracked_shards,
             load_mem_tries_for_tracked_shards=?trie_config.load_mem_tries_for_tracked_shards,
             load_mem_tries_for_shards=?trie_config.load_mem_tries_for_shards,
-            ?extra_load_mem_tries_for_shards,
+            ?shard_uids_pending_resharding,
             "Loading tries config"
         );
         info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);

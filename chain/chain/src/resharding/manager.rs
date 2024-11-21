@@ -105,9 +105,12 @@ impl ReshardingManager {
         Ok(())
     }
 
-    /// Returns the list of ShardUIds that need to be loaded into memory at
-    /// client startup. This list consists of all ShardUIds in the current shard
-    /// layout that are planned to be resharded within this client.
+    /// Returns the list of ShardUIds in the current shard layout that will be
+    /// resharded in the future within this client. Those shards should be
+    /// loaded into memory on node startup.
+    ///
+    /// Please note that this method returns all shard uids that will be
+    /// resharded in the future, regardless of whether the client tracks them.
     ///
     /// e.g. In the following resharding tree shards 0 and 1 would be returned.
     ///
@@ -122,7 +125,7 @@ impl ReshardingManager {
     /// Please note that shard 4 is not returned even though it is split later
     /// on. That is because it is a child of another parent and it should
     /// already be loaded into memory after the first resharding.
-    pub fn get_extra_load_mem_tries_for_shards(
+    pub fn get_shard_uids_pending_resharding(
         &self,
         head_protocol_version: ProtocolVersion,
         client_protocol_version: ProtocolVersion,
