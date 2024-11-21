@@ -568,6 +568,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
+    fn get_shard_layout_from_protocol_version(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> ShardLayout {
+        self.get_shard_layout(&EpochId::default()).unwrap()
+    }
+
     fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         panic!("get_shard_config not implemented for KeyValueRuntime");
     }
