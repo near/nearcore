@@ -5,8 +5,9 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  pull_request:
-  merge_group:
+  workflow_dispatch:
+  schedule:
+    - cron: '01 07 * * *'
 
 env:
   CI_HACKS: 1
@@ -23,16 +24,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Linux
-            id: linux
-            os: ubuntu-22.04-16core
+          - name: MacOS
+            id: macos
+            os: macos-latest-xlarge
             type: stable
-            upload_profraws: true
-          - name: Linux Nightly
-            id: linux-nightly
-            os: ubuntu-22.04-16core
-            type: nightly
-            upload_profraws: true
+            # TODO: Currently only computing linux coverage, because the MacOS runners
+            # have files at a different path and thus comes out duplicated.
+            upload_profraws: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +71,7 @@ jobs:
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
       - uses: bufbuild/buf-breaking-action@a074e988ee34efcd4927079e79c611f428354c01
         with:
-          against: "https://github.com/near/nearcore.git#${{github.event.pull_request.base.sha && format('ref={0}', github.event.pull_request.base.sha) || 'branch=master' }}"
+          against: "https://github.com/near/nearcore.git#branch=master"
 
   py_backward_compat:
     name: "Backward Compatibility"
