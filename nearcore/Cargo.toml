@@ -104,12 +104,6 @@ expensive_tests = [
   "near-epoch-manager/expensive_tests",
   "near-chain/expensive_tests",
 ]
-no_cache = [
-  "node-runtime/no_cache",
-  "near-store/no_cache",
-  "near-chain/no_cache",
-  "near-epoch-manager/no_cache",
-]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 protocol_feature_fix_staking_threshold = [
