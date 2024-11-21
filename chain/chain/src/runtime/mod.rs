@@ -1199,14 +1199,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.protocol_upgrade_stake_threshold =
             epoch_config.protocol_upgrade_stake_threshold;
         genesis_config.shard_layout = epoch_config.shard_layout;
-        genesis_config.num_chunk_only_producer_seats =
-            epoch_config.validator_selection_config.num_chunk_only_producer_seats;
-        genesis_config.minimum_validators_per_shard =
-            epoch_config.validator_selection_config.minimum_validators_per_shard;
-        genesis_config.minimum_stake_ratio =
-            epoch_config.validator_selection_config.minimum_stake_ratio;
+        genesis_config.num_chunk_only_producer_seats = epoch_config.num_chunk_only_producer_seats;
+        genesis_config.minimum_validators_per_shard = epoch_config.minimum_validators_per_shard;
+        genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;
         genesis_config.shuffle_shard_assignment_for_chunk_producers =
-            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers;
+            epoch_config.shuffle_shard_assignment_for_chunk_producers;
 
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
