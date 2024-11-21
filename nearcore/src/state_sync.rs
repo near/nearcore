@@ -52,7 +52,7 @@ pub struct StateSyncDumper {
 impl StateSyncDumper {
     /// Returns all current ShardIDs, plus any that may belong to a future epoch after a protocol upgrade
     /// For now we start a thread for each shard ID even if it won't be needed for a long time.
-    /// TODO: fix that, and handle the dynamic resharding case.
+    /// TODO(resharding): fix that, and handle the dynamic resharding case.
     fn get_all_shard_ids(&self) -> anyhow::Result<HashSet<ShardId>> {
         let chain = Chain::new_for_view_client(
             self.clock.clone(),
