@@ -126,6 +126,7 @@ struct TestReshardingParameters {
     epoch_length: BlockHeightDelta,
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
+    load_mem_tries_for_tracked_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
     loop_action: Option<LoopActionFn>,
     // When enabling shard shuffling with a short epoch length, sometimes a node might not finish
@@ -236,6 +237,14 @@ impl TestReshardingParameters {
 
     fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
         self.deploy_test_contract = Some(account_id);
+        self
+    }
+
+    fn load_mem_tries_for_tracked_shards(
+        mut self,
+        load_mem_tries_for_tracked_shards: bool,
+    ) -> Self {
+        self.load_mem_tries_for_tracked_shards = load_mem_tries_for_tracked_shards;
         self
     }
 }
@@ -461,6 +470,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
+        .load_mem_tries_for_tracked_shards(params.load_mem_tries_for_tracked_shards)
         .drop_protocol_upgrade_chunks(
             base_protocol_version + 1,
             params.chunk_ranges_to_drop.clone(),
@@ -632,5 +642,11 @@ fn test_resharding_v3_delayed_receipts_right_child() {
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account.clone())
         .loop_action(Some(call_burn_gas_contract(account.clone(), account)));
+    test_resharding_v3_base(params);
+}
+
+#[test]
+fn test_resharding_v3_load_mem_trie() {
+    let params = TestReshardingParameters::new().load_mem_tries_for_tracked_shards(false);
     test_resharding_v3_base(params);
 }

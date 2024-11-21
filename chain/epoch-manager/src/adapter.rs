@@ -25,6 +25,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 // TODO(wacban) rename to ShardInfo
@@ -444,6 +445,60 @@ pub trait EpochManagerAdapter: Send + Sync {
         tip: &Tip,
         height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError>;
+
+    /// Returns the list of ShardUIds in the current shard layout that will be
+    /// resharded in the future within this client. Those shards should be
+    /// loaded into memory on node startup.
+    ///
+    /// Please note that this method returns all shard uids that will be
+    /// resharded in the future, regardless of whether the client tracks them.
+    ///
+    /// e.g. In the following resharding tree shards 0 and 1 would be returned.
+    ///
+    ///  0      1       2
+    ///  |     / \      |
+    ///  0    3   4     2
+    ///  |\   |   |     |
+    ///  5 6  3   4     2
+    ///  | |  |   |\    |
+    ///  5 6  3   7 8   2
+    ///
+    /// Please note that shard 4 is not returned even though it is split later
+    /// on. That is because it is a child of another parent and it should
+    /// already be loaded into memory after the first resharding.
+    fn get_shard_uids_pending_resharding(
+        &self,
+        head_protocol_version: ProtocolVersion,
+        client_protocol_version: ProtocolVersion,
+    ) -> Result<HashSet<ShardUId>, Error> {
+        let mut shard_layouts = vec![];
+        for protocol_version in head_protocol_version + 1..=client_protocol_version {
+            let shard_layout = self.get_shard_layout_from_protocol_version(protocol_version);
+
+            let last_shard_layout = shard_layouts.last();
+            if last_shard_layout == None || last_shard_layout != Some(&shard_layout) {
+                shard_layouts.push(shard_layout);
+            }
+        }
+
+        let mut result = HashSet::new();
+        let head_shard_layout = self.get_shard_layout_from_protocol_version(head_protocol_version);
+        for shard_uid in head_shard_layout.shard_uids() {
+            let shard_id = shard_uid.shard_id();
+            for shard_layout in &shard_layouts {
+                let children = shard_layout.get_children_shards_uids(shard_id);
+                let Some(children) = children else {
+                    break;
+                };
+                if children.len() > 1 {
+                    result.insert(shard_uid);
+                    break;
+                }
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {
