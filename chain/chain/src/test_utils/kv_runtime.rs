@@ -23,7 +23,6 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
-use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -55,7 +54,6 @@ use near_store::{
     TrieChanges, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
-use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -496,24 +494,7 @@ impl EpochManagerAdapter for MockEpochManager {
     }
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
-        Ok(EpochConfig {
-            epoch_length: self.epoch_length,
-            num_block_producer_seats: 2,
-            num_block_producer_seats_per_shard: vec![1, 1],
-            avg_hidden_validator_seats_per_shard: vec![1, 1],
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
-            target_validator_mandates_per_shard: 1,
-            validator_max_kickout_stake_perc: 0,
-            online_min_threshold: Ratio::new(1i32, 4i32),
-            online_max_threshold: Ratio::new(3i32, 4i32),
-            fishermen_threshold: 1,
-            minimum_stake_divisor: 1,
-            protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
-            shard_layout: self.get_shard_layout(epoch_id).unwrap(),
-            validator_selection_config: ValidatorSelectionConfig::default(),
-        })
+        Ok(EpochConfig::mock(self.epoch_length, self.get_shard_layout(epoch_id).unwrap()))
     }
 
     /// Return the epoch info containing the mocked data.
