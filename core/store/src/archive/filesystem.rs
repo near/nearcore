@@ -1,5 +1,6 @@
 use super::ArchivalStorage;
 use std::io;
+use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
 
@@ -25,9 +26,9 @@ impl FilesystemArchiver {
     }
 
     fn setup_dirs(base_path: &std::path::Path, sub_paths: Vec<&std::path::Path>) -> io::Result<()> {
-        std::fs::create_dir_all(base_path).unwrap();
+        ignore_if_exists(std::fs::create_dir_all(base_path))?;
         for sub_path in sub_paths.into_iter() {
-            std::fs::create_dir(&base_path.join(sub_path))?;
+            ignore_if_exists(std::fs::create_dir(&base_path.join(sub_path)))?;
         }
         Ok(())
     }
@@ -68,6 +69,19 @@ impl ArchivalStorage for FilesystemArchiver {
         match result {
             Ok(_) | Err(rustix::io::Errno::NOENT) => Ok(()),
             Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+fn ignore_if_exists(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if e.kind() == ErrorKind::AlreadyExists {
+                Ok(())
+            } else {
+                Err(e)
+            }
         }
     }
 }
