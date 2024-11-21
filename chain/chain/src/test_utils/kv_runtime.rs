@@ -515,7 +515,13 @@ impl EpochManagerAdapter for MockEpochManager {
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
             shard_layout: self.get_shard_layout(epoch_id).unwrap(),
-            validator_selection_config: ValidatorSelectionConfig::default(),
+            num_chunk_producer_seats: Default::default(),
+            num_chunk_validator_seats: Default::default(),
+            num_chunk_only_producer_seats: Default::default(),
+            minimum_validators_per_shard: Default::default(),
+            minimum_stake_ratio: Default::default(),
+            chunk_producer_assignment_changes_limit: Default::default(),
+            shuffle_shard_assignment_for_chunk_producers: Default::default(),
         })
     }
 

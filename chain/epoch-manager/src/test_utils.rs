@@ -151,10 +151,13 @@ pub fn epoch_config_with_production_config(
         online_max_threshold: Ratio::new(99, 100),
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         minimum_stake_divisor: 1,
-        validator_selection_config: ValidatorSelectionConfig {
-            num_chunk_producer_seats,
-            ..Default::default()
-        },
+        num_chunk_producer_seats,
+        num_chunk_validator_seats: Default::default(),
+        num_chunk_only_producer_seats: Default::default(),
+        minimum_validators_per_shard: Default::default(),
+        minimum_stake_ratio: Default::default(),
+        chunk_producer_assignment_changes_limit: Default::default(),
+        shuffle_shard_assignment_for_chunk_producers: Default::default(),
         shard_layout: ShardLayout::multi_shard(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };

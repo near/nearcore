@@ -2336,7 +2336,13 @@ fn test_protocol_version_switch_with_many_seats() {
         protocol_upgrade_stake_threshold: Ratio::new(80, 100),
         minimum_stake_divisor: 1,
         shard_layout: ShardLayout::single_shard(),
-        validator_selection_config: Default::default(),
+        num_chunk_producer_seats: Default::default(),
+        num_chunk_validator_seats: Default::default(),
+        num_chunk_only_producer_seats: Default::default(),
+        minimum_validators_per_shard: Default::default(),
+        minimum_stake_ratio: Default::default(),
+        chunk_producer_assignment_changes_limit: Default::default(),
+        shuffle_shard_assignment_for_chunk_producers: Default::default(),
         validator_max_kickout_stake_perc: 100,
     };
     let config = AllEpochConfig::new(false, PROTOCOL_VERSION, epoch_config, "test-chain");

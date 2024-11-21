@@ -269,17 +269,14 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
-            validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
-                num_chunk_producer_seats: config.num_chunk_producer_seats,
-                num_chunk_validator_seats: config.num_chunk_validator_seats,
-                num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
-                minimum_validators_per_shard: config.minimum_validators_per_shard,
-                minimum_stake_ratio: config.minimum_stake_ratio,
-                chunk_producer_assignment_changes_limit: config
-                    .chunk_producer_assignment_changes_limit,
-                shuffle_shard_assignment_for_chunk_producers: config
-                    .shuffle_shard_assignment_for_chunk_producers,
-            },
+            num_chunk_producer_seats: config.num_chunk_producer_seats,
+            num_chunk_validator_seats: config.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: config.minimum_validators_per_shard,
+            minimum_stake_ratio: config.minimum_stake_ratio,
+            chunk_producer_assignment_changes_limit: config.chunk_producer_assignment_changes_limit,
+            shuffle_shard_assignment_for_chunk_producers: config
+                .shuffle_shard_assignment_for_chunk_producers,
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
     }
@@ -780,7 +777,13 @@ impl Genesis {
             chunk_validator_only_kickout_threshold: CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
             fishermen_threshold: FISHERMEN_THRESHOLD,
             shard_layout,
-            validator_selection_config: ValidatorSelectionConfig::default(),
+            num_chunk_producer_seats: Default::default(),
+            num_chunk_validator_seats: Default::default(),
+            num_chunk_only_producer_seats: Default::default(),
+            minimum_validators_per_shard: Default::default(),
+            minimum_stake_ratio: Default::default(),
+            chunk_producer_assignment_changes_limit: Default::default(),
+            shuffle_shard_assignment_for_chunk_producers: Default::default(),
         }
     }
 }

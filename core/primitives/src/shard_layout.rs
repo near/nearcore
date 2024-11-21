@@ -1063,7 +1063,13 @@ mod tests {
                 minimum_stake_divisor: 0,
                 protocol_upgrade_stake_threshold: 0.into(),
                 shard_layout: ShardLayout::get_simple_nightshade_layout(),
-                validator_selection_config: ValidatorSelectionConfig::default(),
+                num_chunk_producer_seats: Default::default(),
+                num_chunk_validator_seats: Default::default(),
+                num_chunk_only_producer_seats: Default::default(),
+                minimum_validators_per_shard: Default::default(),
+                minimum_stake_ratio: Default::default(),
+                chunk_producer_assignment_changes_limit: Default::default(),
+                shuffle_shard_assignment_for_chunk_producers: Default::default(),
             };
 
             let genesis_protocol_version = PROTOCOL_VERSION;
