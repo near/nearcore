@@ -6,10 +6,9 @@ use crate::logic::VMContext;
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
 use crate::ContractCode;
-use arbitrary::Arbitrary;
-use core::fmt;
 use near_parameters::vm::{ContractPrepareVersion, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
@@ -61,52 +60,6 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
-/// Define a configuration for which [`available_imports`] is implemented. This
-/// allows to specify the imports available in a [`ConfiguredModule`].
-///
-/// [`available_imports`]: wasm_smith::Config::available_imports
-/// [`ConfiguredModule`]: wasm_smith::ConfiguredModule
-#[derive(arbitrary::Arbitrary, Debug)]
-pub struct ModuleConfig {}
-
-impl wasm_smith::Config for ModuleConfig {
-    /// Returns a WebAssembly module which imports all near host functions. The
-    /// imports are grabbed from a compiled [test contract] which calls every
-    /// host function in its method `sanity_check`.
-    ///
-    /// [test contract]: near_test_contracts::rs_contract
-    fn available_imports(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
-        Some(near_test_contracts::rs_contract().into())
-    }
-
-    /// Make sure to canonicalize the NaNs, as otherwise behavior differs
-    /// between wasmtime (that does not canonicalize) and near-vm (that
-    /// should canonicalize)
-    fn canonicalize_nans(&self) -> bool {
-        true
-    }
-}
-
-/// Wrapper to get more useful Debug.
-pub struct ArbitraryModule(pub wasm_smith::ConfiguredModule<ModuleConfig>);
-
-impl<'a> Arbitrary<'a> for ArbitraryModule {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        wasm_smith::ConfiguredModule::<ModuleConfig>::arbitrary(u).map(ArbitraryModule)
-    }
-}
-
-impl fmt::Debug for ArbitraryModule {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let bytes = self.0.module.to_bytes();
-        write!(f, "{:?}", bytes)?;
-        if let Ok(wat) = wasmprinter::print_bytes(&bytes) {
-            write!(f, "\n{}", wat)?;
-        }
-        Ok(())
-    }
-}
-
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
@@ -146,7 +99,7 @@ fn slow_test_current_vm_does_not_crash_fuzzer() {
     if config.vm_kind.is_available() {
         bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(
             |module: &ArbitraryModule| {
-                let code = ContractCode::new(module.0.module.to_bytes(), None);
+                let code = ContractCode::new(module.0.to_bytes(), None);
                 let _result = run_fuzz(&code, config.vm_kind);
             },
         );
@@ -157,7 +110,7 @@ fn slow_test_current_vm_does_not_crash_fuzzer() {
 #[cfg_attr(not(all(feature = "wasmtime_vm", feature = "near_vm", target_arch = "x86_64")), ignore)]
 fn slow_test_near_vm_and_wasmtime_agree_fuzzer() {
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
-        let code = ContractCode::new(module.0.module.to_bytes(), None);
+        let code = ContractCode::new(module.0.to_bytes(), None);
         let near_vm = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
         let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
         assert_eq!(near_vm, wasmtime);
@@ -171,7 +124,7 @@ fn slow_test_near_vm_is_reproducible_fuzzer() {
     use near_primitives_core::hash::CryptoHash;
 
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
-        let code = ContractCode::new(module.0.module.to_bytes(), None);
+        let code = ContractCode::new(module.0.to_bytes(), None);
         let config = std::sync::Arc::new(test_vm_config());
         let mut first_hash = None;
         for _ in 0..3 {

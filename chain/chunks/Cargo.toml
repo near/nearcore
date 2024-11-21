@@ -42,7 +42,6 @@ near-performance-metrics-macros.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
-derive-enum-from-into.workspace = true
 
 [features]
 nightly_protocol = [

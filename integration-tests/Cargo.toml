@@ -71,7 +71,6 @@ near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
-derive-enum-from-into.workspace = true
 ethabi.workspace = true
 insta.workspace = true
 near-undo-block.workspace = true
