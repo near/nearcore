@@ -46,12 +46,13 @@ impl StateSyncDownloadSourceExternal {
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancellation.cancelled() => {
-                increment_download_count(shard_id, typ, "external", "error");
+                increment_download_count(shard_id, typ, "external", "cancelled");
                 Err(near_chain::Error::Other("Cancelled".to_owned()))
             }
             result = fut => {
                 result.map_err(|e| {
-                    increment_download_count(shard_id, typ, "network", "error");
+                    increment_download_count(shard_id, typ, "external", "download_error");
+                    tracing::debug!(target: "sync", "Failed to download with error {}", e);
                     near_chain::Error::Other(format!("Failed to download: {}", e))
                 })
             }
@@ -94,7 +95,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             )
             .await?;
             let header = ShardStateSyncResponseHeader::try_from_slice(&data).map_err(|e| {
-                increment_download_count(shard_id, "header", "external", "error");
+                increment_download_count(shard_id, "header", "external", "parse_error");
                 near_chain::Error::Other(format!("Failed to parse header: {}", e))
             })?;
 
