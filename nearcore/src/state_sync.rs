@@ -181,6 +181,9 @@ async fn get_missing_part_ids_for_epoch(
     total_parts: u64,
     external: &ExternalConnection,
 ) -> Result<HashSet<u64>, anyhow::Error> {
+    if total_parts == 0 {
+        return Ok(HashSet::new());
+    }
     let directory_path = external_storage_location_directory(
         chain_id,
         epoch_id,
@@ -706,31 +709,42 @@ impl StateDumper {
                 (shard_id, (sender, d.num_parts))
             })
             .collect::<HashMap<_, _>>();
+        let mut empty_shards = HashSet::new();
         let uploaders = dump
             .dump_state
             .iter()
-            .map(|(shard_id, shard_dump)| {
+            .filter_map(|(shard_id, shard_dump)| {
                 metrics::STATE_SYNC_DUMP_NUM_PARTS_DUMPED
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
-                Arc::new(PartUploader {
-                    clock: self.clock.clone(),
-                    external: self.external.clone(),
-                    runtime: self.runtime.clone(),
-                    chain_id: self.chain_id.clone(),
-                    epoch_id: dump.epoch_id.clone(),
-                    epoch_height: dump.epoch_height,
-                    sync_prev_prev_hash: dump.sync_prev_prev_hash,
-                    shard_id: *shard_id,
-                    state_root: shard_dump.state_root,
-                    num_parts: shard_dump.num_parts,
-                    parts_dumped: shard_dump.parts_dumped.clone(),
-                    parts_missing: shard_dump.parts_missing.clone(),
-                    obtain_parts: self.obtain_parts.clone(),
-                    canceled: dump.canceled.clone(),
-                })
+                if shard_dump.num_parts > 0 {
+                    Some(Arc::new(PartUploader {
+                        clock: self.clock.clone(),
+                        external: self.external.clone(),
+                        runtime: self.runtime.clone(),
+                        chain_id: self.chain_id.clone(),
+                        epoch_id: dump.epoch_id.clone(),
+                        epoch_height: dump.epoch_height,
+                        sync_prev_prev_hash: dump.sync_prev_prev_hash,
+                        shard_id: *shard_id,
+                        state_root: shard_dump.state_root,
+                        num_parts: shard_dump.num_parts,
+                        parts_dumped: shard_dump.parts_dumped.clone(),
+                        parts_missing: shard_dump.parts_missing.clone(),
+                        obtain_parts: self.obtain_parts.clone(),
+                        canceled: dump.canceled.clone(),
+                    }))
+                } else {
+                    empty_shards.insert(shard_id);
+                    None
+                }
             })
             .collect::<Vec<_>>();
+        for shard_id in empty_shards {
+            let (sender, _) = senders.remove(shard_id).unwrap();
+            let _ = sender.send(Ok(()));
+        }
+        assert_eq!(senders.len(), uploaders.len());
 
         let mut tasks = uploaders
             .clone()
