@@ -2645,10 +2645,10 @@ pub mod estimator {
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
-    use near_primitives::types::EpochInfoProvider;
+    use near_primitives::types::{EpochInfoProvider, ShardId};
     use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
-    use near_store::{ShardUId, TrieUpdate};
+    use near_store::TrieUpdate;
     use std::collections::HashMap;
 
     pub fn apply_action_receipt(
@@ -2659,16 +2659,16 @@ pub mod estimator {
         validator_proposals: &mut Vec<ValidatorStake>,
         stats: &mut ApplyStats,
         epoch_info_provider: &(dyn EpochInfoProvider),
-        shard_uids: &[ShardUId],
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
         // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
         let congestion_info = CongestionInfo::default();
         // no limits set for any shards => limitless
         let outgoing_limit = HashMap::new();
 
+        let shard_uid: ShardId = todo!();
         let outgoing_metadatas = OutgoingMetadatas::load(
             state_update,
-            shard_uids.iter().map(|uid| uid.shard_id()),
+            std::iter::once(shard_uid),
             ReceiptGroupsConfig::default_config(),
             apply_state.current_protocol_version,
         )?;

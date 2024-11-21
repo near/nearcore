@@ -464,7 +464,6 @@ impl Testbed<'_> {
             &mut validator_proposals,
             &mut stats,
             &epoch_info_provider,
-            self.shard_uids(),
         )
         .expect("applying receipt in estimator should not fail");
         let gas = clock.elapsed();
@@ -488,10 +487,6 @@ impl Testbed<'_> {
             &tip,
             false,
         )
-    }
-
-    fn shard_uids(&self) -> &[ShardUId] {
-        self.tries.get_shard_uids()
     }
 }
 

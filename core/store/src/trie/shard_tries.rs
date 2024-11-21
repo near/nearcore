@@ -24,7 +24,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
 struct ShardTriesInner {
-    shard_uids: Vec<ShardUId>,
     store: TrieStoreAdapter,
     trie_config: TrieConfig,
     mem_tries: RwLock<HashMap<ShardUId, Arc<RwLock<MemTries>>>>,
@@ -59,7 +58,6 @@ impl ShardTries {
         let view_caches = Self::create_initial_caches(&trie_config, &shard_uids, true);
         metrics::HAS_STATE_SNAPSHOT.set(0);
         ShardTries(Arc::new(ShardTriesInner {
-            shard_uids: shard_uids.to_vec(),
             store,
             trie_config,
             mem_tries: RwLock::new(HashMap::new()),
@@ -90,10 +88,6 @@ impl ShardTries {
 
     pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
-    }
-
-    pub fn get_shard_uids(&self) -> &[ShardUId] {
-        self.0.shard_uids.as_slice()
     }
 
     #[tracing::instrument(
