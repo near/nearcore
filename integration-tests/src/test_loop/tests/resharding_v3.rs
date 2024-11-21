@@ -402,7 +402,7 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
     {
         let state_root = *client
             .chain
-            .get_chunk_extra(&final_head.last_block_hash, &child_shard_uid)
+            .get_chunk_extra(&final_head.prev_block_hash, &child_shard_uid)
             .unwrap()
             .state_root();
 
@@ -410,7 +410,7 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
             .runtime_adapter
             .get_trie_for_shard(
                 child_shard_uid.shard_id(),
-                &final_head.last_block_hash,
+                &final_head.prev_block_hash,
                 state_root,
                 false,
             )
@@ -418,9 +418,14 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
         let trie_state =
             trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
 
-        let flat_store = client.chain.chain_store().store().flat_store();
-        let flat_store_state = flat_store
-            .iter(child_shard_uid)
+        let flat_store_chunk_view = client
+            .chain
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .chunk_view(child_shard_uid, final_head.last_block_hash)
+            .unwrap();
+        let flat_store_state = flat_store_chunk_view
+            .iter_range(None, None)
             .map_ok(|(key, value)| {
                 let value = match value {
                     FlatStateValue::Ref(value) => client
@@ -443,10 +448,9 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
             continue;
         }
         for (key, value) in diff {
-            tracing::error!(target: "test", key=ALL_COLUMNS_WITH_NAMES[key[0] as usize].1, ?value, "Difference between trie and flat state!");
+            tracing::error!(target: "test", shard=?child_shard_uid, key=ALL_COLUMNS_WITH_NAMES[key[0] as usize].1, ?value, "Difference between trie and flat state!");
         }
-        // TODO: fix nearcore and re-enable the assertion.
-        // assert!(false, "trie and flat state mismatch!");
+        assert!(false, "trie and flat state mismatch!");
     }
 }
 
