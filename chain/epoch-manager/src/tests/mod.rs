@@ -3841,7 +3841,7 @@ fn test_get_shard_uids_pending_resharding_double_same() {
     // then split s1 by adding c
     // both original shards are pending resharding
     let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
-    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b.clone());
+    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
     let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
 
     let s1 = account_id_to_shard_uid(&a, &shard_layout_0);
