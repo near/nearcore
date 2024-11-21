@@ -231,30 +231,35 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
 pub struct ArbitraryModule(pub wasm_smith::Module);
 
 impl ArbitraryModule {
-    pub fn new(mut config: wasm_smith::Config, u: &mut arbitrary::Unstructured) -> Self {
-        config.canonicalize_nans = true;
-        config.available_imports = Some(rs_contract().into());
-        config.max_memories = 1;
-        config.max_tables = 1;
-        config.bulk_memory_enabled = false;
-        config.exceptions_enabled = false;
-        config.gc_enabled = false;
-        config.memory64_enabled = false;
-        config.multi_value_enabled = false;
-        config.reference_types_enabled = false;
-        config.relaxed_simd_enabled = false;
-        config.saturating_float_to_int_enabled = false;
-        config.sign_extension_ops_enabled = false;
-        config.simd_enabled = false;
-        config.tail_call_enabled = false;
-        config.custom_page_sizes_enabled = false;
+    pub fn new(config: wasm_smith::Config, u: &mut arbitrary::Unstructured) -> Self {
         wasm_smith::Module::new(config, u).map(ArbitraryModule).expect("arbitrary won't fail")
     }
 }
 
+fn normalize_config(mut config: wasm_smith::Config) -> wasm_smith::Config {
+    config.canonicalize_nans = true;
+    config.available_imports = Some(rs_contract().into());
+    config.max_memories = 1;
+    config.max_tables = 1;
+    config.bulk_memory_enabled = false;
+    config.exceptions_enabled = false;
+    config.gc_enabled = false;
+    config.memory64_enabled = false;
+    config.multi_value_enabled = false;
+    config.reference_types_enabled = false;
+    config.relaxed_simd_enabled = false;
+    config.saturating_float_to_int_enabled = false;
+    config.sign_extension_ops_enabled = false;
+    config.simd_enabled = false;
+    config.tail_call_enabled = false;
+    config.threads_enabled = false;
+    config.custom_page_sizes_enabled = false;
+    config
+}
+
 impl<'a> Arbitrary<'a> for ArbitraryModule {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        let config = wasm_smith::Config::default();
+        let config = normalize_config(wasm_smith::Config::default());
         Ok(Self::new(config, u))
     }
 }
@@ -276,6 +281,8 @@ pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     let mut buffer = vec![0u8; 10240];
     buffer.try_fill(&mut rng).expect("fill buffer with random data");
     let mut arbitrary = arbitrary::Unstructured::new(&buffer);
-    let config = wasm_smith::Config::arbitrary(&mut arbitrary).expect("make config");
+    let mut config =
+        normalize_config(wasm_smith::Config::arbitrary(&mut arbitrary).expect("make config"));
+    config.available_imports = Some(backwards_compatible_rs_contract().into());
     ArbitraryModule::new(config, &mut arbitrary).0.to_bytes()
 }
