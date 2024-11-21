@@ -498,7 +498,7 @@ pub fn make_account(index: usize) -> AccountId {
 
 /// Runs a transaction until completion.
 /// Works in a non-blocking way which allows to run multiple transactions in parallel.
-/// Is meant to use with run_until.
+/// It is meant to be used with run_until.
 pub struct TransactionRunner {
     transaction: SignedTransaction,
     tx_sent: bool,
