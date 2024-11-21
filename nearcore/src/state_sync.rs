@@ -5,7 +5,7 @@ use anyhow::Context;
 use borsh::BorshSerialize;
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
-use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::futures::{respawn_for_parallelism, FutureSpawner};
 use near_async::time::{Clock, Duration, Interval};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -307,18 +307,6 @@ struct PartUploader {
     parts_missing: Arc<RwLock<HashSet<u64>>>,
     obtain_parts: Arc<Semaphore>,
     canceled: Arc<AtomicBool>,
-}
-
-fn respawn_for_parallelism<T: Send + 'static>(
-    future_spawner: &dyn FutureSpawner,
-    name: &'static str,
-    f: impl std::future::Future<Output = T> + Send + 'static,
-) -> impl std::future::Future<Output = T> + Send + 'static {
-    let (sender, receiver) = oneshot::channel();
-    future_spawner.spawn(name, async move {
-        sender.send(f.await).ok();
-    });
-    async move { receiver.await.unwrap() }
 }
 
 impl PartUploader {
