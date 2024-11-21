@@ -100,11 +100,14 @@ impl TrieRecorder {
             .saturating_add(self.code_len_counter)
     }
 
-    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// Get statistics about the recorded trie. Useful for observability and debugging.
     /// This scans all of the recorded data, so could potentially be expensive to run.
     pub fn get_stats(&self, trie_root: &CryptoHash) -> TrieRecorderStats {
         let mut trie_column_sizes = Vec::new();
         for (col, col_name) in ALL_COLUMNS_WITH_NAMES {
+            if col == u8::MAX {
+                continue;
+            }
             let subtree_size = self.get_subtree_size_by_key(trie_root, NibbleSlice::new(&[col]));
             trie_column_sizes.push(TrieColumnSize {
                 column: col,

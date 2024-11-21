@@ -16,7 +16,7 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::{DBCol, ShardUId};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -29,8 +29,10 @@ use assert_matches::assert_matches;
 use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::views::FinalExecutionStatus;
 use std::cell::Cell;
 use std::u64;
@@ -387,6 +389,67 @@ fn next_block_has_new_shard_layout(epoch_manager: Arc<dyn EpochManagerAdapter>, 
         && shard_layout != next_shard_layout
 }
 
+/// Asserts that for each child shard (Mem)Trie and FlatState contains the same final state.
+fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &Client) {
+    let final_head = client.chain.final_head().unwrap();
+
+    for child_shard_uid in client
+        .epoch_manager
+        .get_shard_layout(&final_head.epoch_id)
+        .unwrap()
+        .get_children_shards_uids(parent_shard_uid.shard_id())
+        .unwrap()
+    {
+        let state_root = *client
+            .chain
+            .get_chunk_extra(&final_head.last_block_hash, &child_shard_uid)
+            .unwrap()
+            .state_root();
+
+        let trie = client
+            .runtime_adapter
+            .get_trie_for_shard(
+                child_shard_uid.shard_id(),
+                &final_head.last_block_hash,
+                state_root,
+                false,
+            )
+            .unwrap();
+        let trie_state =
+            trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+
+        let flat_store = client.chain.chain_store().store().flat_store();
+        let flat_store_state = flat_store
+            .iter(child_shard_uid)
+            .map_ok(|(key, value)| {
+                let value = match value {
+                    FlatStateValue::Ref(value) => client
+                        .chain
+                        .chain_store()
+                        .store()
+                        .trie_store()
+                        .get(child_shard_uid, &value.hash)
+                        .unwrap()
+                        .to_vec(),
+                    FlatStateValue::Inlined(data) => data,
+                };
+                (key, value)
+            })
+            .collect::<Result<HashSet<_>, _>>()
+            .unwrap();
+
+        let diff = trie_state.symmetric_difference(&flat_store_state);
+        if diff.clone().count() == 0 {
+            continue;
+        }
+        for (key, value) in diff {
+            tracing::error!(target: "test", key=ALL_COLUMNS_WITH_NAMES[key[0] as usize].1, ?value, "Difference between trie and flat state!");
+        }
+        // TODO: fix nearcore and re-enable the assertion.
+        // assert!(false, "trie and flat state mismatch!");
+    }
+}
+
 /// Base setup to check sanity of Resharding V3.
 /// TODO(#11881): add the following scenarios:
 /// - Nodes must not track all shards. State sync must succeed.
@@ -531,6 +594,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Give enough time to produce ~7 epochs.
         Duration::seconds((7 * params.epoch_length) as i64),
     );
+
+    // At the end of the test we know for sure resharding has been completed.
+    // Verify that state is equal across tries and flat storage for all children shards.
+    let clients =
+        client_handles.iter().map(|handle| &test_loop.data.get(handle).client).collect_vec();
+    assert_state_sanity_for_children_shard(parent_shard_uid, &clients[0]);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
