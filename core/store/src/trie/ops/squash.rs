@@ -3,8 +3,8 @@ use near_primitives::errors::StorageError;
 use crate::NibbleSlice;
 
 use super::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, UpdatedNodeId, GenericUpdatedTrieNode,
-    GenericUpdatedTrieNodeWithSize, HasValueLength,
+    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
+    HasValueLength, UpdatedNodeId,
 };
 
 pub(crate) trait GenericTrieUpdateSquash<'a, N, V>: GenericTrieUpdate<'a, N, V>

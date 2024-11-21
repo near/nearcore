@@ -8,8 +8,8 @@ use near_primitives::types::AccountId;
 use crate::NibbleSlice;
 
 use super::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, UpdatedNodeId, GenericUpdatedTrieNode,
-    GenericUpdatedTrieNodeWithSize, HasValueLength,
+    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
+    HasValueLength, UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
 

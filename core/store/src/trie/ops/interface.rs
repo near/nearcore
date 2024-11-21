@@ -50,7 +50,7 @@ pub enum GenericNodeOrIndex<GenericTrieNodePtr> {
 
 /// A generic representation of a trie node
 /// TrieNodePtr can potentially be of any type including GenericTrieNodePtr for normal nodes or
-/// GenericNodeOrIndex<GenericTrieNodePtr> for updated nodes. 
+/// GenericNodeOrIndex<GenericTrieNodePtr> for updated nodes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenericTrieNode<TrieNodePtr, GenericValueHandle> {
     /// Used for either an empty root node (indicating an empty trie), or as a temporary
