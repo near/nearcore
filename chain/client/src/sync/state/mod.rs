@@ -142,11 +142,12 @@ impl StateSync {
                     *num_concurrent_requests
                 } as usize;
                 let fallback_source = Arc::new(StateSyncDownloadSourceExternal {
-                    clock: clock.clone(),
+                    clock,
                     store: store.clone(),
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
+                    retry_timeout,
                 }) as Arc<dyn StateSyncDownloadSource>;
                 (
                     Some(fallback_source),
@@ -159,14 +160,12 @@ impl StateSync {
 
         let downloading_task_tracker = TaskTracker::new(num_concurrent_requests);
         let downloader = Arc::new(StateSyncDownloader {
-            clock,
             store: store.clone(),
             preferred_source: peer_source,
             fallback_source,
             num_attempts_before_fallback,
             header_validation_sender: chain_requests_sender.clone().into_sender(),
             runtime: runtime.clone(),
-            retry_timeout,
             task_tracker: downloading_task_tracker.clone(),
         });
 
