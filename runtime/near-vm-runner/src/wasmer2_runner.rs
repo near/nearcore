@@ -218,7 +218,7 @@ impl Wasmer2Config {
 //  major version << 6
 //  minor version
 const WASMER2_CONFIG: Wasmer2Config = Wasmer2Config {
-    seed: (1 << 29) | (12 << 6) | 2,
+    seed: (1 << 29) | (12 << 6) | 3,
     engine: WasmerEngine::Universal,
     compiler: WasmerCompiler::Singlepass,
 };

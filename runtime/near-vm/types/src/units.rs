@@ -29,7 +29,6 @@ pub const WASM_MIN_PAGES: u32 = 0x100;
     rkyv::Deserialize,
     rkyv::Archive,
 )]
-#[archive(as = "Self")]
 #[repr(transparent)]
 pub struct Pages(pub u32);
 

@@ -9,7 +9,9 @@ pub struct ArchivableIndexMap<K: Hash + Ord + Archive, V: Archive> {
 }
 
 impl<K: Hash + Ord + Archive, V: Archive> ArchivedArchivableIndexMap<K, V> {
-    pub fn iter(&self) -> core::slice::Iter<'_, (K::Archived, V::Archived)> {
+    pub fn iter(
+        &self,
+    ) -> core::slice::Iter<'_, rkyv::tuple::ArchivedTuple2<K::Archived, V::Archived>> {
         self.entries.iter()
     }
 }
