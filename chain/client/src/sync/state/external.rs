@@ -15,6 +15,8 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
+const EXTERNAL_REQUEST_COOLDOWN: time::Duration = Duration::seconds(60);
+
 /// Logic for downloading state sync headers and parts from an external source.
 pub(super) struct StateSyncDownloadSourceExternal {
     pub clock: Clock,
@@ -50,6 +52,15 @@ impl StateSyncDownloadSourceExternal {
                 Err(near_chain::Error::Other("Cancelled".to_owned()))
             }
             result = fut => {
+                // A download error typically indicates that the file is not available yet. At the
+                // start of the epoch it takes a while for dumpers to populate the external storage
+                // with state files. This cooldown prevents spamming requests during that time.
+                let deadline = clock.now() + EXTERNAL_REQUEST_COOLDOWN;
+                tokio::select! {
+                    _ = clock.sleep_until(deadline) => {}
+                    _ = cancellation.cancelled() => {}
+                }
+
                 result.map_err(|e| {
                     increment_download_count(shard_id, typ, "external", "download_error");
                     tracing::debug!(target: "sync", "Failed to download with error {}", e);
