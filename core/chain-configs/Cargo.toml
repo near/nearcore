@@ -15,7 +15,7 @@ workspace = true
 anyhow.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "from"] }
 num-rational.workspace = true
 serde.workspace = true
 serde_json.workspace = true

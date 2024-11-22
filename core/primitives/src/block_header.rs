@@ -347,7 +347,8 @@ impl Approval {
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ApprovalInner::new(&parent_hash, parent_height, target_height);
-        let signature = signer.sign_approval(&inner, target_height);
+
+        let signature = signer.sign_bytes(&Approval::get_data_for_sig(&inner, target_height));
         Approval { inner, target_height, signature, account_id: signer.validator_id().clone() }
     }
 
@@ -991,20 +992,14 @@ impl BlockHeader {
     where
         T: BorshSerialize + ?Sized,
     {
+        let hash = BlockHeader::compute_hash(
+            prev_hash,
+            &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+        );
         match signature_source {
-            SignatureSource::Signer(signer) => signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            ),
-            SignatureSource::Signature(signature) => {
-                let hash = BlockHeader::compute_hash(
-                    prev_hash,
-                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-                );
-                (hash, signature)
-            }
+            SignatureSource::Signer(signer) => (hash, signer.sign_bytes(hash.as_ref())),
+            SignatureSource::Signature(signature) => (hash, signature),
         }
     }
 
