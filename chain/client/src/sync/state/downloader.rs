@@ -140,7 +140,9 @@ impl StateSyncDownloader {
         let preferred_source = self.preferred_source.clone();
         let fallback_source = self.fallback_source.clone();
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
+        let clock = self.clock.clone();
         let task_tracker = self.task_tracker.clone();
+        let retry_timeout = self.retry_timeout;
         async move {
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
@@ -149,32 +151,44 @@ impl StateSyncDownloader {
                 return Ok(());
             }
 
-            let source =
-                if fallback_source.is_some() && attempt_count >= num_attempts_before_fallback {
-                    fallback_source.as_ref().unwrap().as_ref()
-                } else {
-                    preferred_source.as_ref()
-                };
+            let attempt = || async {
+                let source =
+                    if fallback_source.is_some() && attempt_count >= num_attempts_before_fallback {
+                        fallback_source.as_ref().unwrap().as_ref()
+                    } else {
+                        preferred_source.as_ref()
+                    };
 
-            let part = source
-                .download_shard_part(shard_id, sync_hash, part_id, handle.clone(), cancel.clone())
-                .await?;
-            let state_root = header.chunk_prev_state_root();
-            if runtime_adapter.validate_state_part(
-                &state_root,
-                PartId { idx: part_id, total: header.num_state_parts() },
-                &part,
-            ) {
-                let mut store_update = store.store_update();
-                let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
-                store_update.set(DBCol::StateParts, &key, &part);
-                store_update.commit().map_err(|e| {
-                    near_chain::Error::Other(format!("Failed to store part: {}", e))
-                })?;
-            } else {
-                return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
+                let part = source
+                    .download_shard_part(shard_id, sync_hash, part_id, handle.clone(), cancel.clone())
+                    .await?;
+                let state_root = header.chunk_prev_state_root();
+                if runtime_adapter.validate_state_part(
+                    &state_root,
+                    PartId { idx: part_id, total: header.num_state_parts() },
+                    &part,
+                ) {
+                    let mut store_update = store.store_update();
+                    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
+                    store_update.set(DBCol::StateParts, &key, &part);
+                    store_update.commit().map_err(|e| {
+                        near_chain::Error::Other(format!("Failed to store part: {}", e))
+                    })?;
+                } else {
+                    return Err(near_chain::Error::Other("Part data failed validation".to_owned()));
+                }
+                Ok(())
+            };
+
+            let res = attempt().await;
+            if res.is_err() {
+                let deadline = clock.now() + retry_timeout;
+                tokio::select! {
+                    _ = clock.sleep_until(deadline) => {}
+                    _ = cancel.cancelled() => {}
+                }
             }
-            Ok(())
+            res
         }
         .instrument(tracing::debug_span!("StateSyncDownloader::ensure_shard_part_downloaded"))
         .boxed()
