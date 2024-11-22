@@ -353,6 +353,8 @@ pub struct PrefetchConfig {
 pub struct ArchivalStorageConfig {
     /// The storage defaults to ColdDB if cold rocksdb is specified.
     pub storage: ArchivalStorageLocation,
+    #[serde(default)]
+    pub sync_cold_db: bool,
 }
 
 /// Similar to External

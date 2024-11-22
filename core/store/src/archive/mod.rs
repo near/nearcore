@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::{io, sync::Arc};
 
+use borsh::BorshDeserialize;
 use filesystem::FilesystemArchiver;
 use near_primitives::block::Tip;
 use strum::IntoEnumIterator;
 
 use crate::db::refcount;
 use crate::db::DBOp;
-use crate::Store;
 use crate::COLD_HEAD_KEY;
 use crate::HEAD_KEY;
 use crate::{
@@ -52,58 +52,82 @@ impl ArchivalStorageOpener {
                 Some(Arc::new(gcloud::GoogleCloudArchiver::open(bucket)))
             }
         };
-        let cold_store = Store::new(cold_db.clone());
         let column_to_path = Arc::new(column_to_path);
-        Ok(Arc::new(Archiver { cold_store, cold_db, external_storage: storage, column_to_path }))
+        let sync_cold_db = self.config.sync_cold_db;
+        Ok(Arc::new(Archiver { cold_db, external_storage: storage, column_to_path, sync_cold_db }))
     }
 }
 
 #[derive(Clone)]
 pub struct Archiver {
-    cold_store: Store,
     cold_db: Arc<ColdDB>,
     external_storage: Option<Arc<dyn ArchivalStorage>>,
     column_to_path: Arc<HashMap<DBCol, std::path::PathBuf>>,
+    sync_cold_db: bool,
 }
 
 impl Archiver {
     pub(crate) fn from(cold_db: Arc<ColdDB>) -> Arc<Archiver> {
-        let cold_store = Store::new(cold_db.clone());
         Arc::new(Archiver {
-            cold_store,
             cold_db,
             external_storage: None,
             column_to_path: Default::default(),
+            sync_cold_db: false,
         })
     }
 
     pub fn get_head(&self) -> io::Result<Option<Tip>> {
-        let cold_head = self.cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
-        Ok(cold_head)
+        if self.external_storage.is_none() {
+            return self.get_cold_head();
+        }
+        if let Some(archive_head) = self
+            .read(DBCol::BlockMisc, HEAD_KEY)?
+            .map(|data| Tip::try_from_slice(&data))
+            .transpose()?
+        {
+            if cfg!(debug_assertions) {
+                let cold_head = self.get_cold_head();
+                debug_assert_eq!(cold_head.as_ref().unwrap(), &archive_head);
+            }
+            return Ok(Some(archive_head));
+        }
+        Ok(None)
     }
 
     pub fn set_head(&self, tip: &Tip) -> io::Result<()> {
-        // Write HEAD to the cold db.
-        {
-            let mut transaction = DBTransaction::new();
-            transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-            self.cold_db.write(transaction).unwrap();
-        }
+        let mut tx = DBTransaction::new();
+        // TODO: Write these to the same file for external storage.
+        tx.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+        tx.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
 
-        // Write COLD_HEAD_KEY to the cold db.
-        {
-            let mut transaction = DBTransaction::new();
-            transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-            self.cold_db.write(transaction).unwrap();
+        // If the archival storage is external (eg. GCS), also update the head in Cold DB.
+        // This should not be needed once ColdDB is no longer a dependency.
+        if self.external_storage.is_some() {
+            self.cold_db.write(tx.clone())?;
         }
-        Ok(())
+        self.write(tx)
+    }
+
+    /// Reads the head from the Cold DB.
+    fn get_cold_head(&self) -> io::Result<Option<Tip>> {
+        self.cold_db
+            .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+            .as_deref()
+            .map(Tip::try_from_slice)
+            .transpose()
     }
 
     pub fn write(&self, tx: DBTransaction) -> io::Result<()> {
         if self.external_storage.is_none() {
             return self.cold_db.write(tx);
         }
-        self.write_to_external(tx)
+
+        self.write_to_external(tx)?;
+        if self.sync_cold_db {
+            self.cold_db.write(tx.clone())
+        } else {
+            Ok(())
+        }
     }
 
     pub fn read(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
