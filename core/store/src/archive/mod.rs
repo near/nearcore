@@ -33,7 +33,8 @@ impl ArchivalStorageOpener {
     pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
         let mut column_to_path = HashMap::new();
         for col in DBCol::iter() {
-            if col.is_cold() {
+            // BlockMisc is managed in the cold/archival storage but not marked as cold column.
+            if col.is_cold() || col == DBCol::BlockMisc {
                 column_to_path.insert(col, cold_column_dirname(col).into());
             }
         }
@@ -159,7 +160,8 @@ impl Archiver {
     }
 
     fn get_path(&self, col: DBCol, key: &[u8]) -> std::path::PathBuf {
-        let dirname = self.column_to_path.get(&col).unwrap();
+        let dirname =
+            self.column_to_path.get(&col).unwrap_or_else(|| panic!("No entry for {:?}", col));
         let filename = bs58::encode(key).with_alphabet(bs58::Alphabet::BITCOIN).into_string();
         [dirname, std::path::Path::new(&filename)].into_iter().collect()
     }
@@ -225,5 +227,21 @@ fn cold_column_dirname(col: DBCol) -> &'static str {
         DBCol::Transactions => "Transactions",
         DBCol::StateShardUIdMapping => "StateShardUIdMapping",
         _ => panic!("Missing entry for column: {:?}", col),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::DBCol;
+
+    use super::cold_column_dirname;
+
+    #[test]
+    fn test_cold_column_dirname() {
+        for col in DBCol::iter() {
+            if col.is_cold() {
+                assert!(cold_column_dirname(col).len() > 0);
+            }
+        }
     }
 }
