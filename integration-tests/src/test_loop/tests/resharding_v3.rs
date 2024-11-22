@@ -15,7 +15,7 @@ use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
-use near_store::{DBCol, ShardUId};
+use near_store::{get, DBCol, ShardUId, Trie};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
@@ -30,9 +30,11 @@ use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
 use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
+use near_primitives::receipt::{BufferedReceiptIndices, DelayedReceiptIndices};
 use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::trie_key::TrieKey;
 use near_primitives::views::FinalExecutionStatus;
 use std::cell::Cell;
 use std::u64;
@@ -180,6 +182,7 @@ impl TestReshardingParameters {
             .collect();
 
         let block_and_chunk_producers = clients.clone();
+        let load_mem_tries_for_tracked_shards = true;
 
         Self {
             accounts,
@@ -189,6 +192,7 @@ impl TestReshardingParameters {
             epoch_length,
             track_all_shards,
             all_chunks_expected,
+            load_mem_tries_for_tracked_shards,
             ..Default::default()
         }
     }
@@ -241,6 +245,7 @@ impl TestReshardingParameters {
 
     fn limit_outgoing_gas(mut self) -> Self {
         self.limit_outgoing_gas = true;
+        self
     }
 
     fn load_mem_tries_for_tracked_shards(
@@ -329,11 +334,34 @@ fn check_receipts_presence_at_resharding_block(
                 .congestion_info()
                 .unwrap();
             match kind {
-                ReceiptKind::Delayed => assert_ne!(congestion_info.delayed_receipts_gas(), 0),
-                ReceiptKind::Buffered => assert_ne!(congestion_info.buffered_receipts_gas(), 0),
+                ReceiptKind::Delayed => {
+                    assert_ne!(congestion_info.delayed_receipts_gas(), 0);
+                    check_delayed_receipts_exist_in_memtrie(&client_actor.client, &shard_uid, &tip.prev_block_hash);
+                }
+                ReceiptKind::Buffered => {
+                    assert_ne!(congestion_info.buffered_receipts_gas(), 0);
+                    check_buffered_receipts_exist_in_memtrie(&client_actor.client, &shard_uid, &tip.prev_block_hash);
+                },
             }
         },
     )
+}
+
+/// Asserts that a non zero amount of delayed receipts exist in MemTrie for the given shard.
+fn check_delayed_receipts_exist_in_memtrie(client: &Client, shard_uid: &ShardUId, prev_block_hash: &CryptoHash) {
+    let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
+    let indices: DelayedReceiptIndices =
+        get(&memtrie, &TrieKey::DelayedReceiptIndices).unwrap().unwrap();
+    assert_ne!(indices.len(), 0);
+}
+
+/// Asserts that a non zero amount of buffered receipts exist in MemTrie for the given shard.
+fn check_buffered_receipts_exist_in_memtrie(client: &Client, shard_uid: &ShardUId, prev_block_hash: &CryptoHash) {
+    let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
+    let indices: BufferedReceiptIndices =
+        get(&memtrie, &TrieKey::BufferedReceiptIndices).unwrap().unwrap();
+    // There should be at least one buffered receipt going to some other shard. It's not very precise but good enough.
+    assert_ne!(indices.shard_buffers.values().fold(0, |acc, buffer| acc + buffer.len()), 0);
 }
 
 /// Returns a loop action that invokes a costly method from a contract `CALLS_PER_BLOCK_HEIGHT` times per block height.
@@ -428,6 +456,23 @@ fn next_block_has_new_shard_layout(epoch_manager: Arc<dyn EpochManagerAdapter>, 
         && shard_layout != next_shard_layout
 }
 
+fn get_memtrie_for_shard(
+    client: &Client,
+    shard_uid: &ShardUId,
+    prev_block_hash: &CryptoHash,
+) -> Trie {
+    let state_root =
+        *client.chain.get_chunk_extra(prev_block_hash, shard_uid).unwrap().state_root();
+
+    // Here memtries will be used as long as client has memtries enabled.
+    let memtrie = client
+        .runtime_adapter
+        .get_trie_for_shard(shard_uid.shard_id(), prev_block_hash, state_root, false)
+        .unwrap();
+    assert!(memtrie.has_memtries());
+    memtrie
+}
+
 /// Asserts that for each child shard:
 /// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
 fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &Client) {
@@ -440,25 +485,15 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
         .get_children_shards_uids(parent_shard_uid.shard_id())
         .unwrap()
     {
+        let memtrie = get_memtrie_for_shard(client, &child_shard_uid, &final_head.prev_block_hash);
+        let memtrie_state =
+            memtrie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+
         let state_root = *client
             .chain
             .get_chunk_extra(&final_head.prev_block_hash, &child_shard_uid)
             .unwrap()
             .state_root();
-
-        // Here memtries will be used as long as client has memtries enabled.
-        let memtrie = client
-            .runtime_adapter
-            .get_trie_for_shard(
-                child_shard_uid.shard_id(),
-                &final_head.prev_block_hash,
-                state_root,
-                false,
-            )
-            .unwrap();
-        assert!(memtrie.has_memtries());
-        let memtrie_state =
-            memtrie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
 
         // To get a view on disk tries we can leverage the fact that get_view_trie_for_shard() never
         // uses memtries.
