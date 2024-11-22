@@ -336,19 +336,31 @@ fn check_receipts_presence_at_resharding_block(
             match kind {
                 ReceiptKind::Delayed => {
                     assert_ne!(congestion_info.delayed_receipts_gas(), 0);
-                    check_delayed_receipts_exist_in_memtrie(&client_actor.client, &shard_uid, &tip.prev_block_hash);
+                    check_delayed_receipts_exist_in_memtrie(
+                        &client_actor.client,
+                        &shard_uid,
+                        &tip.prev_block_hash,
+                    );
                 }
                 ReceiptKind::Buffered => {
                     assert_ne!(congestion_info.buffered_receipts_gas(), 0);
-                    check_buffered_receipts_exist_in_memtrie(&client_actor.client, &shard_uid, &tip.prev_block_hash);
-                },
+                    check_buffered_receipts_exist_in_memtrie(
+                        &client_actor.client,
+                        &shard_uid,
+                        &tip.prev_block_hash,
+                    );
+                }
             }
         },
     )
 }
 
 /// Asserts that a non zero amount of delayed receipts exist in MemTrie for the given shard.
-fn check_delayed_receipts_exist_in_memtrie(client: &Client, shard_uid: &ShardUId, prev_block_hash: &CryptoHash) {
+fn check_delayed_receipts_exist_in_memtrie(
+    client: &Client,
+    shard_uid: &ShardUId,
+    prev_block_hash: &CryptoHash,
+) {
     let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
     let indices: DelayedReceiptIndices =
         get(&memtrie, &TrieKey::DelayedReceiptIndices).unwrap().unwrap();
@@ -356,7 +368,11 @@ fn check_delayed_receipts_exist_in_memtrie(client: &Client, shard_uid: &ShardUId
 }
 
 /// Asserts that a non zero amount of buffered receipts exist in MemTrie for the given shard.
-fn check_buffered_receipts_exist_in_memtrie(client: &Client, shard_uid: &ShardUId, prev_block_hash: &CryptoHash) {
+fn check_buffered_receipts_exist_in_memtrie(
+    client: &Client,
+    shard_uid: &ShardUId,
+    prev_block_hash: &CryptoHash,
+) {
     let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
     let indices: BufferedReceiptIndices =
         get(&memtrie, &TrieKey::BufferedReceiptIndices).unwrap().unwrap();
