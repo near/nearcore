@@ -703,6 +703,11 @@ impl Trie {
         }
     }
 
+    /// Returns `true` if this `Trie` is configured to use in memory tries.
+    pub fn has_memtries(&self) -> bool {
+        self.memtries.is_some()
+    }
+
     /// Helper to simulate gas costs as if flat storage was present.
     pub fn dont_charge_gas_for_trie_node_access(&mut self) {
         self.charge_gas_for_trie_node_access = false;

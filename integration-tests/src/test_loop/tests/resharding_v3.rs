@@ -16,7 +16,7 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::{DBCol, ShardUId};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -29,6 +29,7 @@ use assert_matches::assert_matches;
 use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::FinalExecutionStatus;
@@ -396,6 +397,90 @@ fn next_block_has_new_shard_layout(epoch_manager: Arc<dyn EpochManagerAdapter>, 
         && shard_layout != next_shard_layout
 }
 
+/// Asserts that for each child shard:
+/// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
+fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &Client) {
+    let final_head = client.chain.final_head().unwrap();
+
+    for child_shard_uid in client
+        .epoch_manager
+        .get_shard_layout(&final_head.epoch_id)
+        .unwrap()
+        .get_children_shards_uids(parent_shard_uid.shard_id())
+        .unwrap()
+    {
+        let state_root = *client
+            .chain
+            .get_chunk_extra(&final_head.prev_block_hash, &child_shard_uid)
+            .unwrap()
+            .state_root();
+
+        // Here memtries will be used as long as client has memtries enabled.
+        let memtrie = client
+            .runtime_adapter
+            .get_trie_for_shard(
+                child_shard_uid.shard_id(),
+                &final_head.prev_block_hash,
+                state_root,
+                false,
+            )
+            .unwrap();
+        assert!(memtrie.has_memtries());
+        let memtrie_state =
+            memtrie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+
+        // To get a view on disk tries we can leverage the fact that get_view_trie_for_shard() never
+        // uses memtries.
+        let trie = client
+            .runtime_adapter
+            .get_view_trie_for_shard(
+                child_shard_uid.shard_id(),
+                &final_head.prev_block_hash,
+                state_root,
+            )
+            .unwrap();
+        assert!(!trie.has_memtries());
+        let trie_state =
+            trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+
+        let flat_store_chunk_view = client
+            .chain
+            .runtime_adapter
+            .get_flat_storage_manager()
+            .chunk_view(child_shard_uid, final_head.last_block_hash)
+            .unwrap();
+        let flat_store_state = flat_store_chunk_view
+            .iter_range(None, None)
+            .map_ok(|(key, value)| {
+                let value = match value {
+                    FlatStateValue::Ref(value) => client
+                        .chain
+                        .chain_store()
+                        .store()
+                        .trie_store()
+                        .get(child_shard_uid, &value.hash)
+                        .unwrap()
+                        .to_vec(),
+                    FlatStateValue::Inlined(data) => data,
+                };
+                (key, value)
+            })
+            .collect::<Result<HashSet<_>, _>>()
+            .unwrap();
+
+        let diff_memtrie_flat_store = memtrie_state.symmetric_difference(&flat_store_state);
+        let diff_memtrie_trie = memtrie_state.symmetric_difference(&trie_state);
+        let diff = diff_memtrie_flat_store.chain(diff_memtrie_trie);
+        if diff.clone().count() == 0 {
+            continue;
+        }
+        for (key, value) in diff {
+            tracing::error!(target: "test", shard=?child_shard_uid, key=?key, ?value, "Difference in state between trie, memtrie and flat store!");
+        }
+        assert!(false, "trie, memtrie and flat store state mismatch!");
+    }
+}
+
 /// Base setup to check sanity of Resharding V3.
 /// TODO(#11881): add the following scenarios:
 /// - Nodes must not track all shards. State sync must succeed.
@@ -541,6 +626,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Give enough time to produce ~7 epochs.
         Duration::seconds((7 * params.epoch_length) as i64),
     );
+
+    // At the end of the test we know for sure resharding has been completed.
+    // Verify that state is equal across tries and flat storage for all children shards.
+    let clients =
+        client_handles.iter().map(|handle| &test_loop.data.get(handle).client).collect_vec();
+    assert_state_sanity_for_children_shard(parent_shard_uid, &clients[0]);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
