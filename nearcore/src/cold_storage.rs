@@ -428,11 +428,6 @@ pub fn spawn_cold_store_loop(
     let hot_store = storage.get_hot_store();
     let genesis_height = config.genesis.config.genesis_height;
 
-    // Perform the sanity check before spawning the thread.
-    // If the check fails when the node is starting it's better to just fail
-    // fast and crash the node immediately.
-    sanity_check(&archiver, &hot_store, genesis_height)?;
-
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
 
@@ -441,6 +436,15 @@ pub fn spawn_cold_store_loop(
     tracing::info!(target : "cold_store", "Spawning the cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_copy".to_string()).spawn(move || {
+            // Perform the sanity check first, before running the loops.
+            // If the check fails when the node is starting it's better to just fail
+            // fast and crash the node immediately.
+            // Note that we need to run this check in the new thread, because it runs blocking calls to async code
+            // and it panics if run from the main thread. 
+            if let Err(err) = sanity_check(&archiver, &hot_store, genesis_height) {
+                panic!("Failed to sanity check cold store: {:?}", err);
+            }
+
             cold_store_migration_loop(
                 &split_storage_config,
                 &keep_going_clone,
