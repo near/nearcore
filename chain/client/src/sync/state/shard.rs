@@ -99,6 +99,11 @@ pub(super) async fn run_state_sync_for_shard(
     *status.lock().unwrap() = ShardSyncStatus::StateDownloadParts;
     let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
     {
+        // Peer selection is designed such that requests for the same state parts are made to the
+        // same hosts, allowing the system to benefit from caching of parts on the host side. At
+        // the start of an epoch a number of nodes begin state sync at the same time. If we don't
+        // shuffle the order in which parts are requested, they will all request the same parts
+        // around the same time, producing spikes of traffic to particular hosts.
         let mut rng = thread_rng();
         parts_to_download.shuffle(&mut rng);
     }
@@ -120,6 +125,7 @@ pub(super) async fn run_state_sync_for_shard(
             .collect::<Vec<_>>()
             .await;
         attempt_count += 1;
+        // Update the list of parts_to_download retaining only the ones that failed
         parts_to_download = results
             .iter()
             .enumerate()
