@@ -32,7 +32,6 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::views::FinalExecutionStatus;
 use std::cell::Cell;
 use std::u64;
@@ -467,7 +466,7 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
             continue;
         }
         for (key, value) in diff {
-            tracing::error!(target: "test", shard=?child_shard_uid, key=ALL_COLUMNS_WITH_NAMES[key[0] as usize].1, ?value, "Difference in state between trie, memtrie and flat store!");
+            tracing::error!(target: "test", shard=?child_shard_uid, key=?key, ?value, "Difference in state between trie, memtrie and flat store!");
         }
         assert!(false, "trie, memtrie and flat store state mismatch!");
     }

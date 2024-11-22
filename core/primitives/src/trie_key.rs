@@ -74,7 +74,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 16] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 15] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -83,7 +83,6 @@ pub mod col {
         (PENDING_DATA_COUNT, "PendingDataCount"),
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (DELAYED_RECEIPT_OR_INDICES, "DelayedReceiptOrIndices"),
-        (u8::MAX, "unused"),
         (CONTRACT_DATA, "ContractData"),
         (PROMISE_YIELD_INDICES, "PromiseYieldIndices"),
         (PROMISE_YIELD_TIMEOUT, "PromiseYieldTimeout"),
