@@ -8,6 +8,7 @@ mod util;
 
 use crate::metrics;
 use crate::sync::external::{create_bucket_readonly, ExternalConnection};
+use crate::sync::state::shard::StateToSync;
 use chain_requests::ChainSenderForStateSync;
 use downloader::StateSyncDownloader;
 use external::StateSyncDownloadSourceExternal;
@@ -211,7 +212,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         sync_status: &mut StateSyncStatus,
         highest_height_peers: &[HighestHeightPeerInfo],
-        tracking_shards: &[ShardId],
+        tracking_shards: &HashMap<ShardId, bool>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span =
             tracing::debug_span!(target: "sync", "run_sync", sync_type = "StateSync").entered();
@@ -222,7 +223,7 @@ impl StateSync {
         );
 
         let mut all_done = true;
-        for shard_id in tracking_shards {
+        for (shard_id, is_tracking) in tracking_shards {
             let key = (sync_hash, *shard_id);
             let status = match self.shard_syncs.entry(key) {
                 Entry::Occupied(mut entry) => match entry.get_mut().result.try_recv() {
@@ -255,6 +256,7 @@ impl StateSync {
                         self.store.clone(),
                         *shard_id,
                         sync_hash,
+                        if *is_tracking { StateToSync::Full } else { StateToSync::HeaderOnly },
                         self.downloader.clone(),
                         self.runtime.clone(),
                         self.epoch_manager.clone(),
@@ -287,7 +289,7 @@ impl StateSync {
         // If a shard completed syncing, we just remove it. We will not be syncing it again the next time around,
         // because we would've marked it as completed in the status for that shard.
         self.shard_syncs.retain(|(existing_sync_hash, existing_shard_id), _v| {
-            tracking_shards.contains(existing_shard_id) && existing_sync_hash == &sync_hash
+            tracking_shards.contains_key(existing_shard_id) && existing_sync_hash == &sync_hash
         });
 
         sync_status.download_tasks = self.downloading_task_tracker.statuses();

@@ -24,6 +24,12 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+#[derive(Debug, Clone)]
+pub enum StateToSync {
+    HeaderOnly,
+    Full,
+}
+
 pub(super) struct StateSyncShardHandle {
     pub status: Arc<Mutex<ShardSyncStatus>>,
     pub result: oneshot::Receiver<Result<(), near_chain::Error>>,
@@ -58,6 +64,7 @@ pub(super) async fn run_state_sync_for_shard(
     store: Store,
     shard_id: ShardId,
     sync_hash: CryptoHash,
+    state_to_sync: StateToSync,
     downloader: Arc<StateSyncDownloader>,
     runtime: Arc<dyn RuntimeAdapter>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -70,6 +77,12 @@ pub(super) async fn run_state_sync_for_shard(
     tracing::info!("Running state sync for shard {}", shard_id);
     *status.lock().unwrap() = ShardSyncStatus::StateDownloadHeader;
     let header = downloader.ensure_shard_header(shard_id, sync_hash, cancel.clone()).await?;
+    match state_to_sync {
+        StateToSync::HeaderOnly => {
+            return Ok(());
+        }
+        StateToSync::Full => {}
+    };
     let state_root = header.chunk_prev_state_root();
     let num_parts = header.num_state_parts();
     let block_header =

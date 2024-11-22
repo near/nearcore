@@ -14,6 +14,7 @@ use near_primitives::{
     },
     types::{AccountId, ShardId},
 };
+use std::collections::HashMap;
 use tracing::{debug, debug_span, error};
 
 pub fn need_receipt(
@@ -54,18 +55,21 @@ pub fn get_shards_cares_about_this_or_next_epoch(
     block_header: &BlockHeader,
     shard_tracker: &ShardTracker,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Vec<ShardId> {
+) -> HashMap<ShardId, bool> {
     epoch_manager
         .shard_ids(&block_header.epoch_id())
         .unwrap()
         .into_iter()
-        .filter(|&shard_id| {
-            cares_about_shard_this_or_next_epoch(
-                account_id,
-                block_header.prev_hash(),
+        .map(|shard_id| {
+            (
                 shard_id,
-                is_me,
-                shard_tracker,
+                cares_about_shard_this_or_next_epoch(
+                    account_id,
+                    block_header.prev_hash(),
+                    shard_id,
+                    is_me,
+                    shard_tracker,
+                ),
             )
         })
         .collect()
