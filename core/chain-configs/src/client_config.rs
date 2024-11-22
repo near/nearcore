@@ -317,7 +317,7 @@ pub fn default_state_sync_p2p_timeout() -> Duration {
 }
 
 pub fn default_state_sync_retry_timeout() -> Duration {
-    Duration::seconds(60)
+    Duration::seconds(1)
 }
 
 pub fn default_header_sync_expected_height_per_second() -> u64 {

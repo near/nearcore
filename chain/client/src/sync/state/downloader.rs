@@ -5,6 +5,7 @@ use super::StateSyncDownloadSource;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use near_async::messaging::AsyncSender;
+use near_async::time::{Clock, Duration};
 use near_chain::types::RuntimeAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
@@ -24,6 +25,7 @@ use tracing::Instrument;
 /// As a result, the user of this API only needs to request the header or ensure the
 /// part exists on disk, and the downloader will take care of the rest.
 pub(super) struct StateSyncDownloader {
+    pub clock: Clock,
     pub store: Store,
     pub preferred_source: Arc<dyn StateSyncDownloadSource>,
     pub fallback_source: Option<Arc<dyn StateSyncDownloadSource>>,
@@ -31,6 +33,7 @@ pub(super) struct StateSyncDownloader {
     pub header_validation_sender:
         AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
+    pub retry_timeout: Duration,
     pub task_tracker: TaskTracker,
 }
 
@@ -52,6 +55,8 @@ impl StateSyncDownloader {
         let fallback_source = self.fallback_source.clone();
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
         let task_tracker = self.task_tracker.clone();
+        let clock = self.clock.clone();
+        let retry_timeout = self.retry_timeout;
         async move {
             let handle = task_tracker.get_handle(&format!("shard {} header", shard_id)).await;
             handle.set_status("Reading existing header");
@@ -96,7 +101,19 @@ impl StateSyncDownloader {
             loop {
                 match attempt().await {
                     Ok(header) => return Ok(header),
-                    Err(_) => {}
+                    Err(err) => {
+                        handle.set_status(&format!(
+                            "Error: {}, will retry in {}",
+                            err, retry_timeout
+                        ));
+                        let deadline = clock.now() + retry_timeout;
+                        tokio::select! {
+                            _ = cancel.cancelled() => {
+                                return Err(near_chain::Error::Other("Cancelled".to_owned()));
+                            }
+                            _ = clock.sleep_until(deadline) => {}
+                        }
+                    }
                 }
                 i.fetch_add(1, Ordering::Relaxed);
             }
