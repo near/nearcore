@@ -160,7 +160,13 @@ impl StateSyncDownloader {
                     };
 
                 let part = source
-                    .download_shard_part(shard_id, sync_hash, part_id, handle.clone(), cancel.clone())
+                    .download_shard_part(
+                        shard_id,
+                        sync_hash,
+                        part_id,
+                        handle.clone(),
+                        cancel.clone(),
+                    )
                     .await?;
                 let state_root = header.chunk_prev_state_root();
                 if runtime_adapter.validate_state_part(
