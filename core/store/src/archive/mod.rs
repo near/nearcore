@@ -80,18 +80,15 @@ impl Archiver {
         if self.external_storage.is_none() {
             return self.get_cold_head();
         }
-        if let Some(archive_head) = self
+        let archive_head = self
             .read(DBCol::BlockMisc, HEAD_KEY)?
             .map(|data| Tip::try_from_slice(&data))
-            .transpose()?
-        {
-            if cfg!(debug_assertions) {
-                let cold_head = self.get_cold_head();
-                debug_assert_eq!(cold_head.as_ref().unwrap(), &archive_head);
-            }
-            return Ok(Some(archive_head));
+            .transpose()?;
+        if cfg!(debug_assertions) {
+            let cold_head = self.get_cold_head();
+            debug_assert_eq!(cold_head.as_ref().unwrap(), &archive_head);
         }
-        Ok(None)
+        Ok(archive_head)
     }
 
     pub fn set_head(&self, tip: &Tip) -> io::Result<()> {
@@ -122,12 +119,24 @@ impl Archiver {
             return self.cold_db.write(tx);
         }
 
-        self.write_to_external(tx)?;
-        if self.sync_cold_db {
-            self.cold_db.write(tx.clone())
+        let cold_db_write_duration = if self.sync_cold_db {
+            let instant = std::time::Instant::now();
+            self.cold_db.write(tx.clone())?;
+            Some(instant.elapsed())
         } else {
-            Ok(())
-        }
+            None
+        };
+
+        let instant = std::time::Instant::now();
+        self.write_to_external(tx)?;
+        let external_write_duration = instant.elapsed();
+
+        tracing::info!(
+            target: "cold_store",
+            ?external_write_duration,
+            ?cold_db_write_duration,
+            "Wrote transaction");
+        Ok(())
     }
 
     pub fn read(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
