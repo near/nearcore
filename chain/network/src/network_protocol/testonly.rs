@@ -105,18 +105,8 @@ pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
 
 pub fn make_announce_account<R: Rng>(rng: &mut R) -> AnnounceAccount {
     let peer_id = make_peer_id(rng);
-    let validator_signer = make_validator_signer(rng);
-    let signature = validator_signer.sign_account_announce(
-        validator_signer.validator_id(),
-        &peer_id,
-        &EpochId::default(),
-    );
-    AnnounceAccount {
-        account_id: validator_signer.validator_id().clone(),
-        peer_id: peer_id,
-        epoch_id: EpochId::default(),
-        signature,
-    }
+    let validator_signer = ValidatorSigner::InMemory(make_validator_signer(rng));
+    AnnounceAccount::new(&validator_signer, peer_id, EpochId::default())
 }
 
 pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {

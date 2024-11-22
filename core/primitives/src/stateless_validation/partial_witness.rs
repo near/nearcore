@@ -55,7 +55,7 @@ impl PartialEncodedStateWitness {
             part,
             encoded_length,
         );
-        let signature = signer.sign_partial_encoded_state_witness(&inner);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         Self { inner, signature }
     }
 
