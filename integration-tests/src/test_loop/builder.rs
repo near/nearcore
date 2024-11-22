@@ -311,6 +311,11 @@ impl TestLoopBuilder {
         self
     }
 
+    pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
+        self.runtime_config_store = Some(runtime_config_store);
+        self
+    }
+
     /// Set the clients for the test loop.
     pub(crate) fn clients(mut self, clients: Vec<AccountId>) -> Self {
         self.clients = clients;
