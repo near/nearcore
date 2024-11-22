@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 use std::{io, sync::Arc};
 
 use borsh::BorshDeserialize;
@@ -56,6 +57,14 @@ impl ArchivalStorageOpener {
         let sync_cold_db = self.config.sync_cold_db;
         Ok(Arc::new(Archiver { cold_db, external_storage: storage, column_to_path, sync_cold_db }))
     }
+}
+
+#[derive(Debug, Default)]
+struct ArchiveWriteStats {
+    num_keys: usize,
+    total_size: usize,
+    cold_db_write_duration: Option<Duration>,
+    external_write_duration: Duration,
 }
 
 #[derive(Clone)]
@@ -127,14 +136,12 @@ impl Archiver {
             None
         };
 
-        let instant = std::time::Instant::now();
-        self.write_to_external(tx)?;
-        let external_write_duration = instant.elapsed();
+        let mut stats = self.write_to_external(tx)?;
+        stats.cold_db_write_duration = cold_db_write_duration;
 
         tracing::info!(
             target: "cold_store",
-            ?external_write_duration,
-            ?cold_db_write_duration,
+            ?stats,
             "Wrote transaction");
         Ok(())
     }
@@ -157,8 +164,10 @@ impl Archiver {
         [dirname, std::path::Path::new(&filename)].into_iter().collect()
     }
 
-    fn write_to_external(&self, transaction: DBTransaction) -> io::Result<()> {
+    fn write_to_external(&self, transaction: DBTransaction) -> io::Result<ArchiveWriteStats> {
+        let mut stats = ArchiveWriteStats::default();
         let storage = self.external_storage.as_ref().unwrap();
+        let instant = std::time::Instant::now();
         transaction
             .ops
             .into_iter()
@@ -178,9 +187,13 @@ impl Archiver {
                 }
             })
             .try_for_each(|(col, key, value)| {
+                stats.num_keys += 1;
+                stats.total_size = stats.total_size.checked_add(value.len()).unwrap();
                 let path = self.get_path(col, &key);
                 storage.put(&path, &value)
-            })
+            })?;
+        stats.external_write_duration = instant.elapsed();
+        Ok(stats)
     }
 }
 
