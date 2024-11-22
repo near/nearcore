@@ -179,7 +179,7 @@ impl TestTriesBuilder {
             }
             update_for_chunk_extra.commit().unwrap();
 
-            tries.load_mem_tries_for_enabled_shards(&shard_uids, false).unwrap();
+            tries.load_mem_tries_for_enabled_shards(&shard_uids, &[].into(), false).unwrap();
         }
         tries
     }

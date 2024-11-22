@@ -20,7 +20,7 @@ bs58.workspace = true
 bytesize.workspace = true
 cloud-storage.workspace = true
 crossbeam.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
 smallvec.workspace = true
 enum-map.workspace = true
