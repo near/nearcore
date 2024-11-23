@@ -115,8 +115,6 @@ pub struct CatchupState {
     pub sync_status: StateSyncStatus,
     /// Manages going back to apply chunks after state has been downloaded.
     pub catchup: BlocksCatchUpState,
-    /// Determines which shards should be synced
-    pub tracking_shards: HashMap<ShardId, bool>,
 }
 
 pub struct Client {
@@ -2554,20 +2552,11 @@ impl Client {
             let sync_hash = self.get_catchup_sync_hash(&mut state_sync_info, &epoch_first_block)?;
             let Some(sync_hash) = sync_hash else { continue };
 
-            let CatchupState { state_sync, sync_status: status, catchup, tracking_shards } = self
+            let CatchupState { state_sync, sync_status: status, catchup } = self
                 .catchup_state_syncs
                 .entry(sync_hash)
                 .or_insert_with(|| {
                     tracing::debug!(target: "client", ?epoch_first_block, ?sync_hash, "inserting new state sync");
-                    let mut tracking_shards = self.epoch_manager
-                        .shard_ids(&block_header.epoch_id())
-                        .unwrap()
-                        .into_iter()
-                        .map(|shard_id| (shard_id, false))
-                        .collect::<HashMap<ShardId, bool>>();
-                    for shard_id in state_sync_info.shards() {
-                        tracking_shards.insert(*shard_id, true);
-                    }
                     CatchupState {
                         state_sync: StateSync::new(
                             self.clock.clone(),
@@ -2591,7 +2580,6 @@ impl Client {
                             computation_tasks: Vec::new(),
                         },
                         catchup: BlocksCatchUpState::new(sync_hash, *epoch_id),
-                        tracking_shards,
                     }
                 });
 
@@ -2600,7 +2588,12 @@ impl Client {
             // Initialize the new shard sync to contain the shards to split at
             // first. It will get updated with the shard sync download status
             // for other shards later.
-            match state_sync.run(sync_hash, status, highest_height_peers, tracking_shards)? {
+            match state_sync.run(
+                sync_hash,
+                status,
+                highest_height_peers,
+                state_sync_info.shards(),
+            )? {
                 StateSyncResult::InProgress => {}
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
