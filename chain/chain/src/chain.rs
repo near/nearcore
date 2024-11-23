@@ -2812,9 +2812,6 @@ impl Chain {
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
 
-        // Before saving State Part data, we need to make sure we can calculate and save State Header
-        self.get_state_response_header(shard_id, sync_hash)?;
-
         // Saving the part data
         let mut store_update = self.chain_store.store().store_update();
         store_update.set(DBCol::StateParts, &key, &state_part);
