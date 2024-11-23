@@ -33,7 +33,7 @@ pub(super) struct StateSyncDownloader {
     pub header_validation_sender:
         AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
-    pub retry_timeout: Duration,
+    pub retry_backoff: Duration,
     pub task_tracker: TaskTracker,
 }
 
@@ -56,7 +56,7 @@ impl StateSyncDownloader {
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
         let task_tracker = self.task_tracker.clone();
         let clock = self.clock.clone();
-        let retry_timeout = self.retry_timeout;
+        let retry_backoff = self.retry_backoff;
         async move {
             let handle = task_tracker.get_handle(&format!("shard {} header", shard_id)).await;
             handle.set_status("Reading existing header");
@@ -107,9 +107,9 @@ impl StateSyncDownloader {
                     Err(err) => {
                         handle.set_status(&format!(
                             "Error: {}, will retry in {}",
-                            err, retry_timeout
+                            err, retry_backoff
                         ));
-                        let deadline = clock.now() + retry_timeout;
+                        let deadline = clock.now() + retry_backoff;
                         tokio::select! {
                             _ = cancel.cancelled() => {
                                 return Err(near_chain::Error::Other("Cancelled".to_owned()));
@@ -145,7 +145,7 @@ impl StateSyncDownloader {
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
         let clock = self.clock.clone();
         let task_tracker = self.task_tracker.clone();
-        let retry_timeout = self.retry_timeout;
+        let retry_backoff = self.retry_backoff;
         async move {
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
@@ -190,11 +190,12 @@ impl StateSyncDownloader {
             };
 
             let res = attempt().await;
-            if res.is_err() {
-                let deadline = clock.now() + retry_timeout;
+            if let Err(ref err) = res {
+                handle.set_status(&format!("Error: {}, will retry in {}", err, retry_backoff));
+                let deadline = clock.now() + retry_backoff;
                 tokio::select! {
-                    _ = clock.sleep_until(deadline) => {}
                     _ = cancel.cancelled() => {}
+                    _ = clock.sleep_until(deadline) => {}
                 }
             }
             res

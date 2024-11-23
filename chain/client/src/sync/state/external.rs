@@ -15,8 +15,6 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-const EXTERNAL_REQUEST_COOLDOWN: time::Duration = Duration::seconds(60);
-
 /// Logic for downloading state sync headers and parts from an external source.
 pub(super) struct StateSyncDownloadSourceExternal {
     pub clock: Clock,
@@ -24,12 +22,14 @@ pub(super) struct StateSyncDownloadSourceExternal {
     pub chain_id: String,
     pub conn: ExternalConnection,
     pub timeout: Duration,
+    pub backoff: Duration,
 }
 
 impl StateSyncDownloadSourceExternal {
     async fn get_file_with_timeout(
         clock: Clock,
         timeout: Duration,
+        backoff: Duration,
         cancellation: CancellationToken,
         conn: ExternalConnection,
         shard_id: ShardId,
@@ -54,8 +54,8 @@ impl StateSyncDownloadSourceExternal {
             result = fut => {
                 // A download error typically indicates that the file is not available yet. At the
                 // start of the epoch it takes a while for dumpers to populate the external storage
-                // with state files. This cooldown prevents spamming requests during that time.
-                let deadline = clock.now() + EXTERNAL_REQUEST_COOLDOWN;
+                // with state files. This backoff period prevents spamming requests during that time.
+                let deadline = clock.now() + backoff;
                 tokio::select! {
                     _ = clock.sleep_until(deadline) => {}
                     _ = cancellation.cancelled() => {}
@@ -81,6 +81,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
     ) -> BoxFuture<Result<ShardStateSyncResponseHeader, near_chain::Error>> {
         let clock = self.clock.clone();
         let timeout = self.timeout;
+        let backoff = self.backoff;
         let chain_id = self.chain_id.clone();
         let conn = self.conn.clone();
         let store = self.store.clone();
@@ -98,6 +99,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             let data = Self::get_file_with_timeout(
                 clock,
                 timeout,
+                backoff,
                 cancel,
                 conn,
                 shard_id,
@@ -127,6 +129,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
     ) -> BoxFuture<Result<Vec<u8>, near_chain::Error>> {
         let clock = self.clock.clone();
         let timeout = self.timeout;
+        let backoff = self.backoff;
         let chain_id = self.chain_id.clone();
         let conn = self.conn.clone();
         let store = self.store.clone();
@@ -149,6 +152,7 @@ impl StateSyncDownloadSource for StateSyncDownloadSourceExternal {
             let data = Self::get_file_with_timeout(
                 clock,
                 timeout,
+                backoff,
                 cancel,
                 conn,
                 shard_id,
