@@ -16,7 +16,6 @@ use near_store::trie::receipts_column_helper::{
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Handle receipt forwarding for different protocol versions.
@@ -325,11 +324,11 @@ impl ReceiptSinkV2<'_> {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_owned(receipt, metadata);
+                let receipt = StateStoredReceipt::new(receipt, metadata);
                 let receipt = ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt);
                 receipt
             }
-            false => ReceiptOrStateStoredReceipt::Receipt(std::borrow::Cow::Owned(receipt)),
+            false => ReceiptOrStateStoredReceipt::Receipt(receipt),
         };
 
         self.own_congestion_info.add_receipt_bytes(size)?;
@@ -491,10 +490,11 @@ impl DelayedReceiptQueueWrapper {
             true => {
                 let metadata =
                     StateStoredReceiptMetadata { congestion_gas: gas, congestion_size: size };
-                let receipt = StateStoredReceipt::new_borrowed(receipt, metadata);
+                // FIXME eagr
+                let receipt = StateStoredReceipt::new(receipt.clone(), metadata);
                 ReceiptOrStateStoredReceipt::StateStoredReceipt(receipt)
             }
-            false => ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt)),
+            false => ReceiptOrStateStoredReceipt::Receipt(receipt.clone()),
         };
 
         self.new_delayed_gas = safe_add_gas(self.new_delayed_gas, gas)?;

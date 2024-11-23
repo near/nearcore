@@ -1744,7 +1744,7 @@ impl Runtime {
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
-                    &receipt,
+                    receipt,
                     &processing_state.apply_state.config,
                 )?;
             } else {
@@ -2548,13 +2548,13 @@ impl<'a> MaybeRefReceipt for &'a Receipt {
     }
 }
 
-impl MaybeRefReceipt for ReceiptOrStateStoredReceipt<'_> {
+impl MaybeRefReceipt for ReceiptOrStateStoredReceipt {
     fn as_ref(&self) -> &Receipt {
         self.get_receipt()
     }
 }
 
-impl<'a> MaybeRefReceipt for &'a ReceiptOrStateStoredReceipt<'a> {
+impl<'a> MaybeRefReceipt for &'a ReceiptOrStateStoredReceipt {
     fn as_ref(&self) -> &Receipt {
         self.get_receipt()
     }
