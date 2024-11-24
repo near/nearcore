@@ -52,18 +52,17 @@ impl StateSyncDownloadSourceExternal {
                 Err(near_chain::Error::Other("Cancelled".to_owned()))
             }
             result = fut => {
-                // A download error typically indicates that the file is not available yet. At the
-                // start of the epoch it takes a while for dumpers to populate the external storage
-                // with state files. This backoff period prevents spamming requests during that time.
-                let deadline = clock.now() + backoff;
-                tokio::select! {
-                    _ = clock.sleep_until(deadline) => {}
-                    _ = cancellation.cancelled() => {}
-                }
-
                 result.map_err(|e| {
+                    // A download error typically indicates that the file is not available yet. At the
+                    // start of the epoch it takes a while for dumpers to populate the external storage
+                    // with state files. This backoff period prevents spamming requests during that time.
+                    let deadline = clock.now() + backoff;
+                    tokio::select! {
+                        _ = clock.sleep_until(deadline) => {}
+                        _ = cancellation.cancelled() => {}
+                    }
+
                     increment_download_count(shard_id, typ, "external", "download_error");
-                    tracing::debug!(target: "sync", "Failed to download with error {}", e);
                     near_chain::Error::Other(format!("Failed to download: {}", e))
                 })
             }

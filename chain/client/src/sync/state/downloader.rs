@@ -101,7 +101,6 @@ impl StateSyncDownloader {
             loop {
                 match attempt().await {
                     Ok(header) => {
-                        tracing::debug!(target: "state_sync", "Acquired state header for shard {}", shard_id);
                         return Ok(header);
                     }
                     Err(err) => {
