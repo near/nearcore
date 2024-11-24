@@ -97,6 +97,7 @@ pub(super) async fn run_state_sync_for_shard(
     }
     let mut attempt_count = 0;
     while !parts_to_download.is_empty() {
+        return_if_cancelled!(cancel);
         let results = tokio_stream::iter(parts_to_download.clone())
             .map(|part_id| {
                 let future = downloader.ensure_shard_part_downloaded_single_attempt(
