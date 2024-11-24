@@ -124,8 +124,9 @@ impl StateSyncDownloader {
         .boxed()
     }
 
-    /// Makes a single attempt to obtain a shard part. If the part exists on disk,
-    /// just returns. Otherwise, downloads the part and validates it.
+    /// Attempts once to ensure that the shard part is downloaded and validated.
+    /// If the part exists on disk, just returns. Otherwise, makes one attempt
+    /// to download the part and validate it.
     ///
     /// This method will return an error if the download fails or is cancelled.
     pub fn ensure_shard_part_downloaded_single_attempt(
