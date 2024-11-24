@@ -145,6 +145,9 @@ impl StateSyncDownloader {
         let task_tracker = self.task_tracker.clone();
         let retry_backoff = self.retry_backoff;
         async move {
+            if cancel.is_cancelled() {
+                return Err(near_chain::Error::Other("Cancelled".to_owned()));
+            }
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
             handle.set_status("Reading existing part");
