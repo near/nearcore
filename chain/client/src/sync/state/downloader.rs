@@ -100,9 +100,7 @@ impl StateSyncDownloader {
 
             loop {
                 match attempt().await {
-                    Ok(header) => {
-                        return Ok(header);
-                    }
+                    Ok(header) => return Ok(header),
                     Err(err) => {
                         handle.set_status(&format!(
                             "Error: {}, will retry in {}",
