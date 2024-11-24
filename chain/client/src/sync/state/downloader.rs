@@ -132,7 +132,7 @@ impl StateSyncDownloader {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         part_id: u64,
-        attempt_count: usize,
+        num_prior_attempts: usize,
         header: ShardStateSyncResponseHeader,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
@@ -153,12 +153,13 @@ impl StateSyncDownloader {
             }
 
             let attempt = || async {
-                let source =
-                    if fallback_source.is_some() && attempt_count >= num_attempts_before_fallback {
-                        fallback_source.as_ref().unwrap().as_ref()
-                    } else {
-                        preferred_source.as_ref()
-                    };
+                let source = if fallback_source.is_some()
+                    && num_prior_attempts >= num_attempts_before_fallback
+                {
+                    fallback_source.as_ref().unwrap().as_ref()
+                } else {
+                    preferred_source.as_ref()
+                };
 
                 let part = source
                     .download_shard_part(
