@@ -2765,8 +2765,10 @@ impl Chain {
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
         if let Ok(Some(state_part)) = self.chain_store.store().get(DBCol::StateParts, &key) {
+            metrics::STATE_PART_CACHE_HIT.inc();
             return Ok(state_part.into());
         }
+        metrics::STATE_PART_CACHE_MISS.inc();
 
         let block = self
             .get_block(&sync_hash)
