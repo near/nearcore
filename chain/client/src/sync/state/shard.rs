@@ -91,7 +91,7 @@ pub(super) async fn run_state_sync_for_shard(
         //
         // At the start of an epoch, a number of nodes begin state sync at the same time. If we
         // don't randomize the order in which the parts are requested, the nodes will request the
-        // parts in roughly the same order, producing spikes of traffic to particular hosts.
+        // parts in roughly the same order, producing spikes of traffic to the same hosts.
         let mut rng = thread_rng();
         parts_to_download.shuffle(&mut rng);
     }
