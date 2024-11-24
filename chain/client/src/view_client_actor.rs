@@ -14,6 +14,7 @@ use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
     MerkleProofAccess,
 };
+use rand::{thread_rng, Rng};
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -1422,11 +1423,20 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
             .with_label_values(&["StateRequestPart"])
             .start_timer();
-        let StateRequestPart { shard_id, sync_hash, part_id } = msg;
+        let StateRequestPart { shard_id, sync_hash, mut part_id } = msg;
         if self.throttle_state_sync_request() {
             metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
+
+        // If we are feeling spicy, send the wrong part :)
+        {
+            let mut rng = thread_rng();
+            if rng.gen_range(1..10) == 0 {
+                part_id += 1;
+            }
+        }
+
         if let Err(err) = self.has_state_snapshot(&sync_hash, shard_id) {
             tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
             return None;
