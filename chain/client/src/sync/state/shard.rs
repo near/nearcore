@@ -105,7 +105,7 @@ pub(super) async fn run_state_sync_for_shard(
                     sync_hash,
                     part_id,
                     attempt_count,
-                    header.clone(),
+                    &header,
                     cancel.clone(),
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
