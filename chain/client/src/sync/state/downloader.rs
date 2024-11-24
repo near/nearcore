@@ -131,9 +131,10 @@ impl StateSyncDownloader {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
+        state_root: CryptoHash,
+        num_state_parts: u64,
         part_id: u64,
         num_prior_attempts: usize,
-        header: &ShardStateSyncResponseHeader,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
@@ -144,8 +145,6 @@ impl StateSyncDownloader {
         let clock = self.clock.clone();
         let task_tracker = self.task_tracker.clone();
         let retry_backoff = self.retry_backoff;
-        let state_root = header.chunk_prev_state_root();
-        let num_state_parts = header.num_state_parts();
         async move {
             if cancel.is_cancelled() {
                 return Err(near_chain::Error::Other("Cancelled".to_owned()));

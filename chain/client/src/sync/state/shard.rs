@@ -103,9 +103,10 @@ pub(super) async fn run_state_sync_for_shard(
                 let future = downloader.ensure_shard_part_downloaded_single_attempt(
                     shard_id,
                     sync_hash,
+                    state_root,
+                    num_parts,
                     part_id,
                     attempt_count,
-                    &header,
                     cancel.clone(),
                 );
                 respawn_for_parallelism(&*future_spawner, "state sync download part", future)
