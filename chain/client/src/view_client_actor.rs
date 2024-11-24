@@ -1432,7 +1432,7 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
         // If we are feeling spicy, send the wrong part :)
         {
             let mut rng = thread_rng();
-            if rng.gen_range(1..10) == 0 {
+            if rng.gen_range(0..10) == 0 {
                 part_id += 1;
             }
         }
