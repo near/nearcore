@@ -78,6 +78,7 @@ members = [
     "test-utils/testlib",
     "tools/database",
     "tools/chainsync-loadtest",
+    "tools/congestion-metrics",
     "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",

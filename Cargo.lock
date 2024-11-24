@@ -1472,6 +1472,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "congestion-metrics"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "actix-rt",
+ "anyhow",
+ "clap",
+ "futures",
+ "near-actix-test-utils",
+ "near-chain",
+ "near-chain-configs",
+ "near-chunks",
+ "near-client",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-jsonrpc",
+ "near-jsonrpc-client",
+ "near-network",
+ "near-o11y",
+ "near-performance-metrics",
+ "near-primitives",
+ "near-store",
+ "near-telemetry",
+ "near-time",
+ "nearcore",
+ "pin-project",
+ "rand",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "congestion-model"
 version = "0.0.0"
 dependencies = [

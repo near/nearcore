@@ -5,6 +5,9 @@ use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
 };
+use near_jsonrpc_primitives::types::congestion::{
+    RpcCongestionLevelRequest, RpcCongestionLevelResponse,
+};
 use near_jsonrpc_primitives::types::transactions::{
     RpcTransactionResponse, RpcTransactionStatusRequest,
 };
@@ -232,6 +235,14 @@ impl JsonRpcClient {
         request: RpcStateChangesInBlockByTypeRequest,
     ) -> RpcRequest<RpcStateChangesInBlockByTypeResponse> {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_changes", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_congestion_level(
+        &self,
+        request: RpcCongestionLevelRequest,
+    ) -> RpcRequest<RpcCongestionLevelResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_congestion_level", request)
     }
 
     #[allow(non_snake_case)]
