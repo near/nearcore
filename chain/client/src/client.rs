@@ -70,9 +70,10 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -200,6 +201,8 @@ pub struct Client {
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
+    /// Upgrade schedule which determines when the client starts voting for new protocol versions.
+    upgrade_schedule: ProtocolUpgradeVotingSchedule,
 }
 
 impl AsRef<Client> for Client {
@@ -256,6 +259,7 @@ impl Client {
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
         chain_sender_for_state_sync: ChainSenderForStateSync,
+        upgrade_schedule: ProtocolUpgradeVotingSchedule,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -408,6 +412,7 @@ impl Client {
             chunk_endorsement_tracker,
             partial_witness_adapter,
             chunk_distribution_network,
+            upgrade_schedule,
         })
     }
 
@@ -803,7 +808,7 @@ impl Client {
         let block = Block::produce(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
-            PROTOCOL_UPGRADE_SCHEDULE
+            self.upgrade_schedule
                 .get_protocol_version_to_vote_for_now(&self.clock, next_epoch_protocol_version),
             prev_header,
             height,

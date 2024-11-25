@@ -30,6 +30,7 @@ use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ShardId};
+use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
@@ -623,6 +624,7 @@ impl TestLoopBuilder {
             resharding_sender.as_multi_sender(),
             Arc::new(self.test_loop.future_spawner()),
             client_adapter.as_multi_sender(),
+            PROTOCOL_UPGRADE_SCHEDULE.clone(),
         )
         .unwrap();
 
