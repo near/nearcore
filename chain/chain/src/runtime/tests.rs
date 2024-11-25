@@ -29,7 +29,7 @@ use near_chain_configs::{
     default_produce_chunk_add_transactions_time_limit, Genesis, MutableConfigValue,
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE,
 };
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::challenge::{ChallengesResult, PartialState, SlashedValidator};
@@ -448,16 +448,12 @@ fn test_validator_rotation() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
     // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
     let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
     let new_account = AccountId::try_from(format!("test{}", num_nodes + 1)).unwrap();
     let new_validator = create_test_signer(new_account.as_str());
-    let new_signer: Signer =
-        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref())
-            .into();
+    let new_signer: Signer = InMemorySigner::test_signer(&new_account);
     let create_account_transaction = SignedTransaction::create_account(
         2,
         block_producers[0].validator_id().clone(),
@@ -471,12 +467,7 @@ fn test_validator_rotation() {
     let transactions = {
         // With the new validator selection algorithm, test2 needs to have less stake to
         // become a fisherman.
-        let signer = InMemorySigner::from_seed(
-            validators[1].clone(),
-            KeyType::ED25519,
-            validators[1].as_ref(),
-        )
-        .into();
+        let signer = InMemorySigner::test_signer(&validators[1]);
         vec![
             staking_transaction,
             create_account_transaction,
@@ -537,9 +528,7 @@ fn test_validator_stake_change() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
 
     let desired_stake = 2 * TESTING_INIT_STAKE / 3;
     let staking_transaction = stake(1, &signer, &block_producers[0], desired_stake);
@@ -574,10 +563,7 @@ fn test_validator_stake_change_multiple_times() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE - 1);
     let staking_transaction1 = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE - 2);
@@ -669,10 +655,7 @@ fn test_stake_in_last_block_of_an_epoch() {
     let mut env = TestEnv::new(vec![validators.clone()], 5, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     let staking_transaction =
         stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE + TESTING_INIT_STAKE / 6);
     env.step_default(vec![staking_transaction]);
@@ -704,8 +687,7 @@ fn test_verify_validator_signature() {
         (0..2).map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap()).collect::<Vec<_>>();
     let env = TestEnv::new(vec![validators.clone()], 2, true);
     let data = [0; 32];
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref());
+    let signer = InMemorySigner::test(&validators[0]);
     let signature = signer.sign(&data);
     assert!(env
         .epoch_manager
@@ -731,9 +713,7 @@ fn test_state_sync() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
     let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
     env.step_default(vec![staking_transaction]);
     env.step_default(vec![]);
@@ -829,9 +809,7 @@ fn test_get_validator_info() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
     let staking_transaction = stake(1, &signer, &block_producers[0], 0);
     let mut expected_blocks = [0, 0];
     let mut expected_chunks = [0, 0];
@@ -1052,7 +1030,7 @@ fn test_challenges() {
     bps.sort_unstable();
     assert_eq!(bps, vec![("test1".parse().unwrap(), false), ("test2".parse().unwrap(), true)]);
     let msg = vec![0, 1, 2];
-    let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
+    let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
     assert!(!env
         .epoch_manager
@@ -1083,9 +1061,7 @@ fn test_double_sign_challenge_not_all_slashed() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
 
-    let signer =
-        InMemorySigner::from_seed(validators[2].clone(), KeyType::ED25519, validators[2].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[2]);
     let staking_transaction = stake(1, &signer, &block_producers[2], TESTING_INIT_STAKE / 3);
     env.step(
         vec![vec![staking_transaction]],
@@ -1110,7 +1086,7 @@ fn test_double_sign_challenge_not_all_slashed() {
         ]
     );
     let msg = vec![0, 1, 2];
-    let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
+    let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
     assert!(!env
         .epoch_manager
@@ -1162,10 +1138,7 @@ fn test_double_sign_challenge_all_slashed() {
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
     let mut env = TestEnv::new(vec![validators.clone()], 5, false);
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test1".parse().unwrap(), true)]);
     env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".parse().unwrap(), true)]);
     let msg = vec![0, 1, 2];
@@ -1259,10 +1232,7 @@ fn test_fishermen_stake() {
     );
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
@@ -1326,10 +1296,7 @@ fn test_fishermen_unstake() {
     );
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
@@ -1400,10 +1367,7 @@ fn test_delete_account_after_unstake() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test(&id)).collect();
 
     let staking_transaction1 = stake(1, &signers[1].clone().into(), &block_producers[1], 0);
     env.step_default(vec![staking_transaction1]);
@@ -1448,10 +1412,7 @@ fn test_proposal_deduped() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 100);
     let staking_transaction2 = stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 10);
@@ -1469,10 +1430,7 @@ fn test_insufficient_stake() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
     let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * NEAR_BASE);
@@ -1509,10 +1467,7 @@ fn test_trie_and_flat_state_equality() {
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test(&id)).collect();
 
     let transfer_tx = SignedTransaction::from_actions(
         4,
@@ -1668,10 +1623,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     // Produce a single block, so that `prev_block_hash` is valid.
     env.step_default(vec![]);
 
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test(&id)).collect();
 
     let transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
     (env, chain, transaction_pool)
