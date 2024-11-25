@@ -28,7 +28,7 @@ impl FilesystemArchiver {
     fn setup_dirs(base_path: &std::path::Path, sub_paths: Vec<&std::path::Path>) -> io::Result<()> {
         ignore_if_exists(std::fs::create_dir_all(base_path))?;
         for sub_path in sub_paths.into_iter() {
-            ignore_if_exists(std::fs::create_dir(&base_path.join(sub_path)))?;
+            ignore_if_exists(std::fs::create_dir_all(&base_path.join(sub_path)))?;
         }
         Ok(())
     }
