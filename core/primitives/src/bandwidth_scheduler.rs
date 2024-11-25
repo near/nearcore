@@ -373,10 +373,10 @@ mod tests {
     use std::sync::Arc;
 
     use near_parameters::RuntimeConfig;
-    use near_primitives_core::types::ShardId;
     use rand::{Rng, SeedableRng};
 
     use crate::bandwidth_scheduler::{interpolate, BANDWIDTH_REQUEST_VALUES_NUM};
+    use crate::shard_layout::ShardUId;
 
     use super::{
         BandwidthRequest, BandwidthRequestBitmap, BandwidthRequestValues, BandwidthSchedulerParams,
@@ -500,7 +500,7 @@ mod tests {
     // Make a bandwidth request to shard 0 with a bitmap which has ones at the specified indices.
     fn make_request_with_ones(ones_indexes: &[usize]) -> BandwidthRequest {
         let mut req = BandwidthRequest {
-            to_shard: 0,
+            to_shard: ShardUId::single_shard().shard_id().into(),
             requested_values_bitmap: BandwidthRequestBitmap::new(),
         };
         for i in ones_indexes {
@@ -526,7 +526,7 @@ mod tests {
 
         let get_request = |receipt_sizes: &[u64]| -> Option<BandwidthRequest> {
             BandwidthRequest::make_from_receipt_sizes(
-                ShardId::new(0),
+                ShardUId::single_shard().shard_id(),
                 make_sizes_iter(receipt_sizes),
                 &params,
             )
@@ -619,7 +619,7 @@ mod tests {
                 .collect();
 
             let request = BandwidthRequest::make_from_receipt_sizes(
-                ShardId::new(0),
+                ShardUId::single_shard().shard_id(),
                 make_sizes_iter(&receipt_sizes),
                 &params,
             )
@@ -638,7 +638,7 @@ mod tests {
         params: &BandwidthSchedulerParams,
     ) -> Option<BandwidthRequest> {
         let mut request = BandwidthRequest {
-            to_shard: 0,
+            to_shard: ShardUId::single_shard().shard_id().into(),
             requested_values_bitmap: BandwidthRequestBitmap::new(),
         };
         let values = BandwidthRequestValues::new(params).values;
