@@ -3740,19 +3740,13 @@ impl Chain {
             self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
             cares_about_shard_next_epoch,
         );
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-        Ok(ShardContext {
-            shard_uid,
-            cares_about_shard_this_epoch,
-            will_shard_layout_change,
-            should_apply_chunk,
-        })
+        Ok(ShardContext { shard_uid, should_apply_chunk })
     }
 
     /// This method returns the closure that is responsible for updating a shard.
