@@ -572,10 +572,10 @@ impl BlockHeader {
     }
 
     /// Creates BlockHeader for a newly produced block.
-    #[cfg(feature = "clock")]
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
         block_body_hash: CryptoHash,
@@ -603,11 +603,8 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
-        clock: near_time::Clock,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
-        let latest_protocol_version =
-            crate::version::get_protocol_version(next_epoch_protocol_version, clock);
         Self::new_impl(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
