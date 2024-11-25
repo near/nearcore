@@ -32,10 +32,13 @@ impl ArchivalStorageOpener {
 
     pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
         let mut column_to_path = HashMap::new();
+        let container = self.config.container();
         for col in DBCol::iter() {
             // BlockMisc is managed in the cold/archival storage but not marked as cold column.
             if col.is_cold() || col == DBCol::BlockMisc {
-                column_to_path.insert(col, cold_column_dirname(col).into());
+                let dirname = cold_column_dirname(col);
+                let path = container.map_or(|| dirname.into(), |c| c.join(dirname.into()));
+                column_to_path.insert(col, path);
             }
         }
 
@@ -56,7 +59,10 @@ impl ArchivalStorageOpener {
         };
         let column_to_path = Arc::new(column_to_path);
         let sync_cold_db = self.config.sync_cold_db;
-        Ok(Arc::new(Archiver { cold_db, external_storage: storage, column_to_path, sync_cold_db }))
+        let archiver =
+            Arc::new(Archiver { cold_db, external_storage: storage, column_to_path, sync_cold_db });
+        archiver.sync_cold_head()?;
+        Ok(archiver)
     }
 }
 
@@ -102,17 +108,29 @@ impl Archiver {
     }
 
     pub fn set_head(&self, tip: &Tip) -> io::Result<()> {
-        let mut tx = DBTransaction::new();
-        // TODO: Write these to the same file for external storage.
-        tx.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        tx.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+        let tx = set_head_tx(&tip);
 
         // If the archival storage is external (eg. GCS), also update the head in Cold DB.
         // This should not be needed once ColdDB is no longer a dependency.
         if self.external_storage.is_some() {
             self.cold_db.write(tx.clone())?;
         }
+
         self.write(tx)
+    }
+
+    /// Sets the head in the external storage from the cold head in the ColdD.
+    fn sync_cold_head(&self) -> io::Result<()> {
+        if self.external_storage.is_none() {
+            return Ok(());
+        }
+        let cold_head = self.get_cold_head()?;
+        let Some(tip) = cold_head else {
+            return Ok(());
+        };
+        let tx = set_head_tx(&tip);
+        let _ = self.write_to_external(tx)?;
+        Ok(())
     }
 
     /// Reads the head from the Cold DB.
@@ -202,6 +220,14 @@ impl Archiver {
 pub(crate) trait ArchivalStorage: Sync + Send {
     fn put(&self, _path: &std::path::Path, _value: &[u8]) -> io::Result<()>;
     fn get(&self, _path: &std::path::Path) -> io::Result<Option<Vec<u8>>>;
+}
+
+fn set_head_tx(tip: &Tip) -> DBTransaction {
+    let mut tx = DBTransaction::new();
+    // TODO: Write these to the same file for external storage.
+    tx.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+    tx.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+    tx
 }
 
 fn cold_column_dirname(col: DBCol) -> &'static str {
