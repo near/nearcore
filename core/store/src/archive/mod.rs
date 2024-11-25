@@ -103,7 +103,11 @@ impl Archiver {
             .transpose()?;
         if cfg!(debug_assertions) {
             let cold_head = self.get_cold_head();
-            debug_assert_eq!(cold_head.as_ref().unwrap(), &archive_head);
+            debug_assert_eq!(
+                cold_head.as_ref().unwrap(),
+                &archive_head,
+                "Cold head and archive head should be in sync"
+            );
         }
         Ok(archive_head)
     }
@@ -120,7 +124,8 @@ impl Archiver {
         self.write(tx)
     }
 
-    /// Sets the head in the external storage from the cold head in the ColdD.
+    /// Sets the head in the external storage from the cold head in the ColdDB.
+    /// TODO: This should be removed after ColdDB is no longer a dependency.
     fn sync_cold_head(&self) -> io::Result<()> {
         if self.external_storage.is_none() {
             return Ok(());
