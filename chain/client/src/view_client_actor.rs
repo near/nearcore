@@ -1429,20 +1429,21 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
             return None;
         }
 
-        // If we are feeling spicy, send the wrong part :)
-        {
+        let feeling_spicy = {
             let mut rng = thread_rng();
-            if rng.gen_range(0..10) == 0 {
-                part_id += 1;
-            }
-        }
+            rng.gen_range(0..10) == 0
+        };
+        if feeling_spicy {
+            // Generate the wrong part
+            part_id += 1
+        };
 
         if let Err(err) = self.has_state_snapshot(&sync_hash, shard_id) {
             tracing::debug!(target: "sync", ?err, ?sync_hash, "Node doesn't have a matching state snapshot");
             return None;
         }
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
-        let part = match self.chain.check_sync_hash_validity(&sync_hash) {
+        let mut part = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
                 let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
                     Ok(part) => Some((part_id, part)),
@@ -1471,6 +1472,10 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
                 None
             }
         };
+        if feeling_spicy {
+            // But pretend we are giving the requested one
+            part.as_mut().map(|p| p.0 -= 1);
+        }
         let can_generate = part.is_some();
         let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
             header: None,
