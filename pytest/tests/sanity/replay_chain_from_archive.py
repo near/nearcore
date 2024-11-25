@@ -65,7 +65,7 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
         # Archival node config: Enable tracking all shards with memtries enabled.
         node_config_archival = copy.deepcopy(node_config_dump)
         node_config_archival["archive"] = True
-        node_config_archival["archival_storage"] = {"storage": {"Filesystem": {"path": "archive"}}}
+        # node_config_archival["archival_storage"] = {"storage": {"Filesystem": {"path": "archive"}}}
         # node_config_archival["archival_storage"] = {"storage": "ColdDB"}
         configs[NUM_VALIDATORS + 1] = node_config_archival
 
