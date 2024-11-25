@@ -381,11 +381,12 @@ impl BlockHeader {
     }
 
     pub fn resign(&mut self, signer: &ValidatorSigner) {
-        let (hash, signature) = signer.sign_block_header_parts(
+        let hash = BlockHeader::compute_hash(
             *self.prev_hash(),
             &self.inner_lite_bytes(),
             &self.inner_rest_bytes(),
         );
+        let signature = signer.sign_bytes(hash.as_ref());
         match self {
             BlockHeader::BlockHeaderV1(header) => {
                 let header = Arc::make_mut(header);

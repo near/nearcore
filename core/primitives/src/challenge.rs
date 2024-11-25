@@ -124,7 +124,8 @@ impl Challenge {
     }
 
     pub fn produce(body: ChallengeBody, signer: &ValidatorSigner) -> Self {
-        let (hash, signature) = signer.sign_challenge(&body);
+        let hash = CryptoHash::hash_borsh(&body);
+        let signature = signer.sign_bytes(hash.as_ref());
         Self { body, account_id: signer.validator_id().clone(), signature, hash }
     }
 }
