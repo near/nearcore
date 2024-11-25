@@ -7,6 +7,7 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::ShardUId;
 use near_vm_runner::logic::ProtocolVersion;
@@ -103,6 +104,9 @@ pub(crate) fn test_protocol_upgrade(
         (new_protocol, Arc::new(new_epoch_config)),
     ]));
 
+    // Immediately start voting for the new protocol version
+    let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
+
     // Translate shard ids to shard uids
     let chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>> = missing_chunk_ranges
         .iter()
@@ -116,6 +120,7 @@ pub(crate) fn test_protocol_upgrade(
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
+        .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .drop_protocol_upgrade_chunks(new_protocol, chunk_ranges_to_drop)
         .clients(clients)
         .build();
@@ -221,4 +226,12 @@ fn slow_test_protocol_upgrade_with_missing_chunks_two() {
         PROTOCOL_VERSION,
         HashMap::from_iter([(0, 0..0), (1, -2..0), (2, 0..2), (3, -2..2)].into_iter()),
     );
+}
+
+/// Test protocol upgrade to a version that isn't the latest version.
+/// There was a bug which caused `test_protocol_upgrade` to always upgrade to `PROTOCOL_VERSION`,
+/// this test ensures that the bug is fixed and it upgrades to the desired version, not the latest one.
+#[test]
+fn slow_test_protocol_upgrade_not_latest() {
+    test_protocol_upgrade(PROTOCOL_VERSION - 2, PROTOCOL_VERSION - 1, HashMap::new());
 }
