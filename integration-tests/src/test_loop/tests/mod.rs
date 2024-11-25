@@ -16,4 +16,5 @@ mod resharding_v3;
 mod simple_test_loop_example;
 mod state_sync;
 mod syncing;
+mod validator_selection;
 mod view_requests_to_archival_node;
