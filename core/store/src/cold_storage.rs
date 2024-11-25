@@ -174,6 +174,8 @@ fn copy_state_from_store(
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
     let instant = std::time::Instant::now();
 
+    let mut total_keys = 0;
+    let mut total_size = 0;
     let mut transaction = DBTransaction::new();
     for shard_uid in shard_layout.shard_uids() {
         debug_assert_eq!(
@@ -187,11 +189,13 @@ fn copy_state_from_store(
             hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
 
         let Some(trie_changes) = trie_changes else { continue };
+        total_keys += trie_changes.insertions().len();
         for op in trie_changes.insertions() {
             // TODO(reshardingV3) Handle shard_uid not mapped there
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
             let value = op.payload().to_vec();
 
+            total_size += value.len();
             tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
         }
@@ -203,7 +207,7 @@ fn copy_state_from_store(
     archiver.write(transaction)?;
     let write_duration = instant.elapsed();
 
-    tracing::trace!(target: "cold_store", ?read_duration, ?write_duration, "finished");
+    tracing::trace!(target: "cold_store", ?total_keys, ?total_size, ?read_duration, ?write_duration, "finished");
 
     Ok(())
 }
@@ -227,6 +231,7 @@ fn copy_from_store(
 
     let mut transaction = DBTransaction::new();
     let mut good_keys = 0;
+    let mut total_size = 0;
     let total_keys = keys.len();
     for key in keys {
         // TODO: Look into using RocksDB’s multi_key function.  It
@@ -243,6 +248,7 @@ fn copy_from_store(
             // re-adding the reference count.
 
             good_keys += 1;
+            total_size += value.len();
             rc_aware_set(&mut transaction, col, key, value);
         }
     }
@@ -253,7 +259,7 @@ fn copy_from_store(
     archiver.write(transaction)?;
     let write_duration = instant.elapsed();
 
-    tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?read_duration, ?write_duration, "finished");
+    tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?total_size, ?read_duration, ?write_duration, "finished");
 
     return Ok(());
 }
