@@ -134,6 +134,19 @@ impl ProtocolUpgradeVotingSchedule {
         result
     }
 
+    /// This method returns the protocol version that the node should vote for now.
+    /// The current time is obtained from the provided clock.
+    #[cfg(feature = "clock")]
+    pub fn get_protocol_version_to_vote_for_now(
+        &self,
+        clock: &near_time::Clock,
+        next_epoch_protocol_version: ProtocolVersion,
+    ) -> ProtocolVersion {
+        let now = clock.now_utc();
+        let date_time = chrono::DateTime::from_timestamp(now.unix_timestamp(), now.nanosecond());
+        self.get_protocol_version(date_time.unwrap_or_default(), next_epoch_protocol_version)
+    }
+
     /// Returns the schedule. Should only be used for exporting metrics.
     pub fn schedule(&self) -> &Vec<(chrono::DateTime<Utc>, ProtocolVersion)> {
         &self.schedule

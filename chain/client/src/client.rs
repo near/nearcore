@@ -72,7 +72,7 @@ use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, Num
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{get_protocol_version, ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_primitives::views::{CatchupStatusView, DroppedReason};
 use near_store::ShardUId;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -803,7 +803,8 @@ impl Client {
         let block = Block::produce(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
-            get_protocol_version(next_epoch_protocol_version, self.clock.clone()),
+            PROTOCOL_UPGRADE_SCHEDULE
+                .get_protocol_version_to_vote_for_now(&self.clock, next_epoch_protocol_version),
             prev_header,
             height,
             block_ordinal,
