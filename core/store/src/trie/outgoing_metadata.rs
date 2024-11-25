@@ -731,14 +731,14 @@ mod tests {
 
                 // Ideal bandwidth request produced from individual receipt sizes.
                 let ideal_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
-                    0,
+                    ShardId::new(0),
                     buffered_receipts.iter().map(|s| Ok::<u64, Infallible>(s.as_u64())),
                     &scheduler_params,
                 )
                 .unwrap();
                 // Bandwidth request produced from receipt groups.
                 let groups_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
-                    0,
+                    ShardId::new(0),
                     test_queue.groups.iter().map(|g| Ok::<u64, Infallible>(g.total_size as u64)),
                     &scheduler_params,
                 )

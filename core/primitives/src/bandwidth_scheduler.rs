@@ -78,7 +78,7 @@ pub struct BandwidthRequestsV1 {
 )]
 pub struct BandwidthRequest {
     /// Requesting bandwidth to this shard.
-    pub to_shard: u8,
+    pub to_shard: u16,
     /// Bitmap which describes what values of bandwidth are requested.
     pub requested_values_bitmap: BandwidthRequestBitmap,
 }
@@ -87,7 +87,7 @@ impl BandwidthRequest {
     /// Creates a bandwidth request based on the sizes of receipts in the outgoing buffer.
     /// Returns None when a request is not needed (receipt size below base bandwidth).
     pub fn make_from_receipt_sizes<E>(
-        to_shard: u8,
+        to_shard: ShardId,
         receipt_sizes: impl Iterator<Item = Result<u64, E>>,
         params: &BandwidthSchedulerParams,
     ) -> Result<Option<BandwidthRequest>, E> {
@@ -128,7 +128,7 @@ impl BandwidthRequest {
             return Ok(None);
         }
 
-        Ok(Some(BandwidthRequest { to_shard, requested_values_bitmap: bitmap }))
+        Ok(Some(BandwidthRequest { to_shard: to_shard.into(), requested_values_bitmap: bitmap }))
     }
 
     /// Create a basic bandwidth request when receipt sizes are not available.
@@ -138,7 +138,7 @@ impl BandwidthRequest {
     /// It is used only during the protocol upgrade while the outgoing buffer metadata
     /// is not built for receipts that were buffered before the upgrade.
     pub fn make_max_receipt_size_request(
-        to_shard: u8,
+        to_shard: ShardId,
         params: &BandwidthSchedulerParams,
     ) -> BandwidthRequest {
         let mut bitmap = BandwidthRequestBitmap::new();
@@ -150,7 +150,7 @@ impl BandwidthRequest {
             .expect("max_receipt_size should be in the values list");
         bitmap.set_bit(max_receipt_size_value_pos, true);
 
-        BandwidthRequest { to_shard, requested_values_bitmap: bitmap }
+        BandwidthRequest { to_shard: to_shard.into(), requested_values_bitmap: bitmap }
     }
 }
 
@@ -373,6 +373,7 @@ mod tests {
     use std::sync::Arc;
 
     use near_parameters::RuntimeConfig;
+    use near_primitives_core::types::ShardId;
     use rand::{Rng, SeedableRng};
 
     use crate::bandwidth_scheduler::{interpolate, BANDWIDTH_REQUEST_VALUES_NUM};
@@ -524,8 +525,12 @@ mod tests {
         let values = BandwidthRequestValues::new(&params).values;
 
         let get_request = |receipt_sizes: &[u64]| -> Option<BandwidthRequest> {
-            BandwidthRequest::make_from_receipt_sizes(0, make_sizes_iter(receipt_sizes), &params)
-                .unwrap()
+            BandwidthRequest::make_from_receipt_sizes(
+                ShardId::new(0),
+                make_sizes_iter(receipt_sizes),
+                &params,
+            )
+            .unwrap()
         };
 
         // No receipts - no bandwidth request.
@@ -614,7 +619,7 @@ mod tests {
                 .collect();
 
             let request = BandwidthRequest::make_from_receipt_sizes(
-                0,
+                ShardId::new(0),
                 make_sizes_iter(&receipt_sizes),
                 &params,
             )

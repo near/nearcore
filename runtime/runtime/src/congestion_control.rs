@@ -458,8 +458,6 @@ impl ReceiptSinkV2 {
             return Ok(None);
         };
 
-        let shard_u8: u8 = to_shard.try_into().expect("ShardId doesn't fit into u8");
-
         // To make a proper bandwidth request we need the metadata for the outgoing buffer to be fully initialized
         // (i.e. contain data about all of the receipts in the outgoing buffer). There is a moment right after the
         // protocol upgrade where the outgoing buffer contains receipts which were buffered in the previous protocol
@@ -473,17 +471,17 @@ impl ReceiptSinkV2 {
         // proper bandwidth requests.
         let Some(metadata) = self.outgoing_metadatas.get_metadata_for_shard(&to_shard) else {
             // Metadata not ready, make a basic request.
-            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(shard_u8, params)));
+            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(to_shard, params)));
         };
 
         if metadata.total_receipts_num() != outgoing_receipts_buffer_len {
             // Metadata not ready, contains less receipts than the outgoing buffer. Make a basic request.
-            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(shard_u8, params)));
+            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(to_shard, params)));
         }
 
         // Metadata is fully initialized, make a proper bandwidth request using it.
         let receipt_sizes_iter = metadata.iter_receipt_group_sizes(trie, side_effects);
-        BandwidthRequest::make_from_receipt_sizes(shard_u8, receipt_sizes_iter, params)
+        BandwidthRequest::make_from_receipt_sizes(to_shard, receipt_sizes_iter, params)
     }
 }
 
