@@ -32,12 +32,13 @@ impl ArchivalStorageOpener {
 
     pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
         let mut column_to_path = HashMap::new();
-        let container = self.config.container();
+        let container = self.config.container.as_deref();
         for col in DBCol::iter() {
             // BlockMisc is managed in the cold/archival storage but not marked as cold column.
             if col.is_cold() || col == DBCol::BlockMisc {
                 let dirname = cold_column_dirname(col);
-                let path = container.map_or(|| dirname.into(), |c| c.join(dirname.into()));
+                let path = container
+                    .map_or_else(|| dirname.into(), |c| c.join(std::path::Path::new(dirname)));
                 column_to_path.insert(col, path);
             }
         }
@@ -108,7 +109,7 @@ impl Archiver {
     }
 
     pub fn set_head(&self, tip: &Tip) -> io::Result<()> {
-        let tx = set_head_tx(&tip);
+        let tx = set_head_tx(&tip)?;
 
         // If the archival storage is external (eg. GCS), also update the head in Cold DB.
         // This should not be needed once ColdDB is no longer a dependency.
@@ -128,7 +129,7 @@ impl Archiver {
         let Some(tip) = cold_head else {
             return Ok(());
         };
-        let tx = set_head_tx(&tip);
+        let tx = set_head_tx(&tip)?;
         let _ = self.write_to_external(tx)?;
         Ok(())
     }
@@ -222,12 +223,12 @@ pub(crate) trait ArchivalStorage: Sync + Send {
     fn get(&self, _path: &std::path::Path) -> io::Result<Option<Vec<u8>>>;
 }
 
-fn set_head_tx(tip: &Tip) -> DBTransaction {
+fn set_head_tx(tip: &Tip) -> io::Result<DBTransaction> {
     let mut tx = DBTransaction::new();
     // TODO: Write these to the same file for external storage.
     tx.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
     tx.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-    tx
+    Ok(tx)
 }
 
 fn cold_column_dirname(col: DBCol) -> &'static str {
@@ -258,15 +259,15 @@ fn cold_column_dirname(col: DBCol) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use crate::DBCol;
-
     use super::cold_column_dirname;
+    use crate::DBCol;
+    use strum::IntoEnumIterator;
 
     #[test]
     fn test_cold_column_dirname() {
         for col in DBCol::iter() {
-            if col.is_cold() {
-                assert!(cold_column_dirname(col).len() > 0);
+            if col.is_cold() || col == DBCol::BlockMisc {
+                assert!(!cold_column_dirname(col).is_empty());
             }
         }
     }

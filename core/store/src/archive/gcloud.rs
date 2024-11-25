@@ -12,8 +12,12 @@ pub(crate) struct GoogleCloudArchiver {
 
 impl GoogleCloudArchiver {
     pub(crate) fn open(bucket: &str) -> Self {
-        let runtime= tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        Self { gcs_client: Arc::new(cloud_storage::Client::default()), bucket: bucket.to_string(), runtime }
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        Self {
+            gcs_client: Arc::new(cloud_storage::Client::default()),
+            bucket: bucket.to_string(),
+            runtime,
+        }
     }
 }
 

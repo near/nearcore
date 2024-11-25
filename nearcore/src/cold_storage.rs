@@ -440,7 +440,7 @@ pub fn spawn_cold_store_loop(
             // If the check fails when the node is starting it's better to just fail
             // fast and crash the node immediately.
             // Note that we need to run this check in the new thread, because it runs blocking calls to async code
-            // and it panics if run from the main thread. 
+            // and it panics if run from the main thread.
             if let Err(err) = sanity_check(&archiver, &hot_store, genesis_height) {
                 panic!("Failed to sanity check cold store: {:?}", err);
             }
