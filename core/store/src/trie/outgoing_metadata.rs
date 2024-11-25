@@ -427,7 +427,7 @@ mod tests {
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestValues, BandwidthSchedulerParams,
     };
-    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::shard_layout::{ShardLayout, ShardUId};
     use near_primitives::types::{Gas, ShardId};
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
@@ -731,14 +731,14 @@ mod tests {
 
                 // Ideal bandwidth request produced from individual receipt sizes.
                 let ideal_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
-                    0,
+                    ShardUId::single_shard().shard_id(),
                     buffered_receipts.iter().map(|s| Ok::<u64, Infallible>(s.as_u64())),
                     &scheduler_params,
                 )
                 .unwrap();
                 // Bandwidth request produced from receipt groups.
                 let groups_bandwidth_request = BandwidthRequest::make_from_receipt_sizes(
-                    0,
+                    ShardUId::single_shard().shard_id(),
                     test_queue.groups.iter().map(|g| Ok::<u64, Infallible>(g.total_size as u64)),
                     &scheduler_params,
                 )
