@@ -683,7 +683,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
     // The function follows the guidelines of standard iterator filter function
     // We return true if we should retain the receipt and false if we should filter it.
     fn receipt_filter_fn(&self, receipt: &ReceiptOrStateStoredReceipt) -> bool {
-        if ProtocolFeature::SimpleNightshadeV4.enabled(self.protocol_version) {
+        if !ProtocolFeature::SimpleNightshadeV4.enabled(self.protocol_version) {
             return true;
         }
         let receiver_id = receipt.get_receipt().receiver_id();
