@@ -65,7 +65,7 @@ pub mod pending_events_sender;
 pub mod sender;
 
 use data::TestLoopData;
-use futures::{TestLoopAsyncComputationSpawner, TestLoopFututeSpawner};
+use futures::{TestLoopAsyncComputationSpawner, TestLoopFutureSpawner};
 use near_time::{Clock, Duration, FakeClock};
 use pending_events_sender::{CallbackEvent, PendingEventsSender};
 use sender::TestLoopSender;
@@ -216,7 +216,7 @@ impl TestLoopV2 {
     }
 
     /// Returns a FutureSpawner that can be used to spawn futures into the loop.
-    pub fn future_spawner(&self) -> TestLoopFututeSpawner {
+    pub fn future_spawner(&self) -> TestLoopFutureSpawner {
         self.pending_events_sender.clone()
     }
 
