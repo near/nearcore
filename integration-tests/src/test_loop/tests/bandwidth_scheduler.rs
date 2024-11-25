@@ -6,7 +6,7 @@ use std::task::Poll;
 
 use bytesize::ByteSize;
 use near_async::test_loop::data::TestLoopData;
-use near_async::test_loop::futures::TestLoopFututeSpawner;
+use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -455,7 +455,7 @@ impl WorkloadGenerator {
         &mut self,
         client_sender: &TestLoopSender<ClientActorInner>,
         client: &Client,
-        future_spawner: &TestLoopFututeSpawner,
+        future_spawner: &TestLoopFutureSpawner,
     ) {
         for sender in &mut self.workload_senders {
             sender.run(client_sender, client, future_spawner, &mut self.rng);
@@ -486,7 +486,7 @@ impl WorkloadSender {
         &mut self,
         client_sender: &TestLoopSender<ClientActorInner>,
         client: &Client,
-        future_spawner: &TestLoopFututeSpawner,
+        future_spawner: &TestLoopFutureSpawner,
         rng: &mut impl Rng,
     ) {
         match self.tx_runner {
@@ -507,7 +507,7 @@ impl WorkloadSender {
         &mut self,
         client_sender: &TestLoopSender<ClientActorInner>,
         client: &Client,
-        future_spawner: &TestLoopFututeSpawner,
+        future_spawner: &TestLoopFutureSpawner,
         rng: &mut impl Rng,
     ) {
         // Generate a new transaction

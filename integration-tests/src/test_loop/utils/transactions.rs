@@ -2,7 +2,7 @@ use crate::test_loop::env::{TestData, TestLoopEnv};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
-use near_async::test_loop::futures::TestLoopFututeSpawner;
+use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
@@ -533,7 +533,7 @@ impl TransactionRunner {
         &mut self,
         client_sender: &TestLoopSender<ClientActorInner>,
         client: &Client,
-        future_spawner: &TestLoopFututeSpawner,
+        future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Result<FinalExecutionOutcomeView, InvalidTxError>> {
         if let Some(final_result) = &self.final_result {
             // Execution has finished, return the saved result.
@@ -582,7 +582,7 @@ impl TransactionRunner {
         &mut self,
         client_sender: &TestLoopSender<ClientActorInner>,
         client: &Client,
-        future_spawner: &TestLoopFututeSpawner,
+        future_spawner: &TestLoopFutureSpawner,
     ) -> Poll<Vec<u8>> {
         let final_res = match self.poll(client_sender, client, future_spawner) {
             Poll::Pending => return Poll::Pending,
@@ -600,7 +600,7 @@ impl TransactionRunner {
     fn send_tx(
         &mut self,
         client_sender: &TestLoopSender<ClientActorInner>,
-        future_spawner: &TestLoopFututeSpawner,
+        future_spawner: &TestLoopFutureSpawner,
     ) {
         let process_tx_request = ProcessTxRequest {
             transaction: self.transaction.clone(),
