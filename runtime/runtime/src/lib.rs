@@ -1459,8 +1459,13 @@ impl Runtime {
             .map_err(RuntimeError::StorageError)?;
         processing_state.total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
-        let delayed_receipts = DelayedReceiptQueue::load(&processing_state.state_update)?;
-        let delayed_receipts = DelayedReceiptQueueWrapper::new(delayed_receipts);
+        let delayed_receipts = DelayedReceiptQueueWrapper::new(
+            DelayedReceiptQueue::load(&processing_state.state_update)?,
+            apply_state.current_protocol_version,
+            epoch_info_provider,
+            apply_state.shard_id,
+            apply_state.epoch_id,
+        );
 
         // Bandwidth scheduler should be run for every chunk, including the missing ones.
         let bandwidth_scheduler_output =
@@ -1778,11 +1783,13 @@ impl Runtime {
         Ok(())
     }
 
-    #[instrument(target = "runtime", level = "debug", "process_delayed_receipts", skip_all, fields(
-        num_receipts = processing_state.delayed_receipts.len(),
-        gas_burnt = tracing::field::Empty,
-        compute_usage = tracing::field::Empty,
-    ))]
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_delayed_receipts",
+        skip_all,
+        fields(num_receipts = processing_state.delayed_receipts.upper_bound_len(), gas_burnt, compute_usage)
+    )]
     fn process_delayed_receipts<'a>(
         &self,
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
@@ -1796,17 +1803,17 @@ impl Runtime {
         let mut delayed_receipt_count = 0;
         let mut processed_delayed_receipts = vec![];
 
-        let mut prep_lookahead_iter = processing_state
-            .delayed_receipts
-            .peek_iter(&processing_state.state_update)
-            .map_while(Result::ok);
-        let mut next_schedule_after = schedule_contract_preparation(
-            &mut processing_state.pipeline_manager,
-            &processing_state.state_update,
-            &mut prep_lookahead_iter,
-        );
+        let mut next_schedule_after = {
+            let mut prep_lookahead_iter =
+                processing_state.delayed_receipts.peek_iter(&processing_state.state_update);
+            schedule_contract_preparation(
+                &mut processing_state.pipeline_manager,
+                &processing_state.state_update,
+                &mut prep_lookahead_iter,
+            )
+        };
 
-        while processing_state.delayed_receipts.len() > 0 {
+        loop {
             if processing_state.total.compute >= compute_limit
                 || proof_size_limit.is_some_and(|limit| {
                     processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
@@ -1815,20 +1822,22 @@ impl Runtime {
                 break;
             }
 
-            delayed_receipt_count += 1;
-            let receipt = processing_state
+            let receipt = if let Some(receipt) = processing_state
                 .delayed_receipts
                 .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
-                .expect("queue is not empty");
-            let receipt = receipt.into_receipt();
+            {
+                receipt.into_receipt()
+            } else {
+                // Break loop if there are no more receipts to be processed.
+                break;
+            };
 
+            delayed_receipt_count += 1;
             if let Some(nsi) = &mut next_schedule_after {
                 *nsi = nsi.saturating_sub(1);
                 if *nsi == 0 {
-                    let mut prep_lookahead_iter = processing_state
-                        .delayed_receipts
-                        .peek_iter(&processing_state.state_update)
-                        .map_while(Result::ok);
+                    let mut prep_lookahead_iter =
+                        processing_state.delayed_receipts.peek_iter(&processing_state.state_update);
                     next_schedule_after = schedule_contract_preparation(
                         &mut processing_state.pipeline_manager,
                         &processing_state.state_update,
@@ -2064,8 +2073,7 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
-
-        let delayed_receipts_count = delayed_receipts.len();
+        let delayed_receipts_count = delayed_receipts.upper_bound_len();
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
@@ -2286,7 +2294,7 @@ fn missing_chunk_apply_result(
         processed_delayed_receipts: vec![],
         processed_yield_timeouts: vec![],
         proof,
-        delayed_receipts_count: delayed_receipts.len(),
+        delayed_receipts_count: delayed_receipts.upper_bound_len(),
         metrics: None,
         congestion_info,
         bandwidth_requests: previous_bandwidth_requests,
@@ -2479,7 +2487,7 @@ impl<'a> ApplyProcessingState<'a> {
     fn into_processing_receipt_state(
         self,
         incoming_receipts: &'a [Receipt],
-        delayed_receipts: DelayedReceiptQueueWrapper,
+        delayed_receipts: DelayedReceiptQueueWrapper<'a>,
     ) -> ApplyProcessingReceiptState<'a> {
         let pipeline_manager = pipelining::ReceiptPreparationPipeline::new(
             Arc::clone(&self.apply_state.config),
@@ -2521,7 +2529,7 @@ struct ApplyProcessingReceiptState<'a> {
     metrics: ApplyMetrics,
     local_receipts: VecDeque<Receipt>,
     incoming_receipts: &'a [Receipt],
-    delayed_receipts: DelayedReceiptQueueWrapper,
+    delayed_receipts: DelayedReceiptQueueWrapper<'a>,
     pipeline_manager: pipelining::ReceiptPreparationPipeline,
 }
 
