@@ -86,11 +86,11 @@ pub struct BandwidthRequest {
 impl BandwidthRequest {
     /// Creates a bandwidth request based on the sizes of receipts in the outgoing buffer.
     /// Returns None when a request is not needed (receipt size below base bandwidth).
-    pub fn make_from_receipt_sizes(
+    pub fn make_from_receipt_sizes<E>(
         to_shard: u8,
-        receipt_sizes: impl Iterator<Item = u64>,
+        receipt_sizes: impl Iterator<Item = Result<u64, E>>,
         params: &BandwidthSchedulerParams,
-    ) -> Option<BandwidthRequest> {
+    ) -> Result<Option<BandwidthRequest>, E> {
         let values = BandwidthRequestValues::new(params).values;
         let mut bitmap = BandwidthRequestBitmap::new();
 
@@ -99,7 +99,8 @@ impl BandwidthRequest {
         // large as the required bandwidth and request it in the request bitmap.
         let mut total_size: u64 = 0;
         let mut cur_value_idx: usize = 0;
-        for receipt_size in receipt_sizes {
+        for receipt_size_res in receipt_sizes {
+            let receipt_size = receipt_size_res?;
             total_size = total_size.checked_add(receipt_size).expect(
                 "Total size of receipts doesn't fit in u64, are there exabytes of receipts?",
             );
@@ -124,10 +125,32 @@ impl BandwidthRequest {
 
         if bitmap.is_all_zeros() {
             // No point in making a bandwidth request that doesn't request anything
-            return None;
+            return Ok(None);
         }
 
-        Some(BandwidthRequest { to_shard, requested_values_bitmap: bitmap })
+        Ok(Some(BandwidthRequest { to_shard, requested_values_bitmap: bitmap }))
+    }
+
+    /// Create a basic bandwidth request when receipt sizes are not available.
+    /// It'll request a single value - max_receipt_size. Bandwidth scheduler will
+    /// grant all the bandwidth to one of the shards that requests max_receipt_size.
+    /// The resulting behaviour will be similar to the previous approach with allowed shard.
+    /// It is used only during the protocol upgrade while the outgoing buffer metadata
+    /// is not built for receipts that were buffered before the upgrade.
+    pub fn make_max_receipt_size_request(
+        to_shard: u8,
+        params: &BandwidthSchedulerParams,
+    ) -> BandwidthRequest {
+        let mut bitmap = BandwidthRequestBitmap::new();
+        let values = BandwidthRequestValues::new(params).values;
+
+        let max_receipt_size_value_pos = values
+            .iter()
+            .position(|&value| value == params.max_receipt_size)
+            .expect("max_receipt_size should be in the values list");
+        bitmap.set_bit(max_receipt_size_value_pos, true);
+
+        BandwidthRequest { to_shard, requested_values_bitmap: bitmap }
     }
 }
 
@@ -485,6 +508,12 @@ mod tests {
         req
     }
 
+    fn make_sizes_iter<'a>(
+        sizes: &'a [u64],
+    ) -> impl Iterator<Item = Result<u64, std::convert::Infallible>> + 'a {
+        sizes.iter().map(|&size| Ok(size))
+    }
+
     #[test]
     fn test_make_bandwidth_request_from_receipt_sizes() {
         let max_receipt_size = 4 * 1024 * 1024;
@@ -494,8 +523,9 @@ mod tests {
         );
         let values = BandwidthRequestValues::new(&params).values;
 
-        let get_request = |receipt_sizes: &[u64]| {
-            BandwidthRequest::make_from_receipt_sizes(0, receipt_sizes.iter().copied(), &params)
+        let get_request = |receipt_sizes: &[u64]| -> Option<BandwidthRequest> {
+            BandwidthRequest::make_from_receipt_sizes(0, make_sizes_iter(receipt_sizes), &params)
+                .unwrap()
         };
 
         // No receipts - no bandwidth request.
@@ -585,9 +615,10 @@ mod tests {
 
             let request = BandwidthRequest::make_from_receipt_sizes(
                 0,
-                receipt_sizes.iter().copied(),
+                make_sizes_iter(&receipt_sizes),
                 &params,
-            );
+            )
+            .unwrap();
 
             let expected_request =
                 make_bandwidth_request_slow(receipt_sizes.iter().copied(), &params);

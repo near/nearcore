@@ -1,9 +1,12 @@
 use crate::test_loop::env::{TestData, TestLoopEnv};
 use assert_matches::assert_matches;
 use itertools::Itertools;
-use near_async::messaging::{CanSend, SendAsync};
+use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
+use near_async::test_loop::futures::TestLoopFututeSpawner;
+use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
+use near_client::client_actor::ClientActorInner;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
@@ -19,6 +22,7 @@ use near_primitives::views::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::task::Poll;
 
 use super::{ONE_NEAR, TGAS};
 use near_async::futures::FutureSpawnerExt;
@@ -416,6 +420,36 @@ pub fn run_tx(
     }
 }
 
+/// Run multiple transactions in parallel and wait for all of them to complete.
+/// The transactions are expected to be valid, the function will panic if any transaction fails.
+pub fn run_txs_parallel(
+    test_loop: &mut TestLoopV2,
+    txs: Vec<SignedTransaction>,
+    node_datas: &[TestData],
+    maximum_duration: Duration,
+) {
+    let mut tx_runners = txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect_vec();
+
+    let client_sender = &node_datas[0].client_sender;
+    let future_spawner = test_loop.future_spawner();
+
+    test_loop.run_until(
+        |tl_data| {
+            let client = &tl_data.get(&node_datas[0].client_sender.actor_handle()).client;
+            let mut all_ready = true;
+            for runner in tx_runners.iter_mut() {
+                match runner.poll_assert_success(client_sender, client, &future_spawner) {
+                    Poll::Pending => all_ready = false,
+                    Poll::Ready(_) => {}
+                }
+            }
+
+            all_ready
+        },
+        maximum_duration,
+    );
+}
+
 /// Submit a transaction and wait for the execution result.
 /// For invalid transactions returns an error.
 /// For valid transactions returns the execution result (which could have an execution error inside, check it!).
@@ -428,65 +462,27 @@ pub fn execute_tx(
     // Last node is usually the rpc node
     let rpc_node_id = node_datas.len().checked_sub(1).unwrap();
 
-    let tx_hash = tx.get_hash();
+    let client_sender = &node_datas[rpc_node_id].client_sender;
+    let future_spawner = test_loop.future_spawner();
 
-    let process_result = Arc::new(Mutex::new(None));
-    let process_result_clone = process_result.clone();
+    let mut tx_runner = TransactionRunner::new(tx, true);
 
-    let initial_process_tx_future = node_datas[rpc_node_id]
-        .client_sender
-        .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only: false });
-    test_loop.future_spawner().spawn("initial process tx", async move {
-        *process_result_clone.lock().unwrap() = Some(initial_process_tx_future.await);
-    });
-
+    let mut res = None;
     test_loop.run_until(
         |tl_data| {
-            let mut processing_done = false;
-            if let Some(processing_outcome) = &*process_result.lock().unwrap() {
-                match processing_outcome.as_ref().unwrap() {
-                    ProcessTxResponse::NoResponse
-                    | ProcessTxResponse::RequestRouted
-                    | ProcessTxResponse::ValidTx => processing_done = true,
-                    ProcessTxResponse::InvalidTx(_err) => {
-                        // Invalid transaction, stop run_until immediately, there won't be a transaction result.
-                        return true;
-                    }
-                    ProcessTxResponse::DoesNotTrackShard => {
-                        panic!("Transaction submitted to a node that doesn't track the shard")
-                    }
+            let client = &tl_data.get(&node_datas[rpc_node_id].client_sender.actor_handle()).client;
+            match tx_runner.poll(client_sender, client, &future_spawner) {
+                Poll::Pending => false,
+                Poll::Ready(tx_res) => {
+                    res = Some(tx_res);
+                    true
                 }
             }
-
-            let tx_result_available = tl_data
-                .get(&node_datas[rpc_node_id].client_sender.actor_handle())
-                .client
-                .chain
-                .get_final_transaction_result(&tx_hash)
-                .is_ok();
-
-            processing_done && tx_result_available
         },
         maximum_duration,
     );
 
-    match process_result.lock().unwrap().take().unwrap().unwrap() {
-        ProcessTxResponse::NoResponse
-        | ProcessTxResponse::RequestRouted
-        | ProcessTxResponse::ValidTx => {}
-        ProcessTxResponse::InvalidTx(e) => return Err(e),
-        ProcessTxResponse::DoesNotTrackShard => {
-            panic!("Transaction submitted to a node that doesn't track the shard")
-        }
-    };
-
-    Ok(test_loop
-        .data
-        .get(&node_datas.last().unwrap().client_sender.actor_handle())
-        .client
-        .chain
-        .get_final_transaction_result(&tx_hash)
-        .unwrap())
+    res.unwrap()
 }
 
 /// Creates account ids for the given number of accounts.
@@ -498,4 +494,165 @@ pub fn make_accounts(num_accounts: usize) -> Vec<AccountId> {
 /// Creates an account id to be contained at the given index.
 pub fn make_account(index: usize) -> AccountId {
     format!("account{}", index).parse().unwrap()
+}
+
+/// Runs a transaction until completion.
+/// Works in a non-blocking way which allows to run multiple transactions in parallel.
+/// It is meant to be used with run_until.
+pub struct TransactionRunner {
+    transaction: SignedTransaction,
+    tx_sent: bool,
+    process_tx_result: Arc<Mutex<Option<Result<ProcessTxResponse, AsyncSendError>>>>,
+    retry_when_congested: bool,
+    final_result: Option<Result<FinalExecutionOutcomeView, InvalidTxError>>,
+}
+
+impl TransactionRunner {
+    /// Create a runner which will run this transaction. Doesn't do anything yet,
+    /// the transaction will be sent on the first call to `poll`.
+    /// If `retry_when_congested` is true, the runner will retry the transaction if it's rejected
+    /// because of shard congestion.
+    pub fn new(transaction: SignedTransaction, retry_when_congested: bool) -> Self {
+        Self {
+            transaction: transaction,
+            tx_sent: false,
+            process_tx_result: Arc::new(Mutex::new(None)),
+            retry_when_congested,
+            final_result: None,
+        }
+    }
+
+    /// Make progress on running the transaction.
+    /// Returns `Poll::Pending` if the transaction is still running.
+    /// Returns `Poll::Ready(_)` with the result if the transaction execution is finished.
+    /// The result can be:
+    /// Err(InvalidTxError) - the transaction is invalid, rejected before execution.
+    /// Ok(FinalExecutionOutcomeView) - transaction was executed, result could be success or an error.
+    /// It's meant to be called in `run_until`.
+    pub fn poll(
+        &mut self,
+        client_sender: &TestLoopSender<ClientActorInner>,
+        client: &Client,
+        future_spawner: &TestLoopFututeSpawner,
+    ) -> Poll<Result<FinalExecutionOutcomeView, InvalidTxError>> {
+        if let Some(final_result) = &self.final_result {
+            // Execution has finished, return the saved result.
+            return Poll::Ready(final_result.clone());
+        }
+
+        if !self.tx_sent {
+            // First call to `poll` - send out the transaction.
+            self.send_tx(client_sender, future_spawner);
+        }
+
+        if let Some(tx_processing_res) = self.get_tx_processing_res() {
+            match tx_processing_res {
+                TxProcessingResult::Ok => {} // Initial processing was successful.
+                TxProcessingResult::Congested(invalid_tx_err) => {
+                    if self.retry_when_congested {
+                        // Transaction was rejected because of congestion, retry it.
+                        self.send_tx(client_sender, future_spawner);
+                    } else {
+                        self.final_result = Some(Err(invalid_tx_err.clone()));
+                        return Poll::Ready(Err(invalid_tx_err));
+                    }
+                }
+                TxProcessingResult::Invalid(invalid_tx_err) => {
+                    // Invalid transaction.
+                    self.final_result = Some(Err(invalid_tx_err.clone()));
+                    return Poll::Ready(Err(invalid_tx_err));
+                }
+            }
+        }
+
+        if let Ok(final_res) =
+            client.chain.get_final_transaction_result(&self.transaction.get_hash())
+        {
+            // Transaction execution is finished, save and return the final result.
+            self.final_result = Some(Ok(final_res.clone()));
+            return Poll::Ready(Ok(final_res));
+        }
+
+        Poll::Pending
+    }
+
+    /// Same as `poll`, but asserts that the transaction was executed successfully.
+    /// Useful for tests where the transaction is expected to be executed successfully.
+    pub fn poll_assert_success(
+        &mut self,
+        client_sender: &TestLoopSender<ClientActorInner>,
+        client: &Client,
+        future_spawner: &TestLoopFututeSpawner,
+    ) -> Poll<Vec<u8>> {
+        let final_res = match self.poll(client_sender, client, future_spawner) {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(final_res) => final_res,
+        };
+        assert_matches!(final_res, Ok(_));
+        let status = final_res.unwrap().status;
+        match status {
+            FinalExecutionStatus::SuccessValue(res) => Poll::Ready(res),
+            _ => panic!("Transaction failed: {:?}", status),
+        }
+    }
+
+    /// Send the transaction to the network.
+    fn send_tx(
+        &mut self,
+        client_sender: &TestLoopSender<ClientActorInner>,
+        future_spawner: &TestLoopFututeSpawner,
+    ) {
+        let process_tx_request = ProcessTxRequest {
+            transaction: self.transaction.clone(),
+            is_forwarded: false,
+            check_only: false,
+        };
+        let process_tx_future = client_sender.send_async(process_tx_request);
+
+        self.process_tx_result = Arc::new(Mutex::new(None));
+        let process_tx_result_clone = self.process_tx_result.clone();
+        future_spawner.spawn("TransactionRunner::send_tx", async move {
+            let process_res = process_tx_future.await;
+            *process_tx_result_clone.lock().unwrap() = Some(process_res);
+        });
+        self.tx_sent = true;
+    }
+
+    /// Get result of initial processing, if the result is already available.
+    fn get_tx_processing_res(&mut self) -> Option<TxProcessingResult> {
+        let processing_response_res = self.process_tx_result.lock().unwrap().take()?;
+        let process_tx_response = match processing_response_res {
+            Ok(process_tx_response) => process_tx_response,
+            Err(AsyncSendError::Closed)
+            | Err(AsyncSendError::Timeout)
+            | Err(AsyncSendError::Dropped) => {
+                tracing::warn!(
+                    "TransactionRunner::get_tx_processing_res - got error: {:?}",
+                    processing_response_res
+                );
+                return None;
+            }
+        };
+        let res = match process_tx_response {
+            ProcessTxResponse::NoResponse => panic!("NoResponse indicates an error"),
+            ProcessTxResponse::RequestRouted | // Ok, transaction forwarded to a validator node
+            ProcessTxResponse::ValidTx => TxProcessingResult::Ok,
+            ProcessTxResponse::InvalidTx(err) => match err {
+                InvalidTxError::ShardCongested { .. } | InvalidTxError::ShardStuck { .. } => {
+                    TxProcessingResult::Congested(err)
+                }
+                _ => TxProcessingResult::Invalid(err),
+            },
+            ProcessTxResponse::DoesNotTrackShard => {
+                panic!("Transaction submitted to a node that doesn't track the shard")
+            }
+        };
+        Some(res)
+    }
+}
+
+enum TxProcessingResult {
+    Ok,
+    Congested(InvalidTxError),
+    Invalid(InvalidTxError),
 }

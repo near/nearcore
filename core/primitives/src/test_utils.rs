@@ -352,6 +352,25 @@ impl SignedTransaction {
             0,
         )
     }
+
+    pub fn add_key(
+        nonce: Nonce,
+        signer_id: AccountId,
+        signer: &Signer,
+        public_key: PublicKey,
+        access_key: AccessKey,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id.clone(),
+            signer_id,
+            signer,
+            vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
+            block_hash,
+            0,
+        )
+    }
 }
 
 impl BlockHeader {

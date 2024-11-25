@@ -1,9 +1,6 @@
 use std::num::NonZeroU64;
 
-use near_primitives::bandwidth_scheduler::{
-    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
-    BandwidthSchedulerParams, BandwidthSchedulerState,
-};
+use near_primitives::bandwidth_scheduler::{BandwidthSchedulerParams, BandwidthSchedulerState};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
@@ -13,12 +10,10 @@ use near_store::{
 
 use crate::ApplyState;
 
+/// In future the output will contain the granted bandwidth.
 pub struct BandwidthSchedulerOutput {
-    /// In future the output will contain the granted bandwidth.
-    pub mock_data: [u8; 32],
     /// Parameters used by the bandwidth scheduler algorithm.
     /// Will be used for generating bandwidth requests.
-    #[allow(unused)]
     pub params: BandwidthSchedulerParams,
     /// Used only for a sanity check.
     pub scheduler_state_hash: CryptoHash,
@@ -93,54 +88,5 @@ pub fn run_bandwidth_scheduler(
     set_bandwidth_scheduler_state(state_update, &scheduler_state);
     state_update.commit(StateChangeCause::BandwidthSchedulerStateUpdate);
 
-    Ok(Some(BandwidthSchedulerOutput {
-        mock_data: scheduler_state.mock_data,
-        params,
-        scheduler_state_hash,
-    }))
-}
-
-/// Generate mock bandwidth requests based on scheduler output and shard id.
-pub fn generate_mock_bandwidth_requests(
-    apply_state: &ApplyState,
-    scheduler_output_opt: &Option<BandwidthSchedulerOutput>,
-) -> Option<BandwidthRequests> {
-    if !ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-        return None;
-    }
-
-    let _span = tracing::debug_span!(
-        target: "runtime",
-        "generate_mock_bandwidth_requests",
-        height = apply_state.block_height,
-        shard_id = ?apply_state.shard_id);
-
-    let Some(scheduler_output) = scheduler_output_opt else {
-        tracing::debug!(
-            target: "runtime",
-            "scheduler output is None, not generating any requests",
-        );
-        return None;
-    };
-
-    let mut data = Vec::new();
-    data.extend_from_slice(scheduler_output.mock_data.as_slice());
-    data.extend_from_slice(apply_state.shard_id.to_be_bytes().as_slice());
-    let hash_data: [u8; 32] = hash(data.as_slice()).into();
-
-    let mut requests = Vec::new();
-    let mut debug_ids = Vec::new();
-    for hash_byte in hash_data.iter().take(4) {
-        requests.push(BandwidthRequest {
-            to_shard: *hash_byte,
-            requested_values_bitmap: BandwidthRequestBitmap::new(),
-        });
-        debug_ids.push(*hash_byte);
-    }
-    tracing::debug!(
-        target: "runtime",
-        "generate_mock_bandwidth_requests - generated requests to shards: {:?}",
-        debug_ids
-    );
-    Some(BandwidthRequests::V1(BandwidthRequestsV1 { requests }))
+    Ok(Some(BandwidthSchedulerOutput { params, scheduler_state_hash }))
 }
