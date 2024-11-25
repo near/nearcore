@@ -28,7 +28,7 @@ pub struct RuntimeExt<'a> {
     epoch_id: EpochId,
     prev_block_hash: CryptoHash,
     last_block_hash: CryptoHash,
-    epoch_info_provider: &'a (dyn EpochInfoProvider),
+    epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
 }
 
@@ -70,7 +70,7 @@ impl<'a> RuntimeExt<'a> {
         epoch_id: EpochId,
         prev_block_hash: CryptoHash,
         last_block_hash: CryptoHash,
-        epoch_info_provider: &'a (dyn EpochInfoProvider),
+        epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
         RuntimeExt {
