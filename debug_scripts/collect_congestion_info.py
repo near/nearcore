@@ -65,19 +65,15 @@ class ShardStats:
     def __init__(self):
         self.total = 0
         self.above_05 = 0
-        self.above_07 = 0
 
     def update(self, congestion_level):
         self.total += 1
         if congestion_level > 0.5:
             self.above_05 += 1
-        if congestion_level > 0.7:
-            self.above_07 += 1
 
     def __str__(self):
         above_05_percent = 100 * self.above_05 / self.total if self.total else 0
-        above_07_percent = 100 * self.above_07 / self.total if self.total else 0
-        return f"Total: {self.total}, Above 0.5: {above_05_percent}%, Above 0.7: {above_07_percent}%"
+        return f"Total: {self.total}, Above 0.5: {above_05_percent}%"
 
 
 def main(args):
@@ -94,6 +90,8 @@ def main(args):
         chunk["shard_id"]: ShardStats() for chunk in start_block["chunks"]
     }
 
+    i = 1
+    max_i = height - start_block["header"]["height"]
     with open(args.result_file, mode="w", newline="") as file:
         writer = csv.writer(file)
 
@@ -103,8 +101,9 @@ def main(args):
         while height >= start_block["header"]["height"]:
             if not current_block:
                 continue
+
             if not current_block["header"]["height"] % 10:
-                print(current_block["header"]["height"])
+                print(f"progress {i:08}/{max_i} height - {current_block["header"]["height"]}")
 
             for chunk in current_block["chunks"]:
                 chunk_hash = chunk["chunk_hash"]
@@ -117,6 +116,7 @@ def main(args):
                 writer.writerow([height, shard_id, congestion_level])
                 shard_stats[shard_id].update(congestion_level)
 
+            i += 1
             height -= 1
             current_block = get_block(args.url, height)
 
