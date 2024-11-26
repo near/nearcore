@@ -38,9 +38,9 @@ use super::PendingEventsSender;
 
 /// A DelaySender is a FutureSpawner that can be used to
 /// spawn futures into the test loop. We give it a convenient alias.
-pub type TestLoopFututeSpawner = PendingEventsSender;
+pub type TestLoopFutureSpawner = PendingEventsSender;
 
-impl FutureSpawner for TestLoopFututeSpawner {
+impl FutureSpawner for TestLoopFutureSpawner {
     fn spawn_boxed(&self, description: &str, f: BoxFuture<'static, ()>) {
         let task = Arc::new(FutureTask {
             future: Mutex::new(Some(f)),

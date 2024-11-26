@@ -63,6 +63,8 @@ near-chain.workspace = true
 near-chunks.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+rand_chacha.workspace = true
+testlib.workspace = true
 
 [[bench]]
 name = "trie_bench"
@@ -92,6 +94,7 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-vm-runner/nightly_protocol",
+  "testlib/nightly_protocol",
 ]
 nightly = [
   "near-chain-configs/nightly",
@@ -103,6 +106,7 @@ nightly = [
   "near-primitives/nightly",
   "near-vm-runner/nightly",
   "nightly_protocol",
+  "testlib/nightly",
 ]
 protocol_schema = [
   "near-crypto/protocol_schema",

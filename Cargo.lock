@@ -3257,6 +3257,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand",
+ "rand_chacha",
  "reed-solomon-erasure",
  "regex",
  "rlp",
@@ -4905,6 +4906,7 @@ dependencies = [
  "near-vm-runner",
  "num_cpus",
  "rand",
+ "rand_chacha",
  "rayon",
  "reed-solomon-erasure",
  "rlimit",
@@ -4915,6 +4917,7 @@ dependencies = [
  "smallvec",
  "strum",
  "tempfile",
+ "testlib",
  "thiserror 2.0.0",
  "tokio",
  "tracing",
@@ -5363,6 +5366,7 @@ version = "0.0.0"
 dependencies = [
  "assert_matches",
  "borsh",
+ "bytesize",
  "enum-map",
  "hex",
  "near-chain-configs",
@@ -7719,6 +7723,7 @@ dependencies = [
  "near-primitives",
  "near-test-contracts",
  "node-runtime",
+ "rand",
 ]
 
 [[package]]

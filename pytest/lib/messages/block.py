@@ -1100,7 +1100,7 @@ block_schema = [
         BandwidthRequest, {
             'kind':
                 'struct',
-            'fields': [['to_shard', 'u8'],
+            'fields': [['to_shard', 'u16'],
                        ['requested_values_bitmap', BandwidthRequestBitmap]]
         }
     ],
