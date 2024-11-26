@@ -7,9 +7,7 @@ use crate::Error;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{
-    GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP,
-};
+use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
@@ -38,7 +36,6 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
@@ -46,7 +43,7 @@ use near_store::{
     TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::ContractCode;
-use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
+use near_vm_runner::{precompile_contract, ContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
@@ -54,13 +51,13 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument};
 
 pub mod errors;
 mod metrics;
 pub mod migrations;
+pub mod test_utils;
 #[cfg(test)]
 mod tests;
 
@@ -132,82 +129,6 @@ impl NightshadeRuntime {
             migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
         })
-    }
-
-    pub fn test_with_runtime_config_store(
-        home_dir: &Path,
-        store: Store,
-        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
-        genesis_config: &GenesisConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-        runtime_config_store: RuntimeConfigStore,
-        state_snapshot_type: StateSnapshotType,
-    ) -> Arc<Self> {
-        Self::new(
-            store,
-            compiled_contract_cache,
-            genesis_config,
-            epoch_manager,
-            None,
-            None,
-            Some(runtime_config_store),
-            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            Default::default(),
-            StateSnapshotConfig {
-                state_snapshot_type,
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
-        )
-    }
-
-    pub fn test_with_trie_config(
-        home_dir: &Path,
-        store: Store,
-        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
-        genesis_config: &GenesisConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-        runtime_config_store: Option<RuntimeConfigStore>,
-        trie_config: TrieConfig,
-        state_snapshot_type: StateSnapshotType,
-    ) -> Arc<Self> {
-        Self::new(
-            store,
-            compiled_contract_cache,
-            genesis_config,
-            epoch_manager,
-            None,
-            None,
-            runtime_config_store,
-            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            trie_config,
-            StateSnapshotConfig {
-                state_snapshot_type,
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
-        )
-    }
-
-    pub fn test(
-        home_dir: &Path,
-        store: Store,
-        genesis_config: &GenesisConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-    ) -> Arc<Self> {
-        Self::test_with_runtime_config_store(
-            home_dir,
-            store,
-            FilesystemContractRuntimeCache::with_memory_cache(home_dir, None::<&str>, 1)
-                .expect("filesystem contract cache")
-                .handle(),
-            genesis_config,
-            epoch_manager,
-            RuntimeConfigStore::test(),
-            StateSnapshotType::ForReshardingOnly,
-        )
     }
 
     fn get_shard_uid_from_prev_hash(
