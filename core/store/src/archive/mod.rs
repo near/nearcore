@@ -62,7 +62,6 @@ impl ArchivalStorageOpener {
         let sync_cold_db = self.config.sync_cold_db;
         let archiver =
             Arc::new(Archiver { cold_db, external_storage: storage, column_to_path, sync_cold_db });
-        archiver.sync_cold_head()?;
         Ok(archiver)
     }
 }
@@ -97,26 +96,23 @@ impl Archiver {
         if self.external_storage.is_none() {
             return self.get_cold_head();
         }
-        let archive_head = self
-            .read(DBCol::BlockMisc, HEAD_KEY)?
-            .map(|data| Tip::try_from_slice(&data))
-            .transpose()?;
+        let external_head = self.get_external_head()?;
         if cfg!(debug_assertions) {
             let cold_head = self.get_cold_head();
             debug_assert_eq!(
                 cold_head.as_ref().unwrap(),
-                &archive_head,
-                "Cold head and archive head should be in sync"
+                &external_head,
+                "Cold head and external storage head should be in sync"
             );
         }
-        Ok(archive_head)
+        Ok(external_head)
     }
 
     pub fn set_head(&self, tip: &Tip) -> io::Result<()> {
         let tx = set_head_tx(&tip)?;
 
         // If the archival storage is external (eg. GCS), also update the head in Cold DB.
-        // This should not be needed once ColdDB is no longer a dependency.
+        // TODO: This should not be needed once ColdDB is no longer a dependency.
         if self.external_storage.is_some() {
             self.cold_db.write(tx.clone())?;
         }
@@ -126,17 +122,39 @@ impl Archiver {
 
     /// Sets the head in the external storage from the cold head in the ColdDB.
     /// TODO: This should be removed after ColdDB is no longer a dependency.
-    fn sync_cold_head(&self) -> io::Result<()> {
+    pub fn sync_cold_head(&self) -> io::Result<()> {
         if self.external_storage.is_none() {
             return Ok(());
         }
         let cold_head = self.get_cold_head()?;
-        let Some(tip) = cold_head else {
+        let external_head = self.get_external_head()?;
+
+        let Some(cold_head) = cold_head else {
+            assert!(
+                external_head.is_none(),
+                "External head should be unset if cold head is unset but found: {:?}",
+                external_head
+            );
             return Ok(());
         };
-        let tx = set_head_tx(&tip)?;
-        let _ = self.write_to_external(tx)?;
+
+        if let Some(external_head) = external_head {
+            assert_eq!(
+                cold_head, external_head,
+                "Cold head and external storage head should be in sync"
+            );
+        } else {
+            let tx = set_head_tx(&cold_head)?;
+            let _ = self.write_to_external(tx)?;
+        }
         Ok(())
+    }
+
+    /// Reads the head from the external storage.
+    fn get_external_head(&self) -> io::Result<Option<Tip>> {
+        self.read_from_external(DBCol::BlockMisc, HEAD_KEY)?
+            .map(|data| Tip::try_from_slice(&data))
+            .transpose()
     }
 
     /// Reads the head from the Cold DB.
@@ -175,8 +193,7 @@ impl Archiver {
         if self.external_storage.is_none() {
             return Ok(self.cold_db.get_raw_bytes(col, key)?.map(|v| v.to_vec()));
         }
-        let path = self.get_path(col, key);
-        self.external_storage.as_ref().unwrap().get(&path)
+        self.read_from_external(col, key)
     }
 
     pub fn cold_db(&self) -> Arc<ColdDB> {
@@ -188,6 +205,11 @@ impl Archiver {
             self.column_to_path.get(&col).unwrap_or_else(|| panic!("No entry for {:?}", col));
         let filename = bs58::encode(key).with_alphabet(bs58::Alphabet::BITCOIN).into_string();
         [dirname, std::path::Path::new(&filename)].into_iter().collect()
+    }
+
+    fn read_from_external(&self, col: DBCol, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        let path = self.get_path(col, key);
+        self.external_storage.as_ref().unwrap().get(&path)
     }
 
     fn write_to_external(&self, transaction: DBTransaction) -> io::Result<ArchiveWriteStats> {

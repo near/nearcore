@@ -436,6 +436,13 @@ pub fn spawn_cold_store_loop(
     tracing::info!(target : "cold_store", "Spawning the cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_copy".to_string()).spawn(move || {
+            // Initialize the head of the archival storage (if not before) from the cold head read from the ColdDB.
+            // Note that we need to run this check in the new thread, because it runs blocking calls to async code
+            // and it panics if run from the main thread.
+            if let Err(err) = archiver.sync_cold_head() {
+                panic!("Failed to sync cold head: {:?}", err);
+            }
+
             // Perform the sanity check first, before running the loops.
             // If the check fails when the node is starting it's better to just fail
             // fast and crash the node immediately.
