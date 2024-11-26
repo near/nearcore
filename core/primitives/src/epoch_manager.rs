@@ -6,16 +6,11 @@ use crate::types::{
     ValidatorKickoutReason,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_chain_configs::{
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
-use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::ops::Bound;
@@ -98,6 +93,11 @@ impl EpochConfig {
         num_block_producer_seats: NumSeats,
         shard_layout: ShardLayout,
         epoch_length: BlockHeightDelta,
+        block_producer_kickout_threshold: u8,
+        chunk_producer_kickout_threshold: u8,
+        chunk_validator_only_kickout_threshold: u8,
+        protocol_upgrade_stake_threshold: Rational32,
+        fishermen_threshold: Balance,
     ) -> Self {
         Self {
             epoch_length,
@@ -112,11 +112,11 @@ impl EpochConfig {
             online_min_threshold: Rational32::new(90, 100),
             online_max_threshold: Rational32::new(99, 100),
             minimum_stake_divisor: 10,
-            protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-            block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-            chunk_validator_only_kickout_threshold: CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
-            fishermen_threshold: FISHERMEN_THRESHOLD,
+            protocol_upgrade_stake_threshold,
+            block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold,
+            fishermen_threshold,
             shard_layout,
             num_chunk_producer_seats: 100,
             num_chunk_validator_seats: 300,
@@ -489,31 +489,6 @@ impl AllEpochConfig {
             config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
         }
     }
-}
-
-/// Additional configuration parameters for the new validator selection
-/// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
-#[derive(Debug, Clone, SmartDefault, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ValidatorSelectionConfig {
-    #[default(100)]
-    pub num_chunk_producer_seats: NumSeats,
-    #[default(300)]
-    pub num_chunk_validator_seats: NumSeats,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    #[default(300)]
-    pub num_chunk_only_producer_seats: NumSeats,
-    #[default(1)]
-    pub minimum_validators_per_shard: NumSeats,
-    #[default(Rational32::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational32,
-    #[default(5)]
-    /// Limits the number of shard changes in chunk producer assignments,
-    /// if algorithm is able to choose assignment with better balance of
-    /// number of chunk producers for shards.
-    pub chunk_producer_assignment_changes_limit: NumSeats,
-    #[default(false)]
-    pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]

@@ -23,7 +23,6 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
-use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
@@ -57,7 +56,6 @@ use near_store::{
     TrieChanges, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
-use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};

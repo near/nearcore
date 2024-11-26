@@ -4,11 +4,15 @@
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
 use crate::genesis_validate::validate_genesis;
+use crate::{
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
-use near_primitives::epoch_manager::{EpochConfig, ValidatorSelectionConfig};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::StateRoot;
@@ -744,6 +748,27 @@ impl Genesis {
                 unreachable!("Records should have been set previously");
             }
         }
+    }
+
+    // Create test-only epoch config.
+    // Not depends on genesis!
+    // TODO(#11265): move to crate with `EpochConfig`.
+    // Cannot move the configs consts to `primitives`.
+    pub fn test_epoch_config(
+        num_block_producer_seats: NumSeats,
+        shard_layout: ShardLayout,
+        epoch_length: BlockHeightDelta,
+    ) -> EpochConfig {
+        EpochConfig::genesis_test(
+            num_block_producer_seats,
+            shard_layout,
+            epoch_length,
+            BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+            CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
+            PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+            FISHERMEN_THRESHOLD,
+        )
     }
 }
 

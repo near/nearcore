@@ -73,7 +73,7 @@ impl Genesis {
         }
         add_protocol_account(&mut records);
         let epoch_config =
-            EpochConfig::genesis_test(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
+            Genesis::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),

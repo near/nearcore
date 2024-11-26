@@ -1007,7 +1007,7 @@ impl ShardInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
+    use crate::epoch_manager::{AllEpochConfig, EpochConfig};
     use crate::shard_layout::{
         account_id_to_shard_id, new_shard_ids_vec, new_shards_split_map, ShardLayout,
         ShardLayoutV1, ShardUId,
