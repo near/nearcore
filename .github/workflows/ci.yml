@@ -40,6 +40,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2 
         with:
           key: ${{ matrix.name }}
+          cache-directories: "coverage/profraw"
           cache-on-failure: true
           cache-all-crates: true
 
