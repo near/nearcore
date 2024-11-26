@@ -2096,8 +2096,12 @@ impl Runtime {
                 &processing_state.stats,
             ) {
                 panic!(
-                    "Balance check failed for shard {} at height {} with block hash {}: {}",
-                    apply_state.shard_id, apply_state.block_height, apply_state.block_hash, err
+                    "The runtime's balance_checker failed for shard {} at height {} with block hash {} and protocol version {}: {}",
+                    apply_state.shard_id,
+                    apply_state.block_height,
+                    apply_state.block_hash,
+                    apply_state.current_protocol_version,
+                    err
                 );
             }
         }
