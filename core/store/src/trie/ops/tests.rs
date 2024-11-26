@@ -77,17 +77,6 @@ fn setup_tries(initial_entries: Vec<(Vec<u8>, Vec<u8>)>) -> (Trie, MemTries) {
     (trie, memtries)
 }
 
-// fn retain_split_shard_custom_ranges<'a, N, V>(
-//     update: &mut impl GenericTrieUpdateSplitInner<'a, N, V>,
-//     retain_multi_ranges: &Vec<Range<Vec<u8>>>,
-// ) where
-//     N: Debug,
-//     V: Debug + HasValueLength,
-// {
-//     let intervals_nibbles = intervals_to_nibbles(retain_multi_ranges);
-//     update.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
-// }
-
 fn retain_split_shard_custom_ranges_for_trie(
     trie: &Trie,
     retain_multi_ranges: &Vec<Range<Vec<u8>>>,
