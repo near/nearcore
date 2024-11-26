@@ -83,27 +83,29 @@ def main(args):
         args.start_block_id = end_block["header"]["height"] + args.start_block_id
     start_block = get_block(args.url, args.start_block_id)
 
-    current_block = end_block
-    height = current_block["header"]["height"]
+    start_height = start_block["header"]["height"]
+    end_height = end_block["header"]["height"]
 
     shard_stats = {
         chunk["shard_id"]: ShardStats() for chunk in start_block["chunks"]
     }
 
     i = 1
-    max_i = height - start_block["header"]["height"]
+    max_i = end_height - start_height + 1
     with open(args.result_file, mode="w", newline="") as file:
         writer = csv.writer(file)
 
         # Write header
         writer.writerow(["block_height", "shard_id", "congestion_level"])
 
-        while height >= start_block["header"]["height"]:
+        for height in range(start_height, end_height + 1):
+            i += 1
+            current_block = get_block(args.url, height)
             if not current_block:
                 continue
 
             if not current_block["header"]["height"] % 10:
-                print(f"progress {i:08}/{max_i} height - {height}")
+                print(f"progress {i: 8}/{max_i} height - {height}")
 
             for chunk in current_block["chunks"]:
                 chunk_hash = chunk["chunk_hash"]
@@ -115,10 +117,6 @@ def main(args):
                     continue
                 writer.writerow([height, shard_id, congestion_level])
                 shard_stats[shard_id].update(congestion_level)
-
-            i += 1
-            height -= 1
-            current_block = get_block(args.url, height)
 
     print("Shard stats:")
     for shard_id, stats in shard_stats.items():
