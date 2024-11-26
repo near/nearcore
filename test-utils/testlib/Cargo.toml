@@ -19,6 +19,7 @@ near-parameters.workspace = true
 near-primitives.workspace = true
 near-test-contracts.workspace = true
 node-runtime.workspace = true
+rand.workspace = true
 
 [features]
 nightly_protocol = [

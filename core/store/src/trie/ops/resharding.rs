@@ -8,8 +8,8 @@ use near_primitives::types::AccountId;
 use crate::NibbleSlice;
 
 use super::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedNodeId, GenericUpdatedTrieNode,
-    GenericUpdatedTrieNodeWithSize, HasValueLength,
+    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
+    HasValueLength, UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
 
@@ -78,7 +78,7 @@ where
     /// `intervals_nibbles` is the list of ranges to be retained.
     fn retain_multi_range_recursive(
         &mut self,
-        node_id: GenericUpdatedNodeId,
+        node_id: UpdatedNodeId,
         key_nibbles: Vec<u8>,
         intervals_nibbles: &[Range<Vec<u8>>],
     ) -> Result<(), StorageError> {

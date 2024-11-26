@@ -20,7 +20,7 @@ bytesize.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "from", "into", "deref" ] }
 easy-ext.workspace = true
 hex.workspace = true
 itertools = { workspace = true, optional = true }

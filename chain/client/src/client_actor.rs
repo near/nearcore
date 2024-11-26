@@ -968,15 +968,10 @@ impl ClientActorInner {
             debug!(target: "client", "Sending announce account for {}", signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
-            let signature =
-                signer.sign_account_announce(signer.validator_id(), &self.node_id, &next_epoch_id);
+            let announce_account =
+                AnnounceAccount::new(signer.as_ref(), self.node_id.clone(), next_epoch_id);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }),
+                NetworkRequests::AnnounceAccount(announce_account),
             ));
         }
     }

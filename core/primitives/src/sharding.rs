@@ -215,7 +215,7 @@ impl ShardChunkHeaderV2 {
             prev_validator_proposals,
         };
         let hash = Self::compute_hash(&inner);
-        let signature = signer.sign_chunk_hash(&hash);
+        let signature = signer.sign_bytes(hash.as_ref());
         Self { inner, height_included: 0, signature, hash }
     }
 }
@@ -331,7 +331,7 @@ impl ShardChunkHeaderV3 {
 
     pub fn from_inner(inner: ShardChunkHeaderInner, signer: &ValidatorSigner) -> Self {
         let hash = Self::compute_hash(&inner);
-        let signature = signer.sign_chunk_hash(&hash);
+        let signature = signer.sign_bytes(hash.as_ref());
         Self { inner, height_included: 0, signature, hash }
     }
 }
@@ -690,7 +690,7 @@ impl ShardChunkHeaderV1 {
             prev_validator_proposals,
         };
         let hash = Self::compute_hash(&inner);
-        let signature = signer.sign_chunk_hash(&hash);
+        let signature = signer.sign_bytes(hash.as_ref());
         Self { inner, height_included: 0, signature, hash }
     }
 }
