@@ -1,37 +1,54 @@
+#!/usr/bin/env python3
+
 import argparse
 import csv
 import requests
-import time
-
-from dataclasses import dataclass
 
 
-def get_block_with_retries(url, block_id, retries=3, delay=2):
+def get_block_reference(block_id):
+    if block_id:
+        return {"block_id": block_id}
+    else:
+        return {"finality": "final"}
+
+
+def get_chunk_reference(chunk_hash):
+    return {"chunk_id": chunk_hash}
+
+
+def get_block(url, block_id):
     payload = {
         "jsonrpc": "2.0",
         "id": "dontcare",
         "method": "block",
+        "params": get_block_reference(block_id)
     }
 
-    payload["params"] = {
-        "block_id": block_id
-    } if block_id else {
-        "finality": "final"
+    try:
+        response = requests.post(url, json=payload)
+        return response.json()['result']
+    except Exception as e:
+        print(f"Failed to get block {block_id} from {url}. Error: {e}")
+        return None
+
+
+def get_congestion_level(url, chunk_hash):
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "dontcare",
+        "method": "EXPERIMENTAL_congestion_level",
+        "params": get_chunk_reference(chunk_hash)
     }
 
-    for attempt in range(retries):
-        try:
-            response = requests.post(url, json=payload)
-            return response.json()['result']
-        except Exception as e:
-            if attempt < retries - 1:
-                print(
-                    f"Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds..."
-                )
-                time.sleep(delay)
-            else:
-                print(f"All {retries} attempts failed.")
-                raise e
+    try:
+        response = requests.post(url, json=payload)
+        response = response.json()
+        return response['result']["congestion_level"]
+    except Exception as e:
+        print(
+            f"Failed to get congestion level for chunk {chunk_hash} from {url}. Response: {response} Error: {e}"
+        )
+        return None
 
 
 class SetURLFromChainID(argparse.Action):
@@ -43,48 +60,69 @@ class SetURLFromChainID(argparse.Action):
             setattr(namespace, 'url', 'https://archival-rpc.testnet.near.org')
 
 
-@dataclass(frozen=True)
-class ShardCongestionInfo:
-    allowed_shard: int
-    buffered_receipts_gas: int
-    delayed_receipts_gas: int
-    receipt_bytes: int
+class ShardStats:
 
+    def __init__(self):
+        self.total = 0
+        self.above_05 = 0
+        self.above_07 = 0
 
-@dataclass(frozen=True)
-class CongestionData:
-    block_id: int
-    congestion_info: [ShardCongestionInfo]
+    def update(self, congestion_level):
+        self.total += 1
+        if congestion_level > 0.5:
+            self.above_05 += 1
+        if congestion_level > 0.7:
+            self.above_07 += 1
+
+    def __str__(self):
+        above_05_percent = 100 * self.above_05 / self.total if self.total else 0
+        above_07_percent = 100 * self.above_07 / self.total if self.total else 0
+        return f"Total: {self.total}, Above 0.5: {above_05_percent}%, Above 0.7: {above_07_percent}%"
 
 
 def main(args):
-    start_block = get_block_with_retries(args.url, args.start_block_id)
-    end_block = get_block_with_retries(args.url, args.end_block_id)
+    end_block = get_block(args.url, args.end_block_id)
+
+    if args.start_block_id < 0:
+        args.start_block_id = end_block["header"]["height"] + args.start_block_id
+    start_block = get_block(args.url, args.start_block_id)
+
     current_block = end_block
+    height = current_block["header"]["height"]
+
+    shard_stats = {
+        chunk["shard_id"]: ShardStats() for chunk in start_block["chunks"]
+    }
 
     with open(args.result_file, mode="w", newline="") as file:
         writer = csv.writer(file)
-        # Write header
-        writer.writerow([
-            "block_id", "allowed_shard", "buffered_receipts_gas",
-            "delayed_receipts_gas", "receipt_bytes"
-        ])
 
-        while current_block["header"]["height"] >= start_block["header"][
-                "height"]:
+        # Write header
+        writer.writerow(["block_height", "shard_id", "congestion_level"])
+
+        while height >= start_block["header"]["height"]:
+            if not current_block:
+                continue
             if not current_block["header"]["height"] % 10:
                 print(current_block["header"]["height"])
+
             for chunk in current_block["chunks"]:
-                shard_info = ShardCongestionInfo(**chunk["congestion_info"])
-                if args.shard_ids and shard_info.allowed_shard not in args.shard_ids:
+                chunk_hash = chunk["chunk_hash"]
+                shard_id = chunk["shard_id"]
+                if args.shard_ids and str(shard_id) not in args.shard_ids:
                     continue
-                writer.writerow([
-                    current_block["header"]["height"], shard_info.allowed_shard,
-                    shard_info.buffered_receipts_gas,
-                    shard_info.delayed_receipts_gas, shard_info.receipt_bytes
-                ])
-            current_block = get_block_with_retries(
-                args.url, current_block["header"]["prev_height"])
+                congestion_level = get_congestion_level(args.url, chunk_hash)
+                if congestion_level is None:
+                    continue
+                writer.writerow([height, shard_id, congestion_level])
+                shard_stats[shard_id].update(congestion_level)
+
+            height -= 1
+            current_block = get_block(args.url, height)
+
+    print("Shard stats:")
+    for shard_id, stats in shard_stats.items():
+        print(f"Shard {shard_id}: {stats}")
 
 
 if __name__ == "__main__":
@@ -97,25 +135,31 @@ if __name__ == "__main__":
         "--chain_id",
         choices=['mainnet', 'testnet'],
         action=SetURLFromChainID,
-        help="Chain ID ('mainnet' or 'testnet'). Sets the RPC URL.")
+        help="Chain ID ('mainnet' or 'testnet'). Sets the RPC URL.",
+    )
     parser.add_argument(
         "--result_file",
         default="congestion_data.csv",
-        help="Path to the output file (default: congestion_data.csv).")
-    parser.add_argument("--start_block_id",
-                        type=int,
-                        help="Starting block ID for congestion data.")
+        help="Path to the output file (default: congestion_data.csv).",
+    )
+    parser.add_argument(
+        "--start_block_id",
+        type=int,
+        help="Starting block ID for congestion data.",
+        default=-1000,
+    )
     parser.add_argument(
         "--end_block_id",
         type=int,
         default=0,
         help=
-        "Ending block ID for congestion data (default: latest block at the invoke time)."
+        "Ending block ID for congestion data (default: latest block at the invoke time).",
     )
     parser.add_argument(
         "--shard_ids",
         default=[],
-        help="List of shard IDs to query. Empty for all shards.")
+        help="List of shard IDs to query. Empty for all shards.",
+    )
 
     args = parser.parse_args()
     main(args)
