@@ -1,15 +1,16 @@
+use std::fmt::Debug;
 use std::ops::Range;
 
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
-use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
+use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
 
 use crate::NibbleSlice;
 
 use super::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
-    HasValueLength, UpdatedNodeId,
+    GenericNodeOrIndex, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength,
+    UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
 
@@ -33,27 +34,66 @@ enum RetainDecision {
 
 /// By the boundary account and the retain mode, generates the list of ranges
 /// to be retained in trie.
-pub(crate) fn boundary_account_to_intervals(
+fn boundary_account_to_intervals(
     boundary_account: &AccountId,
     retain_mode: RetainMode,
 ) -> Vec<Range<Vec<u8>>> {
     let mut intervals = vec![];
-    // TODO(#12074): generate correct intervals in nibbles.
-    for (col, _) in COLUMNS_WITH_ACCOUNT_ID_IN_KEY {
-        match retain_mode {
-            RetainMode::Left => {
-                intervals.push(vec![col]..[&[col], boundary_account.as_bytes()].concat())
+    for (prefix, name) in col::ALL_COLUMNS_WITH_NAMES {
+        if col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY.contains(&(prefix, name)) {
+            intervals.push(split_column_with_account_id(boundary_account, &retain_mode, prefix));
+            continue;
+        }
+        match prefix {
+            col::DELAYED_RECEIPT_OR_INDICES
+            | col::PROMISE_YIELD_INDICES
+            | col::PROMISE_YIELD_TIMEOUT
+            | col::BANDWIDTH_SCHEDULER_STATE => {
+                intervals.push(copy_column_to_both_children(prefix))
             }
-            RetainMode::Right => {
-                intervals.push([&[col], boundary_account.as_bytes()].concat()..vec![col + 1])
+            col::BUFFERED_RECEIPT_INDICES
+            | col::BUFFERED_RECEIPT
+            | col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA
+            | col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM => {
+                if let Some(interval) = include_column_in_lower_index_child(&retain_mode, prefix) {
+                    intervals.push(interval);
+                }
             }
+            // Poor man's exhaustive check for handling all column types.
+            _ => panic!("Unhandled trie key type: {}", name),
         }
     }
+    debug_assert!(intervals.iter().all(|range| range.start < range.end));
     intervals
 }
 
+fn split_column_with_account_id(
+    boundary_account: &AccountId,
+    retain_mode: &RetainMode,
+    prefix: u8,
+) -> Range<Vec<u8>> {
+    match retain_mode {
+        RetainMode::Left => vec![prefix]..[&[prefix], boundary_account.as_bytes()].concat(),
+        RetainMode::Right => [&[prefix], boundary_account.as_bytes()].concat()..vec![prefix + 1],
+    }
+}
+
+fn copy_column_to_both_children(prefix: u8) -> Range<Vec<u8>> {
+    vec![prefix]..vec![prefix + 1]
+}
+
+fn include_column_in_lower_index_child(
+    retain_mode: &RetainMode,
+    prefix: u8,
+) -> Option<Range<Vec<u8>>> {
+    match retain_mode {
+        RetainMode::Left => Some(vec![prefix]..vec![prefix + 1]),
+        RetainMode::Right => None,
+    }
+}
+
 /// Converts the list of ranges in bytes to the list of ranges in nibbles.
-pub(crate) fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Vec<u8>>> {
+fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Vec<u8>>> {
     intervals
         .iter()
         .map(|range| {
@@ -63,11 +103,10 @@ pub(crate) fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Ve
         .collect_vec()
 }
 
-pub(crate) trait GenericTrieUpdateRetain<'a, N, V>:
-    GenericTrieUpdateSquash<'a, N, V>
+trait GenericTrieUpdateSplitInner<'a, N, V>: GenericTrieUpdateSquash<'a, N, V>
 where
-    N: std::fmt::Debug,
-    V: std::fmt::Debug + HasValueLength,
+    N: Debug,
+    V: Debug + HasValueLength,
 {
     /// Recursive implementation of the algorithm of retaining keys belonging to
     /// any of the ranges given in `intervals` from the trie. All changes are
@@ -174,11 +213,12 @@ where
     }
 }
 
-impl<'a, N, V, T> GenericTrieUpdateRetain<'a, N, V> for T
+// Default impl for all types that implement `GenericTrieUpdateSquash`.
+impl<'a, N, V, T> GenericTrieUpdateSplitInner<'a, N, V> for T
 where
-    N: std::fmt::Debug,
-    V: std::fmt::Debug + HasValueLength,
-    T: GenericTrieUpdate<'a, N, V>,
+    N: Debug,
+    V: Debug + HasValueLength,
+    T: GenericTrieUpdateSquash<'a, N, V>,
 {
 }
 
@@ -212,5 +252,115 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
         RetainDecision::Descend
     } else {
         RetainDecision::DiscardAll
+    }
+}
+
+pub(crate) trait GenericTrieUpdateSplit<'a, N, V>:
+    GenericTrieUpdateSquash<'a, N, V>
+where
+    N: Debug,
+    V: Debug + HasValueLength,
+{
+    fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode);
+}
+
+impl<'a, N, V, T> GenericTrieUpdateSplit<'a, N, V> for T
+where
+    N: Debug,
+    V: Debug + HasValueLength,
+    T: GenericTrieUpdateSplitInner<'a, N, V>,
+{
+    fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode) {
+        let intervals = boundary_account_to_intervals(boundary_account, retain_mode);
+        let intervals_nibbles = intervals_to_nibbles(&intervals);
+        self.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+    }
+}
+
+// Expose function that takes custom ranges for testing.
+#[cfg(test)]
+#[allow(private_bounds)]
+pub fn retain_split_shard_custom_ranges<'a, N, V>(
+    update: &mut impl GenericTrieUpdateSplitInner<'a, N, V>,
+    retain_multi_ranges: &Vec<Range<Vec<u8>>>,
+) where
+    N: Debug,
+    V: Debug + HasValueLength,
+{
+    let intervals_nibbles = intervals_to_nibbles(retain_multi_ranges);
+    update.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use itertools::Itertools;
+    use near_primitives::trie_key::col;
+    use near_primitives::types::AccountId;
+
+    use super::{boundary_account_to_intervals, RetainMode};
+
+    fn append_key(trie_key: u8, account: &str) -> Vec<u8> {
+        let mut key = vec![trie_key];
+        key.extend_from_slice(account.as_bytes());
+        key
+    }
+
+    #[test]
+    fn test_boundary_account_to_intervals() {
+        let column_name_map =
+            col::ALL_COLUMNS_WITH_NAMES.iter().cloned().collect::<HashMap<_, _>>();
+        let account = AccountId::try_from("alice.near".to_string()).unwrap();
+
+        let left_intervals = boundary_account_to_intervals(&account, RetainMode::Left);
+        let expected_left_intervals = vec![
+            vec![col::ACCOUNT]..append_key(col::ACCOUNT, "alice.near"),
+            vec![col::CONTRACT_CODE]..append_key(col::CONTRACT_CODE, "alice.near"),
+            vec![col::ACCESS_KEY]..append_key(col::ACCESS_KEY, "alice.near"),
+            vec![col::RECEIVED_DATA]..append_key(col::RECEIVED_DATA, "alice.near"),
+            vec![col::POSTPONED_RECEIPT_ID]..append_key(col::POSTPONED_RECEIPT_ID, "alice.near"),
+            vec![col::PENDING_DATA_COUNT]..append_key(col::PENDING_DATA_COUNT, "alice.near"),
+            vec![col::POSTPONED_RECEIPT]..append_key(col::POSTPONED_RECEIPT, "alice.near"),
+            vec![col::DELAYED_RECEIPT_OR_INDICES]..vec![col::DELAYED_RECEIPT_OR_INDICES + 1],
+            vec![col::CONTRACT_DATA]..append_key(col::CONTRACT_DATA, "alice.near"),
+            vec![col::PROMISE_YIELD_INDICES]..vec![col::PROMISE_YIELD_INDICES + 1],
+            vec![col::PROMISE_YIELD_TIMEOUT]..vec![col::PROMISE_YIELD_TIMEOUT + 1],
+            vec![col::PROMISE_YIELD_RECEIPT]..append_key(col::PROMISE_YIELD_RECEIPT, "alice.near"),
+            vec![col::BUFFERED_RECEIPT_INDICES]..vec![col::BUFFERED_RECEIPT_INDICES + 1],
+            vec![col::BUFFERED_RECEIPT]..vec![col::BUFFERED_RECEIPT + 1],
+            vec![col::BANDWIDTH_SCHEDULER_STATE]..vec![col::BANDWIDTH_SCHEDULER_STATE + 1],
+            vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA]
+                ..vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA + 1],
+            vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM]
+                ..vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM + 1],
+        ];
+        for (actual, expected) in left_intervals.iter().zip_eq(expected_left_intervals.iter()) {
+            let column_name = column_name_map[&expected.start[0]];
+            assert_eq!(actual, expected, "Mismatch in key: {:?}", column_name);
+        }
+
+        let right_intervals = boundary_account_to_intervals(&account, RetainMode::Right);
+        let expected_right_intervals = vec![
+            append_key(col::ACCOUNT, "alice.near")..vec![col::ACCOUNT + 1],
+            append_key(col::CONTRACT_CODE, "alice.near")..vec![col::CONTRACT_CODE + 1],
+            append_key(col::ACCESS_KEY, "alice.near")..vec![col::ACCESS_KEY + 1],
+            append_key(col::RECEIVED_DATA, "alice.near")..vec![col::RECEIVED_DATA + 1],
+            append_key(col::POSTPONED_RECEIPT_ID, "alice.near")
+                ..vec![col::POSTPONED_RECEIPT_ID + 1],
+            append_key(col::PENDING_DATA_COUNT, "alice.near")..vec![col::PENDING_DATA_COUNT + 1],
+            append_key(col::POSTPONED_RECEIPT, "alice.near")..vec![col::POSTPONED_RECEIPT + 1],
+            vec![col::DELAYED_RECEIPT_OR_INDICES]..vec![col::DELAYED_RECEIPT_OR_INDICES + 1],
+            append_key(col::CONTRACT_DATA, "alice.near")..vec![col::CONTRACT_DATA + 1],
+            vec![col::PROMISE_YIELD_INDICES]..vec![col::PROMISE_YIELD_INDICES + 1],
+            vec![col::PROMISE_YIELD_TIMEOUT]..vec![col::PROMISE_YIELD_TIMEOUT + 1],
+            append_key(col::PROMISE_YIELD_RECEIPT, "alice.near")
+                ..vec![col::PROMISE_YIELD_RECEIPT + 1],
+            vec![col::BANDWIDTH_SCHEDULER_STATE]..vec![col::BANDWIDTH_SCHEDULER_STATE + 1],
+        ];
+        for (actual, expected) in right_intervals.iter().zip_eq(expected_right_intervals.iter()) {
+            let column_name = column_name_map[&expected.start[0]];
+            assert_eq!(actual, expected, "Mismatch in key: {:?}", column_name);
+        }
     }
 }
