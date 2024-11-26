@@ -103,7 +103,15 @@ impl ReceiptSink {
                     };
 
                     let size_limit =
-                        other_congestion_control.outgoing_size_limit(apply_state.shard_id);
+                        if ProtocolFeature::BandwidthScheduler.enabled(protocol_version) {
+                            bandwidth_scheduler_output
+                                .as_ref()
+                                .expect("BandwidthScheduler is enabled and should produce output")
+                                .granted_bandwidth
+                                .get_granted_bandwidth(apply_state.shard_id, shard_id)
+                        } else {
+                            other_congestion_control.outgoing_size_limit(apply_state.shard_id)
+                        };
 
                     (shard_id, OutgoingLimit { gas: gas_limit, size: size_limit })
                 })
@@ -342,11 +350,19 @@ impl ReceiptSinkV2 {
         // could be a special case during resharding events. Or even a bug. In
         // any case, if we cannot know a limit, treating it as literally "no
         // limit" is the safest approach to ensure availability.
-        // For the size limit, we default to the usual limit that is applied to all (non-special) shards.
-        let default_outgoing_limit = OutgoingLimit {
-            gas: Gas::MAX,
-            size: apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit,
-        };
+        let default_gas_limit = Gas::MAX;
+
+        let default_size_limit =
+            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
+                // With bandwidth scheduler, a shard is not allowed to send any receipts if it doesn't have a grant.
+                0
+            } else {
+                // Use the usual size limit that most senders have
+                apply_state.config.congestion_control_config.outgoing_receipts_usual_size_limit
+            };
+
+        let default_outgoing_limit =
+            OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
         if forward_limit.gas > gas && forward_limit.size > size {
