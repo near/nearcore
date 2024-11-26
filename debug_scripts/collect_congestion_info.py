@@ -103,7 +103,7 @@ def main(args):
                 continue
 
             if not current_block["header"]["height"] % 10:
-                print(f"progress {i:08}/{max_i} height - {current_block["header"]["height"]}")
+                print(f"progress {i:08}/{max_i} height - {height}")
 
             for chunk in current_block["chunks"]:
                 chunk_hash = chunk["chunk_hash"]
