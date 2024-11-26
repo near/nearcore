@@ -2084,8 +2084,8 @@ impl Runtime {
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(&state_update, true)?;
 
-        debug_assert_eq!(
-            check_balance(
+        if cfg!(debug_assertions) {
+            if let Err(err) = check_balance(
                 &apply_state.config,
                 &state_update,
                 validator_accounts_update,
@@ -2094,10 +2094,13 @@ impl Runtime {
                 processing_state.transactions,
                 &receipt_sink.outgoing_receipts(),
                 &processing_state.stats,
-            ),
-            Ok(()),
-            "balance check failed"
-        );
+            ) {
+                panic!(
+                    "Balance check failed for shard {} at height {} with block hash {}: {}",
+                    apply_state.shard_id, apply_state.block_height, apply_state.block_hash, err
+                );
+            }
+        }
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
