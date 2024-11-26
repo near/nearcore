@@ -91,20 +91,20 @@ def main(args):
     }
 
     i = 1
-    max_i = end_height - start_height + 1
+    max_i = end_height - start_height
     with open(args.result_file, mode="w", newline="") as file:
         writer = csv.writer(file)
 
         # Write header
         writer.writerow(["block_height", "shard_id", "congestion_level"])
 
-        for height in range(start_height, end_height + 1):
+        for height in range(start_height, end_height):
             i += 1
             current_block = get_block(args.url, height)
             if not current_block:
                 continue
 
-            if not current_block["header"]["height"] % 10:
+            if not i % 10:
                 print(f"progress {i: 8}/{max_i} height - {height}")
 
             for chunk in current_block["chunks"]:
