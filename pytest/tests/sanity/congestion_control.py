@@ -112,8 +112,9 @@ class CongestionControlTest(unittest.TestCase):
                 continue
 
             # Check the target shard.
+            shard_id = 0
 
-            chunk = self.__get_chunk(node, hash, 0)
+            chunk = self.__get_chunk(node, hash, shard_id)
 
             # Check that the target is busy - always using 1000TG.
             gas_used = chunk['header']['gas_used']
@@ -125,8 +126,11 @@ class CongestionControlTest(unittest.TestCase):
             self.assertGreater(int(congestion_info['delayed_receipts_gas']), 0)
             self.assertGreater(congestion_info['receipt_bytes'], 0)
 
+            congestion_level = self.__get_congestion_level(node, hash, shard_id)
+            self.assertGreater(congestion_level, 0)
+
             logger.info(
-                f"#{height} target gas used: {gas_used} congestion info {congestion_info}"
+                f"#{height} target gas used: {gas_used} congestion level {congestion_level} congestion info {congestion_info}"
             )
 
             # Check one other shard.
@@ -419,6 +423,17 @@ class CongestionControlTest(unittest.TestCase):
         })
         self.assertIn('result', result, result)
         return result['result']
+
+    def __get_congestion_level(self, node: BaseNode, block_hash, shard_id):
+        result = node.json_rpc("EXPERIMENTAL_congestion_level", {
+            "block_id": block_hash,
+            "shard_id": shard_id
+        })
+        self.assertIn('result', result, result)
+
+        result = result['result']
+        self.assertIn('congestion_level', result, result)
+        return result['congestion_level']
 
 
 if __name__ == '__main__':
