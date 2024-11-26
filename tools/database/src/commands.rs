@@ -1,4 +1,8 @@
 use crate::adjust_database::ChangeDbKindCommand;
+use crate::analyse_archival::AnalyseArchivalCommand;
+use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
+use crate::analyse_gas_usage::AnalyseGasUsageCommand;
+use crate::analyse_high_load::HighLoadStatsCommand;
 use crate::analyze_contract_sizes::AnalyzeContractSizesCommand;
 use crate::analyze_data_size_distribution::AnalyzeDataSizeDistributionCommand;
 use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
@@ -75,6 +79,11 @@ enum SubCommand {
 
     /// Manually set database version
     SetVersion(SetVersionCommand),
+    /// Perform on demand resharding V2
+    Resharding(ReshardingV2Command),
+
+    /// Archival-specific analysis
+    AnalyseArchival(AnalyseArchivalCommand),
 }
 
 impl DatabaseCommand {
@@ -103,7 +112,11 @@ impl DatabaseCommand {
             SubCommand::HighLoadStats(cmd) => cmd.run(home),
             SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home, genesis_validation),
             SubCommand::AnalyzeContractSizes(cmd) => cmd.run(home, genesis_validation),
-            SubCommand::SetVersion(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::Resharding(cmd) => {
+                let near_config = load_config(home, genesis_validation);
+                cmd.run(near_config, home)
+            }
+            SubCommand::AnalyseArchival(cmd) => cmd.run(home),
         }
     }
 }
