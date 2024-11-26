@@ -2084,16 +2084,20 @@ impl Runtime {
 
         let bandwidth_requests = receipt_sink.generate_bandwidth_requests(&state_update, true)?;
 
-        check_balance(
-            &apply_state.config,
-            &state_update,
-            validator_accounts_update,
-            processing_state.incoming_receipts,
-            &promise_yield_result.timeout_receipts,
-            processing_state.transactions,
-            &receipt_sink.outgoing_receipts(),
-            &processing_state.stats,
-        )?;
+        debug_assert_eq!(
+            check_balance(
+                &apply_state.config,
+                &state_update,
+                validator_accounts_update,
+                processing_state.incoming_receipts,
+                &promise_yield_result.timeout_receipts,
+                processing_state.transactions,
+                &receipt_sink.outgoing_receipts(),
+                &processing_state.stats,
+            ),
+            Ok(()),
+            "balance check failed"
+        );
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
