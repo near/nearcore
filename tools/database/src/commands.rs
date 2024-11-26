@@ -1,4 +1,5 @@
 use crate::adjust_database::ChangeDbKindCommand;
+use crate::analyse_archival::AnalyseArchivalCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
 use crate::analyse_high_load::HighLoadStatsCommand;
@@ -64,6 +65,9 @@ enum SubCommand {
 
     /// Perform on demand resharding V2
     Resharding(ReshardingV2Command),
+
+    /// Archival-specific analysis
+    AnalyseArchival(AnalyseArchivalCommand),
 }
 
 impl DatabaseCommand {
@@ -93,6 +97,7 @@ impl DatabaseCommand {
                 let near_config = load_config(home, genesis_validation);
                 cmd.run(near_config, home)
             }
+            SubCommand::AnalyseArchival(cmd) => cmd.run(home),
         }
     }
 }
