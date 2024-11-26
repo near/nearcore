@@ -37,8 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Cache Rust dependencies
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2 
         with:
+          key: ${{ matrix.name }}
           cache-on-failure: true
           cache-all-crates: true
 
