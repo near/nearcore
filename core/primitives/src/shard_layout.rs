@@ -1047,30 +1047,7 @@ mod tests {
         pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
             // none of the epoch config fields matter, we only need the shard layout
             // constructed through [`AllEpochConfig::for_protocol_version()`].
-            let genesis_epoch_config = EpochConfig {
-                epoch_length: 0,
-                num_block_producer_seats: 0,
-                num_block_producer_seats_per_shard: vec![],
-                avg_hidden_validator_seats_per_shard: vec![],
-                block_producer_kickout_threshold: 0,
-                chunk_producer_kickout_threshold: 0,
-                chunk_validator_only_kickout_threshold: 0,
-                target_validator_mandates_per_shard: 0,
-                validator_max_kickout_stake_perc: 0,
-                online_min_threshold: 0.into(),
-                online_max_threshold: 0.into(),
-                fishermen_threshold: 0,
-                minimum_stake_divisor: 0,
-                protocol_upgrade_stake_threshold: 0.into(),
-                shard_layout: ShardLayout::get_simple_nightshade_layout(),
-                num_chunk_producer_seats: Default::default(),
-                num_chunk_validator_seats: Default::default(),
-                num_chunk_only_producer_seats: Default::default(),
-                minimum_validators_per_shard: Default::default(),
-                minimum_stake_ratio: Default::default(),
-                chunk_producer_assignment_changes_limit: Default::default(),
-                shuffle_shard_assignment_for_chunk_producers: Default::default(),
-            };
+            let genesis_epoch_config = EpochConfig::zero();
 
             let genesis_protocol_version = PROTOCOL_VERSION;
             let all_epoch_config = AllEpochConfig::new(

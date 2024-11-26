@@ -499,30 +499,7 @@ impl EpochManagerAdapter for MockEpochManager {
     }
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
-        Ok(EpochConfig {
-            epoch_length: self.epoch_length,
-            num_block_producer_seats: 2,
-            num_block_producer_seats_per_shard: vec![1, 1],
-            avg_hidden_validator_seats_per_shard: vec![1, 1],
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
-            target_validator_mandates_per_shard: 1,
-            validator_max_kickout_stake_perc: 0,
-            online_min_threshold: Ratio::new(1i32, 4i32),
-            online_max_threshold: Ratio::new(3i32, 4i32),
-            fishermen_threshold: 1,
-            minimum_stake_divisor: 1,
-            protocol_upgrade_stake_threshold: Ratio::new(3i32, 4i32),
-            shard_layout: self.get_shard_layout(epoch_id).unwrap(),
-            num_chunk_producer_seats: Default::default(),
-            num_chunk_validator_seats: Default::default(),
-            num_chunk_only_producer_seats: Default::default(),
-            minimum_validators_per_shard: Default::default(),
-            minimum_stake_ratio: Default::default(),
-            chunk_producer_assignment_changes_limit: Default::default(),
-            shuffle_shard_assignment_for_chunk_producers: Default::default(),
-        })
+        Ok(EpochConfig::mock(self.epoch_length, self.get_shard_layout(epoch_id).unwrap()))
     }
 
     /// Return the epoch info containing the mocked data.

@@ -224,7 +224,7 @@ impl EpochManager {
                 Arc::new(epoch_config),
             )]))
         } else {
-            let epoch_config = Genesis::test_epoch_config(
+            let epoch_config = EpochConfig::genesis_test(
                 genesis_config.num_block_producer_seats,
                 genesis_config.shard_layout.clone(),
                 genesis_config.epoch_length,
