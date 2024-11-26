@@ -1,4 +1,4 @@
-use crate::archive::Archiver;
+use crate::archive::ArchivalStore;
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY};
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
@@ -77,7 +77,7 @@ struct BatchTransaction {
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
 pub fn update_cold_db(
-    archiver: &Archiver,
+    archival_store: &ArchivalStore,
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
@@ -109,10 +109,15 @@ pub fn update_cold_db(
                 // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
-                        copy_state_from_store(&archiver, shard_layout, block_hash_key, &hot_store)
+                        copy_state_from_store(
+                            &archival_store,
+                            shard_layout,
+                            block_hash_key,
+                            &hot_store,
+                        )
                     } else {
                         let keys = combine_keys(&key_type_to_keys, &col.key_type());
-                        copy_from_store(&archiver, &hot_store, col, keys)
+                        copy_from_store(&archival_store, &hot_store, col, keys)
                     }
                 })
                 // Return first found error, or Ok(())
@@ -165,7 +170,7 @@ fn rc_aware_set(
 // attempt to read every node from every shard. Here we know exactly what shard
 // the node belongs to.
 fn copy_state_from_store(
-    archiver: &Archiver,
+    archival_store: &ArchivalStore,
     shard_layout: &ShardLayout,
     block_hash_key: &[u8],
     hot_store: &Store,
@@ -204,7 +209,7 @@ fn copy_state_from_store(
     let read_duration = instant.elapsed();
 
     let instant = std::time::Instant::now();
-    archiver.write(transaction)?;
+    archival_store.write(transaction)?;
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?total_keys, ?total_size, ?read_duration, ?write_duration, "finished");
@@ -216,7 +221,7 @@ fn copy_state_from_store(
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
 fn copy_from_store(
-    archiver: &Archiver,
+    archival_store: &ArchivalStore,
     hot_store: &Store,
     col: DBCol,
     keys: Vec<StoreKey>,
@@ -256,7 +261,7 @@ fn copy_from_store(
     let read_duration = instant.elapsed();
 
     let instant = std::time::Instant::now();
-    archiver.write(transaction)?;
+    archival_store.write(transaction)?;
     let write_duration = instant.elapsed();
 
     tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?total_size, ?read_duration, ?write_duration, "finished");
@@ -273,7 +278,7 @@ fn copy_from_store(
 /// (to construct the Tip we query hot_store for block hash and block header)
 /// If this is to change, caller should be careful about `height` not being garbage collected in hot storage yet.
 pub fn update_cold_head(
-    archiver: &Archiver,
+    archival_store: &ArchivalStore,
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
@@ -287,7 +292,7 @@ pub fn update_cold_head(
     let tip = Tip::from_header(tip_header);
 
     // Write HEAD to the archival storage.
-    archiver.set_head(&tip)?;
+    archival_store.set_head(&tip)?;
 
     // Write COLD_HEAD to the hot db.
     {
@@ -339,7 +344,7 @@ pub fn copy_all_data_to_cold(
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
 pub fn test_cold_genesis_update(cold_db: Arc<ColdDB>, hot_store: &Store) -> io::Result<()> {
-    let archiver = Archiver::from(cold_db);
+    let archival_store = ArchivalStore::from(cold_db);
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
@@ -349,7 +354,7 @@ pub fn test_cold_genesis_update(cold_db: Arc<ColdDB>, hot_store: &Store) -> io::
         // for the State column that otherwise should be copied using the
         // specialized `copy_state_from_store`.
         copy_from_store(
-            &archiver,
+            &archival_store,
             &hot_store,
             col,
             hot_store.iter(col).map(|x| x.unwrap().0.to_vec()).collect(),

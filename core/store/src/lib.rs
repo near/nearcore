@@ -13,7 +13,7 @@ pub use crate::trie::{
     STATE_SNAPSHOT_COLUMNS,
 };
 use adapter::{StoreAdapter, StoreUpdateAdapter};
-use archive::Archiver;
+use archive::ArchivalStore;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use config::ArchivalStorageConfig;
@@ -105,7 +105,7 @@ const STATE_FILE_END_MARK: u8 = 255;
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
-    archiver: Option<Arc<Archiver>>,
+    archival_store: Option<Arc<ArchivalStore>>,
 }
 
 /// Node’s single storage source.
@@ -163,7 +163,7 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None, archiver: None }
+        Self { hot_storage: storage, cold_storage: None, archival_store: None }
     }
 }
 
@@ -276,7 +276,7 @@ impl NodeStorage {
         Self {
             hot_storage: hot,
             cold_storage: Some(cold_db.clone()),
-            archiver: Some(Archiver::from(cold_db)),
+            archival_store: Some(ArchivalStore::from(cold_db)),
         }
     }
 
@@ -284,8 +284,8 @@ impl NodeStorage {
         self.cold_storage.as_ref()
     }
 
-    pub fn archiver(&self) -> Option<&Arc<Archiver>> {
-        self.archiver.as_ref()
+    pub fn archival_store(&self) -> Option<&Arc<ArchivalStore>> {
+        self.archival_store.as_ref()
     }
 }
 

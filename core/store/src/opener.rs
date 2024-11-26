@@ -300,7 +300,7 @@ impl<'a> StoreOpener<'a> {
         let hot_storage = Arc::new(hot_rocksdb);
         let cold_storage =
             cold_rocksdb.map(|rocksdb| Arc::new(crate::db::ColdDB::new(Arc::new(rocksdb))));
-        let archiver = cold_storage
+        let archival_store = cold_storage
             .clone()
             .map(|cold_db| self.archival.as_ref().unwrap().open(cold_db))
             .transpose()?;
@@ -308,7 +308,7 @@ impl<'a> StoreOpener<'a> {
         hot_snapshot.remove()?;
         cold_snapshot.remove()?;
 
-        Ok(NodeStorage { hot_storage, cold_storage, archiver })
+        Ok(NodeStorage { hot_storage, cold_storage, archival_store })
     }
 
     pub fn create_snapshots(&self, mode: Mode) -> Result<(Snapshot, Snapshot), StoreOpenerError> {

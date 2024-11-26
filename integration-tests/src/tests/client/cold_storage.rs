@@ -115,9 +115,10 @@ fn test_storage_after_commit_of_cold_update() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let archiver = storage.archiver().unwrap().clone();
+    let archival_store = storage.archival_store().unwrap().clone();
 
-    test_cold_genesis_update(archiver.cold_db(), &env.clients[0].runtime_adapter.store()).unwrap();
+    test_cold_genesis_update(archival_store.cold_db(), &env.clients[0].runtime_adapter.store())
+        .unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
 
@@ -149,7 +150,7 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = client.runtime_adapter.store();
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(&archiver, &client_store, &shard_layout, &height, 4).unwrap();
+        update_cold_db(&archival_store, &client_store, &shard_layout, &height, 4).unwrap();
 
         last_hash = *block.hash();
     }
@@ -209,7 +210,7 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
-    let archiver = storage.archiver().unwrap().clone();
+    let archival_store = storage.archival_store().unwrap().clone();
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
         .nightshade_runtimes(&genesis)
@@ -218,11 +219,11 @@ fn test_cold_db_head_update() {
     for height in 1..max_height {
         env.produce_block(0, height);
         let client_store = env.clients[0].runtime_adapter.store();
-        update_cold_head(&archiver, &client_store, &height).unwrap();
+        update_cold_head(&archival_store, &client_store, &height).unwrap();
 
         let head = &client_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
         let cold_head_in_hot = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap();
-        let cold_head_in_cold = archiver.get_head().unwrap();
+        let cold_head_in_cold = archival_store.get_head().unwrap();
 
         assert_eq!(head, &cold_head_in_cold);
         assert_eq!(head, &cold_head_in_hot);
@@ -250,9 +251,10 @@ fn test_cold_db_copy_with_height_skips() {
         .build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let archiver = storage.archiver().unwrap().clone();
+    let archival_store = storage.archival_store().unwrap().clone();
 
-    test_cold_genesis_update(archiver.cold_db(), &env.clients[0].runtime_adapter.store()).unwrap();
+    test_cold_genesis_update(archival_store.cold_db(), &env.clients[0].runtime_adapter.store())
+        .unwrap();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
@@ -282,7 +284,7 @@ fn test_cold_db_copy_with_height_skips() {
         let client = &env.clients[0];
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(&archiver, &client.runtime_adapter.store(), &shard_layout, &height, 1)
+        update_cold_db(&archival_store, &client.runtime_adapter.store(), &shard_layout, &height, 1)
             .unwrap();
 
         if block.is_some() {
@@ -413,7 +415,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
-    let archiver = storage.archiver().unwrap().clone();
+    let archival_store = storage.archival_store().unwrap().clone();
     let mut env = TestEnv::builder(&genesis.config)
         .archive(true)
         .save_trie_changes(true)
@@ -439,9 +441,9 @@ fn test_cold_loop_on_gc_boundary() {
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold(archiver.cold_db(), &hot_store, 1000000, &keep_going).unwrap();
+    copy_all_data_to_cold(archival_store.cold_db(), &hot_store, 1000000, &keep_going).unwrap();
 
-    update_cold_head(&archiver, &hot_store, &(height_delta - 1)).unwrap();
+    update_cold_head(&archival_store, &hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
@@ -455,7 +457,7 @@ fn test_cold_loop_on_gc_boundary() {
         last_hash = *block.hash();
     }
 
-    let start_cold_head = archiver.get_head().unwrap().unwrap().height;
+    let start_cold_head = archival_store.get_head().unwrap().unwrap().height;
 
     let signer =
         InMemorySigner::from_random(AccountId::from_str("test").unwrap(), KeyType::ED25519);
@@ -479,7 +481,7 @@ fn test_cold_loop_on_gc_boundary() {
     spawn_cold_store_loop(&near_config, &storage, epoch_manager).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 
-    let end_cold_head = archiver.get_head().unwrap().unwrap().height;
+    let end_cold_head = archival_store.get_head().unwrap().unwrap().height;
 
     assert!(
         end_cold_head > start_cold_head,

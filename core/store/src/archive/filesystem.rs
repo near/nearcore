@@ -4,11 +4,11 @@ use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
 
-pub(crate) struct FilesystemArchiver {
+pub(crate) struct FilesystemStorage {
     base_dir: rustix::fd::OwnedFd,
 }
 
-impl FilesystemArchiver {
+impl FilesystemStorage {
     pub(crate) fn open(
         base_path: &std::path::Path,
         sub_paths: Vec<&std::path::Path>,
@@ -18,7 +18,7 @@ impl FilesystemArchiver {
             rustix::fs::open(base_path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())
                 .unwrap();
         tracing::debug!(
-            target: "archiver",
+            target: "cold_store",
             path = %base_path.display(),
             message = "opened archive directory"
         );
@@ -34,7 +34,7 @@ impl FilesystemArchiver {
     }
 }
 
-impl ArchivalStorage for FilesystemArchiver {
+impl ArchivalStorage for FilesystemStorage {
     fn put(&self, path: &std::path::Path, value: &[u8]) -> io::Result<()> {
         use rustix::fs::{Mode, OFlags};
         let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;

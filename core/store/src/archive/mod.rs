@@ -3,7 +3,8 @@ use std::time::Duration;
 use std::{io, sync::Arc};
 
 use borsh::BorshDeserialize;
-use filesystem::FilesystemArchiver;
+use filesystem::FilesystemStorage;
+use gcloud::GoogleCloudStorage;
 use near_primitives::block::Tip;
 use strum::IntoEnumIterator;
 
@@ -30,7 +31,7 @@ impl ArchivalStorageOpener {
         Self { home_dir, config }
     }
 
-    pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<Archiver>> {
+    pub fn open(&self, cold_db: Arc<ColdDB>) -> io::Result<Arc<ArchivalStore>> {
         let mut column_to_path = HashMap::new();
         let container = self.config.container.as_deref();
         for col in DBCol::iter() {
@@ -47,22 +48,26 @@ impl ArchivalStorageOpener {
             ArchivalStorageLocation::ColdDB => None,
             ArchivalStorageLocation::Filesystem { path } => {
                 let base_path = self.home_dir.join(path);
-                tracing::info!(target: "archiver", path=%base_path.display(), "Using filesystem as the archival storage location");
-                Some(Arc::new(FilesystemArchiver::open(
+                tracing::info!(target: "cold_store", path=%base_path.display(), "Using filesystem as the archival storage location");
+                Some(Arc::new(FilesystemStorage::open(
                     base_path.as_path(),
                     column_to_path.values().map(|p: &std::path::PathBuf| p.as_path()).collect(),
                 )?))
             }
             ArchivalStorageLocation::GCloud { bucket } => {
-                tracing::info!(target: "archiver", bucket=%bucket, "Using Google Cloud Storage as the archival storage location");
-                Some(Arc::new(gcloud::GoogleCloudArchiver::open(bucket)))
+                tracing::info!(target: "cold_store", bucket=%bucket, "Using Google Cloud Storage as the archival storage location");
+                Some(Arc::new(GoogleCloudStorage::open(bucket)))
             }
         };
         let column_to_path = Arc::new(column_to_path);
         let sync_cold_db = self.config.sync_cold_db;
-        let archiver =
-            Arc::new(Archiver { cold_db, external_storage: storage, column_to_path, sync_cold_db });
-        Ok(archiver)
+        let archival_store = Arc::new(ArchivalStore {
+            cold_db,
+            external_storage: storage,
+            column_to_path,
+            sync_cold_db,
+        });
+        Ok(archival_store)
     }
 }
 
@@ -75,16 +80,16 @@ struct ArchiveWriteStats {
 }
 
 #[derive(Clone)]
-pub struct Archiver {
+pub struct ArchivalStore {
     cold_db: Arc<ColdDB>,
     external_storage: Option<Arc<dyn ArchivalStorage>>,
     column_to_path: Arc<HashMap<DBCol, std::path::PathBuf>>,
     sync_cold_db: bool,
 }
 
-impl Archiver {
-    pub(crate) fn from(cold_db: Arc<ColdDB>) -> Arc<Archiver> {
-        Arc::new(Archiver {
+impl ArchivalStore {
+    pub(crate) fn from(cold_db: Arc<ColdDB>) -> Arc<ArchivalStore> {
+        Arc::new(ArchivalStore {
             cold_db,
             external_storage: None,
             column_to_path: Default::default(),

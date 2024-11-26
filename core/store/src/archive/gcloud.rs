@@ -4,13 +4,13 @@ use std::io;
 
 use super::ArchivalStorage;
 
-pub(crate) struct GoogleCloudArchiver {
+pub(crate) struct GoogleCloudStorage {
     gcs_client: Arc<cloud_storage::Client>,
     bucket: String,
     runtime: tokio::runtime::Runtime,
 }
 
-impl GoogleCloudArchiver {
+impl GoogleCloudStorage {
     pub(crate) fn open(bucket: &str) -> Self {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         Self {
@@ -21,11 +21,11 @@ impl GoogleCloudArchiver {
     }
 }
 
-impl ArchivalStorage for GoogleCloudArchiver {
+impl ArchivalStorage for GoogleCloudStorage {
     fn put(&self, path: &std::path::Path, value: &[u8]) -> io::Result<()> {
         let _ = self.runtime.block_on(async {
             let filename = path.to_str().unwrap();
-            tracing::debug!(target: "archiver", data_len = value.len(), ?filename, "Put to GCS");
+            tracing::debug!(target: "cold_store", data_len = value.len(), ?filename, "Put to GCS");
             self.gcs_client
                     .object()
                     .create(&self.bucket, value.to_vec(), filename, "application/octet-stream")
@@ -37,7 +37,7 @@ impl ArchivalStorage for GoogleCloudArchiver {
     fn get(&self, path: &std::path::Path) -> io::Result<Option<Vec<u8>>> {
         let value = self.runtime.block_on(async {
             let filename = path.to_str().unwrap();
-            tracing::debug!(target: "archiver", ?filename, "Get from GCS");
+            tracing::debug!(target: "cold_store", ?filename, "Get from GCS");
             self.gcs_client.object().download(&self.bucket, filename).await.ok()
         });
         Ok(value)
