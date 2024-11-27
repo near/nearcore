@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
@@ -19,9 +20,12 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::config::StateSnapshotType;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
-use near_vm_runner::{get_contract_cache_key, CompiledContract, CompiledContractInfo};
+use near_vm_runner::{
+    get_contract_cache_key, CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache,
+};
 use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -739,8 +743,7 @@ fn test_state_sync() {
     env.step_default(vec![]);
     let block_hash = hash(&[env.head.height as u8]);
 
-    let shard_layout =
-        env.epoch_manager.get_shard_layout_from_prev_block(&env.head.prev_block_hash).unwrap();
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let state_part = env

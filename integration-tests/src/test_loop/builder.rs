@@ -91,6 +91,8 @@ pub(crate) struct TestLoopBuilder {
     warmup: bool,
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
+    /// Whether to load mem tries for the tracked shards.
+    load_mem_tries_for_tracked_shards: bool,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -289,6 +291,7 @@ impl TestLoopBuilder {
             config_modifier: None,
             warmup: true,
             track_all_shards: false,
+            load_mem_tries_for_tracked_shards: true,
         }
     }
 
@@ -305,6 +308,11 @@ impl TestLoopBuilder {
 
     pub(crate) fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
         self.epoch_config_store = Some(epoch_config_store);
+        self
+    }
+
+    pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
+        self.runtime_config_store = Some(runtime_config_store);
         self
     }
 
@@ -397,6 +405,11 @@ impl TestLoopBuilder {
 
     pub fn track_all_shards(mut self) -> Self {
         self.track_all_shards = true;
+        self
+    }
+
+    pub fn load_mem_tries_for_tracked_shards(mut self, load_mem_tries: bool) -> Self {
+        self.load_mem_tries_for_tracked_shards = load_mem_tries;
         self
     }
 
@@ -522,7 +535,7 @@ impl TestLoopBuilder {
 
         let store_config = StoreConfig {
             path: Some(homedir.clone()),
-            load_mem_tries_for_tracked_shards: true,
+            load_mem_tries_for_tracked_shards: self.load_mem_tries_for_tracked_shards,
             ..Default::default()
         };
 

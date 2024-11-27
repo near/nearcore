@@ -70,10 +70,6 @@ pub enum ShardUpdateReason {
 /// Information about shard to update.
 pub struct ShardContext {
     pub shard_uid: ShardUId,
-    /// Whether node cares about shard in this epoch.
-    pub cares_about_shard_this_epoch: bool,
-    /// Whether shard layout changes in the next epoch.
-    pub will_shard_layout_change: bool,
     /// Whether transactions should be applied.
     pub should_apply_chunk: bool,
 }

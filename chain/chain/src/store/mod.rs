@@ -60,22 +60,15 @@ mod merkle_proof;
 pub use latest_witnesses::LatestWitnessesInfo;
 pub use merkle_proof::MerkleProofAccess;
 
-/// lru cache size
-#[cfg(not(feature = "no_cache"))]
-const CACHE_SIZE: usize = 100;
-#[cfg(not(feature = "no_cache"))]
-const CHUNK_CACHE_SIZE: usize = 1024;
-
-#[cfg(feature = "no_cache")]
+// TODO: Get rid of caches in chain store
 const CACHE_SIZE: usize = 1;
-#[cfg(feature = "no_cache")]
 const CHUNK_CACHE_SIZE: usize = 1;
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
 pub trait ChainStoreAccess {
     /// Returns underlying chain store
     fn chain_store(&self) -> &ChainStore;
-    /// Returns underlaying store.
+    /// Returns underlying store.
     fn store(&self) -> &Store;
     /// The chain head.
     fn head(&self) -> Result<Tip, Error>;

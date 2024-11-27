@@ -10,6 +10,7 @@ use crate::test_utils::{
     DEFAULT_TOTAL_SUPPLY,
 };
 use itertools::Itertools;
+use near_crypto::{KeyType, PublicKey};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -19,10 +20,11 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::types::AccountInfo;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
@@ -30,6 +32,7 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
+use near_store::ShardUId;
 use num_rational::Ratio;
 
 impl EpochManager {
@@ -3712,4 +3715,141 @@ fn test_possible_epochs_of_height_around_tip() {
             );
         }
     }
+}
+
+fn test_get_shard_uids_pending_resharding_base(shard_layouts: &[ShardLayout]) -> HashSet<ShardUId> {
+    init_test_logger();
+
+    // Create a minimal genesis.
+    let mut genesis_config = GenesisConfig::default();
+    genesis_config.protocol_version = PROTOCOL_VERSION;
+    genesis_config.validators = vec![AccountInfo {
+        account_id: "test".parse().unwrap(),
+        public_key: PublicKey::empty(KeyType::ED25519),
+        amount: 10,
+    }];
+    genesis_config.num_block_producer_seats = 1;
+    genesis_config.num_chunk_producer_seats = 1;
+
+    // Create an epoch config store with a new protocol version for each
+    // provided shard layout.
+    let mut epoch_config = EpochConfig::from(&genesis_config);
+    let mut epoch_config_store = vec![];
+    for (i, shard_layout) in shard_layouts.iter().enumerate() {
+        let protocol_version = genesis_config.protocol_version + i as u32;
+        epoch_config.shard_layout = shard_layout.clone();
+        epoch_config_store.push((protocol_version, Arc::new(epoch_config.clone())));
+    }
+    let epoch_config_store = BTreeMap::from_iter(epoch_config_store.into_iter());
+    let epoch_config_store = EpochConfigStore::test(epoch_config_store);
+
+    // Create the epoch manager.
+    let store = create_test_store();
+    let epoch_manager = EpochManager::new_arc_handle_from_epoch_config_store(
+        store,
+        &genesis_config,
+        epoch_config_store,
+    );
+
+    // Get and return the ShardUIds pending resharding.
+    let head_protocol_version = genesis_config.protocol_version;
+    let client_protocol_version = genesis_config.protocol_version + shard_layouts.len() as u32 - 1;
+    epoch_manager
+        .get_shard_uids_pending_resharding(head_protocol_version, client_protocol_version)
+        .unwrap()
+}
+
+/// Test there are no ShardUIds pending resharding when there are no planned
+/// reshardings.
+#[test]
+fn test_get_shard_uids_pending_resharding_none() {
+    let shard_layout = ShardLayout::single_shard();
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout]);
+    assert_eq!(shard_uids.len(), 0);
+
+    let shard_layout = ShardLayout::multi_shard(3, 3);
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout]);
+    assert_eq!(shard_uids.len(), 0);
+
+    let shard_layout = ShardLayout::multi_shard(3, 3);
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[
+        shard_layout.clone(),
+        shard_layout.clone(),
+        shard_layout,
+    ]);
+    assert_eq!(shard_uids.len(), 0);
+}
+
+/// Test that there is only one ShardUId pending resharding during a single
+/// resharding.
+#[test]
+fn test_get_shard_uids_pending_resharding_single() {
+    let version = 3;
+    let a: AccountId = "aaa".parse().unwrap();
+    let b: AccountId = "bbb".parse().unwrap();
+
+    // start with just one boundary - a
+    // the split s1 by adding b
+    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
+    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
+
+    let s1 = account_id_to_shard_uid(&a, &shard_layout_0);
+
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout_0, shard_layout_1]);
+    assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
+}
+
+/// Test that both original shards are pending resharding during a double
+/// resharding of different shards.
+#[test]
+fn test_get_shard_uids_pending_resharding_double_different() {
+    let version = 3;
+    let a: AccountId = "aaa".parse().unwrap();
+    let b: AccountId = "bbb".parse().unwrap();
+    let c: AccountId = "ccc".parse().unwrap();
+
+    // start with just one boundary - b
+    // then split s0 by adding a
+    // then split s1 by adding c
+    // both original shards are pending resharding
+    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![b.clone()], version);
+    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, a.clone());
+    let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
+
+    let s0 = account_id_to_shard_uid(&a, &shard_layout_0);
+    let s1 = account_id_to_shard_uid(&b, &shard_layout_0);
+
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[
+        shard_layout_0,
+        shard_layout_1,
+        shard_layout_2,
+    ]);
+    assert_eq!(shard_uids, vec![s0, s1].into_iter().collect::<HashSet<_>>());
+}
+
+/// Test that that only one shard is pending resharding during a double
+/// resharding where the same shard is reshareded twice.
+#[test]
+fn test_get_shard_uids_pending_resharding_double_same() {
+    let version = 3;
+    let a: AccountId = "aaa".parse().unwrap();
+    let b: AccountId = "bbb".parse().unwrap();
+    let c: AccountId = "ccc".parse().unwrap();
+
+    // start with just one boundary - a
+    // then split s1 by adding a
+    // then split s1 by adding c
+    // both original shards are pending resharding
+    let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
+    let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
+    let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
+
+    let s1 = account_id_to_shard_uid(&a, &shard_layout_0);
+
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[
+        shard_layout_0,
+        shard_layout_1,
+        shard_layout_2,
+    ]);
+    assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
 }

@@ -30,9 +30,8 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices,
-    remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices,
-    StorageError, TrieUpdate,
+    enqueue_promise_yield_timeout, get_access_key, get_promise_yield_indices, remove_access_key,
+    remove_account, set_access_key, set_promise_yield_indices, StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -584,7 +583,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     storage_usage,
                     current_protocol_version,
                 ));
-                set_code(state_update, account_id.clone(), &magic_bytes);
+                state_update.set_code(account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
@@ -615,12 +614,18 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
     config: Arc<near_parameters::vm::Config>,
     cache: Option<&dyn ContractRuntimeCache>,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
+    let prev_code_len = get_code_len_or_default(
+        state_update,
+        account_id.clone(),
+        account.code_hash(),
+        current_protocol_version,
+    )?;
+    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-    let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -634,7 +639,7 @@ pub(crate) fn action_deploy_contract(
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
     // that the contracts are written to The State.
-    set_code(state_update, account_id.clone(), &code);
+    state_update.set_code(account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the contract runtime
     // cache.
     // Note, that contract compilation costs are already accounted in deploy cost using special
@@ -660,13 +665,16 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-        if let Some(code) = contract_code {
-            // account storage usage should be larger than code size
-            let code_len = code.code().len() as u64;
-            debug_assert!(account_storage_usage > code_len);
-            account_storage_usage = account_storage_usage.saturating_sub(code_len);
-        }
+        let code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            account.code_hash(),
+            current_protocol_version,
+        )?;
+        debug_assert!(code_len == 0 || account_storage_usage > code_len,
+            "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
+            account_storage_usage, code_len);
+        account_storage_usage = account_storage_usage.saturating_sub(code_len);
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
                 account_id: account_id.clone(),
@@ -688,6 +696,32 @@ pub(crate) fn action_delete_account(
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
+}
+
+/// Returns the storage usage for the contract code with the given `code_hash` and deployed to the given `account_id`.
+/// If no contract was deployed to the account, returns `0`.
+///
+/// This implements different behaviors based on the protocol version:
+/// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
+/// the code but from the value-ref in the trie leaf node, otherwise it reads the code and returns its size.
+fn get_code_len_or_default(
+    state_update: &TrieUpdate,
+    account_id: AccountId,
+    code_hash: CryptoHash,
+    protocol_version: ProtocolVersion,
+) -> Result<StorageUsage, StorageError> {
+    let code_len =
+        if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
+            state_update.get_code_len(account_id, code_hash)?
+        } else {
+            state_update.get_code(account_id, code_hash)?.map(|contract| contract.code().len())
+        };
+    debug_assert!(
+        code_len.is_some() || code_hash == CryptoHash::default(),
+        "Non-default code hash for account with no contract deployed: {:?}",
+        code_hash
+    );
+    Ok(code_len.unwrap_or_default().try_into().unwrap())
 }
 
 pub(crate) fn action_delete_key(
@@ -1339,6 +1373,7 @@ mod tests {
             &deploy_action,
             Arc::clone(&apply_state.config.wasm_config),
             None,
+            apply_state.current_protocol_version,
         );
         assert!(res.is_ok());
         test_delete_large_account(

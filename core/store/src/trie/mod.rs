@@ -18,7 +18,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
-use mem::mem_trie_update::{TrackingMode, UpdatedMemTrieNodeId, UpdatedMemTrieNodeWithSize};
+use mem::mem_trie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::mem_tries::MemTries;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
@@ -31,9 +31,9 @@ use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
 use ops::insert_delete::GenericTrieUpdateInsertDelete;
-use ops::interface::GenericTrieValue;
 #[cfg(test)]
-use ops::interface::{GenericNodeOrIndex, GenericTrieUpdate};
+use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
+use ops::interface::{GenericTrieValue, UpdatedNodeId};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
@@ -43,9 +43,9 @@ use std::ops::DerefMut;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
-#[cfg(test)]
-use trie_storage_update::UpdatedTrieStorageNode;
-use trie_storage_update::{TrieStorageUpdate, UpdatedTrieStorageNodeWithSize};
+use trie_storage_update::{
+    TrieStorageNodeWithSize, TrieStorageUpdate, UpdatedTrieStorageNodeWithSize,
+};
 
 pub mod accounting_cache;
 mod config;
@@ -54,6 +54,7 @@ pub mod iterator;
 pub mod mem;
 mod nibble_slice;
 pub mod ops;
+pub mod outgoing_metadata;
 mod prefetching_trie_storage;
 mod raw_node;
 pub mod receipts_column_helper;
@@ -123,14 +124,14 @@ impl UpdatedTrieStorageNodeWithSize {
         spaces: &mut String,
     ) -> std::fmt::Result {
         match &self.node {
-            UpdatedTrieStorageNode::Empty => {
+            GenericTrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
             }
-            UpdatedTrieStorageNode::Leaf { extension, .. } => {
+            GenericTrieNode::Leaf { extension, .. } => {
                 let slice = NibbleSlice::from_encoded(&extension);
                 write!(f, "{}Leaf({:?}, val)", spaces, slice.0)?;
             }
-            UpdatedTrieStorageNode::Branch { children, value } => {
+            GenericTrieNode::Branch { children, value } => {
                 writeln!(
                     f,
                     "{}Branch({}){{",
@@ -157,7 +158,7 @@ impl UpdatedTrieStorageNodeWithSize {
                 spaces.remove(spaces.len() - 1);
                 write!(f, "{}}}", spaces)?;
             }
-            UpdatedTrieStorageNode::Extension { extension, child } => {
+            GenericTrieNode::Extension { extension, child } => {
                 let slice = NibbleSlice::from_encoded(&extension);
                 writeln!(f, "{}Extension({:?})", spaces, slice)?;
                 spaces.push(' ');
@@ -378,7 +379,7 @@ pub struct MemTrieChanges {
     /// Node ids with hashes of updated nodes.
     /// Should be in the post-order traversal of the updated nodes.
     /// It implies that the root node is the last one in the list.
-    node_ids_with_hashes: Vec<(UpdatedMemTrieNodeId, CryptoHash)>,
+    node_ids_with_hashes: Vec<(UpdatedNodeId, CryptoHash)>,
     updated_nodes: Vec<Option<UpdatedMemTrieNodeWithSize>>,
 }
 
@@ -487,10 +488,19 @@ impl OptimizedValueRef {
         }
     }
 
+    /// Returns the length (in num bytes) of the value pointed by this reference.
     pub fn len(&self) -> usize {
         match self {
             Self::Ref(value_ref) => value_ref.len(),
             Self::AvailableValue(token) => token.value.len(),
+        }
+    }
+
+    /// Returns the hash of the value pointed by this reference.
+    pub fn value_hash(&self) -> CryptoHash {
+        match self {
+            OptimizedValueRef::Ref(value_ref) => value_ref.hash,
+            OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => hash(value.as_slice()),
         }
     }
 
@@ -538,6 +548,11 @@ impl Trie {
             accounting_cache,
             recorder: None,
         }
+    }
+
+    /// Returns `true` if this `Trie` is configured to use in memory tries.
+    pub fn has_memtries(&self) -> bool {
+        self.memtries.is_some()
     }
 
     /// Helper to simulate gas costs as if flat storage was present.
@@ -602,7 +617,7 @@ impl Trie {
         trie
     }
 
-    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// Get statistics about the recorded trie. Useful for observability and debugging.
     /// This scans all of the recorded data, so could potentially be expensive to run.
     pub fn recorder_stats(&self) -> Option<TrieRecorderStats> {
         self.recorder.as_ref().map(|recorder| recorder.borrow().get_stats(&self.root))
@@ -713,15 +728,15 @@ impl Trie {
                     .expect("storage failure")
                     .expect("node cannot be Empty")
                     .1;
-                UpdatedTrieStorageNodeWithSize::from_raw_trie_node_with_size(raw_node)
+                TrieStorageNodeWithSize::from_raw_trie_node_with_size(raw_node).into()
             }
         };
 
         let mut memory_usage_naive = node.memory_usage_direct();
         match &node {
-            UpdatedTrieStorageNode::Empty => {}
-            UpdatedTrieStorageNode::Leaf { .. } => {}
-            UpdatedTrieStorageNode::Branch { children, .. } => {
+            GenericTrieNode::Empty => {}
+            GenericTrieNode::Leaf { .. } => {}
+            GenericTrieNode::Branch { children, .. } => {
                 memory_usage_naive += children
                     .iter()
                     .filter_map(|handle| {
@@ -729,7 +744,7 @@ impl Trie {
                     })
                     .sum::<u64>();
             }
-            UpdatedTrieStorageNode::Extension { child, .. } => {
+            GenericTrieNode::Extension { child, .. } => {
                 memory_usage_naive += self.memory_usage_verify(trie_update, *child);
             }
         };
@@ -1084,7 +1099,7 @@ impl Trie {
             None => Ok(trie_update.store(UpdatedTrieStorageNodeWithSize::empty())),
             Some((_, node)) => {
                 let result = trie_update
-                    .store(UpdatedTrieStorageNodeWithSize::from_raw_trie_node_with_size(node));
+                    .store(TrieStorageNodeWithSize::from_raw_trie_node_with_size(node).into());
                 trie_update.refcount_changes.subtract(*hash, 1);
                 Ok(result)
             }

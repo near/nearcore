@@ -57,11 +57,14 @@ pub mod col {
     /// (`primitives::receipt::Receipt`).
     pub const BUFFERED_RECEIPT: u8 = 14;
     pub const BANDWIDTH_SCHEDULER_STATE: u8 = 15;
+    /// Stores `ReceiptGroupsQueueData` for the receipt groups queue
+    /// which corresponds to the buffered receipts to `receiver_shard`.
+    pub const BUFFERED_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
+    /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
+    pub const BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
+
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
-
-    // NOTE: NEW_COLUMN = 15 will be the last unique nibble in the trie!
-    // Consider demultiplexing on 15 and using 2-nibble prefixes.
     pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
@@ -74,7 +77,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 15] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 17] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -90,6 +93,8 @@ pub mod col {
         (BUFFERED_RECEIPT_INDICES, "BufferedReceiptIndices"),
         (BUFFERED_RECEIPT, "BufferedReceipt"),
         (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
+        (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
+        (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
     ];
 }
 
@@ -178,6 +183,16 @@ pub enum TrieKey {
         index: u64,
     },
     BandwidthSchedulerState,
+    /// Stores `ReceiptGroupsQueueData` for the receipt groups queue
+    /// which corresponds to the buffered receipts to `receiver_shard`.
+    BufferedReceiptGroupsQueueData {
+        receiving_shard: ShardId,
+    },
+    /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
+    BufferedReceiptGroupsQueueItem {
+        receiving_shard: ShardId,
+        index: u64,
+    },
 }
 
 /// Provides `len` function.
@@ -254,6 +269,14 @@ impl TrieKey {
                     + std::mem::size_of_val(index)
             }
             TrieKey::BandwidthSchedulerState => col::BANDWIDTH_SCHEDULER_STATE.len(),
+            TrieKey::BufferedReceiptGroupsQueueData { .. } => {
+                col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA.len() + std::mem::size_of::<u64>()
+            }
+            TrieKey::BufferedReceiptGroupsQueueItem { index, .. } => {
+                col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM.len()
+                    + std::mem::size_of::<u64>()
+                    + std::mem::size_of_val(index)
+            }
         }
     }
 
@@ -338,6 +361,15 @@ impl TrieKey {
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::BandwidthSchedulerState => buf.push(col::BANDWIDTH_SCHEDULER_STATE),
+            TrieKey::BufferedReceiptGroupsQueueData { receiving_shard } => {
+                buf.push(col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA);
+                buf.extend(&receiving_shard.to_le_bytes());
+            }
+            TrieKey::BufferedReceiptGroupsQueueItem { receiving_shard, index } => {
+                buf.push(col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM);
+                buf.extend(&receiving_shard.to_le_bytes());
+                buf.extend(&index.to_le_bytes());
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -367,6 +399,8 @@ impl TrieKey {
             TrieKey::BufferedReceiptIndices => None,
             TrieKey::BufferedReceipt { .. } => None,
             TrieKey::BandwidthSchedulerState => None,
+            TrieKey::BufferedReceiptGroupsQueueData { .. } => None,
+            TrieKey::BufferedReceiptGroupsQueueItem { .. } => None,
         }
     }
 }

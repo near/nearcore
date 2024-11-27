@@ -71,13 +71,13 @@ near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
-derive-enum-from-into.workspace = true
 ethabi.workspace = true
 insta.workspace = true
 near-undo-block.workspace = true
 rlp.workspace = true
 sha3.workspace = true
 regex.workspace = true
+rand_chacha.workspace = true
 
 [features]
 performance_stats = [
@@ -170,5 +170,4 @@ sandbox = [
   "near-o11y/sandbox",
   "node-runtime/sandbox",
 ]
-no_cache = ["nearcore/no_cache"]
 calimero_zero_storage = []

@@ -20,13 +20,6 @@ use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::ONE_NEAR;
 
-// // Check that the shard ids and version are as expected. This is needed because
-// // the chunk drop condition uses those values.
-// fn assert_shard_layout(shard_layout: &ShardLayout) {
-//     assert_eq!(shard_layout.shard_ids().sorted().collect_vec(), vec![0, 1, 2, 3]);
-//     assert_eq!(shard_layout.version(), 1);
-// }
-
 /// Test upgrading the blockchain to another protocol version.
 /// Optionally make some chunks around epoch boundary missing.
 /// Uses a hardcoded shard layout, it doesn't change during the test.

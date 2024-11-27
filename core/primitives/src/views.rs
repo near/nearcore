@@ -2429,8 +2429,13 @@ impl From<CongestionInfoV1> for CongestionInfoView {
 }
 
 impl From<CongestionInfoView> for CongestionInfo {
-    fn from(_: CongestionInfoView) -> Self {
-        CongestionInfo::default()
+    fn from(congestion_info: CongestionInfoView) -> Self {
+        CongestionInfo::V1(CongestionInfoV1 {
+            delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+            buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+            receipt_bytes: congestion_info.receipt_bytes,
+            allowed_shard: congestion_info.allowed_shard,
+        })
     }
 }
 
