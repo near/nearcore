@@ -48,6 +48,7 @@ fn select_validators_from_proposals(
     proposals: HashMap<AccountId, ValidatorStake>,
     protocol_version: ProtocolVersion,
 ) -> ValidatorRoles {
+    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
     let min_stake_ratio = {
         let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
@@ -58,6 +59,7 @@ fn select_validators_from_proposals(
         chunk_producer_proposals,
         epoch_config.validator_selection_config.num_chunk_producer_seats as usize,
         min_stake_ratio,
+        shard_ids.len() as NumShards,
         protocol_version,
     );
 
@@ -369,9 +371,15 @@ fn select_chunk_producers(
     all_proposals: BinaryHeap<OrderedValidatorStake>,
     max_num_selected: usize,
     min_stake_ratio: Ratio<u128>,
+    num_shards: u64,
     protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
-    select_validators(all_proposals, max_num_selected, min_stake_ratio, protocol_version)
+    select_validators(
+        all_proposals,
+        max_num_selected,
+        min_stake_ratio * Ratio::new(1, num_shards as u128),
+        protocol_version,
+    )
 }
 
 // Takes the top N proposals (by stake), or fewer if there are not enough or the
@@ -471,11 +479,13 @@ mod old_validator_selection {
                 let max_cp_selected = max_bp_selected
                     + (epoch_config.validator_selection_config.num_chunk_only_producer_seats
                         as usize);
+                let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
                 let (chunk_producers, not_chunk_producers, cp_stake_threshold) =
                     select_chunk_producers(
                         chunk_producer_proposals,
                         max_cp_selected,
                         min_stake_ratio,
+                        num_shards,
                         protocol_version,
                     );
                 (not_chunk_producers, chunk_producers, cp_stake_threshold)
