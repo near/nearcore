@@ -100,12 +100,12 @@ impl ArchivalStore {
 
     pub fn get_head(&self) -> io::Result<Option<Tip>> {
         match self.storage {
-            ArchivalStorage::ColdDB(ref cold_db) => Self::get_cold_head(cold_db),
+            ArchivalStorage::ColdDB(ref cold_db) => get_cold_head(cold_db),
             ArchivalStorage::External(ref storage) => {
                 let external_head = self.get_external_head(storage)?;
                 // Check if ColdDB head is in sync with external storage head.
                 if let Some(ref cold_db) = self.sync_cold_db {
-                    let cold_head = Self::get_cold_head(cold_db)?;
+                    let cold_head = get_cold_head(cold_db)?;
                     assert_eq!(
                         cold_head, external_head,
                         "Cold DB head should be in sync with external storage head"
@@ -134,7 +134,7 @@ impl ArchivalStore {
         let ArchivalStorage::External(ref storage) = self.storage else {
             return Ok(());
         };
-        let cold_head = Self::get_cold_head(cold_db)?;
+        let cold_head = get_cold_head(cold_db)?;
         let external_head = self.get_external_head(storage)?;
 
         let Some(cold_head) = cold_head else {
@@ -187,15 +187,6 @@ impl ArchivalStore {
         self.sync_cold_db.clone()
     }
 
-    /// Reads the head from the Cold DB.
-    fn get_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
-        cold_db
-            .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
-            .as_deref()
-            .map(Tip::try_from_slice)
-            .transpose()
-    }
-
     fn get_path(&self, col: DBCol, key: &[u8]) -> std::path::PathBuf {
         let dirname =
             self.column_to_path.get(&col).unwrap_or_else(|| panic!("No entry for {:?}", col));
@@ -245,12 +236,22 @@ pub(crate) trait ExternalStorage: Sync + Send {
     fn get(&self, _path: &std::path::Path) -> io::Result<Option<Vec<u8>>>;
 }
 
+/// Creates a transaction to write head to the storage.
 fn set_head_tx(tip: &Tip) -> io::Result<DBTransaction> {
     let mut tx = DBTransaction::new();
     // TODO: Write these to the same file for external storage.
     tx.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
     tx.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
     Ok(tx)
+}
+
+/// Reads the head from the Cold DB.
+fn get_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
+    cold_db
+        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+        .as_deref()
+        .map(Tip::try_from_slice)
+        .transpose()
 }
 
 fn cold_column_dirname(col: DBCol) -> &'static str {
