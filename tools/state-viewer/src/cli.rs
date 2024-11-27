@@ -208,7 +208,10 @@ pub enum StorageSource {
     /// Use the data stored in trie, but without paying extra gas costs.
     /// This could be used to simulate flat storage when the latter is not present.
     TrieFree,
+    #[value(alias("flat"))]
     FlatStorage,
+    /// Implies flat storage and loads the memtries as well.
+    Memtrie,
 }
 
 impl StorageSource {
@@ -217,6 +220,9 @@ impl StorageSource {
             StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
             StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
             StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
+            // This is the same as FlatStorage handling. That's because memtrie initialization
+            // happens as part of `ShardTries::load_mem_trie` function call.
+            StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
         }
     }
 }

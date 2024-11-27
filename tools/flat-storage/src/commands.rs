@@ -50,7 +50,7 @@ enum SubCommand {
     /// The trie is constructed for the block height equal to flat_head
     ConstructTrieFromFlat(ConstructTriedFromFlatCmd),
 
-    /// Move flat head forward.
+    /// Move flat head forward or backward.
     MoveFlatHead(MoveFlatHeadCmd),
 }
 
@@ -110,8 +110,9 @@ pub enum MoveFlatHeadMode {
         new_flat_head_height: BlockHeight,
     },
     /// Moves head back by specific number of blocks.
-    /// Note: it doesn't record deltas on the way and should be used
-    /// only for replaying chain forward.
+    ///
+    /// Note: it doesn't record deltas on the way and should be used only for replaying chain
+    /// forward.
     Back {
         #[clap(long)]
         blocks: usize,

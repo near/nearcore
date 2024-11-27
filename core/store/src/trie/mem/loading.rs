@@ -146,7 +146,9 @@ pub fn load_trie_from_flat_state_and_delta(
     // already loaded.
     let mut sorted_deltas: BTreeSet<(BlockHeight, CryptoHash, CryptoHash)> = Default::default();
     for delta in flat_store.get_all_deltas_metadata(shard_uid).unwrap() {
-        sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
+        if delta.block.height <= flat_head.height {
+            sorted_deltas.insert((delta.block.height, delta.block.hash, delta.block.prev_hash));
+        }
     }
 
     debug!(target: "memtrie", %shard_uid, "{} deltas to apply", sorted_deltas.len());
