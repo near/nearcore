@@ -65,8 +65,8 @@ class ReplayChainFromArchiveTest(unittest.TestCase):
         # Archival node config: Enable tracking all shards with memtries enabled.
         node_config_archival = copy.deepcopy(node_config_dump)
         node_config_archival["archive"] = True
-        # node_config_archival["archival_storage"] = {"storage": {"Filesystem": {"path": "archive"}}, "sync_cold_db": False, "container": "localnet"}
-        node_config_archival["archival_storage"] = {"storage": {"GCloud": {"bucket": "archival-data-test"}}, "sync_cold_db": True, "container": "localnet"}
+        # node_config_archival["archival_storage"] = {"storage": {"Filesystem": {"path": "archive"}}, "container": "localnet"}
+        node_config_archival["archival_storage"] = {"storage": {"GCloud": {"bucket": "archival-data-test"}}, "container": "localnet"}
         configs[NUM_VALIDATORS + 1] = node_config_archival
 
         # Configure GC to make sure it runs before the random workload finishes.

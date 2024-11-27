@@ -42,12 +42,14 @@ impl ArchivalStoreOpener {
                 column_to_path.insert(col, path);
             }
         }
-
-        let storage: ArchivalStorage = match &self.config.storage {
+        let mut cold_db = cold_db;
+        let storage: ArchivalStorage = match self.config.storage {
             ArchivalStorageLocation::ColdDB => ArchivalStorage::ColdDB(
-                cold_db.clone().expect("ColdDB must be provided if target if cold storage"),
+                cold_db
+                    .take()
+                    .expect("ColdDB must be configured if cold store is archival storage"),
             ),
-            ArchivalStorageLocation::Filesystem { path } => {
+            ArchivalStorageLocation::Filesystem { ref path } => {
                 let base_path = self.home_dir.join(path);
                 tracing::info!(target: "cold_store", path=%base_path.display(), "Using filesystem as the archival storage location");
                 ArchivalStorage::External(Arc::new(FilesystemStorage::open(
@@ -55,15 +57,13 @@ impl ArchivalStoreOpener {
                     column_to_path.values().map(|p: &std::path::PathBuf| p.as_path()).collect(),
                 )?))
             }
-            ArchivalStorageLocation::GCloud { bucket } => {
+            ArchivalStorageLocation::GCloud { ref bucket } => {
                 tracing::info!(target: "cold_store", bucket=%bucket, "Using Google Cloud Storage as the archival storage location");
                 ArchivalStorage::External(Arc::new(GoogleCloudStorage::open(bucket)))
             }
         };
         let column_to_path = Arc::new(column_to_path);
-        let sync_cold_db = self.config.sync_cold_db;
-        let archival_store =
-            Arc::new(ArchivalStore { storage, cold_db, column_to_path, sync_cold_db });
+        let archival_store = Arc::new(ArchivalStore { storage, cold_db, column_to_path });
         Ok(archival_store)
     }
 }
@@ -79,7 +79,6 @@ pub struct ArchivalStore {
     storage: ArchivalStorage,
     cold_db: Option<Arc<ColdDB>>,
     column_to_path: Arc<HashMap<DBCol, std::path::PathBuf>>,
-    sync_cold_db: bool,
 }
 
 impl ArchivalStore {
@@ -88,17 +87,17 @@ impl ArchivalStore {
             storage: ArchivalStorage::ColdDB(cold_db.clone()),
             cold_db: Some(cold_db),
             column_to_path: Default::default(),
-            sync_cold_db: false,
         })
     }
 
     pub fn get_head(&self) -> io::Result<Option<Tip>> {
         match self.storage {
-            ArchivalStorage::ColdDB(ref cold_db) => get_cold_head(cold_db),
+            ArchivalStorage::ColdDB(ref cold_db) => Self::get_cold_head(cold_db),
             ArchivalStorage::External(ref storage) => {
                 let external_head = self.get_external_head(storage)?;
-                if let Some(cold_db) = self.cold_db.as_ref() {
-                    let cold_head = get_cold_head(cold_db)?;
+                // Check if ColdDB head is in sync with external storage head.
+                if let Some(ref cold_db) = self.cold_db {
+                    let cold_head = Self::get_cold_head(cold_db)?;
                     assert_eq!(
                         cold_head, external_head,
                         "Cold DB head should be in sync with external storage head"
@@ -111,24 +110,23 @@ impl ArchivalStore {
 
     pub fn set_head(&self, tip: &Tip) -> io::Result<()> {
         let tx = set_head_tx(&tip)?;
-        // If the archival storage is external (eg. GCS), also update the head in Cold DB.
-        // TODO: This should not be needed once ColdDB is no longer a dependency.
-        if let Some(cold_db) = self.cold_db.as_ref() {
+        // Update ColdDB head to make it in sync with external storage head.
+        if let Some(ref cold_db) = self.cold_db {
             cold_db.write(tx.clone())?;
         }
         self.write(tx)
     }
 
-    /// Sets the head in the external storage from the cold head in the ColdDB.
+    /// Sets the head in the external storage from the ColdDB head if provided.
     /// TODO: This should be removed after ColdDB is no longer a dependency.
     pub fn sync_cold_head(&self) -> io::Result<()> {
-        let ArchivalStorage::External(storage) = &self.storage else {
+        let Some(ref cold_db) = self.cold_db else {
             return Ok(());
         };
-        let Some(cold_db) = &self.cold_db else {
+        let ArchivalStorage::External(ref storage) = self.storage else {
             return Ok(());
         };
-        let cold_head = get_cold_head(cold_db)?;
+        let cold_head = Self::get_cold_head(cold_db)?;
         let external_head = self.get_external_head(storage)?;
 
         let Some(cold_head) = cold_head else {
@@ -156,11 +154,9 @@ impl ArchivalStore {
         match self.storage {
             ArchivalStorage::ColdDB(ref cold_db) => cold_db.write(tx),
             ArchivalStorage::External(ref storage) => {
-                if self.sync_cold_db {
-                    self.cold_db
-                        .as_ref()
-                        .and_then(|cold_db| Some(cold_db.write(tx.clone())))
-                        .transpose()?;
+                // Update ColdDB to make it in sync with external storage.
+                if let Some(ref cold_db) = self.cold_db {
+                    cold_db.write(tx.clone())?;
                 }
                 self.write_to_external(tx, storage)
             }
@@ -172,12 +168,24 @@ impl ArchivalStore {
             ArchivalStorage::ColdDB(ref cold_db) => {
                 Ok(cold_db.get_raw_bytes(col, key)?.map(|v| v.to_vec()))
             }
-            ArchivalStorage::External(ref storage) => storage.get(&self.get_path(col, key)),
+            ArchivalStorage::External(ref storage) => {
+                let path = &self.get_path(col, key);
+                storage.get(&path)
+            }
         }
     }
 
     pub fn cold_db(&self) -> Option<Arc<ColdDB>> {
         self.cold_db.clone()
+    }
+
+    /// Reads the head from the Cold DB.
+    fn get_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
+        cold_db
+            .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+            .as_deref()
+            .map(Tip::try_from_slice)
+            .transpose()
     }
 
     fn get_path(&self, col: DBCol, key: &[u8]) -> std::path::PathBuf {
@@ -222,15 +230,6 @@ impl ArchivalStore {
             })?;
         Ok(())
     }
-}
-
-/// Reads the head from the Cold DB.
-fn get_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
-    cold_db
-        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
-        .as_deref()
-        .map(Tip::try_from_slice)
-        .transpose()
 }
 
 pub(crate) trait ExternalStorage: Sync + Send {

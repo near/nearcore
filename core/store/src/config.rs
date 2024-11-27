@@ -353,10 +353,6 @@ pub struct PrefetchConfig {
 pub struct ArchivalStoreConfig {
     /// The storage defaults to ColdDB if cold rocksdb is specified.
     pub storage: ArchivalStorageLocation,
-    /// [Testing only] If true, writes to external storage is also synced to cold DB.
-    /// This used to compare performance of ColdDB vs external storage.
-    #[serde(default)]
-    pub sync_cold_db: bool,
     /// If provided, prepends the given path to the path of the objects/files in the external storage.
     #[serde(default)]
     pub container: Option<PathBuf>,
