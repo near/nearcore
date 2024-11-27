@@ -1471,7 +1471,7 @@ fn test_archival_gc_common(
     genesis.config.epoch_length = epoch_length;
 
     let hot_store = &storage.get_hot_store();
-    let archival_store = storage.archival_store().unwrap().clone();
+    let cold_db = storage.cold_db().unwrap();
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
         .nightshade_runtimes(&genesis)
@@ -1494,8 +1494,8 @@ fn test_archival_gc_common(
         blocks.push(block);
 
         if i <= max_cold_head_height {
-            update_cold_db(&archival_store, hot_store, &shard_layout, &i, 1).unwrap();
-            update_cold_head(&archival_store, &hot_store, &i).unwrap();
+            update_cold_db(&cold_db, hot_store, &shard_layout, &i, 1).unwrap();
+            update_cold_head(&cold_db, &hot_store, &i).unwrap();
         }
     }
 

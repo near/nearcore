@@ -226,9 +226,9 @@ fn copy_next_block(storage: &NodeStorage, config: &NearConfig, epoch_manager: &E
     // For that we need epoch_id.
     // For that we might use prev_block_hash, and because next_hight = cold_head_height + 1,
     // we use cold_head_hash.
-    let archival_store = storage.archival_store().unwrap().clone();
+    let cold_db = storage.cold_db().unwrap();
     update_cold_db(
-        &archival_store,
+        cold_db,
         &storage.get_hot_store(),
         &epoch_manager
             .get_shard_layout(&epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
@@ -238,7 +238,7 @@ fn copy_next_block(storage: &NodeStorage, config: &NearConfig, epoch_manager: &E
     )
     .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
 
-    update_cold_head(&archival_store, &storage.get_hot_store(), &next_height)
+    update_cold_head(&cold_db, &storage.get_hot_store(), &next_height)
         .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", next_height));
 }
 
@@ -253,19 +253,14 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
         .unwrap_or(0);
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let archival_store = storage.archival_store().unwrap().clone();
+    let cold_db = storage.cold_db().unwrap();
 
-    copy_all_data_to_cold(
-        archival_store.cold_db().expect("ColdDB should be available before deprecating"),
-        &storage.get_hot_store(),
-        batch_size,
-        &keep_going,
-    )
-    .expect("Failed to do migration to cold db");
+    copy_all_data_to_cold(cold_db, &storage.get_hot_store(), batch_size, &keep_going)
+        .expect("Failed to do migration to cold db");
 
     // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
     // Doesn't really matter here, but very important in case of migration during `neard run`.
-    update_cold_head(&archival_store, &storage.get_hot_store(), &hot_final_head)
+    update_cold_head(cold_db, &storage.get_hot_store(), &hot_final_head)
         .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", hot_final_head));
 
     if check {

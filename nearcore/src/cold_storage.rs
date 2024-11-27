@@ -89,6 +89,8 @@ fn cold_store_copy(
     epoch_manager: &EpochManagerHandle,
     num_threads: usize,
 ) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
+    let cold_db = archival_store.cold_db().unwrap();
+
     // If HEAD is not set for cold storage we default it to genesis_height.
     let cold_head = archival_store.get_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
@@ -123,7 +125,7 @@ fn cold_store_copy(
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
     let mut next_height = cold_head_height + 1;
-    while !update_cold_db(archival_store, hot_store, &shard_layout, &next_height, num_threads)? {
+    while !update_cold_db(&cold_db, hot_store, &shard_layout, &next_height, num_threads)? {
         next_height += 1;
         if next_height > hot_final_head_height {
             return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
@@ -134,7 +136,7 @@ fn cold_store_copy(
         }
     }
 
-    update_cold_head(archival_store, hot_store, &next_height)?;
+    update_cold_head(&cold_db, hot_store, &next_height)?;
 
     let result = if next_height >= hot_final_head_height {
         Ok(ColdStoreCopyResult::LatestBlockCopied)
@@ -286,11 +288,11 @@ fn cold_store_migration(
     tracing::info!(target: "cold_store", new_cold_height, "Determined cold storage head height after migration");
 
     let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
-    let cold_db = archival_store.cold_db().expect("ColdDB should be available before deprecating");
-    match copy_all_data_to_cold(cold_db, hot_store, batch_size, keep_going)? {
+    let cold_db = archival_store.cold_db().unwrap();
+    match copy_all_data_to_cold(&cold_db, hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
             tracing::info!(target: "cold_store", new_cold_height, "Cold storage population was successful, writing cold head.");
-            update_cold_head(archival_store, hot_store, &new_cold_height)?;
+            update_cold_head(&cold_db, hot_store, &new_cold_height)?;
             Ok(ColdStoreMigrationResult::SuccessfulMigration)
         }
         CopyAllDataToColdStatus::Interrupted => {

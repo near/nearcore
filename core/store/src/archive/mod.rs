@@ -184,7 +184,11 @@ impl ArchivalStore {
     }
 
     pub fn cold_db(&self) -> Option<Arc<ColdDB>> {
-        self.sync_cold_db.clone()
+        if let ArchivalStorage::ColdDB(ref cold_db) = self.storage {
+            Some(cold_db.clone())
+        } else {
+            None
+        }
     }
 
     fn get_path(&self, col: DBCol, key: &[u8]) -> std::path::PathBuf {
