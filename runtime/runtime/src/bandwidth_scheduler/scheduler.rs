@@ -630,6 +630,7 @@ mod tests {
         BandwidthRequestsV1, BandwidthSchedulerParams, BandwidthSchedulerState,
         BlockBandwidthRequests,
     };
+    use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardId;
 
@@ -661,7 +662,8 @@ mod tests {
                 next_allowance -= 1;
             }
         }
-        let mut scheduler_state = BandwidthSchedulerState { link_allowances };
+        let mut scheduler_state =
+            BandwidthSchedulerState { link_allowances, sanity_check_hash: CryptoHash::default() };
 
         // Shards are not congested, scheduler can grant as many requests as possible.
         let shards_status = shard_ids

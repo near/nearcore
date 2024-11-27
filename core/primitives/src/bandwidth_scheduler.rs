@@ -5,6 +5,7 @@ use bitvec::order::Lsb0;
 use bitvec::slice::BitSlice;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
@@ -314,6 +315,8 @@ impl BlockBandwidthRequests {
 )]
 pub struct BandwidthSchedulerState {
     pub link_allowances: Vec<((ShardId, ShardId), u64)>,
+    /// Sanity check hash to assert that all shards run bandwidth scheduler in the exact same way.
+    pub sanity_check_hash: CryptoHash,
 }
 
 /// Parameters used in the bandwidth scheduler algorithm.

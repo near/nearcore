@@ -48,7 +48,10 @@ pub fn run_bandwidth_scheduler(
         Some(prev_state) => prev_state,
         None => {
             tracing::debug!(target: "runtime", "Bandwidth scheduler state not found - initializing");
-            BandwidthSchedulerState { link_allowances: Vec::new() }
+            BandwidthSchedulerState {
+                link_allowances: Vec::new(),
+                sanity_check_hash: CryptoHash::default(),
+            }
         }
     };
 
@@ -113,6 +116,16 @@ pub fn run_bandwidth_scheduler(
         &shards_status,
         apply_state.block_height,
     );
+
+    // Hash (some of) the inputs to the scheduler algorithm and save the checksum in the state.
+    // This is a sanity check to make sure that all shards run the scheduler with the same inputs.
+    // It would be a bit nicer to hash all inputs, but that could be slow and the serialization
+    // format of the hashed structs would become part of the protocol.
+    let mut sanity_check_bytes = Vec::new();
+    sanity_check_bytes.extend_from_slice(scheduler_state.sanity_check_hash.as_ref());
+    sanity_check_bytes.extend_from_slice(CryptoHash::hash_borsh(&sender_shards).as_ref());
+    sanity_check_bytes.extend_from_slice(CryptoHash::hash_borsh(&receiver_shards).as_ref());
+    scheduler_state.sanity_check_hash = CryptoHash::hash_bytes(&sanity_check_bytes);
 
     // Save the updated scheduler state to the trie.
     set_bandwidth_scheduler_state(state_update, &scheduler_state);
