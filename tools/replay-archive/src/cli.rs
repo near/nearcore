@@ -305,7 +305,7 @@ impl ReplayController {
         )?;
 
         let shard_id = shard_uid.shard_id();
-        let shard_context = self.get_shard_context(block_header, shard_uid)?;
+        let shard_context = self.get_shard_context(shard_uid)?;
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
@@ -488,19 +488,8 @@ impl ReplayController {
 
     /// Generates a ShardContext specific to replaying the blocks, which indicates that
     /// we care about all the shards and should always apply chunk.
-    fn get_shard_context(
-        &self,
-        block_header: &BlockHeader,
-        shard_uid: ShardUId,
-    ) -> Result<ShardContext> {
-        let prev_hash = block_header.prev_hash();
-        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
-        let shard_context = ShardContext {
-            shard_uid,
-            cares_about_shard_this_epoch: true,
-            will_shard_layout_change: will_shard_layout_change,
-            should_apply_chunk: true,
-        };
+    fn get_shard_context(&self, shard_uid: ShardUId) -> Result<ShardContext> {
+        let shard_context = ShardContext { shard_uid, should_apply_chunk: true };
         Ok(shard_context)
     }
 

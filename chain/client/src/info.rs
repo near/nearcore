@@ -615,12 +615,14 @@ impl InfoHelper {
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
+
+        let mut json = serde_json::to_value(info).expect("Telemetry must serialize to JSON");
         // Sign telemetry if there is a signer present.
         if let Some(signer) = signer {
-            signer.sign_telemetry(&info)
-        } else {
-            serde_json::to_value(&info).expect("Telemetry must serialize to json")
+            let content = serde_json::to_string(&json).expect("Telemetry must serialize to JSON");
+            json["signature"] = signer.sign_bytes(content.as_bytes()).to_string().into();
         }
+        json
     }
 
     fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {

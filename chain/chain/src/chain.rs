@@ -517,8 +517,8 @@ impl Chain {
         // TODO(#9511): The calculation of shard UIDs is not precise in the case
         // of resharding. We need to revisit this.
         let tip = chain_store.head()?;
-        let shard_uids: Vec<_> =
-            epoch_manager.get_shard_layout(&tip.epoch_id)?.shard_uids().collect();
+        let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id)?;
+        let shard_uids = shard_layout.shard_uids().collect_vec();
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
@@ -531,7 +531,15 @@ impl Chain {
             })
             .cloned()
             .collect();
-        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(&tracked_shards, true)?;
+
+        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&tip.epoch_id)?;
+        let shard_uids_pending_resharding = epoch_manager
+            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
+        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(
+            &tracked_shards,
+            &shard_uids_pending_resharding,
+            true,
+        )?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -3630,30 +3638,6 @@ impl Chain {
         })
     }
 
-    pub fn get_resharding_state_roots(
-        chain_store: &dyn ChainStoreAccess,
-        epoch_manager: &dyn EpochManagerAdapter,
-        block: &Block,
-        shard_id: ShardId,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let next_shard_layout = epoch_manager.get_shard_layout(block.header().next_epoch_id())?;
-        let new_shards =
-            next_shard_layout.get_children_shards_uids(shard_id).unwrap_or_else(|| {
-                panic!(
-                    "shard layout must contain maps of all shards to its children shards {} {:?}",
-                    shard_id, next_shard_layout,
-                );
-            });
-        new_shards
-            .iter()
-            .map(|shard_uid| {
-                chain_store
-                    .get_chunk_extra(block.header().prev_hash(), shard_uid)
-                    .map(|chunk_extra| (*shard_uid, *chunk_extra.state_root()))
-            })
-            .collect()
-    }
-
     /// Checks whether `me` is chunk producer for this or next epoch, given
     /// block header which is not in DB yet. If this is the case, node must
     /// produce necessary data for state witness.
@@ -3768,19 +3752,13 @@ impl Chain {
             self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
             cares_about_shard_next_epoch,
         );
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-        Ok(ShardContext {
-            shard_uid,
-            cares_about_shard_this_epoch,
-            will_shard_layout_change,
-            should_apply_chunk,
-        })
+        Ok(ShardContext { shard_uid, should_apply_chunk })
     }
 
     /// This method returns the closure that is responsible for updating a shard.

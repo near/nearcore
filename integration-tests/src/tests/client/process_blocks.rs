@@ -3434,13 +3434,13 @@ fn test_header_version_downgrade() {
             BlockHeader::BlockHeaderV1(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = PROTOCOL_VERSION;
-                let (hash, signature) = validator_signer.sign_block_header_parts(
+                let hash = BlockHeader::compute_hash(
                     header.prev_hash,
                     &borsh::to_vec(&header.inner_lite).expect("Failed to serialize"),
                     &borsh::to_vec(&header.inner_rest).expect("Failed to serialize"),
                 );
                 header.hash = hash;
-                header.signature = signature;
+                header.signature = validator_signer.sign_bytes(hash.as_ref());
             }
             _ => {
                 unreachable!();

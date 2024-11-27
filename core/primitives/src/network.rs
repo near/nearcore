@@ -1,5 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, EpochId};
+use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_schema_checker_lib::ProtocolSchema;
@@ -67,17 +68,27 @@ pub struct AnnounceAccount {
 }
 
 impl AnnounceAccount {
+    pub fn new(signer: &ValidatorSigner, peer_id: PeerId, epoch_id: EpochId) -> Self {
+        let signature = Self::sign(signer, &peer_id, &epoch_id);
+        Self { account_id: signer.validator_id().clone(), peer_id: peer_id, epoch_id, signature }
+    }
+
+    pub fn hash(&self) -> CryptoHash {
+        Self::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
+    }
+
+    fn sign(signer: &ValidatorSigner, peer_id: &PeerId, epoch_id: &EpochId) -> Signature {
+        let hash = Self::build_header_hash(signer.validator_id(), peer_id, epoch_id);
+        signer.sign_bytes(hash.as_ref())
+    }
+
     /// We hash only (account_id, peer_id, epoch_id). There is no need hash the signature
     /// as it's uniquely determined the triple.
-    pub fn build_header_hash(
+    fn build_header_hash(
         account_id: &AccountId,
         peer_id: &PeerId,
         epoch_id: &EpochId,
     ) -> CryptoHash {
         CryptoHash::hash_borsh((account_id, peer_id, epoch_id))
-    }
-
-    pub fn hash(&self) -> CryptoHash {
-        AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
     }
 }
