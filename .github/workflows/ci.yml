@@ -33,13 +33,6 @@ jobs:
             os: ubuntu-22.04-16core
             type: nightly
             upload_profraws: true
-          - name: MacOS
-            id: macos
-            os: macos-latest-xlarge
-            type: stable
-            # TODO: Currently only computing linux coverage, because the MacOS runners
-            # have files at a different path and thus comes out duplicated.
-            upload_profraws: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
