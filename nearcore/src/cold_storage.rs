@@ -462,14 +462,16 @@ pub fn spawn_cold_store_loop(
                 panic!("Failed to sanity check cold store: {:?}", err);
             }
 
-            let cold_db = archival_store.cold_db().unwrap();
-            cold_store_migration_loop(
-                &split_storage_config,
-                &keep_going_clone,
-                genesis_height,
-                &hot_store,
-                &cold_db,
-            );
+            if let Some(ref cold_db) = archival_store.cold_db() {
+                cold_store_migration_loop(
+                    &split_storage_config,
+                    &keep_going_clone,
+                    genesis_height,
+                    &hot_store,
+                    cold_db,
+                );
+            }
+
             cold_store_loop(
                 &split_storage_config,
                 &keep_going_clone,
