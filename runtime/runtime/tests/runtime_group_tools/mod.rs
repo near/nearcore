@@ -141,7 +141,7 @@ impl StandaloneRuntime {
         &mut self,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
+    ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>, bool) {
         // TODO - the shard id is correct but the shard version is hardcoded. It
         // would be better to store the shard layout in self and read the uid
         // from there.
@@ -166,7 +166,23 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
-        (apply_result.outgoing_receipts, apply_result.outcomes)
+        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(shard_id, bandwidth_requests)].into_iter().collect(),
+            }
+        }
+
+        let mut has_queued_receipts = false;
+        if let Some(congestion_info) = apply_result.congestion_info {
+            has_queued_receipts = congestion_info.receipt_bytes() > 0;
+
+            self.apply_state.congestion_info.insert(
+                shard_id,
+                ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
+            );
+        }
+
+        (apply_result.outgoing_receipts, apply_result.outcomes, has_queued_receipts)
     }
 }
 
@@ -336,8 +352,16 @@ impl RuntimeGroup {
                     .or_insert_with(Vec::new)
                     .extend(mailbox.incoming_transactions.clone());
 
-                let (new_receipts, transaction_results) = runtime
+                let (mut new_receipts, mut transaction_results, mut has_queued_receipts) = runtime
                     .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
+                while has_queued_receipts {
+                    let (outgoing_receipts, tx_results, has_queued) =
+                        runtime.process_block(&[], &[]);
+                    new_receipts.extend(outgoing_receipts);
+                    transaction_results.extend(tx_results);
+                    has_queued_receipts = has_queued;
+                }
+
                 mailbox.incoming_receipts.clear();
                 mailbox.incoming_transactions.clear();
                 group.transaction_logs.lock().unwrap().extend(transaction_results);
