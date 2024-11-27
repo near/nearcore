@@ -15,13 +15,8 @@ pub(crate) struct MakeSnapshotCommand {
 }
 
 impl MakeSnapshotCommand {
-    pub(crate) fn run(
-        &self,
-        home_dir: &Path,
-        archive: bool,
-        store_config: &StoreConfig,
-    ) -> anyhow::Result<()> {
-        let opener = NodeStorage::opener(home_dir, archive, store_config, None, None);
+    pub(crate) fn run(&self, home_dir: &Path, store_config: &StoreConfig) -> anyhow::Result<()> {
+        let opener = NodeStorage::opener(home_dir, store_config, None);
         let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
         let columns_to_keep =
             if self.flat_state_only { Some(STATE_SNAPSHOT_COLUMNS) } else { None };
@@ -45,7 +40,7 @@ mod tests {
     fn test() {
         let home_dir = tempfile::tempdir().unwrap();
         let store_config = StoreConfig::test_config();
-        let opener = NodeStorage::opener(home_dir.path(), false, &store_config, None, None);
+        let opener = NodeStorage::opener(home_dir.path(), &store_config, None);
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
 
@@ -63,7 +58,7 @@ mod tests {
 
         let destination = home_dir.path().join("data").join("snapshot");
         let cmd = MakeSnapshotCommand { destination: destination.clone(), flat_state_only: false };
-        cmd.run(home_dir.path(), false, &store_config).unwrap();
+        cmd.run(home_dir.path(), &store_config).unwrap();
         println!("Made a checkpoint");
 
         {
@@ -76,10 +71,9 @@ mod tests {
         }
 
         let node_storage = opener.open_in_mode(Mode::ReadOnly).unwrap();
-        let snapshot_node_storage =
-            NodeStorage::opener(&destination, false, &store_config, None, None)
-                .open_in_mode(Mode::ReadOnly)
-                .unwrap();
+        let snapshot_node_storage = NodeStorage::opener(&destination, &store_config, None)
+            .open_in_mode(Mode::ReadOnly)
+            .unwrap();
         for key in keys {
             let exists_original = node_storage.get_hot_store().exists(DBCol::Block, &key).unwrap();
             let exists_snapshot =

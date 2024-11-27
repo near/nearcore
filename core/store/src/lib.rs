@@ -16,7 +16,7 @@ use adapter::{StoreAdapter, StoreUpdateAdapter};
 use archive::ArchivalStore;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
-use config::ArchivalStorageConfig;
+use config::ArchivalConfig;
 use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
@@ -126,16 +126,13 @@ impl StoreAdapter for Store {
 }
 
 impl NodeStorage {
-    /// Initialises a new opener with given home directory and hot and cold
-    /// store config.
+    /// Initialises a new opener with given home directory and archival store configs.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
-        archive: bool,
         config: &'a StoreConfig,
-        cold_config: Option<&'a StoreConfig>,
-        archival_config: Option<&'a ArchivalStorageConfig>,
+        archival_config: Option<ArchivalConfig<'a>>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, archive, config, cold_config, archival_config)
+        StoreOpener::new(home_dir, config, archival_config)
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -149,7 +146,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = NodeStorage::opener(dir.path(), false, &CONFIG, None, None);
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
         (dir, opener)
     }
 

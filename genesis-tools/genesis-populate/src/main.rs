@@ -36,10 +36,8 @@ fn main() {
 
     let store = near_store::NodeStorage::opener(
         home_dir,
-        near_config.config.archive,
         &near_config.config.store,
-        None,
-        None,
+        near_config.config.archival_config(),
     )
     .open()
     .unwrap()

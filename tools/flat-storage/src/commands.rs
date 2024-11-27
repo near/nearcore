@@ -389,10 +389,8 @@ impl FlatStorageCommand {
 
         let write_opener = NodeStorage::opener(
             &cmd.write_store_path,
-            false,
             &near_config.config.store,
-            None,
-            None,
+            near_config.config.archival_config(),
         );
         let write_node_storage = write_opener.open_in_mode(Mode::Create)?;
         let write_store = write_node_storage.get_hot_store();
@@ -627,10 +625,8 @@ impl FlatStorageCommand {
         let near_config = load_config(home_dir, genesis_validation)?;
         let opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            None,
-            None,
+            near_config.config.archival_config(),
         );
 
         match &self.subcmd {

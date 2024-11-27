@@ -350,7 +350,7 @@ pub struct PrefetchConfig {
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-pub struct ArchivalStorageConfig {
+pub struct ArchivalStoreConfig {
     /// The storage defaults to ColdDB if cold rocksdb is specified.
     pub storage: ArchivalStorageLocation,
     /// [Testing only] If true, writes to external storage is also synced to cold DB.
@@ -373,4 +373,45 @@ pub enum ArchivalStorageLocation {
     GCloud {
         bucket: String,
     },
+}
+
+/// Contains references to the configs related to archival storage from the node config.
+pub struct ArchivalConfig<'a> {
+    pub archival_store_config: Option<&'a ArchivalStoreConfig>,
+    pub cold_store_config: Option<&'a StoreConfig>,
+}
+
+impl<'a> ArchivalConfig<'a> {
+    /// Creates a new ArchivalConfig if archive is true, otherwise returns None.
+    pub fn get(
+        archive: bool,
+        archival_store_config: Option<&'a ArchivalStoreConfig>,
+        cold_store_config: Option<&'a StoreConfig>,
+    ) -> Option<Self> {
+        Self::validate_configs(archive, archival_store_config, cold_store_config);
+        archive.then_some(Self { archival_store_config, cold_store_config })
+    }
+
+    fn validate_configs(
+        archive: bool,
+        archival_store_config: Option<&'a ArchivalStoreConfig>,
+        cold_store_config: Option<&'a StoreConfig>,
+    ) {
+        if archive {
+            assert!(
+                cold_store_config.is_some()
+                    || (archival_store_config.is_some()
+                        || !matches!(
+                            archival_store_config.unwrap().storage,
+                            ArchivalStorageLocation::ColdDB
+                        )),
+                "Cold-store config or archival config must set for archival nodes"
+            );
+        } else {
+            assert!(
+                cold_store_config.is_none() && archival_store_config.is_none(),
+                "Cold-store config and archival config must not be set for non-archival nodes"
+            );
+        }
+    }
 }

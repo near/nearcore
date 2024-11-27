@@ -134,6 +134,8 @@ impl Indexer {
             self.indexer_config.clone(),
             self.near_config.config.store.clone(),
             self.near_config.config.archive,
+            self.near_config.config.archival_storage.clone(),
+            self.near_config.config.cold_store.clone(),
             sender,
         ));
         receiver

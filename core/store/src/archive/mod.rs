@@ -13,7 +13,7 @@ use crate::db::DBOp;
 use crate::COLD_HEAD_KEY;
 use crate::HEAD_KEY;
 use crate::{
-    config::{ArchivalStorageConfig, ArchivalStorageLocation},
+    config::{ArchivalStorageLocation, ArchivalStoreConfig},
     db::{ColdDB, DBTransaction, Database},
     DBCol,
 };
@@ -21,13 +21,13 @@ use crate::{
 mod filesystem;
 mod gcloud;
 
-pub struct ArchivalStorageOpener {
+pub struct ArchivalStoreOpener {
     home_dir: std::path::PathBuf,
-    config: ArchivalStorageConfig,
+    config: ArchivalStoreConfig,
 }
 
-impl ArchivalStorageOpener {
-    pub fn new(home_dir: std::path::PathBuf, config: ArchivalStorageConfig) -> Self {
+impl ArchivalStoreOpener {
+    pub fn new(home_dir: std::path::PathBuf, config: ArchivalStoreConfig) -> Self {
         Self { home_dir, config }
     }
 
