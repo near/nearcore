@@ -2146,6 +2146,10 @@ impl Chain {
             return Ok(None);
         }
 
+        // Here we're checking the ShardUID of the chunk because it's possible that it's an old
+        // chunk from before a resharding, in which case we don't want to do anything. This can
+        // happen if we are early into a post-resharding epoch and `shard_uid` is a child shard that
+        // hasn't had any new chunks yet.
         let shard_index = shard_layout.get_shard_index(shard_uid.shard_id())?;
         let last_final_block_chunks = last_final_block.chunks();
         let chunk_header = last_final_block_chunks
