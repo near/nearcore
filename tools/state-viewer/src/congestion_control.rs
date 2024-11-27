@@ -1,10 +1,11 @@
+use near_primitives::congestion_info::{self, CongestionControl};
 use rand::Rng;
 use std::borrow::Cow;
 use std::path::Path;
 
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     DataReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV1,
@@ -33,6 +34,9 @@ pub enum CongestionControlCmd {
     /// for benchmarking the bootstrapping logic. Please note that running this
     /// command will corrupt the database.
     PrepareBenchmark(PrepareBenchmarkCmd),
+    /// Collect and aggregate the congestion information based on historical
+    /// data.
+    Stats(StatsCmd),
 }
 
 impl CongestionControlCmd {
@@ -41,6 +45,7 @@ impl CongestionControlCmd {
             CongestionControlCmd::Print(cmd) => cmd.run(&near_config, store),
             CongestionControlCmd::Bootstrap(cmd) => cmd.run(home_dir, &near_config, store),
             CongestionControlCmd::PrepareBenchmark(cmd) => cmd.run(home_dir, &near_config, store),
+            CongestionControlCmd::Stats(cmd) => cmd.run(home_dir, &near_config, store),
         }
     }
 }
@@ -57,6 +62,62 @@ impl PrintCmd {
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
+
+        for chunk_header in block.chunks().iter_deprecated() {
+            let congestion_info = chunk_header.congestion_info();
+            println!(
+                "{:?} - {:?} - {:?}",
+                chunk_header.shard_id(),
+                chunk_header.prev_state_root(),
+                congestion_info
+            );
+        }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct StatsCmd {
+    #[arg(long)]
+    shard_id: Option<ShardId>,
+    #[arg(long, default_value = "10000")]
+    block_count: u64,
+}
+
+impl StatsCmd {
+    pub(crate) fn run(&self, home_dir: &Path, near_config: &NearConfig, store: Store) {
+        let chain_store = ChainStore::new(
+            store,
+            near_config.genesis.config.genesis_height,
+            near_config.client_config.save_trie_changes,
+        );
+
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+
+        let head = chain_store.head().unwrap();
+        let block = chain_store.get_block(&head.last_block_hash).unwrap();
+
+        let start_height = head.height.saturating_sub(self.block_count);
+        let end_height = head.height;
+
+        for height in start_height..end_height {
+            let block_header = chain_store.get_block_header_by_height(height);
+            let Ok(block_header) = block_header else {
+                continue;
+            };
+
+            // let config = chain_store.prot
+
+            let block = chain_store.get_block(&block_header.hash()).unwrap();
+            for chunk_header in block.chunks().iter_raw() {
+                let info = chunk_header.congestion_info().unwrap();
+                let missed_chunks_count = block_header.height() - chunk_header.height_included();
+                let congestion_control = CongestionControl::new(config, info, missed_chunks_count);
+            }
+        }
 
         for chunk_header in block.chunks().iter_deprecated() {
             let congestion_info = chunk_header.congestion_info();
