@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use std::io;
 
-use super::ArchivalStorage;
+use super::ExternalStorage;
 
 pub(crate) struct GoogleCloudStorage {
     gcs_client: Arc<cloud_storage::Client>,
@@ -21,7 +21,7 @@ impl GoogleCloudStorage {
     }
 }
 
-impl ArchivalStorage for GoogleCloudStorage {
+impl ExternalStorage for GoogleCloudStorage {
     fn put(&self, path: &std::path::Path, value: &[u8]) -> io::Result<()> {
         let _ = self.runtime.block_on(async {
             let filename = path.to_str().unwrap();

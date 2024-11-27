@@ -286,7 +286,7 @@ fn cold_store_migration(
     tracing::info!(target: "cold_store", new_cold_height, "Determined cold storage head height after migration");
 
     let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
-    let cold_db = archival_store.cold_db();
+    let cold_db = archival_store.cold_db().expect("ColdDB should be available before deprecating");
     match copy_all_data_to_cold(cold_db, hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
             tracing::info!(target: "cold_store", new_cold_height, "Cold storage population was successful, writing cold head.");

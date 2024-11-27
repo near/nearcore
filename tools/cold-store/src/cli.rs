@@ -256,7 +256,7 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
     let archival_store = storage.archival_store().unwrap().clone();
 
     copy_all_data_to_cold(
-        archival_store.cold_db(),
+        archival_store.cold_db().expect("ColdDB should be available before deprecating"),
         &storage.get_hot_store(),
         batch_size,
         &keep_going,

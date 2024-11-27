@@ -117,8 +117,11 @@ fn test_storage_after_commit_of_cold_update() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let archival_store = storage.archival_store().unwrap().clone();
 
-    test_cold_genesis_update(archival_store.cold_db(), &env.clients[0].runtime_adapter.store())
-        .unwrap();
+    test_cold_genesis_update(
+        archival_store.cold_db().expect("ColdDB should be available before deprecating"),
+        &env.clients[0].runtime_adapter.store(),
+    )
+    .unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
 
@@ -253,8 +256,11 @@ fn test_cold_db_copy_with_height_skips() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let archival_store = storage.archival_store().unwrap().clone();
 
-    test_cold_genesis_update(archival_store.cold_db(), &env.clients[0].runtime_adapter.store())
-        .unwrap();
+    test_cold_genesis_update(
+        archival_store.cold_db().expect("ColdDB should be available before deprecating"),
+        &env.clients[0].runtime_adapter.store(),
+    )
+    .unwrap();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
@@ -441,7 +447,13 @@ fn test_cold_loop_on_gc_boundary() {
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold(archival_store.cold_db(), &hot_store, 1000000, &keep_going).unwrap();
+    copy_all_data_to_cold(
+        archival_store.cold_db().expect("ColdDB should be available before deprecating"),
+        &hot_store,
+        1000000,
+        &keep_going,
+    )
+    .unwrap();
 
     update_cold_head(&archival_store, &hot_store, &(height_delta - 1)).unwrap();
 

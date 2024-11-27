@@ -1,4 +1,4 @@
-use super::ArchivalStorage;
+use super::ExternalStorage;
 use std::io;
 use std::io::ErrorKind;
 use std::io::Read;
@@ -34,7 +34,7 @@ impl FilesystemStorage {
     }
 }
 
-impl ArchivalStorage for FilesystemStorage {
+impl ExternalStorage for FilesystemStorage {
     fn put(&self, path: &std::path::Path, value: &[u8]) -> io::Result<()> {
         use rustix::fs::{Mode, OFlags};
         let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;

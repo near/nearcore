@@ -298,10 +298,8 @@ impl<'a> StoreOpener<'a> {
         let hot_storage = Arc::new(hot_rocksdb);
         let cold_storage =
             cold_rocksdb.map(|rocksdb| Arc::new(crate::db::ColdDB::new(Arc::new(rocksdb))));
-        let archival_store = cold_storage
-            .clone()
-            .map(|cold_db| self.archival.as_ref().unwrap().open(cold_db))
-            .transpose()?;
+        let archival_store =
+            self.archival.as_ref().map(|opener| opener.open(cold_storage.clone())).transpose()?;
 
         hot_snapshot.remove()?;
         cold_snapshot.remove()?;
