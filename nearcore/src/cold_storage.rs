@@ -1,11 +1,15 @@
 use std::sync::{atomic::AtomicBool, Arc};
 
+use borsh::BorshDeserialize;
 use near_chain::types::Tip;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::archive::ArchivalStore;
 use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
+use near_store::db::ColdDB;
+use near_store::db::Database;
+use near_store::HEAD_KEY;
 use near_store::{
     cold_storage::{update_cold_db, update_cold_head},
     DBCol, NodeStorage, Store, FINAL_HEAD_KEY, TAIL_KEY,
@@ -253,12 +257,17 @@ fn cold_store_migration(
     split_storage_config: &SplitStorageConfig,
     keep_going: &Arc<AtomicBool>,
     genesis_height: BlockHeight,
-    archival_store: &ArchivalStore,
     hot_store: &Store,
+    cold_db: &Arc<ColdDB>,
 ) -> anyhow::Result<ColdStoreMigrationResult> {
     // Migration is only needed if cold storage is not properly initialised,
     // i.e. if cold head is not set.
-    if archival_store.get_head()?.is_some() {
+    let cold_head = cold_db
+        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+        .as_deref()
+        .map(Tip::try_from_slice)
+        .transpose()?;
+    if cold_head.is_some() {
         return Ok(ColdStoreMigrationResult::NoNeedForMigration);
     }
 
@@ -288,11 +297,10 @@ fn cold_store_migration(
     tracing::info!(target: "cold_store", new_cold_height, "Determined cold storage head height after migration");
 
     let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
-    let cold_db = archival_store.cold_db().unwrap();
-    match copy_all_data_to_cold(&cold_db, hot_store, batch_size, keep_going)? {
+    match copy_all_data_to_cold(cold_db, hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
             tracing::info!(target: "cold_store", new_cold_height, "Cold storage population was successful, writing cold head.");
-            update_cold_head(&cold_db, hot_store, &new_cold_height)?;
+            update_cold_head(cold_db, hot_store, &new_cold_height)?;
             Ok(ColdStoreMigrationResult::SuccessfulMigration)
         }
         CopyAllDataToColdStatus::Interrupted => {
@@ -309,8 +317,8 @@ fn cold_store_migration_loop(
     split_storage_config: &SplitStorageConfig,
     keep_going: &Arc<AtomicBool>,
     genesis_height: BlockHeight,
-    archival_store: &ArchivalStore,
     hot_store: &Store,
+    cold_db: &Arc<ColdDB>,
 ) {
     tracing::info!(target: "cold_store", "starting initial migration loop");
     loop {
@@ -322,8 +330,8 @@ fn cold_store_migration_loop(
             split_storage_config,
             keep_going,
             genesis_height,
-            archival_store,
             hot_store,
+            cold_db,
         ) {
             // We can either stop the cold store thread or hope that next time migration will not fail.
             // Here we pick the second option.
@@ -454,12 +462,13 @@ pub fn spawn_cold_store_loop(
                 panic!("Failed to sanity check cold store: {:?}", err);
             }
 
+            let cold_db = archival_store.cold_db().unwrap();
             cold_store_migration_loop(
                 &split_storage_config,
                 &keep_going_clone,
                 genesis_height,
-                &archival_store,
                 &hot_store,
+                &cold_db,
             );
             cold_store_loop(
                 &split_storage_config,
