@@ -809,7 +809,7 @@ impl Client {
             this_epoch_protocol_version,
             next_epoch_protocol_version,
             self.upgrade_schedule
-                .get_protocol_version_to_vote_for_now(&self.clock, next_epoch_protocol_version),
+                .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
             height,
             block_ordinal,
