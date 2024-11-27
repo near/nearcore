@@ -73,7 +73,7 @@ class ShardStats:
 
     def __str__(self):
         above_05_percent = 100 * self.above_05 / self.total if self.total else 0
-        return f"Total: {self.total}, Above 0.5: {above_05_percent}%"
+        return f"Total: {self.total}, Congested: {self.above_05} Congested %: {above_05_percent}%"
 
 
 def main(args):
