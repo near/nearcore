@@ -15,10 +15,10 @@ use near_primitives::types::AccountInfo;
 use near_primitives_core::version::ProtocolFeature;
 
 #[test]
-fn slow_test_fix_validator_staking_threshold() {
+fn slow_test_fix_validator_stake_threshold() {
     init_test_logger();
 
-    let protocol_version = 101;
+    let protocol_version = ProtocolFeature::FixStakingThreshold.protocol_version() - 1;
     let test_loop_builder = TestLoopBuilder::new();
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
@@ -81,14 +81,13 @@ fn slow_test_fix_validator_staking_threshold() {
             epoch_info.get_validator_stake(account_id).unwrap()
         })
         .sum::<u128>();
-    // sanity checks
+
     assert!(protocol_version < ProtocolFeature::FixStakingThreshold.protocol_version());
     assert_eq!(validators.len(), 2);
     assert_eq!(total_stake / ONE_NEAR, 6_250_000_000);
     // prior to threshold fix
     // threshold = min_stake_ratio * total_stake
     //           = (1 / 62_500) * 6_250_000_000
-    // FIXME eagr This is failing. What is the expected validator threshold?
     assert_eq!(epoch_info.seat_price() / ONE_NEAR, 100_000);
 
     test_loop.run_until(
