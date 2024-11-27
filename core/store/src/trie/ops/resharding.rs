@@ -103,7 +103,7 @@ fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Vec<u8>>> {
         .collect_vec()
 }
 
-trait GenericTrieUpdateSplitInner<'a, N, V>: GenericTrieUpdateSquash<'a, N, V>
+trait GenericTrieUpdateRetainInner<'a, N, V>: GenericTrieUpdateSquash<'a, N, V>
 where
     N: Debug,
     V: Debug + HasValueLength,
@@ -214,7 +214,7 @@ where
 }
 
 // Default impl for all types that implement `GenericTrieUpdateSquash`.
-impl<'a, N, V, T> GenericTrieUpdateSplitInner<'a, N, V> for T
+impl<'a, N, V, T> GenericTrieUpdateRetainInner<'a, N, V> for T
 where
     N: Debug,
     V: Debug + HasValueLength,
@@ -255,7 +255,7 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
     }
 }
 
-pub(crate) trait GenericTrieUpdateSplit<'a, N, V>:
+pub(crate) trait GenericTrieUpdateRetain<'a, N, V>:
     GenericTrieUpdateSquash<'a, N, V>
 where
     N: Debug,
@@ -264,11 +264,11 @@ where
     fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode);
 }
 
-impl<'a, N, V, T> GenericTrieUpdateSplit<'a, N, V> for T
+impl<'a, N, V, T> GenericTrieUpdateRetain<'a, N, V> for T
 where
     N: Debug,
     V: Debug + HasValueLength,
-    T: GenericTrieUpdateSplitInner<'a, N, V>,
+    T: GenericTrieUpdateRetainInner<'a, N, V>,
 {
     fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode) {
         let intervals = boundary_account_to_intervals(boundary_account, retain_mode);
@@ -281,7 +281,7 @@ where
 #[cfg(test)]
 #[allow(private_bounds)]
 pub fn retain_split_shard_custom_ranges<'a, N, V>(
-    update: &mut impl GenericTrieUpdateSplitInner<'a, N, V>,
+    update: &mut impl GenericTrieUpdateRetainInner<'a, N, V>,
     retain_multi_ranges: &Vec<Range<Vec<u8>>>,
 ) where
     N: Debug,

@@ -34,7 +34,7 @@ use ops::insert_delete::GenericTrieUpdateInsertDelete;
 #[cfg(test)]
 use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
 use ops::interface::{GenericTrieValue, UpdatedNodeId};
-use ops::resharding::{GenericTrieUpdateSplit, RetainMode};
+use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};

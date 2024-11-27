@@ -10,7 +10,7 @@ use crate::trie::ops::interface::{
     GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
-use crate::trie::ops::resharding::{GenericTrieUpdateSplit, RetainMode};
+use crate::trie::ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
@@ -463,7 +463,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
         boundary_account: &AccountId,
         retain_mode: RetainMode,
     ) -> TrieChanges {
-        GenericTrieUpdateSplit::retain_split_shard(&mut self, boundary_account, retain_mode);
+        GenericTrieUpdateRetain::retain_split_shard(&mut self, boundary_account, retain_mode);
         self.to_trie_changes()
     }
 }
