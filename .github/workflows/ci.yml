@@ -401,11 +401,6 @@ jobs:
           flags: unittests,linux-nightly
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          files: unit-macos.json
-          fail_ci_if_error: true
-          flags: unittests,macos
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
           files: py-backward-compat.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
