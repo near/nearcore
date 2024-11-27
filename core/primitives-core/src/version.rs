@@ -249,8 +249,8 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementV2
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
-            ProtocolFeature::FixStakingThreshold => 74,
+            ProtocolFeature::ExcludeContractCodeFromStateWitness
+            | ProtocolFeature::FixStakingThreshold => 73,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -283,7 +283,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 148;

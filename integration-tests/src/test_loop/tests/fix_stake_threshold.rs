@@ -14,11 +14,13 @@ use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
 use near_primitives_core::version::ProtocolFeature;
 
+const NUM_SHARDS: u128 = 6;
+
 #[test]
-fn slow_test_fix_validator_staking_threshold() {
+fn slow_test_fix_validator_stake_threshold() {
     init_test_logger();
 
-    let protocol_version = 101;
+    let protocol_version = ProtocolFeature::FixStakingThreshold.protocol_version() - 1;
     let test_loop_builder = TestLoopBuilder::new();
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
@@ -30,17 +32,17 @@ fn slow_test_fix_validator_staking_threshold() {
         AccountInfo {
             account_id: accounts[0].clone(),
             public_key: create_test_signer(accounts[0].as_str()).public_key(),
-            amount: 50_000 * 62_500 * ONE_NEAR,
+            amount: 300_000 * 62_500 * ONE_NEAR,
         },
         AccountInfo {
             account_id: accounts[1].clone(),
             public_key: create_test_signer(accounts[1].as_str()).public_key(),
-            amount: 50_000 * 62_500 * ONE_NEAR,
+            amount: 300_000 * 62_500 * ONE_NEAR,
         },
         AccountInfo {
             account_id: accounts[2].clone(),
             public_key: create_test_signer(accounts[2].as_str()).public_key(),
-            amount: 10_000 * ONE_NEAR,
+            amount: 60_000 * ONE_NEAR,
         },
     ];
     let mut genesis_builder = TestGenesisBuilder::new();
@@ -81,15 +83,16 @@ fn slow_test_fix_validator_staking_threshold() {
             epoch_info.get_validator_stake(account_id).unwrap()
         })
         .sum::<u128>();
-    // sanity checks
+
     assert!(protocol_version < ProtocolFeature::FixStakingThreshold.protocol_version());
     assert_eq!(validators.len(), 2);
-    assert_eq!(total_stake / ONE_NEAR, 6_250_000_000);
+    assert_eq!(total_stake / ONE_NEAR, 37_500_000_000);
     // prior to threshold fix
     // threshold = min_stake_ratio * total_stake
-    //           = (1 / 62_500) * 6_250_000_000
-    // FIXME eagr This is failing. What is the expected validator threshold?
-    assert_eq!(epoch_info.seat_price() / ONE_NEAR, 100_000);
+    //           = (1 / 62_500) * total_stake
+    // TODO Chunk producer stake threshold is dependent on the number of shards, which should no
+    // longer be the case.  Get rid of NUM_SHARDS once protocol is updated to correct the ratio.
+    assert_eq!(epoch_info.seat_price() * NUM_SHARDS / ONE_NEAR, 600_000);
 
     test_loop.run_until(
         |test_loop_data: &mut TestLoopData| {
@@ -113,8 +116,8 @@ fn slow_test_fix_validator_staking_threshold() {
                 let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
                 // after threshold fix
                 // threshold = min_stake_ratio * total_stake / (1 - min_stake_ratio)
-                //           = (1 / 62_500) * 6_250_000_000 / (62_499 / 62_500)
-                assert_eq!(epoch_info.seat_price() / ONE_NEAR, 100_001);
+                //           = (1 / 62_500) * total_stake / (62_499 / 62_500)
+                assert_eq!(epoch_info.seat_price() * NUM_SHARDS / ONE_NEAR, 600_001);
                 true
             } else {
                 false
