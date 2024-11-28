@@ -913,24 +913,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
-    /*
-    fn verify_chunk_header_signature(
-        &self,
-        header: &ShardChunkHeader,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
-        self.verify_chunk_signature_with_header_parts(
-            &header.chunk_hash(),
-            header.signature(),
-            epoch_id,
-            last_known_hash,
-            header.height_created(),
-            header.shard_id(),
-        )
-    }
-    */
-
     fn verify_chunk_signature_with_header_parts(
         &self,
         chunk_hash: &ChunkHash,
