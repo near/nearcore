@@ -42,7 +42,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
@@ -1244,8 +1244,8 @@ fn test_bad_chunk_mask() {
     tracing::info!(target: "test", ?shard_layout, "shard layout");
 
     let [s0, s1] = shard_layout.shard_ids().collect_vec()[..] else { panic!("Expected 2 shards") };
-    assert_eq!(s0, account_id_to_shard_id(&account0, &shard_layout));
-    assert_eq!(s1, account_id_to_shard_id(&account1, &shard_layout));
+    assert_eq!(s0, shard_layout.account_id_to_shard_id(&account0));
+    assert_eq!(s1, shard_layout.account_id_to_shard_id(&account1));
 
     // Generate 4 blocks
     let shard_id = s0;

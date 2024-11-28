@@ -569,6 +569,22 @@ impl ShardLayout {
         )
     }
 
+    /// Maps an account to the shard that it belongs to given a shard layout
+    /// For V0, maps according to hash of account id
+    /// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
+    pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
+        match self {
+            ShardLayout::V0(v0) => {
+                let hash = CryptoHash::hash_bytes(account_id.as_bytes());
+                let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
+                let shard_id = u64::from_le_bytes(*bytes) % v0.num_shards;
+                shard_id.into()
+            }
+            ShardLayout::V1(v1) => v1.account_id_to_shard_id(account_id),
+            ShardLayout::V2(v2) => v2.account_id_to_shard_id(account_id),
+        }
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
@@ -757,28 +773,16 @@ impl ShardLayout {
     }
 }
 
-/// Maps an account to the shard that it belongs to given a shard_layout
-/// For V0, maps according to hash of account id
-/// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
-///
-/// TODO(wacban) This would be nicer as a method in ShardLayout
+/// Maps an account to the shard that it belongs to given a shard layout.
+#[deprecated(note = "Please use `ShardLayout::account_id_to_shard_id` method instead")]
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
-    match shard_layout {
-        ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
-            let hash = CryptoHash::hash_bytes(account_id.as_bytes());
-            let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
-            let shard_id = u64::from_le_bytes(*bytes) % num_shards;
-            shard_id.into()
-        }
-        ShardLayout::V1(v1) => v1.account_id_to_shard_id(account_id),
-        ShardLayout::V2(v2) => v2.account_id_to_shard_id(account_id),
-    }
+    shard_layout.account_id_to_shard_id(account_id)
 }
 
 /// Maps an account to the shard that it belongs to given a shard_layout
 pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardUId {
     ShardUId::from_shard_id_and_layout(
-        account_id_to_shard_id(account_id, shard_layout),
+        shard_layout.account_id_to_shard_id(account_id),
         shard_layout,
     )
 }
@@ -1009,8 +1013,7 @@ impl ShardInfo {
 mod tests {
     use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
     use crate::shard_layout::{
-        account_id_to_shard_id, new_shard_ids_vec, new_shards_split_map, ShardLayout,
-        ShardLayoutV1, ShardUId,
+        new_shard_ids_vec, new_shards_split_map, ShardLayout, ShardLayoutV1, ShardUId,
     };
     use itertools::Itertools;
     use near_primitives_core::types::ProtocolVersion;
@@ -1090,7 +1093,7 @@ mod tests {
             let s: Vec<u8> = (&mut rng).sample_iter(&Alphanumeric).take(10).collect();
             let s = String::from_utf8(s).unwrap();
             let account_id = s.to_lowercase().parse().unwrap();
-            let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
+            let shard_id = shard_layout.account_id_to_shard_id(&account_id);
             *shard_id_distribution.get_mut(&shard_id).unwrap() += 1;
 
             let shard_id: u64 = shard_id.into();
@@ -1131,22 +1134,22 @@ mod tests {
             assert_eq!(shard_layout.get_parent_shard_id(ShardId::new(x + 3)).unwrap(), sid(1));
         }
 
-        assert_eq!(account_id_to_shard_id(&aid("aurora"), &shard_layout), sid(1));
-        assert_eq!(account_id_to_shard_id(&aid("foo.aurora"), &shard_layout), sid(3));
-        assert_eq!(account_id_to_shard_id(&aid("bar.foo.aurora"), &shard_layout), sid(2));
-        assert_eq!(account_id_to_shard_id(&aid("bar"), &shard_layout), sid(2));
-        assert_eq!(account_id_to_shard_id(&aid("bar.bar"), &shard_layout), sid(2));
-        assert_eq!(account_id_to_shard_id(&aid("foo"), &shard_layout), sid(3));
-        assert_eq!(account_id_to_shard_id(&aid("baz.foo"), &shard_layout), sid(2));
-        assert_eq!(account_id_to_shard_id(&aid("foo.baz"), &shard_layout), sid(4));
-        assert_eq!(account_id_to_shard_id(&aid("a.foo.baz"), &shard_layout), sid(0));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("aurora")), sid(1));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("foo.aurora")), sid(3));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("bar.foo.aurora")), sid(2));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("bar")), sid(2));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("bar.bar")), sid(2));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("foo")), sid(3));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("baz.foo")), sid(2));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("foo.baz")), sid(4));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("a.foo.baz")), sid(0));
 
-        assert_eq!(account_id_to_shard_id(&aid("aaa"), &shard_layout), sid(0));
-        assert_eq!(account_id_to_shard_id(&aid("abc"), &shard_layout), sid(0));
-        assert_eq!(account_id_to_shard_id(&aid("bbb"), &shard_layout), sid(2));
-        assert_eq!(account_id_to_shard_id(&aid("foo.goo"), &shard_layout), sid(4));
-        assert_eq!(account_id_to_shard_id(&aid("goo"), &shard_layout), sid(4));
-        assert_eq!(account_id_to_shard_id(&aid("zoo"), &shard_layout), sid(5));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("aaa")), sid(0));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("abc")), sid(0));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("bbb")), sid(2));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("foo.goo")), sid(4));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("goo")), sid(4));
+        assert_eq!(shard_layout.account_id_to_shard_id(&aid("zoo")), sid(5));
     }
 
     // check that after removing the fixed shards from the shard layout v1
@@ -1182,15 +1185,15 @@ mod tests {
         let shard_layout = get_test_shard_layout_v2();
 
         // check accounts mapping in the middle of each range
-        assert_eq!(account_id_to_shard_id(&"aaa".parse().unwrap(), &shard_layout), sid(3));
-        assert_eq!(account_id_to_shard_id(&"ddd".parse().unwrap(), &shard_layout), sid(8));
-        assert_eq!(account_id_to_shard_id(&"mmm".parse().unwrap(), &shard_layout), sid(4));
-        assert_eq!(account_id_to_shard_id(&"rrr".parse().unwrap(), &shard_layout), sid(7));
+        assert_eq!(shard_layout.account_id_to_shard_id(&"aaa".parse().unwrap()), sid(3));
+        assert_eq!(shard_layout.account_id_to_shard_id(&"ddd".parse().unwrap()), sid(8));
+        assert_eq!(shard_layout.account_id_to_shard_id(&"mmm".parse().unwrap()), sid(4));
+        assert_eq!(shard_layout.account_id_to_shard_id(&"rrr".parse().unwrap()), sid(7));
 
         // check accounts mapping for the boundary accounts
-        assert_eq!(account_id_to_shard_id(&"ccc".parse().unwrap(), &shard_layout), sid(8));
-        assert_eq!(account_id_to_shard_id(&"kkk".parse().unwrap(), &shard_layout), sid(4));
-        assert_eq!(account_id_to_shard_id(&"ppp".parse().unwrap(), &shard_layout), sid(7));
+        assert_eq!(shard_layout.account_id_to_shard_id(&"ccc".parse().unwrap()), sid(8));
+        assert_eq!(shard_layout.account_id_to_shard_id(&"kkk".parse().unwrap()), sid(4));
+        assert_eq!(shard_layout.account_id_to_shard_id(&"ppp".parse().unwrap()), sid(7));
 
         // check shard ids
         assert_eq!(shard_layout.shard_ids().collect_vec(), new_shard_ids_vec(vec![3, 8, 4, 7]));
