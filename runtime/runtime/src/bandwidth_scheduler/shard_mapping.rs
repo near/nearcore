@@ -58,3 +58,42 @@ impl SchedulerShardMapping {
         self.index_map.len()
     }
 }
+
+/// Equivalent to Map<SchedulerShardIndex, T> for some shard mapping.
+/// Accessing a value is done by indexing into an array, which is faster than a lookup in BTreeMap or HashMap.
+/// Should be used only with indexes from the same mapping that was given in the constructor!
+pub struct SchedulerShardIndexMap<T> {
+    data: Vec<Option<T>>,
+}
+
+impl<T> SchedulerShardIndexMap<T> {
+    pub fn new(mapping: &SchedulerShardMapping) -> Self {
+        let mut data = Vec::with_capacity(mapping.indexes_len());
+        // T might not implement Clone, so we can't use vec![None; mapping.indexes_len()]
+        for _ in 0..mapping.indexes_len() {
+            data.push(None);
+        }
+        Self { data }
+    }
+
+    pub fn get(&self, index: &SchedulerShardIndex) -> Option<&T> {
+        self.debug_check_index(&index);
+        self.data[index.0].as_ref()
+    }
+
+    pub fn insert(&mut self, index: SchedulerShardIndex, value: T) {
+        self.debug_check_index(&index);
+        self.data[index.0] = Some(value);
+    }
+
+    // Provides a nice error message on debug builds if the index is out of bounds.
+    // Making it a debug_assert avoids doing the check twice on release builds.
+    fn debug_check_index(&self, index: &SchedulerShardIndex) {
+        debug_assert!(
+            index.0 < self.data.len(),
+            "Shard index out of bounds! len: {}, index: {}",
+            self.data.len(),
+            index.0
+        );
+    }
+}
