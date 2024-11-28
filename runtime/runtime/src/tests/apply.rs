@@ -2116,7 +2116,7 @@ fn test_contract_accesses_when_validating_chunk() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
 }
 
-/// Tests that the existing contract is not recorded in the state witness for a deply-contract action.
+/// Tests that the existing contract is not recorded in the state witness for a deploy-contract action.
 /// For this, it deploys two contracts to the same account and checks the storage proof size after the second deploy action.
 #[test]
 fn test_exclude_existing_contract_code_for_deploy_action() {
@@ -2348,7 +2348,7 @@ fn test_empty_apply() {
     if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
         assert!(
             root_before != root_after,
-            "state root not changed - did the bandwdith scheduler run?"
+            "state root not changed - did the bandwidth scheduler run?"
         );
     } else {
         assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
@@ -2411,7 +2411,7 @@ fn test_congestion_buffering() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    // In the test setup with he MockEpochInfoProvider, bob_account is on shard 0 while alice_account
+    // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account
     // is on shard 1. Hence all receipts will be forwarded from shard 1 to shard 0. We don't want local
     // forwarding in the test, hence we need to use a different shard id.
     let local_shard = ShardId::new(1);

@@ -1461,7 +1461,6 @@ impl Runtime {
 
         let delayed_receipts = DelayedReceiptQueueWrapper::new(
             DelayedReceiptQueue::load(&processing_state.state_update)?,
-            apply_state.current_protocol_version,
             epoch_info_provider,
             apply_state.shard_id,
             apply_state.epoch_id,
@@ -1832,6 +1831,7 @@ impl Runtime {
                 break;
             };
 
+            // TODO(resharding): Add metric for tracking number of
             delayed_receipt_count += 1;
             if let Some(nsi) = &mut next_schedule_after {
                 *nsi = nsi.saturating_sub(1);

@@ -8,12 +8,12 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 
 /// Read-only iterator over items stored in a TrieQueue.
-struct TrieQueueIterator<'a, Q>
+struct TrieQueueIterator<'a, Queue>
 where
-    Q: TrieQueue,
+    Queue: TrieQueue,
 {
     indices: std::ops::Range<u64>,
-    trie_queue: &'a Q,
+    trie_queue: &'a Queue,
     trie: &'a dyn TrieAccess,
     side_effects: bool,
 }

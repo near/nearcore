@@ -608,9 +608,8 @@ pub(crate) struct DelayedReceiptQueueWrapper<'a> {
     // The delayed receipt queue.
     queue: DelayedReceiptQueue,
 
-    // Protocol version, epoch_info_provider, shard_id, and epoch_id are used to
-    // determine if a receipt belongs to the current shard or not after a resharding event.
-    protocol_version: ProtocolVersion,
+    // Epoch_info_provider, shard_id, and epoch_id are used to determine
+    // if a receipt belongs to the current shard or not after a resharding event.
     epoch_info_provider: &'a dyn EpochInfoProvider,
     shard_id: ShardId,
     epoch_id: EpochId,
@@ -625,14 +624,12 @@ pub(crate) struct DelayedReceiptQueueWrapper<'a> {
 impl<'a> DelayedReceiptQueueWrapper<'a> {
     pub fn new(
         queue: DelayedReceiptQueue,
-        protocol_version: ProtocolVersion,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         shard_id: ShardId,
         epoch_id: EpochId,
     ) -> Self {
         Self {
             queue,
-            protocol_version,
             epoch_info_provider,
             shard_id,
             epoch_id,
@@ -676,16 +673,13 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         Ok(())
     }
 
-    // With ReshardingV3, it's possible for a chunk to have delayed receipts that technically belong
-    // the sibling shard before a resharding event.
+    // With ReshardingV3, it's possible for a chunk to have delayed receipts that technically
+    // belong to the sibling shard before a resharding event.
     // Here, we filter all the receipts that don't belong to the current shard_id.
     //
     // The function follows the guidelines of standard iterator filter function
     // We return true if we should retain the receipt and false if we should filter it.
     fn receipt_filter_fn(&self, receipt: &ReceiptOrStateStoredReceipt) -> bool {
-        if !ProtocolFeature::SimpleNightshadeV4.enabled(self.protocol_version) {
-            return true;
-        }
         let receiver_id = receipt.get_receipt().receiver_id();
         let receipt_shard_id = self
             .epoch_info_provider
@@ -707,6 +701,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
             self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
 
+            // TODO(resharding): The filter function check here is bypassing the limit check for state witness.
             // Track gas and bytes for receipt above and return only receipt that belong to the shard.
             if self.receipt_filter_fn(&receipt) {
                 return Ok(Some(receipt));
