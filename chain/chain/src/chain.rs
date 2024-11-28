@@ -886,6 +886,10 @@ impl Chain {
                     epoch_manager,
                     &chunk_header,
                     &block.header().prev_hash(),
+                    // if !epoch_manager.verify_chunk_header_signature(
+                    //     &chunk_header.clone(),
+                    //     block.header().epoch_id(),
+                    //     block.header().prev_hash(),
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk(format!(

@@ -29,16 +29,16 @@ pub fn verify_chunk_header_signature(
 pub fn verify_chunk_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
-    parent_hash: &CryptoHash,
+    last_known_hash: &CryptoHash,
 ) -> Result<bool, Error> {
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(last_known_hash)?;
     let key = ChunkProductionKey {
         epoch_id,
         height_created: chunk_header.height_created(),
         shard_id: chunk_header.shard_id(),
     };
     let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
-    let block_info = epoch_manager.get_block_info(&parent_hash)?;
+    let block_info = epoch_manager.get_block_info(&last_known_hash)?;
     verify_chunk_header_signature(
         &chunk_header.chunk_hash(),
         chunk_header.signature(),

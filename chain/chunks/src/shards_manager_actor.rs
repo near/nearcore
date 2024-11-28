@@ -1394,11 +1394,27 @@ impl ShardsManagerActor {
             }
         };
 
-        if !verify_chunk_header_signature_with_epoch_manager(
-            self.epoch_manager.as_ref(),
-            &header,
-            &ancestor_hash,
-        )? {
+        // if !verify_chunk_header_signature_with_epoch_manager(
+        //     self.epoch_manager.as_ref(),
+        //     &header,
+        //     &ancestor_hash,
+        // )? {}
+
+        let key = ChunkProductionKey {
+            epoch_id,
+            height_created: header.height_created(),
+            shard_id: header.shard_id(),
+        };
+        let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
+        let block_info = self.epoch_manager.get_block_info(&ancestor_hash)?;
+
+        // if !verify_chunk_header_signature(
+        //     &header.chunk_hash(),
+        //     header.signature(),
+        //     chunk_producer,
+        //     block_info,
+        // )? {
+        if !self.epoch_manager.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)? {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)
