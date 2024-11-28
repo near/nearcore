@@ -79,10 +79,7 @@ fn setup_runtime_for_shard(
     let mut signers = vec![];
     let mut initial_state = tries.new_trie_update(shard_uid, root);
     for account_id in initial_accounts.into_iter() {
-        let signer: Arc<Signer> = Arc::new(
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
-                .into(),
-        );
+        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
         let mut initial_account = account_new(initial_balance, CryptoHash::default());
         // For the account and a full access key
         initial_account.set_storage_usage(182);
@@ -417,11 +414,7 @@ fn generate_delegate_actions(deposit: u128, n: u64) -> Vec<Receipt> {
     let relayer_id = alice_account();
     let sender_id = alice_account();
     let receiver_id = bob_account();
-    let signer = Arc::new(InMemorySigner::from_seed(
-        sender_id.clone(),
-        KeyType::ED25519,
-        sender_id.as_ref(),
-    ));
+    let signer = Arc::new(InMemorySigner::test_signer(&sender_id));
     (0..n)
         .map(|i| {
             let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
@@ -2222,14 +2215,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
     // Information about the test account (of predecessor "alice.near") that will be used for create, deploy, and delete actions.
     let test_account_id: AccountId =
         ("fake.".to_owned() + alice_account().as_str()).as_str().parse().unwrap();
-    let test_account_signer: Arc<Signer> = Arc::new(
-        InMemorySigner::from_seed(
-            test_account_id.clone(),
-            KeyType::ED25519,
-            test_account_id.as_ref(),
-        )
-        .into(),
-    );
+    let test_account_signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&test_account_id));
 
     // Choose a contract size that is much more than rest of the storage proof size so that we can show that
     // the contract code is not included in the storage proof at the end of the test.

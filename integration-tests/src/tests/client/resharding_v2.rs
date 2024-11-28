@@ -643,8 +643,7 @@ fn setup_test_env_with_cross_contract_txs(
 
     let mut init_txs = vec![];
     for account_id in &contract_accounts {
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let actions = vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })];

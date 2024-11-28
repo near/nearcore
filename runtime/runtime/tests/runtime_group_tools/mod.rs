@@ -1,5 +1,5 @@
 use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
@@ -235,11 +235,7 @@ impl RuntimeGroup {
         let mut signers = vec![];
         let mut validators = vec![];
         for (i, account_id) in account_ids.into_iter().enumerate() {
-            let signer = InMemorySigner::from_seed(
-                account_id.clone(),
-                KeyType::ED25519,
-                account_id.as_ref(),
-            );
+            let signer = InMemorySigner::test(&account_id);
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.clone(),

@@ -121,6 +121,16 @@ impl InMemorySigner {
     pub fn write_to_file(&self, path: &Path) -> io::Result<()> {
         KeyFile::from(self).write_to_file(path)
     }
+
+    #[cfg(feature = "rand")]
+    pub fn test(account_id: &AccountId) -> Self {
+        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
+    }
+
+    #[cfg(feature = "rand")]
+    pub fn test_signer(account_id: &AccountId) -> Signer {
+        InMemorySigner::test(account_id).into()
+    }
 }
 
 impl fmt::Debug for InMemorySigner {
