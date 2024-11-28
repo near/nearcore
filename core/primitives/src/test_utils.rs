@@ -6,6 +6,7 @@ use crate::challenge::Challenges;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 
+use crate::shard_layout::ShardLayout;
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
@@ -1040,7 +1041,12 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         account_id: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
+        // TODO(wacban) the default if inconsistent with the shard layout
         Ok(self.account_id_to_shard_id_map.get(account_id).cloned().unwrap_or(ShardId::new(0)))
+    }
+
+    fn shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        Ok(ShardLayout::single_shard())
     }
 }
 

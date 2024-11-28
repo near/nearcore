@@ -137,10 +137,13 @@ impl ReceiptSink {
         &mut self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         match self {
             ReceiptSink::V1(_inner) => Ok(()),
-            ReceiptSink::V2(inner) => inner.forward_from_buffer(state_update, apply_state),
+            ReceiptSink::V2(inner) => {
+                inner.forward_from_buffer(state_update, apply_state, epoch_info_provider)
+            }
         }
     }
 
@@ -223,10 +226,24 @@ impl ReceiptSinkV2 {
         &mut self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         // store shards in vec to avoid borrowing self.outgoing_limit
-        let shards: Vec<_> = self.outgoing_limit.keys().copied().collect();
-        for shard_id in shards {
+        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+        let shard_ids = shard_layout.shard_ids();
+
+        for shard_id in shard_ids {
+            // TODO(wacban) error handling
+            // TODO(wacban) remove the parent outgoing buffers once it's empty
+
+            // If the target shard was recently resharded, this shard may still
+            // contain some receipts buffered for the parent shard. Process
+            // those receipts first.
+            let parent_shard_id = shard_layout.get_parent_shard_id(shard_id).unwrap();
+            if parent_shard_id != shard_id {
+                self.forward_from_buffer_to_shard(parent_shard_id, state_update, apply_state)?;
+            }
+
             self.forward_from_buffer_to_shard(shard_id, state_update, apply_state)?;
         }
         Ok(())
@@ -259,6 +276,11 @@ impl ReceiptSinkV2 {
                 apply_state,
             )? {
                 ReceiptForwarding::Forwarded => {
+                    tracing::info!(
+                        target: "test",
+                        target_shard_id=?shard_id,
+                        "forwarded outgoing receipt"
+                    );
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
                     if should_update_outgoing_metadatas {

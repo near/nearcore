@@ -416,8 +416,9 @@ fn check_buffered_receipts_exist_in_memtrie(
     assert_ne!(indices.shard_buffers.values().fold(0, |acc, buffer| acc + buffer.len()), 0);
 }
 
-/// Returns a loop action that invokes a costly method from a contract `CALLS_PER_BLOCK_HEIGHT` times per block height.
-/// The account invoking the contract is taken in sequential order from `signed_ids`.
+/// Returns a loop action that invokes a costly method from a contract
+/// `CALLS_PER_BLOCK_HEIGHT` times per block height. The account invoking the
+/// contract is taken in sequential order from `signed_ids`.
 fn call_burn_gas_contract(
     signer_ids: Vec<AccountId>,
     receiver_id: AccountId,
@@ -904,7 +905,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParameters::new()
+    let params = TestReshardingParameters::with_clients(1)
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
@@ -924,12 +925,12 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
     let receiver_account: AccountId = "account4".parse().unwrap();
     let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
     let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
+
     let params = TestReshardingParameters::new()
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
