@@ -620,3 +620,116 @@ impl Iterator for LinksIterator {
         Some(ShardLink::new(sender, receiver))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use near_primitives::bandwidth_scheduler::{
+        Bandwidth, BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests,
+        BandwidthRequestsV1, BandwidthSchedulerParams, BandwidthSchedulerState,
+        BlockBandwidthRequests,
+    };
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::ShardId;
+
+    use super::BandwidthScheduler;
+
+    /// Run bandwidth scheduler on worst-case scenario that should take as much CPU time as possible.
+    /// Measures the time and prints it to stdout.
+    fn measure_scheduler_worst_case_performance(num_shards: u64) {
+        let shard_ids: Vec<ShardId> = ShardLayout::multi_shard(num_shards, 0).shard_ids().collect();
+
+        // Standard params
+        let params = BandwidthSchedulerParams {
+            base_bandwidth: 50_000,
+            max_shard_bandwidth: 4_500_000,
+            max_receipt_size: 4 * 1024 * 1024,
+            max_allowance: 4_500_000,
+        };
+
+        // Every link has a different allowance, which should make the `requests_by_allowance` BTreeMap
+        // as large as possible.
+        // Allowances have to be a bit lower than max to avoid a scenario where `increase_allowances()`
+        // sets all allowances to max.
+        let mut link_allowances: Vec<((ShardId, ShardId), Bandwidth)> = Vec::new();
+        let allowance_increase = params.max_shard_bandwidth / num_shards;
+        let mut next_allowance = params.max_allowance - allowance_increase;
+        for sender in &shard_ids {
+            for receiver in &shard_ids {
+                link_allowances.push(((*sender, *receiver), next_allowance));
+                next_allowance -= 1;
+            }
+        }
+        let mut scheduler_state = BandwidthSchedulerState { link_allowances };
+
+        // Shards are not congested, scheduler can grant as many requests as possible.
+        let shards_status = shard_ids
+            .iter()
+            .map(|shard_id| {
+                (
+                    *shard_id,
+                    super::ShardStatus {
+                        is_fully_congested: false,
+                        last_chunk_missing: false,
+                        is_allowed_sender_shard: false,
+                    },
+                )
+            })
+            .collect();
+
+        // Every shard wants to send the maximum number of small receipts to all other shards.
+        // Every bandwidth request requests all the values that it can, and there is a bandwidth
+        // request between every pair of shards.
+        let mut shards_bandwidth_requests: BTreeMap<ShardId, BandwidthRequests> = BTreeMap::new();
+        for sender in &shard_ids {
+            let mut requests = Vec::new();
+            for receiver in &shard_ids {
+                let mut request = BandwidthRequest {
+                    to_shard: (*receiver).into(),
+                    requested_values_bitmap: BandwidthRequestBitmap::new(),
+                };
+                for i in 0..request.requested_values_bitmap.len() {
+                    request.requested_values_bitmap.set_bit(i, true);
+                }
+                requests.push(request);
+            }
+            shards_bandwidth_requests
+                .insert(*sender, BandwidthRequests::V1(BandwidthRequestsV1 { requests }));
+        }
+
+        let start_time = std::time::Instant::now();
+        BandwidthScheduler::run(
+            &shard_ids,
+            &shard_ids,
+            &mut scheduler_state,
+            &params,
+            &BlockBandwidthRequests { shards_bandwidth_requests },
+            &shards_status,
+            0,
+        );
+        let elapsed = start_time.elapsed();
+        let millis = elapsed.as_secs_f64() * 1000.0;
+        println!("Running scheduler with {} shards: {:.2} ms", num_shards, millis);
+    }
+
+    /// Benchmark how long it takes to run the scheduler in a worst-case scenario for different numbers of shards.
+    ///
+    /// Run with:
+    /// cargo test -p node-runtime --release test_scheduler_worst_case_performance -- --nocapture
+    ///
+    /// Example output on an n2d-standard-8 GCP VM with AMD EPYC 7B13 CPU:
+    /// Running scheduler with 6 shards: 0.10 ms
+    /// Running scheduler with 10 shards: 0.19 ms
+    /// Running scheduler with 32 shards: 1.71 ms
+    /// Running scheduler with 64 shards: 5.25 ms
+    /// Running scheduler with 128 shards: 22.77 ms
+    /// Running scheduler with 256 shards: 88.24 ms
+    /// Running scheduler with 512 shards: 358.24 ms
+    #[test]
+    fn test_scheduler_worst_case_performance() {
+        for num_shards in [6, 10, 32, 64, 128, 256, 512] {
+            measure_scheduler_worst_case_performance(num_shards);
+        }
+    }
+}
