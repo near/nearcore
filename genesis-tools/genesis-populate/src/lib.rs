@@ -164,7 +164,7 @@ impl GenesisBuilder {
         let bar = ProgressBar::new(total_accounts_num as _);
         bar.set_style(ProgressStyle::default_bar().template(
             "[elapsed {elapsed_precise} remaining {eta_precise}] Writing into storage {bar} {pos:>7}/{len:7}",
-        ));
+        ).unwrap());
         // Add records in chunks of 3000 per shard for memory efficiency reasons.
         for i in 0..total_accounts_num {
             let account_id = get_account_id(i);
