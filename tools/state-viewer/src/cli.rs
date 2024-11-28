@@ -289,16 +289,16 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
+    ///
+    /// Great for profiling.
     Sequential,
     /// Applies chunks in parallel.
+    ///
     /// Useful for quick correctness check of applying chunks by comparing
     /// results with `ChunkExtra`s.
     Parallel,
-    /// Sequentially applies chunks from flat storage head until chain
-    /// final head, moving flat head forward. Use in combination with
-    /// `MoveFlatHeadCmd` and `MoveFlatHeadMode::Back`.
-    /// Useful for benchmarking.
-    Benchmarking,
+    /// Applies a single block repeatedly without committing any state changes.
+    Benchmark,
 }
 
 #[derive(clap::Parser)]
@@ -332,7 +332,7 @@ impl ApplyRangeCmd {
         store: Store,
         node_storage: NodeStorage,
     ) {
-        if matches!(self.mode, ApplyRangeMode::Benchmarking) && self.save_state.is_some() {
+        if matches!(self.mode, ApplyRangeMode::Benchmark) && self.save_state.is_some() {
             panic!("Persisting trie nodes in storage is not compatible with benchmark mode!");
         }
         apply_range(
