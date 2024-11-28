@@ -326,7 +326,7 @@ fn check_receipts_presence_at_resharding_block(
 }
 
 /// Checks that the shard containing `account` has a non empty set of receipts
-/// of type `kind` at the resharding block.
+/// of type `kind` at the block after the resharding block.
 fn check_receipts_presence_after_resharding_block(
     account: AccountId,
     kind: ReceiptKind,
