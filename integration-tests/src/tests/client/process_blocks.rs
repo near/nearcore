@@ -152,14 +152,13 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
     protocol_version: ProtocolVersion,
 ) -> BlockHeight {
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
-    let signer =
-        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+    let signer = InMemorySigner::test_signer(&account_id);
 
     let tx = SignedTransaction::from_actions(
         height,
         account_id.clone(),
         account_id,
-        &signer.into(),
+        &signer,
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
         *block.hash(),
         0,

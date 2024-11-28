@@ -4,8 +4,8 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::ValueRef;
 
 use super::ops::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedNodeId,
-    GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
+    GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
+    GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
 use super::{
     Children, RawTrieNode, RawTrieNodeWithSize, StorageHandle, StorageValueHandle, Trie,
@@ -16,12 +16,11 @@ const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 
 pub(crate) type TrieStorageNodePtr = CryptoHash;
 
-pub(crate) type UpdatedTrieStorageNode = GenericUpdatedTrieNode<TrieStorageNodePtr, ValueHandle>;
+pub(crate) type TrieStorageNode = GenericTrieNode<TrieStorageNodePtr, ValueHandle>;
 
-impl UpdatedTrieStorageNode {
+impl TrieStorageNode {
     fn new_branch(children: Children, value: Option<ValueRef>) -> Self {
-        let children =
-            Box::new(children.0.map(|child| child.map(|id| GenericNodeOrIndex::Old(id))));
+        let children = Box::new(children.0);
         let value = value.map(ValueHandle::HashAndSize);
         Self::Branch { children, value }
     }
@@ -30,28 +29,29 @@ impl UpdatedTrieStorageNode {
     pub fn from_raw_trie_node(node: RawTrieNode) -> Self {
         match node {
             RawTrieNode::Leaf(extension, value) => Self::Leaf {
-                extension: extension.to_vec().into_boxed_slice(),
+                extension: extension.into_boxed_slice(),
                 value: ValueHandle::HashAndSize(value),
             },
             RawTrieNode::BranchNoValue(children) => Self::new_branch(children, None),
             RawTrieNode::BranchWithValue(value, children) => {
                 Self::new_branch(children, Some(value))
             }
-            RawTrieNode::Extension(extension, child) => Self::Extension {
-                extension: extension.to_vec().into_boxed_slice(),
-                child: GenericNodeOrIndex::Old(child),
-            },
+            RawTrieNode::Extension(extension, child) => {
+                Self::Extension { extension: extension.into_boxed_slice(), child }
+            }
         }
     }
 }
 
+pub(crate) type TrieStorageNodeWithSize = GenericTrieNodeWithSize<TrieStorageNodePtr, ValueHandle>;
+
 pub(crate) type UpdatedTrieStorageNodeWithSize =
     GenericUpdatedTrieNodeWithSize<TrieStorageNodePtr, ValueHandle>;
 
-impl UpdatedTrieStorageNodeWithSize {
+impl TrieStorageNodeWithSize {
     pub fn from_raw_trie_node_with_size(node: RawTrieNodeWithSize) -> Self {
         Self {
-            node: UpdatedTrieStorageNode::from_raw_trie_node(node.node),
+            node: TrieStorageNode::from_raw_trie_node(node.node),
             memory_usage: node.memory_usage,
         }
     }
@@ -93,7 +93,7 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for TrieStorageU
     fn ensure_updated(
         &mut self,
         node: GenericNodeOrIndex<TrieStorageNodePtr>,
-    ) -> Result<GenericUpdatedNodeId, StorageError> {
+    ) -> Result<UpdatedNodeId, StorageError> {
         match node {
             GenericNodeOrIndex::Old(node_hash) => {
                 self.trie.move_node_to_mutable(self, &node_hash).map(|handle| handle.0)
@@ -102,7 +102,7 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for TrieStorageU
         }
     }
 
-    fn take_node(&mut self, index: GenericUpdatedNodeId) -> UpdatedTrieStorageNodeWithSize {
+    fn take_node(&mut self, index: UpdatedNodeId) -> UpdatedTrieStorageNodeWithSize {
         self.nodes
             .get_mut(index)
             .expect(INVALID_STORAGE_HANDLE)
@@ -110,18 +110,18 @@ impl<'a> GenericTrieUpdate<'a, TrieStorageNodePtr, ValueHandle> for TrieStorageU
             .expect(INVALID_STORAGE_HANDLE)
     }
 
-    fn place_node_at(&mut self, index: GenericUpdatedNodeId, node: UpdatedTrieStorageNodeWithSize) {
+    fn place_node_at(&mut self, index: UpdatedNodeId, node: UpdatedTrieStorageNodeWithSize) {
         debug_assert!(self.nodes.get(index).expect(INVALID_STORAGE_HANDLE).is_none());
         self.nodes[index] = Some(node);
     }
 
-    fn place_node(&mut self, node: UpdatedTrieStorageNodeWithSize) -> GenericUpdatedNodeId {
+    fn place_node(&mut self, node: UpdatedTrieStorageNodeWithSize) -> UpdatedNodeId {
         let index = self.nodes.len();
         self.nodes.push(Some(node));
         index
     }
 
-    fn get_node_ref(&self, index: GenericUpdatedNodeId) -> &UpdatedTrieStorageNodeWithSize {
+    fn get_node_ref(&self, index: UpdatedNodeId) -> &UpdatedTrieStorageNodeWithSize {
         self.nodes.get(index).expect(INVALID_STORAGE_HANDLE).as_ref().expect(INVALID_STORAGE_HANDLE)
     }
 

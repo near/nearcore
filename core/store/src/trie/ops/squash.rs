@@ -3,8 +3,8 @@ use near_primitives::errors::StorageError;
 use crate::NibbleSlice;
 
 use super::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedNodeId, GenericUpdatedTrieNode,
-    GenericUpdatedTrieNodeWithSize, HasValueLength,
+    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
+    HasValueLength, UpdatedNodeId,
 };
 
 pub(crate) trait GenericTrieUpdateSquash<'a, N, V>: GenericTrieUpdate<'a, N, V>
@@ -27,7 +27,7 @@ where
     /// the leaf to the root.
     /// For range removal, it is called in the end of recursive range removal
     /// function, which is the definition of post-order traversal.
-    fn squash_node(&mut self, node_id: GenericUpdatedNodeId) -> Result<(), StorageError> {
+    fn squash_node(&mut self, node_id: UpdatedNodeId) -> Result<(), StorageError> {
         let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
         match node {
             GenericUpdatedTrieNode::Empty => {
@@ -107,7 +107,7 @@ where
     fn extend_child(
         &mut self,
         // The node being squashed.
-        node_id: GenericUpdatedNodeId,
+        node_id: UpdatedNodeId,
         // The current extension.
         extension: Box<[u8]>,
         // The current child.

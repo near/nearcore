@@ -33,13 +33,6 @@ jobs:
             os: ubuntu-22.04-16core
             type: nightly
             upload_profraws: true
-          - name: MacOS
-            id: macos
-            os: macos-latest-xlarge
-            type: stable
-            # TODO: Currently only computing linux coverage, because the MacOS runners
-            # have files at a different path and thus comes out duplicated.
-            upload_profraws: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -406,11 +399,6 @@ jobs:
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests,linux-nightly
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: unit-macos.json
-          fail_ci_if_error: true
-          flags: unittests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-backward-compat.json

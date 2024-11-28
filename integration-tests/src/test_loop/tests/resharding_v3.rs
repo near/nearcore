@@ -4,6 +4,7 @@ use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -717,6 +718,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Give enough time to produce ~7 epochs.
         Duration::seconds((7 * params.epoch_length) as i64),
     );
+    // Wait for garbage collection to kick in, so that it is tested as well.
+    test_loop
+        .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
 
     // At the end of the test we know for sure resharding has been completed.
     // Verify that state is equal across tries and flat storage for all children shards.
