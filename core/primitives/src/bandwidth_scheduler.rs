@@ -302,6 +302,7 @@ impl BlockBandwidthRequests {
 /// The state should be the same on all shards. All shards start with the same state
 /// and apply the same bandwidth scheduler algorithm at the same heights, so the resulting
 /// scheduler state stays the same.
+/// TODO(bandwidth_scheduler) - make this struct versioned.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
