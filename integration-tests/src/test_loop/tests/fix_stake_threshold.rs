@@ -14,8 +14,6 @@ use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
 use near_primitives_core::version::ProtocolFeature;
 
-const NUM_SHARDS: u128 = 6;
-
 #[test]
 fn slow_test_fix_validator_stake_threshold() {
     init_test_logger();
@@ -42,7 +40,7 @@ fn slow_test_fix_validator_stake_threshold() {
         AccountInfo {
             account_id: accounts[2].clone(),
             public_key: create_test_signer(accounts[2].as_str()).public_key(),
-            amount: 60_000 * ONE_NEAR,
+            amount: 100_000 * ONE_NEAR,
         },
     ];
     let mut genesis_builder = TestGenesisBuilder::new();
@@ -61,7 +59,7 @@ fn slow_test_fix_validator_stake_threshold() {
 
     let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = test_loop_builder
         .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
+        .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
         .build();
 
@@ -83,16 +81,17 @@ fn slow_test_fix_validator_stake_threshold() {
             epoch_info.get_validator_stake(account_id).unwrap()
         })
         .sum::<u128>();
+    let num_shards = epoch_config_store.get_config(protocol_version).shard_layout.num_shards();
 
     assert!(protocol_version < ProtocolFeature::FixStakingThreshold.protocol_version());
-    assert_eq!(validators.len(), 2);
+    assert_eq!(validators.len(), 2, "proposal with stake at threshold should not be approved");
     assert_eq!(total_stake / ONE_NEAR, 37_500_000_000);
     // prior to threshold fix
     // threshold = min_stake_ratio * total_stake
     //           = (1 / 62_500) * total_stake
     // TODO Chunk producer stake threshold is dependent on the number of shards, which should no
-    // longer be the case.  Get rid of NUM_SHARDS once protocol is updated to correct the ratio.
-    assert_eq!(epoch_info.seat_price() * NUM_SHARDS / ONE_NEAR, 600_000);
+    // longer be the case.  Get rid of num_shards once protocol is updated to correct the ratio.
+    assert_eq!(epoch_info.seat_price() * num_shards as u128 / ONE_NEAR, 600_000);
 
     test_loop.run_until(
         |test_loop_data: &mut TestLoopData| {
@@ -114,10 +113,12 @@ fn slow_test_fix_validator_stake_threshold() {
                 client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             if protocol_version >= ProtocolFeature::FixStakingThreshold.protocol_version() {
                 let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
+                let num_shards =
+                    epoch_config_store.get_config(protocol_version).shard_layout.num_shards();
                 // after threshold fix
                 // threshold = min_stake_ratio * total_stake / (1 - min_stake_ratio)
                 //           = (1 / 62_500) * total_stake / (62_499 / 62_500)
-                assert_eq!(epoch_info.seat_price() * NUM_SHARDS / ONE_NEAR, 600_001);
+                assert_eq!(epoch_info.seat_price() * num_shards as u128 / ONE_NEAR, 600_001);
                 true
             } else {
                 false
