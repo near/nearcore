@@ -1,19 +1,25 @@
+use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
 use near_primitives::bandwidth_scheduler::{BandwidthSchedulerParams, BandwidthSchedulerState};
+use near_primitives::congestion_info::CongestionControl;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::{
-    get_bandwidth_scheduler_state, set_bandwidth_scheduler_state, StorageError, TrieUpdate,
+    get_bandwidth_scheduler_state, set_bandwidth_scheduler_state, ShardUId, StorageError,
+    TrieUpdate,
 };
+use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;
 
+mod scheduler;
 mod shard_mapping;
 
-/// In future the output will contain the granted bandwidth.
 pub struct BandwidthSchedulerOutput {
+    /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
+    pub granted_bandwidth: GrantedBandwidth,
     /// Parameters used by the bandwidth scheduler algorithm.
     /// Will be used for generating bandwidth requests.
     pub params: BandwidthSchedulerParams,
@@ -21,6 +27,8 @@ pub struct BandwidthSchedulerOutput {
     pub scheduler_state_hash: CryptoHash,
 }
 
+/// Run the bandwidth scheduler algorithm to figure out how many bytes
+/// of outgoing receipts can be sent between shards at the current height.
 pub fn run_bandwidth_scheduler(
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
@@ -40,55 +48,76 @@ pub fn run_bandwidth_scheduler(
         Some(prev_state) => prev_state,
         None => {
             tracing::debug!(target: "runtime", "Bandwidth scheduler state not found - initializing");
-            BandwidthSchedulerState { mock_data: [0; 32] }
+            BandwidthSchedulerState { link_allowances: Vec::new() }
         }
     };
 
-    let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
+    // Prepare the status info for each shard based on congestion info.
+    let mut shards_status: BTreeMap<ShardId, ShardStatus> = BTreeMap::new();
+    for (shard_id, extended_congestion_info) in apply_state.congestion_info.iter() {
+        let last_chunk_missing = extended_congestion_info.missed_chunks_count > 0;
+        let is_allowed_sender_shard =
+            *shard_id == ShardId::from(extended_congestion_info.congestion_info.allowed_shard());
 
+        let congestion_level = CongestionControl::new(
+            apply_state.config.congestion_control_config,
+            extended_congestion_info.congestion_info,
+            extended_congestion_info.missed_chunks_count,
+        )
+        .congestion_level();
+        let is_fully_congested = CongestionControl::is_fully_congested(congestion_level);
+
+        shards_status.insert(
+            *shard_id,
+            ShardStatus { last_chunk_missing, is_allowed_sender_shard, is_fully_congested },
+        );
+    }
+
+    // Prepare lists of sender and receiver shards.
+    // TODO(bandwidth_scheduler) - find a better way to get the sender and receiver shards.
+    // Maybe pass shard layout in ApplyState? That might also be needed for resharding.
+    // Taking all shards from the congestion info will be wrong for only one height during
+    // resharding, so it might be good enough for now, but it's not ideal.
     let mut all_shards = apply_state.congestion_info.all_shards();
     all_shards.sort();
     if all_shards.is_empty() {
-        all_shards = vec![ShardId::new(0)];
+        // In some tests there's no congestion info and the list of shards ends up empty.
+        // Pretend that there's only one default shard.
+        all_shards = vec![ShardUId::single_shard().shard_id()];
+        shards_status.insert(
+            all_shards[0],
+            ShardStatus {
+                last_chunk_missing: false,
+                is_allowed_sender_shard: true,
+                is_fully_congested: false,
+            },
+        );
     }
-    let num_shards =
-        NonZeroU64::new(all_shards.len().try_into().expect("Can't convert usize to u64"))
-            .expect("Number of shards can't be zero");
+    let sender_shards = &all_shards;
+    let receiver_shards = &all_shards;
 
-    let params = BandwidthSchedulerParams::new(num_shards, &apply_state.config);
+    // Calculate the current scheduler parameters.
+    let num_shards: u64 = std::cmp::max(sender_shards.len(), receiver_shards.len())
+        .try_into()
+        .expect("Can't convert usize to u64");
+    let params =
+        BandwidthSchedulerParams::new(NonZeroU64::new(num_shards).unwrap(), &apply_state.config);
 
-    let prev_block_hash = apply_state.prev_block_hash;
-    let bandwidth_requests = &apply_state.bandwidth_requests;
-    tracing::debug!(
-        target: "runtime",
-        ?prev_block_hash,
-        ?scheduler_state,
-        ?all_shards,
-        ?bandwidth_requests,
-        "Running bandwidth scheduler with inputs",
+    // Run the bandwidth scheduler algorithm.
+    let granted_bandwidth = BandwidthScheduler::run(
+        &sender_shards,
+        &receiver_shards,
+        &mut scheduler_state,
+        &params,
+        &apply_state.bandwidth_requests,
+        &shards_status,
+        apply_state.block_height,
     );
-
-    // Simulate bandwidth scheduler doing something here
-    // The scheduler algorithm has the following inputs:
-    // * previous scheduler state
-    // * list of all shards - used to generate bandwidth grants
-    // * bandwidth requests from the previous height
-    // * prev_block_hash which is used as a seed for the random generator which resolves draws between requests.
-    //
-    // Bandwidth scheduler takes these inputs and produces bandwidth grants and new scheduler state.
-    // The inputs and outputs are the same on all shards.
-    let mut data = Vec::new();
-    data.extend_from_slice(scheduler_state.mock_data.as_slice());
-    data.extend_from_slice(borsh::to_vec(&all_shards).unwrap().as_slice());
-    data.extend_from_slice(
-        borsh::to_vec(&bandwidth_requests.shards_bandwidth_requests).unwrap().as_slice(),
-    );
-    data.extend_from_slice(prev_block_hash.as_bytes().as_slice());
-    scheduler_state.mock_data = hash(data.as_slice()).into();
 
     // Save the updated scheduler state to the trie.
     set_bandwidth_scheduler_state(state_update, &scheduler_state);
     state_update.commit(StateChangeCause::BandwidthSchedulerStateUpdate);
 
-    Ok(Some(BandwidthSchedulerOutput { params, scheduler_state_hash }))
+    let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
+    Ok(Some(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash }))
 }

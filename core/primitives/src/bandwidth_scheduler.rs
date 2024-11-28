@@ -313,8 +313,7 @@ impl BlockBandwidthRequests {
     ProtocolSchema,
 )]
 pub struct BandwidthSchedulerState {
-    /// Random data for now
-    pub mock_data: [u8; 32],
+    pub link_allowances: Vec<((ShardId, ShardId), u64)>,
 }
 
 /// Parameters used in the bandwidth scheduler algorithm.
