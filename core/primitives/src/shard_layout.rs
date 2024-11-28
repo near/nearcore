@@ -773,12 +773,6 @@ impl ShardLayout {
     }
 }
 
-/// Maps an account to the shard that it belongs to given a shard layout.
-#[deprecated(note = "Please use `ShardLayout::account_id_to_shard_id` method instead")]
-pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
-    shard_layout.account_id_to_shard_id(account_id)
-}
-
 /// Maps an account to the shard that it belongs to given a shard_layout
 pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardUId {
     ShardUId::from_shard_id_and_layout(
