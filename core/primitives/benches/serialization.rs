@@ -61,6 +61,7 @@ fn create_block() -> Block {
     Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         10,
         genesis.header().block_ordinal() + 1,

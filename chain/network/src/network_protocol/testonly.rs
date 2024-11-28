@@ -49,6 +49,7 @@ pub fn make_block(
     Block::produce(
         version::PROTOCOL_VERSION,
         version::PROTOCOL_VERSION,
+        version::PROTOCOL_VERSION,
         prev.header(),
         prev.header().height() + 5,
         prev.header().block_ordinal() + 1,

@@ -84,17 +84,3 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: LazyLock<ProtocolUpgradeVotingSchedule> =
 
         ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, vec![]).unwrap()
     });
-
-/// Gives new clients an option to upgrade without announcing that they support
-/// the new version.  This gives non-validator nodes time to upgrade.  See
-/// <https://github.com/near/NEPs/issues/205>
-#[cfg(feature = "clock")]
-pub fn get_protocol_version(
-    next_epoch_protocol_version: ProtocolVersion,
-    clock: near_time::Clock,
-) -> ProtocolVersion {
-    let now = clock.now_utc();
-    let chrono = chrono::DateTime::from_timestamp(now.unix_timestamp(), now.nanosecond());
-    PROTOCOL_UPGRADE_SCHEDULE
-        .get_protocol_version(chrono.unwrap_or_default(), next_epoch_protocol_version)
-}

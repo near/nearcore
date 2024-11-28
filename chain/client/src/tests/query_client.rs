@@ -76,6 +76,7 @@ fn query_status_not_crash() {
             let mut next_block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 &header,
                 block.header.height + 1,
                 header.block_ordinal() + 1,
