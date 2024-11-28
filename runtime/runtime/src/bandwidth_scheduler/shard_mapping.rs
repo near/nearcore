@@ -97,3 +97,63 @@ impl<T> SchedulerShardIndexMap<T> {
         );
     }
 }
+
+/// Represents a link between a sender shard that sends receipts and a receiver shard that receives them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ShardLink {
+    /// Sender shard
+    pub sender: SchedulerShardIndex,
+    /// Receiver shard
+    pub receiver: SchedulerShardIndex,
+}
+
+impl ShardLink {
+    pub fn new(sender: SchedulerShardIndex, receiver: SchedulerShardIndex) -> Self {
+        Self { sender, receiver }
+    }
+}
+
+/// Equivalent to Map<ShardLink, T>
+/// Accessing a value is done by indexing into an array, which is faster than a lookup in BTreeMap or HashMap.
+/// Should be used only with indexes from the same mapping that was given in the constructor!
+pub struct SchedulerShardLinkMap<T> {
+    data: Vec<Option<T>>,
+    num_indexes: usize,
+}
+
+impl<T> SchedulerShardLinkMap<T> {
+    pub fn new(mapping: &SchedulerShardMapping) -> Self {
+        let num_indexes = mapping.indexes_len();
+        let data_len = num_indexes * num_indexes;
+        let mut data = Vec::with_capacity(data_len);
+        for _ in 0..data_len {
+            data.push(None);
+        }
+        Self { data, num_indexes }
+    }
+
+    pub fn get(&self, link: &ShardLink) -> Option<&T> {
+        self.data[self.data_index_for_link(link)].as_ref()
+    }
+
+    pub fn insert(&mut self, link: ShardLink, value: T) {
+        let data_index = self.data_index_for_link(&link);
+        self.data[data_index] = Some(value);
+    }
+
+    fn data_index_for_link(&self, link: &ShardLink) -> usize {
+        debug_assert!(
+            link.sender.0 < self.num_indexes,
+            "Sender index out of bounds! num_indexes: {}, link: {:?}",
+            self.num_indexes,
+            link
+        );
+        debug_assert!(
+            link.receiver.0 < self.num_indexes,
+            "Receiver index out of bounds! num_indexes: {}, link: {:?}",
+            self.num_indexes,
+            link
+        );
+        link.sender.0 * self.num_indexes + link.receiver.0
+    }
+}
