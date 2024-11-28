@@ -505,13 +505,12 @@ impl TestEnv {
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
             account_id,
-            &signer.into(),
+            &signer,
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
