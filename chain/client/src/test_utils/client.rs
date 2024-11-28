@@ -24,6 +24,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::ShardUId;
 use num_rational::Ratio;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 
@@ -158,7 +159,7 @@ fn create_chunk_on_height_for_shard(
 }
 
 pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> ProduceChunkResult {
-    create_chunk_on_height_for_shard(client, next_height, ShardId::new(0))
+    create_chunk_on_height_for_shard(client, next_height, ShardUId::single_shard().shard_id())
 }
 
 pub fn create_chunk_with_transactions(
@@ -252,6 +253,7 @@ pub fn create_chunk(
         ChunkEndorsement::new(EpochId::default(), &chunk.cloned_header(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         last_block.header(),

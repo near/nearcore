@@ -40,9 +40,6 @@ skip = [
     # `sha2` uses it
     { name = "cfg-if", version = "=1.0.0" },
 
-    # `sha2`, `blake3` and `curve25519-dalek` need to be updated.
-    { name = "digest", version = "=0.9.0" },
-
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
     { name = "pwasm-utils", version = "=0.12.0" },
@@ -53,17 +50,19 @@ skip = [
 
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
-    { name = "wasmparser", version = "=0.51.4" },
-    { name = "wasmparser", version = "=0.78.2" },
-    { name = "wasmparser", version = "=0.84.0" },
-    { name = "wasmparser", version = "=0.99.0" },
-    { name = "wasmparser", version = "=0.105.0" },
-    { name = "wasm-encoder", version = "=0.27.0" },
     { name = "object", version = "=0.30.4" },
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },
     { name = "addr2line", version = "=0.19.0" },
     { name = "gimli", version = "=0.27.2" },
+
+    # wasm-tools
+    { name = "wasmparser", version = "=0.51.4" },
+    { name = "wasmparser", version = "=0.78.2" },
+    { name = "wasmparser", version = "=0.99.0" },
+    { name = "wasmparser", version = "=0.105.0" },
+    { name = "wasm-encoder", version = "=0.27.0" },
+    { name = "wasmprinter", version = "=0.2.57" },
 
     # wasmer 0.17.x
     { name = "parking_lot", version = "=0.10.2" },
@@ -76,16 +75,12 @@ skip = [
 
     # many crates haven't updated to syn 2.0 yet.
     { name = "syn", version = "=1.0.103" },
+    { name = "heck", version = "=0.4.0" }, # paperclip
 
-    # old version of tokio, parking_lot
-    { name = "windows-sys", version = "=0.36.1" },
-    # console
-    { name = "windows-sys", version = "=0.42.0" },
-    { name = "windows_x86_64_msvc", version = "=0.36.1" },
-
-    # old version of rustix, wasmtime, is-terminal, etc.
-    { name = "windows-sys", version = "=0.42.0" },
-    { name = "windows_x86_64_msvc", version = "=0.42.2" },
+    # ubiquituous dependencies that are prone to duplication due to frequent "breaking" releases.
+    { name = "windows-sys", version = "<0.59" },
+    { name = "windows_x86_64_msvc", version = "<0.59" },
+    { name = "windows-targets", version = "<0.52" },
 
     # ed25519-dalek uses older versions of rand and rand_core
     { name = "rand_core", version = "=0.5.1" },
@@ -95,17 +90,17 @@ skip = [
     { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
-    # blake3 (through wasmer0) uses an older version
-    { name = "arrayvec", version = "=0.5.2" },
-
-    # criterion and wasmer-runtime-core-near depend on this older
-    # version of the crate.
+    # criterion, wasmer-runtime-core-near, rocksdb depend on this older version of the crate.
     { name = "rustc_version", version = "=0.2.3" },
     { name = "errno", version = "=0.2.8" },
+    { name = "rustc-hash", version = "<2" },
 
-    # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
+    # Hashbrowns
     { name = "hashbrown", version = "0.12.0" },
     { name = "hashbrown", version = "0.13.2" },
+    { name = "hashbrown", version = "0.14.5" },
+
+    # Bolero requires a newer version and the rest of the ecosystem hasn't caught up yet.
     { name = "bitflags", version = "=1.3.2" },
     { name = "indexmap", version = "=1.9.2" },
 
@@ -115,12 +110,12 @@ skip = [
     # rust-s3 is using an old version of smartstring
     { name = "smartstring", version = "=0.2.10" },
 
-    # near-test-contracts
-    { name = "wasm-encoder", version = "=0.11.0" },
-
     # Various packages haven’t upgraded to 0.base64 21 yet.
     { name = "base64", version = "=0.13.0" },
     { name = "ahash", version = "=0.7.8" },
+
+    # ark-ec, criterion,
+    { name = "itertools", version = "0.10" },
 
     # actix-http hasn't upgraded iminz_oxide/flate2 yet.
     { name = "miniz_oxide", version = "=0.5.1" },
@@ -140,4 +135,5 @@ skip = [
     # ecosystem migration to 2.0 is in early phases at the time of writing.
     { name = "thiserror", version = "<2.0" },
     { name = "thiserror-impl", version = "<2.0" },
+    { name = "derive_more", version = "<1" },
 ]

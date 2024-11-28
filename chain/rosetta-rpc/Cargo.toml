@@ -17,7 +17,7 @@ actix-http.workspace = true
 actix-web.workspace = true
 actix.workspace = true
 awc.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "from", "from_str"] }
 futures.workspace = true
 hex.workspace = true
 paperclip.workspace = true

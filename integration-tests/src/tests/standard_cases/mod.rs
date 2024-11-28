@@ -1213,9 +1213,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
 pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     let mut node_user = node.user();
     let account_id = bob_account();
-    let signer = Arc::new(
-        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref()).into(),
-    );
+    let signer = Arc::new(InMemorySigner::test_signer(&account_id));
     node_user.set_signer(signer);
     node_user.send_money(account_id, alice_account(), 10).unwrap_err();
 }
