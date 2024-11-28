@@ -70,7 +70,6 @@ fn boundary_account_to_intervals(
             _ => panic!("Unhandled trie key type: {}", name),
         }
     }
-    debug_assert!(intervals.iter().all(|range| range.start < range.end));
     intervals
 }
 
