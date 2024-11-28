@@ -7,7 +7,7 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardVersion};
+use near_primitives::shard_layout::ShardVersion;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::flat_store::FlatStoreAdapter;
@@ -512,7 +512,7 @@ impl FlatStorageCommand {
                     )?;
                 let maybe_trie_key = match maybe_account_id {
                     Some(account_id) => {
-                        let account_shard_id = account_id_to_shard_id(&account_id, &shard_layout);
+                        let account_shard_id = shard_layout.account_id_to_shard_id(&account_id);
                         if shard_id == account_shard_id {
                             Some(maybe_trie_key)
                         } else {

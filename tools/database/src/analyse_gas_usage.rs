@@ -9,7 +9,7 @@ use near_epoch_manager::EpochManager;
 use nearcore::config::load_config;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{AccountId, BlockHeight};
 
 use nearcore::open_storage;
@@ -243,7 +243,7 @@ fn get_gas_usage_in_block(
                 .outcome;
 
             // Sanity check - make sure that the executor of this outcome belongs to this shard
-            let account_shard_id = account_id_to_shard_id(&outcome.executor_id, &shard_layout);
+            let account_shard_id = shard_layout.account_id_to_shard_id(&outcome.executor_id);
             assert_eq!(account_shard_id, shard_id);
 
             gas_usage_in_shard.add_used_gas(outcome.executor_id, outcome.gas_burnt.into());
