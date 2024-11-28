@@ -10,6 +10,8 @@ use near_store::{
 
 use crate::ApplyState;
 
+mod shard_mapping;
+
 /// In future the output will contain the granted bandwidth.
 pub struct BandwidthSchedulerOutput {
     /// Parameters used by the bandwidth scheduler algorithm.
