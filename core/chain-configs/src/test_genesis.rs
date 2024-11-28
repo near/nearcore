@@ -207,8 +207,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn minimum_stake_ratio(&mut self, minimum_stake_ratio: Rational32) -> &mut Self {
-        self.epoch_config_mut().validator_selection_config.minimum_stake_ratio =
-            minimum_stake_ratio;
+        self.epoch_config_mut().minimum_stake_ratio = minimum_stake_ratio;
         self
     }
 
@@ -221,8 +220,7 @@ impl TestGenesisBuilder {
         &mut self,
         minimum_validators_per_shard: NumSeats,
     ) -> &mut Self {
-        self.epoch_config_mut().validator_selection_config.minimum_validators_per_shard =
-            minimum_validators_per_shard;
+        self.epoch_config_mut().minimum_validators_per_shard = minimum_validators_per_shard;
         self
     }
 
@@ -244,9 +242,7 @@ impl TestGenesisBuilder {
     }
 
     pub fn shuffle_shard_assignment_for_chunk_producers(&mut self, shuffle: bool) -> &mut Self {
-        self.epoch_config_mut()
-            .validator_selection_config
-            .shuffle_shard_assignment_for_chunk_producers = shuffle;
+        self.epoch_config_mut().shuffle_shard_assignment_for_chunk_producers = shuffle;
         self
     }
 
@@ -322,10 +318,8 @@ impl TestGenesisBuilder {
 
         let mut epoch_config = self.epoch_config_mut().clone();
         epoch_config.num_block_producer_seats = derived_validator_setup.num_block_producer_seats;
-        epoch_config.validator_selection_config.num_chunk_producer_seats =
-            derived_validator_setup.num_chunk_producer_seats;
-        epoch_config.validator_selection_config.num_chunk_validator_seats =
-            derived_validator_setup.num_chunk_validator_seats;
+        epoch_config.num_chunk_producer_seats = derived_validator_setup.num_chunk_producer_seats;
+        epoch_config.num_chunk_validator_seats = derived_validator_setup.num_chunk_validator_seats;
         let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
             protocol_version,
             Arc::new(epoch_config),

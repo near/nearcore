@@ -72,7 +72,7 @@ impl Genesis {
         }
         add_protocol_account(&mut records);
         let epoch_config =
-            Self::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
+            Genesis::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
@@ -106,24 +106,14 @@ impl Genesis {
             online_min_threshold: epoch_config.online_min_threshold,
             online_max_threshold: epoch_config.online_max_threshold,
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
-            num_chunk_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_producer_seats,
-            num_chunk_validator_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_validator_seats,
-            num_chunk_only_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_only_producer_seats,
-            minimum_validators_per_shard: epoch_config
-                .validator_selection_config
-                .minimum_validators_per_shard,
-            minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            num_chunk_producer_seats: epoch_config.num_chunk_producer_seats,
+            num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
+            minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             chunk_producer_assignment_changes_limit: epoch_config
-                .validator_selection_config
                 .chunk_producer_assignment_changes_limit,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
-                .validator_selection_config
                 .shuffle_shard_assignment_for_chunk_producers,
 
             ..Default::default()
