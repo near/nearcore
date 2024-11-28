@@ -2,15 +2,16 @@
 
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_test_contracts::ArbitraryModule;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::VMOutcome;
 use near_vm_runner::ContractCode;
-use near_vm_runner_fuzz::{create_context, find_entry_point, ArbitraryModule};
+use near_vm_runner_fuzz::{create_context, find_entry_point};
 use std::sync::Arc;
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
-    let code = ContractCode::new(module.0.module.to_bytes(), None);
+    let code = ContractCode::new(module.0.to_bytes(), None);
     let config_store = RuntimeConfigStore::new(None);
     let config = config_store.get_config(PROTOCOL_VERSION);
     let _result = run_fuzz(&code, Arc::clone(config));

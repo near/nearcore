@@ -21,7 +21,7 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
 use near_primitives::state::FlatStateValue;
-use near_primitives::trie_key::col::{self, ALL_COLUMNS_WITH_NAMES};
+use near_primitives::trie_key::col::{self};
 use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
@@ -869,7 +869,7 @@ fn shard_split_handle_key_value(
                 parse_account_id_from_trie_key_with_separator(
                     key_column_prefix,
                     raw_key,
-                    ALL_COLUMNS_WITH_NAMES[key_column_prefix as usize].1,
+                    &format!("col at index {}", key_column_prefix),
                 )
             })?
         }

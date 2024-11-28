@@ -1,4 +1,5 @@
 use crate::{get, get_pure, set, TrieAccess, TrieUpdate};
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
     BufferedReceiptIndices, ReceiptOrStateStoredReceipt, TrieQueueIndices,
@@ -6,13 +7,10 @@ use near_primitives::receipt::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 
-/// Read-only iterator over receipt queues stored in the state trie.
-///
-/// This iterator currently supports delayed receipts and buffered outgoing
-/// receipts.
-pub struct ReceiptIterator<'a> {
+/// Read-only iterator over items stored in a TrieQueue.
+pub struct TrieQueueIterator<'a, Queue: TrieQueue> {
     indices: std::ops::Range<u64>,
-    trie_queue: &'a dyn TrieQueue,
+    trie_queue: &'a Queue,
     trie: &'a dyn TrieAccess,
     side_effects: bool,
 }
@@ -60,6 +58,9 @@ pub struct OutgoingReceiptBuffer<'parent> {
 /// queue items. Based on that, a common push(), pop(), len(), and iter()
 /// implementation is provided as trait default implementation.
 pub trait TrieQueue {
+    // TODO - remove the lifetime once we get rid of Cow in StateStoredReceipt.
+    type Item<'a>: BorshDeserialize + BorshSerialize;
+
     /// Read queue indices of the queue from the trie, depending on impl.
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError>;
 
@@ -76,16 +77,16 @@ pub trait TrieQueue {
     /// Construct the trie key for a queue item depending on impl.
     fn trie_key(&self, queue_index: u64) -> TrieKey;
 
-    fn push(
+    fn push_back(
         &mut self,
         state_update: &mut TrieUpdate,
-        receipt: &ReceiptOrStateStoredReceipt,
+        item: &Self::Item<'_>,
     ) -> Result<(), IntegerOverflowError> {
         self.debug_check_unchanged(state_update);
 
         let index = self.indices().next_available_index;
         let key = self.trie_key(index);
-        set(state_update, key, receipt);
+        set(state_update, key, item);
 
         self.indices_mut().next_available_index =
             index.checked_add(1).ok_or(IntegerOverflowError)?;
@@ -93,10 +94,10 @@ pub trait TrieQueue {
         Ok(())
     }
 
-    fn pop(
+    fn pop_front(
         &mut self,
         state_update: &mut TrieUpdate,
-    ) -> Result<Option<ReceiptOrStateStoredReceipt>, StorageError> {
+    ) -> Result<Option<Self::Item<'static>>, StorageError> {
         self.debug_check_unchanged(state_update);
 
         let indices = self.indices();
@@ -104,9 +105,9 @@ pub trait TrieQueue {
             return Ok(None);
         }
         let key = self.trie_key(indices.first_index);
-        let receipt: ReceiptOrStateStoredReceipt = get(state_update, &key)?.ok_or_else(|| {
+        let item: Self::Item<'static> = get(state_update, &key)?.ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
-                "Receipt #{} should be in the state",
+                "TrieQueue::Item #{} should be in the state",
                 indices.first_index
             ))
         })?;
@@ -114,13 +115,75 @@ pub trait TrieQueue {
         // Math checked above, first_index < next_available_index
         self.indices_mut().first_index += 1;
         self.write_indices(state_update);
-        Ok(Some(receipt))
+        Ok(Some(item))
+    }
+
+    fn pop_back(
+        &mut self,
+        state_update: &mut TrieUpdate,
+    ) -> Result<Option<Self::Item<'static>>, StorageError> {
+        self.debug_check_unchanged(state_update);
+
+        let indices = self.indices();
+        if indices.first_index >= indices.next_available_index {
+            return Ok(None);
+        }
+        // Math checked above: first_index < next_available_index => next_available_index > 0
+        let last_item_index = indices.next_available_index - 1;
+        let key = self.trie_key(last_item_index);
+        let item: Self::Item<'static> = get(state_update, &key)?.ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "TrieQueue::Item #{} should be in the state",
+                last_item_index
+            ))
+        })?;
+        state_update.remove(key);
+        self.indices_mut().next_available_index = last_item_index;
+        self.write_indices(state_update);
+        Ok(Some(item))
+    }
+
+    /// Modify the first item in a non-empty queue.
+    /// `modify_fn` consumes the first item, modifies it, and returns `Option<Item>`.
+    /// If `modify_fn` returns `Some`, the item is updated in the queue.
+    /// If `modify_fn` returns `None`, the item is removed from the queue.
+    /// Panics if the queue is empty.
+    /// TODO(bandwidth_scheduler) - consider adding a push_front method.
+    /// Indices could be converted to i64, serialization is the same as u64 for non-negative values.
+    fn modify_first<'a>(
+        &mut self,
+        state_update: &mut TrieUpdate,
+        modify_fn: impl Fn(Self::Item<'a>) -> Option<Self::Item<'a>>,
+    ) -> Result<(), StorageError> {
+        let indices = self.indices();
+        if indices.first_index >= indices.next_available_index {
+            panic!("TrieQueue::modify_first called on an empty queue! indices: {:?}", indices);
+        }
+        let key = self.trie_key(indices.first_index);
+        let first_item: Self::Item<'_> = get(state_update, &key)?.ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "TrieQueue::Item #{} should be in the state",
+                indices.first_index
+            ))
+        })?;
+        let modified_item = modify_fn(first_item);
+        match modified_item {
+            Some(item) => {
+                set(state_update, key, &item);
+                self.write_indices(state_update);
+            }
+            None => {
+                // Modify function returned None, remove the first item.
+                let _removed = self.pop_front(state_update)?;
+            }
+        }
+        Ok(())
     }
 
     /// Remove up to `n` values from the end of the queue and return how many
     /// were actually remove.
     ///
-    /// Unlike `pop`, this method does not return the actual receipts or even
+    /// Unlike `pop`, this method does not return the actual items or even
     /// check if they existed in state.
     fn pop_n(&mut self, state_update: &mut TrieUpdate, n: u64) -> Result<u64, StorageError> {
         self.debug_check_unchanged(state_update);
@@ -150,14 +213,18 @@ pub trait TrieQueue {
         self.indices().len()
     }
 
-    fn iter<'a>(&'a self, trie: &'a dyn TrieAccess, side_effects: bool) -> ReceiptIterator<'a>
+    fn iter<'a>(
+        &'a self,
+        trie: &'a dyn TrieAccess,
+        side_effects: bool,
+    ) -> TrieQueueIterator<'a, Self>
     where
         Self: Sized,
     {
         if side_effects {
             self.debug_check_unchanged(trie);
         }
-        ReceiptIterator {
+        TrieQueueIterator {
             indices: self.indices().first_index..self.indices().next_available_index,
             trie_queue: self,
             trie,
@@ -189,6 +256,8 @@ impl DelayedReceiptQueue {
 }
 
 impl TrieQueue for DelayedReceiptQueue {
+    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
         crate::get_delayed_receipt_indices(trie).map(TrieQueueIndices::from)
     }
@@ -235,6 +304,8 @@ impl ShardsOutgoingReceiptBuffer {
 }
 
 impl TrieQueue for OutgoingReceiptBuffer<'_> {
+    type Item<'a> = ReceiptOrStateStoredReceipt<'a>;
+
     fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
         let all_indices: BufferedReceiptIndices =
             get(trie, &TrieKey::BufferedReceiptIndices)?.unwrap_or_default();
@@ -259,8 +330,8 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
     }
 }
 
-impl<'a> Iterator for ReceiptIterator<'a> {
-    type Item = Result<ReceiptOrStateStoredReceipt<'a>, StorageError>;
+impl<'a, Queue: TrieQueue> Iterator for TrieQueueIterator<'a, Queue> {
+    type Item = Result<Queue::Item<'static>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
@@ -270,15 +341,15 @@ impl<'a> Iterator for ReceiptIterator<'a> {
         let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
-                "Receipt referenced by index should be in the state".to_owned(),
+                "TrieQueue::Item referenced by index should be in the state".to_owned(),
             )),
-            Ok(Some(receipt)) => Ok(receipt),
+            Ok(Some(item)) => Ok(item),
         };
         Some(result)
     }
 }
 
-impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
+impl<'a, Queue: TrieQueue> DoubleEndedIterator for TrieQueueIterator<'a, Queue> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);
@@ -287,9 +358,9 @@ impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
         let result = match value {
             Err(e) => Err(e),
             Ok(None) => Err(StorageError::StorageInconsistentState(
-                "Receipt referenced by index should be in the state".to_owned(),
+                "TrieQueue::Item referenced by index should be in the state".to_owned(),
             )),
-            Ok(Some(receipt)) => Ok(receipt),
+            Ok(Some(item)) => Ok(item),
         };
         Some(result)
     }
@@ -298,12 +369,16 @@ impl<'a> DoubleEndedIterator for ReceiptIterator<'a> {
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
+    use std::collections::VecDeque;
 
     use super::*;
     use crate::test_utils::{gen_receipts, TestTriesBuilder};
     use crate::Trie;
     use near_primitives::receipt::Receipt;
     use near_primitives::shard_layout::ShardLayout;
+    use rand::seq::SliceRandom;
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha20Rng;
 
     #[test]
     fn test_delayed_receipts_queue() {
@@ -415,11 +490,11 @@ mod tests {
     fn check_push_to_receipt_queue(
         input_receipts: &[Receipt],
         trie: &mut TrieUpdate,
-        queue: &mut impl TrieQueue,
+        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
     ) {
         for receipt in input_receipts {
             let receipt = ReceiptOrStateStoredReceipt::Receipt(Cow::Borrowed(receipt));
-            queue.push(trie, &receipt).expect("pushing must not fail");
+            queue.push_back(trie, &receipt).expect("pushing must not fail");
         }
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
             queue.iter(trie, true).collect::<Result<_, _>>().expect("iterating should not fail");
@@ -436,7 +511,7 @@ mod tests {
     fn check_receipt_queue_contains_receipts(
         input_receipts: &[Receipt],
         trie: &mut TrieUpdate,
-        queue: &mut impl TrieQueue,
+        queue: &mut impl for<'a> TrieQueue<Item<'a> = ReceiptOrStateStoredReceipt<'a>>,
     ) {
         // check 2: assert newly loaded queue still contains the receipts
         let iterated_receipts: Vec<ReceiptOrStateStoredReceipt> =
@@ -447,7 +522,7 @@ mod tests {
 
         // check 3: pop receipts from queue and check if all are returned in the right order
         let mut popped = vec![];
-        while let Some(receipt) = queue.pop(trie).expect("pop must not fail") {
+        while let Some(receipt) = queue.pop_front(trie).expect("pop must not fail") {
             let receipt = receipt.into_receipt();
             popped.push(receipt);
         }
@@ -463,5 +538,206 @@ mod tests {
         let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
         TrieUpdate::new(trie)
+    }
+
+    // Queue used to test the TrieQueue trait.
+    struct TestTrieQueue {
+        indices: TrieQueueIndices,
+    }
+
+    impl TestTrieQueue {
+        pub fn new() -> Self {
+            Self { indices: Default::default() }
+        }
+
+        pub fn load(trie: &dyn TrieAccess) -> Result<Self, StorageError> {
+            Ok(Self { indices: Self::read_indices(trie)? })
+        }
+
+        fn read_indices(trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+            Ok(get(
+                trie,
+                &TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() },
+            )?
+            .unwrap_or_default())
+        }
+
+        /// TestQueue reuses the trie columns used for storing buffered receipt groups queue.
+        /// It pretends to be a buffered receipt groups queue for the shard with the maximum ID.
+        /// Reusing the columns is the easiest way to implement the TrieQueue trait
+        /// for a test queue that doesn't have a dedicated trie column.
+        fn fake_shard_id() -> ShardId {
+            ShardId::max()
+        }
+    }
+
+    impl TrieQueue for TestTrieQueue {
+        type Item<'a> = i32;
+
+        fn load_indices(&self, trie: &dyn TrieAccess) -> Result<TrieQueueIndices, StorageError> {
+            Self::read_indices(trie)
+        }
+
+        fn indices(&self) -> TrieQueueIndices {
+            self.indices.clone()
+        }
+
+        fn indices_mut(&mut self) -> &mut TrieQueueIndices {
+            &mut self.indices
+        }
+
+        fn write_indices(&self, state_update: &mut TrieUpdate) {
+            set(
+                state_update,
+                TrieKey::BufferedReceiptGroupsQueueData { receiving_shard: Self::fake_shard_id() },
+                &self.indices,
+            );
+        }
+
+        fn trie_key(&self, index: u64) -> TrieKey {
+            TrieKey::BufferedReceiptGroupsQueueItem {
+                receiving_shard: Self::fake_shard_id(),
+                index,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum RandomOperation {
+        PushBack(i32),
+        PopFront,
+        PopBack,
+        ModifyFirst,
+        PopN(usize),
+    }
+
+    /// Generates random TrieQueue operations.
+    /// Special care is taken to ensure that queue size sometimes reaches zero.
+    /// For 100 operations the queue has a balanced number of pushes and pops.
+    /// For the next 100 operations, the pops outweigh pushes 2:1. The queue will most likely
+    /// be cleared during this phase.
+    /// And so on, the phases repeat.
+    fn generate_random_operation(rng: &mut impl Rng, i: usize) -> RandomOperation {
+        // The mode of operations switches every 100 operations.
+        let mode = if (i / 100) % 2 == 0 { "random_balanced" } else { "mostly_pops" };
+
+        let weighted_items = match mode {
+            "random_balanced" => {
+                // Same number of items removed and added on average
+                vec![
+                    (RandomOperation::PushBack(rng.gen_range(0..1000)), 3), // On average adds 3 items
+                    (RandomOperation::PopFront, 1), // On average removes 1 item
+                    (RandomOperation::PopBack, 1),  // On average removes 1 item
+                    (RandomOperation::ModifyFirst, 1), // Doesn't remove any items
+                    (RandomOperation::PopN(rng.gen_range(0..=2)), 1), // On average removes 1 item
+                ]
+            }
+            "mostly_pops" => {
+                // Pops are 2x as likely as pushes, to clear the queue
+                vec![
+                    (RandomOperation::PushBack(rng.gen_range(0..1000)), 3), // On average adds 3 items
+                    (RandomOperation::PopFront, 2), // On average removes 2 items
+                    (RandomOperation::PopBack, 2),  // On average removes 2 items
+                    (RandomOperation::ModifyFirst, 2), // Doesn't remove any items
+                    (RandomOperation::PopN(rng.gen_range(0..=2)), 2), // On average removes 2 items
+                ]
+            }
+            other => panic!("Unknown mode: {}", other),
+        };
+
+        weighted_items.choose_weighted(rng, |item| item.1).unwrap().0
+    }
+
+    // Load the queue from the trie, discarding the current data stored in the variable.
+    // Ensures that all changes are written to the trie after every operation.
+    fn maybe_reload_queue(trie: &mut TrieUpdate, queue: &mut TestTrieQueue, rng: &mut impl Rng) {
+        if rng.gen::<bool>() {
+            *queue = TestTrieQueue::load(trie).unwrap();
+        }
+    }
+
+    /// Test the TrieQueue trait by performing random operations on the queue
+    /// and comparing the results with a VecDeque.
+    #[test]
+    fn test_random_trie_queue_operations() {
+        let rng = &mut ChaCha20Rng::seed_from_u64(0);
+
+        let mut trie = init_state();
+        // Trie queue
+        let mut trie_queue = TestTrieQueue::new();
+        // In-memory queue to compare against
+        let mut memory_queue = VecDeque::new();
+
+        // Run 20_000 random operations on the queue
+        for i in 0..20_000 {
+            maybe_reload_queue(&mut trie, &mut trie_queue, rng);
+
+            let op = generate_random_operation(rng, i);
+            match op {
+                RandomOperation::PushBack(value) => {
+                    trie_queue.push_back(&mut trie, &value).unwrap();
+                    memory_queue.push_back(value);
+                }
+                RandomOperation::PopFront => {
+                    let trie_item = trie_queue.pop_front(&mut trie).unwrap();
+                    let memory_item = memory_queue.pop_front();
+                    assert_eq!(trie_item, memory_item);
+                }
+                RandomOperation::PopBack => {
+                    let trie_item = trie_queue.pop_back(&mut trie).unwrap();
+                    let memory_item = memory_queue.pop_back();
+                    assert_eq!(trie_item, memory_item);
+                }
+                RandomOperation::ModifyFirst => {
+                    if memory_queue.is_empty() {
+                        // modify_first panics if the queue is empty
+                        continue;
+                    }
+
+                    let modify_fn: Box<dyn Fn(i32) -> Option<i32>> = if rng.gen::<bool>() {
+                        Box::new(|item: i32| -> Option<i32> { Some(item.wrapping_add(1)) })
+                    } else {
+                        Box::new(|_: i32| -> Option<i32> { None })
+                    };
+
+                    trie_queue.modify_first(&mut trie, &modify_fn).unwrap();
+
+                    let memory_item = memory_queue.pop_front().unwrap();
+                    if let Some(new_item) = modify_fn(memory_item) {
+                        memory_queue.push_front(new_item);
+                    }
+                }
+                RandomOperation::PopN(n) => {
+                    let trie_popped = trie_queue.pop_n(&mut trie, n as u64).unwrap();
+                    let mut memory_popped = 0;
+                    for _ in 0..n {
+                        if memory_queue.pop_front().is_some() {
+                            memory_popped += 1;
+                        }
+                    }
+                    assert_eq!(trie_popped, memory_popped as u64);
+                }
+            }
+
+            maybe_reload_queue(&mut trie, &mut trie_queue, rng);
+
+            if rng.gen::<bool>() {
+                // Compare a random prefix from both queues
+                let prefix_len = if rng.gen::<bool>() || memory_queue.is_empty() {
+                    memory_queue.len()
+                } else {
+                    rng.gen_range(0..memory_queue.len())
+                };
+                let mut trie_items = Vec::new();
+                let mut trie_iter = trie_queue.iter(&trie, rng.gen::<bool>());
+                for _ in 0..prefix_len {
+                    let trie_item = trie_iter.next().unwrap().unwrap();
+                    trie_items.push(trie_item);
+                }
+                let memory_items =
+                    memory_queue.iter().take(prefix_len).copied().collect::<Vec<_>>();
+                assert_eq!(trie_items, memory_items);
+            }
+        }
     }
 }

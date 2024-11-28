@@ -29,7 +29,6 @@ near-performance-metrics.workspace = true
 near-time = { workspace = true, features = ["clock"] }
 
 [dev-dependencies]
-derive-enum-from-into.workspace = true
 tokio-util.workspace = true
 
 [features]

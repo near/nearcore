@@ -1,6 +1,7 @@
 use near_crypto::Signer;
 use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
-use near_primitives::action::Action;
+use near_primitives::account::AccessKey;
+use near_primitives::action::{Action, AddKeyAction, CreateAccountAction, TransferAction};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::account_new;
@@ -36,6 +37,38 @@ fn create_receipt_with_actions(
         receipt: ReceiptEnum::Action(ActionReceipt {
             signer_id: account_id,
             signer_public_key: signer.public_key(),
+            gas_price: GAS_PRICE,
+            output_data_receivers: vec![],
+            input_data_ids: vec![],
+            actions,
+        }),
+    })
+}
+
+/// Create a new account with a full access access key and returns the signer key.
+fn create_receipt_for_create_account(
+    predecessor_id: AccountId,
+    predecessor_signer: Arc<Signer>,
+    account_id: AccountId,
+    account_signer: Arc<Signer>,
+    amount: Balance,
+) -> Receipt {
+    let actions = vec![
+        Action::CreateAccount(CreateAccountAction {}),
+        Action::Transfer(TransferAction { deposit: amount }),
+        Action::AddKey(Box::new(AddKeyAction {
+            public_key: account_signer.public_key(),
+            access_key: AccessKey::full_access(),
+        })),
+    ];
+    let receipt_id = CryptoHash::hash_borsh((account_id.clone(), actions.clone()));
+    Receipt::V0(ReceiptV0 {
+        predecessor_id: predecessor_id.clone(),
+        receiver_id: account_id,
+        receipt_id,
+        receipt: ReceiptEnum::Action(ActionReceipt {
+            signer_id: predecessor_id,
+            signer_public_key: predecessor_signer.public_key(),
             gas_price: GAS_PRICE,
             output_data_receivers: vec![],
             input_data_ids: vec![],

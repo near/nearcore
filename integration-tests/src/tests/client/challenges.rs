@@ -97,6 +97,7 @@ fn test_verify_block_double_sign_challenge() {
     let b2 = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         2,
         genesis.header().block_ordinal() + 1,
@@ -423,6 +424,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &invalid_chunk.cloned_header(), signer.as_ref());
     let block = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         last_block.header(),

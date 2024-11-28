@@ -507,7 +507,7 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{InMemorySigner, Signer};
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout;
@@ -523,7 +523,7 @@ mod test {
 
     use crate::cli::StorageSource;
 
-    fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
+    fn send_txs(env: &mut TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
         for (i, signer) in signers.iter().enumerate() {
             let from = format!("test{}", i);
             let to = format!("test{}", (i + 1) % signers.len());
@@ -531,7 +531,7 @@ mod test {
                 height,
                 from.parse().unwrap(),
                 to.parse().unwrap(),
-                &signer.clone().into(),
+                &signer,
                 100,
                 hash,
             );
@@ -568,7 +568,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -656,7 +656,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 

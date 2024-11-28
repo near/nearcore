@@ -284,6 +284,7 @@ impl Block {
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
         block_ordinal: crate::types::NumBlocks,
@@ -403,6 +404,7 @@ impl Block {
         let header = BlockHeader::new(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
+            latest_protocol_version,
             height,
             *prev.hash(),
             body.compute_hash(),
@@ -430,7 +432,6 @@ impl Block {
             next_bp_hash,
             block_merkle_root,
             prev.height(),
-            clock,
             chunk_endorsements_bitmap,
         );
 

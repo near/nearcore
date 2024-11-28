@@ -347,7 +347,8 @@ impl Approval {
         signer: &ValidatorSigner,
     ) -> Self {
         let inner = ApprovalInner::new(&parent_hash, parent_height, target_height);
-        let signature = signer.sign_approval(&inner, target_height);
+
+        let signature = signer.sign_bytes(&Approval::get_data_for_sig(&inner, target_height));
         Approval { inner, target_height, signature, account_id: signer.validator_id().clone() }
     }
 
@@ -571,10 +572,10 @@ impl BlockHeader {
     }
 
     /// Creates BlockHeader for a newly produced block.
-    #[cfg(feature = "clock")]
     pub fn new(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
         height: BlockHeight,
         prev_hash: CryptoHash,
         block_body_hash: CryptoHash,
@@ -602,11 +603,8 @@ impl BlockHeader {
         next_bp_hash: CryptoHash,
         block_merkle_root: CryptoHash,
         prev_height: BlockHeight,
-        clock: near_time::Clock,
         chunk_endorsements: Option<ChunkEndorsementsBitmap>,
     ) -> Self {
-        let latest_protocol_version =
-            crate::version::get_protocol_version(next_epoch_protocol_version, clock);
         Self::new_impl(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
@@ -991,20 +989,14 @@ impl BlockHeader {
     where
         T: BorshSerialize + ?Sized,
     {
+        let hash = BlockHeader::compute_hash(
+            prev_hash,
+            &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
+            &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
+        );
         match signature_source {
-            SignatureSource::Signer(signer) => signer.sign_block_header_parts(
-                prev_hash,
-                &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-            ),
-            SignatureSource::Signature(signature) => {
-                let hash = BlockHeader::compute_hash(
-                    prev_hash,
-                    &borsh::to_vec(&inner_lite).expect("Failed to serialize"),
-                    &borsh::to_vec(&inner_rest).expect("Failed to serialize"),
-                );
-                (hash, signature)
-            }
+            SignatureSource::Signer(signer) => (hash, signer.sign_bytes(hash.as_ref())),
+            SignatureSource::Signature(signature) => (hash, signature),
         }
     }
 

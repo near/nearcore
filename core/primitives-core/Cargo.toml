@@ -16,7 +16,7 @@ arbitrary.workspace = true
 base64.workspace = true
 borsh.workspace = true
 bs58.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref"] }
 enum-map.workspace = true
 num-rational.workspace = true
 serde.workspace = true
