@@ -58,7 +58,7 @@ impl ProgressReporter {
 
             indicatif.set_message(format!(
                 "Skipped {skipped} blocks. \
-                 Over last 100 blocks to {block_height}: {empty} empty blocks, {avg_gas:.2} avg gas per non-empty block",
+                 Over last 100 blocks to height {block_height}: {empty} empty blocks, averaging {avg_gas:.2} Tgas per non-empty block",
                 skipped = skipped.load(Ordering::Relaxed),
                 empty = empty_blocks.load(Ordering::Relaxed),
             ));
