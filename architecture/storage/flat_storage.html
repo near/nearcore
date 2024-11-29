@@ -292,8 +292,6 @@ the flat storage head, to support getting queries correctly.</p>
 <h2 id="flatstoragechunkview"><a class="header" href="#flatstoragechunkview">FlatStorageChunkView</a></h2>
 <p>Interface for getting ValueRefs from flat storage for some shard for some fixed block, supported
 by get_ref method.</p>
-<h2 id="flatstoragecreator"><a class="header" href="#flatstoragecreator">FlatStorageCreator</a></h2>
-<p>Creates flat storages for all tracked shards or initiates process of background flat storage creation if for some shard we have only Trie but not FlatStorage. Supports update_status which checks background job results and updates creation statuses and should create flat storage when all jobs are finished.</p>
 <h2 id="other-notes"><a class="header" href="#other-notes">Other notes</a></h2>
 <h3 id="chain-dependency"><a class="header" href="#chain-dependency">Chain dependency</a></h3>
 <p>If storage is fully empty, then we need to create flat storage from scratch. FlatStorage is stored
