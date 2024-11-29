@@ -15,7 +15,6 @@ workspace = true
 actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
-assert_matches.workspace = true
 bytesize.workspace = true
 borsh.workspace = true
 chrono.workspace = true

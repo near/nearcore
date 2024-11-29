@@ -512,10 +512,6 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
-    /// Enables background flat storage creation.
-    pub flat_storage_creation_enabled: bool,
-    /// Duration to perform background flat storage creation step.
-    pub flat_storage_creation_period: Duration,
     /// Whether to use the State Sync mechanism.
     /// If disabled, the node will do Block Sync instead of State Sync.
     pub state_sync_enabled: bool,
@@ -628,8 +624,6 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
-            flat_storage_creation_enabled: true,
-            flat_storage_creation_period: Duration::seconds(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),

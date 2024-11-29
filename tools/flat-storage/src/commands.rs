@@ -1,7 +1,6 @@
 /// Tools for modifying flat storage - should be used only for experimentation & debugging.
 use borsh::BorshDeserialize;
 use clap::Parser;
-use near_chain::flat_storage_creator::FlatStorageShardCreator;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
@@ -18,7 +17,7 @@ use near_store::flat::{
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::{HashMap, HashSet};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc};
 use tqdm::tqdm;
 
 #[derive(Parser)]
@@ -35,9 +34,6 @@ enum SubCommand {
 
     /// Reset the flat storage state (remove all the contents)
     Reset(ResetCmd),
-
-    /// Init the flat storage state, by copying from trie
-    Init(InitCmd),
 
     /// Verify flat storage state (it can take up to couple hours if flat storage is very large)
     Verify(VerifyCmd),
@@ -247,37 +243,6 @@ impl FlatStorageCommand {
         let mut store_update = store.flat_store().store_update();
         flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
         store_update.commit()?;
-        Ok(())
-    }
-
-    fn init(
-        &self,
-        cmd: &InitCmd,
-        home_dir: &PathBuf,
-        near_config: &NearConfig,
-        opener: StoreOpener,
-    ) -> anyhow::Result<()> {
-        let (_, epoch_manager, rw_hot_runtime, rw_chain_store, rw_hot_store) =
-            Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
-
-        let tip = rw_chain_store.final_head()?;
-        let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
-        let mut creator =
-            FlatStorageShardCreator::new(shard_uid, tip.height - 1, epoch_manager, rw_hot_runtime);
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(cmd.num_threads).build()?;
-
-        loop {
-            let status = creator.update_status(&rw_chain_store, &pool)?;
-            if status {
-                break;
-            }
-            let current_status = rw_hot_store.flat_store().get_flat_storage_status(shard_uid);
-            println!("Status: {:?}", current_status);
-
-            std::thread::sleep(Duration::from_secs(1));
-        }
-
-        println!("Flat storage initialization finished.");
         Ok(())
     }
 
@@ -631,7 +596,6 @@ impl FlatStorageCommand {
             SubCommand::View(cmd) => self.view(cmd, home_dir, &near_config, opener),
             SubCommand::SetStoreVersion(cmd) => self.set_store_version(cmd, opener),
             SubCommand::Reset(cmd) => self.reset(cmd, home_dir, &near_config, opener),
-            SubCommand::Init(cmd) => self.init(cmd, home_dir, &near_config, opener),
             SubCommand::Verify(cmd) => self.verify(cmd, home_dir, &near_config, opener),
             SubCommand::ConstructTrieFromFlat(cmd) => {
                 self.construct_trie_from_flat(cmd, home_dir, &near_config, opener)
