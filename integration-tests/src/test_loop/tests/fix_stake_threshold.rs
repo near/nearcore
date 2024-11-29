@@ -43,6 +43,7 @@ fn slow_test_fix_validator_stake_threshold() {
             amount: 100_000 * ONE_NEAR,
         },
     ];
+
     let mut genesis_builder = TestGenesisBuilder::new();
     genesis_builder
         .protocol_version(protocol_version)
