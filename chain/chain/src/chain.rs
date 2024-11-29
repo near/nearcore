@@ -93,7 +93,6 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
@@ -3036,38 +3035,6 @@ impl Chain {
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
         store_update.set(DBCol::StateParts, &key, data);
         store_update.commit()?;
-        Ok(())
-    }
-
-    pub fn create_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        chunk: &ShardChunk,
-    ) -> Result<(), Error> {
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        // Flat storage must not exist at this point because leftover keys corrupt its state.
-        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-        let flat_head_hash = *chunk.prev_block();
-        let flat_head_header = self.get_block_header(&flat_head_hash)?;
-        let flat_head_prev_hash = *flat_head_header.prev_hash();
-        let flat_head_height = flat_head_header.height();
-
-        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-        let mut store_update = self.runtime_adapter.store().store_update();
-        store_update.flat_store_update().set_flat_storage_status(
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: near_store::flat::BlockInfo {
-                    hash: flat_head_hash,
-                    prev_hash: flat_head_prev_hash,
-                    height: flat_head_height,
-                },
-            }),
-        );
-        store_update.commit()?;
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         Ok(())
     }
 
