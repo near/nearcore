@@ -14,6 +14,7 @@ use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
     StateStoredReceiptMetadata,
 };
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
@@ -23,7 +24,7 @@ use near_store::trie::receipts_column_helper::{
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Handle receipt forwarding for different protocol versions.
 pub(crate) enum ReceiptSink {
@@ -228,30 +229,28 @@ impl ReceiptSinkV2 {
         apply_state: &ApplyState,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
-        // store shards in vec to avoid borrowing self.outgoing_limit
+        tracing::info!(target: "test", "forward from buffer");
+
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-        let shard_ids = shard_layout.shard_ids();
+        let shard_ids = shard_layout.shard_ids().collect::<Vec<_>>();
 
-        for shard_id in shard_ids {
-            // TODO(wacban) error handling
-            // TODO(wacban) remove the parent outgoing buffers once it's empty
-
-            // If the target shard was recently resharded, this shard may still
-            // contain some receipts buffered for the parent of the target
-            // shard. Process those receipts first. If there is no parent it's
-            // the same as if the shard is the parent.
+        // TODO(wacban) hash set is non-deterministic
+        let mut parent_shard_ids = HashSet::new();
+        for &shard_id in &shard_ids {
             let parent_shard_id = shard_layout.try_get_parent_shard_id(shard_id).unwrap();
-            let parent_shard_id = parent_shard_id.unwrap_or(shard_id);
-            if parent_shard_id != shard_id {
-                self.forward_from_buffer_to_shard(
-                    parent_shard_id,
-                    shard_id,
-                    state_update,
-                    apply_state,
-                )?;
+            if let Some(parent_shard_id) = parent_shard_id {
+                parent_shard_ids.insert(parent_shard_id);
             }
+        }
 
-            self.forward_from_buffer_to_shard(shard_id, shard_id, state_update, apply_state)?;
+        for &shard_id in &parent_shard_ids {
+            tracing::info!(target: "test", ?shard_id, "forwarding from parent");
+            self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
+        }
+
+        for &shard_id in &shard_ids {
+            tracing::info!(target: "test", ?shard_id, "forwarding from self");
+            self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
         }
         Ok(())
     }
@@ -259,9 +258,9 @@ impl ReceiptSinkV2 {
     fn forward_from_buffer_to_shard(
         &mut self,
         buffer_shard_id: ShardId,
-        target_shard_id: ShardId,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+        shard_layout: &ShardLayout,
     ) -> Result<(), RuntimeError> {
         let mut num_forwarded = 0;
         let mut outgoing_metadatas_updates: Vec<(ByteSize, Gas)> = Vec::new();
@@ -273,6 +272,7 @@ impl ReceiptSinkV2 {
             let size = receipt_size(&receipt)?;
             let should_update_outgoing_metadatas = receipt.should_update_outgoing_metadatas();
             let receipt = receipt.into_receipt();
+            let target_shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
 
             match Self::try_forward(
                 receipt,
@@ -302,10 +302,18 @@ impl ReceiptSinkV2 {
                     num_forwarded += 1;
                 }
                 ReceiptForwarding::NotForwarded(_) => {
+                    tracing::info!(
+                        target: "test",
+                        ?buffer_shard_id,
+                        ?target_shard_id,
+                        "forwarded outgoing receipt"
+                    );
                     break;
                 }
             }
         }
+
+        tracing::info!(target: "test", ?buffer_shard_id, "about to pop n");
         self.outgoing_buffers.to_shard(buffer_shard_id).pop_n(state_update, num_forwarded)?;
         for (size, gas) in outgoing_metadatas_updates {
             self.outgoing_metadatas.update_on_receipt_popped(

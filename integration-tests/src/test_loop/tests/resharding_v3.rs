@@ -905,7 +905,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParameters::with_clients(1)
+    let params = TestReshardingParameters::new()
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
