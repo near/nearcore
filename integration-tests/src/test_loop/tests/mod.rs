@@ -8,6 +8,7 @@ mod contract_distribution_simple;
 mod create_delete_account;
 mod epoch_sync;
 mod fix_min_stake_ratio;
+mod fix_stake_threshold;
 mod in_memory_tries;
 mod max_receipt_size;
 mod multinode_stateless_validators;
