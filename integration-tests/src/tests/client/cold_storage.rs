@@ -123,7 +123,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         if height == 1 {
             let tx = create_tx_deploy_contract(height, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -257,7 +257,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         // It is still painful to filter out transactions in last two blocks.
         // So, as block 19 is skipped, blocks 17 and 18 shouldn't contain any transactions.
         // So, we shouldn't send any transactions between block 17 and the previous block.
@@ -340,7 +340,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -427,7 +427,7 @@ fn test_cold_loop_on_gc_boundary() {
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
     for height in 1..height_delta {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -446,7 +446,7 @@ fn test_cold_loop_on_gc_boundary() {
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
-        let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0").into();
+        let signer = InMemorySigner::test_signer(&test0());
         for i in 0..5 {
             let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);

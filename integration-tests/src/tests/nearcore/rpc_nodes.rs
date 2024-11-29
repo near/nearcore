@@ -8,7 +8,7 @@ use futures::future::join_all;
 use futures::{future, FutureExt, TryFutureExt};
 use near_actix_test_utils::spawn_interruptible;
 use near_client::{GetBlock, GetExecutionOutcome, GetValidatorInfo};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
@@ -105,14 +105,13 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
+        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = if is_tx_successful {
             SignedTransaction::send_money(
                 1,
                 "near.0".parse().unwrap(),
                 "near.1".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 10000,
                 genesis_hash,
             )
@@ -122,8 +121,8 @@ fn test_get_execution_outcome(is_tx_successful: bool) {
                 "near.0".parse().unwrap(),
                 "near.1".parse().unwrap(),
                 10,
-                signer.public_key.clone(),
-                &signer.into(),
+                signer.public_key(),
+                &signer,
                 genesis_hash,
             )
         };
@@ -359,13 +358,12 @@ fn ultra_slow_test_tx_not_enough_balance_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
+        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.0".parse().unwrap(),
             "near.1".parse().unwrap(),
-            &signer.into(),
+            &signer,
             1100000000000000000000000000000000,
             genesis_hash,
         );
@@ -422,13 +420,12 @@ fn ultra_slow_test_check_unknown_tx_must_return_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.0".parse().unwrap(), KeyType::ED25519, "near.0");
+        let signer = InMemorySigner::test_signer(&"near.0".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.0".parse().unwrap(),
             "near.0".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10000,
             genesis_hash,
         );
@@ -486,12 +483,12 @@ fn ultra_slow_test_tx_status_on_lightclient_must_return_does_not_track_shard() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer = InMemorySigner::from_seed("near.1".parse().unwrap(), KeyType::ED25519, "near.1");
+        let signer = InMemorySigner::test_signer(&"near.1".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.1".parse().unwrap(),
             "near.1".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10000,
             genesis_hash,
         );
