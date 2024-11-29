@@ -237,28 +237,36 @@ impl ReceiptSinkV2 {
             // TODO(wacban) remove the parent outgoing buffers once it's empty
 
             // If the target shard was recently resharded, this shard may still
-            // contain some receipts buffered for the parent shard. Process
-            // those receipts first.
-            let parent_shard_id = shard_layout.get_parent_shard_id(shard_id).unwrap();
+            // contain some receipts buffered for the parent of the target
+            // shard. Process those receipts first. If there is no parent it's
+            // the same as if the shard is the parent.
+            let parent_shard_id = shard_layout.try_get_parent_shard_id(shard_id).unwrap();
+            let parent_shard_id = parent_shard_id.unwrap_or(shard_id);
             if parent_shard_id != shard_id {
-                self.forward_from_buffer_to_shard(parent_shard_id, state_update, apply_state)?;
+                self.forward_from_buffer_to_shard(
+                    parent_shard_id,
+                    shard_id,
+                    state_update,
+                    apply_state,
+                )?;
             }
 
-            self.forward_from_buffer_to_shard(shard_id, state_update, apply_state)?;
+            self.forward_from_buffer_to_shard(shard_id, shard_id, state_update, apply_state)?;
         }
         Ok(())
     }
 
     fn forward_from_buffer_to_shard(
         &mut self,
-        shard_id: ShardId,
+        buffer_shard_id: ShardId,
+        target_shard_id: ShardId,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
     ) -> Result<(), RuntimeError> {
         let mut num_forwarded = 0;
         let mut outgoing_metadatas_updates: Vec<(ByteSize, Gas)> = Vec::new();
         for receipt_result in
-            self.outgoing_buffers.to_shard(shard_id).iter(&state_update.trie, true)
+            self.outgoing_buffers.to_shard(buffer_shard_id).iter(&state_update.trie, true)
         {
             let receipt = receipt_result?;
             let gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
@@ -270,7 +278,7 @@ impl ReceiptSinkV2 {
                 receipt,
                 gas,
                 size,
-                shard_id,
+                target_shard_id,
                 &mut self.outgoing_limit,
                 &mut self.outgoing_receipts,
                 apply_state,
@@ -278,7 +286,8 @@ impl ReceiptSinkV2 {
                 ReceiptForwarding::Forwarded => {
                     tracing::info!(
                         target: "test",
-                        target_shard_id=?shard_id,
+                        ?buffer_shard_id,
+                        ?target_shard_id,
                         "forwarded outgoing receipt"
                     );
                     self.own_congestion_info.remove_receipt_bytes(size)?;
@@ -297,9 +306,14 @@ impl ReceiptSinkV2 {
                 }
             }
         }
-        self.outgoing_buffers.to_shard(shard_id).pop_n(state_update, num_forwarded)?;
+        self.outgoing_buffers.to_shard(buffer_shard_id).pop_n(state_update, num_forwarded)?;
         for (size, gas) in outgoing_metadatas_updates {
-            self.outgoing_metadatas.update_on_receipt_popped(shard_id, size, gas, state_update)?;
+            self.outgoing_metadatas.update_on_receipt_popped(
+                buffer_shard_id,
+                size,
+                gas,
+                state_update,
+            )?;
         }
         Ok(())
     }
