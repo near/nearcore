@@ -202,7 +202,9 @@ impl StateSyncDownloader {
             }
             res
         }
-        .instrument(tracing::debug_span!("StateSyncDownloader::ensure_shard_part_downloaded"))
+        .instrument(tracing::debug_span!(
+            "StateSyncDownloader::ensure_shard_part_downloaded_single_attempt"
+        ))
         .boxed()
     }
 }
