@@ -416,9 +416,8 @@ fn check_buffered_receipts_exist_in_memtrie(
     assert_ne!(indices.shard_buffers.values().fold(0, |acc, buffer| acc + buffer.len()), 0);
 }
 
-/// Returns a loop action that invokes a costly method from a contract
-/// `CALLS_PER_BLOCK_HEIGHT` times per block height. The account invoking the
-/// contract is taken in sequential order from `signed_ids`.
+/// Returns a loop action that invokes a costly method from a contract `CALLS_PER_BLOCK_HEIGHT` times per block height.
+/// The account invoking the contract is taken in sequential order from `signed_ids`.
 fn call_burn_gas_contract(
     signer_ids: Vec<AccountId>,
     receiver_id: AccountId,
@@ -928,20 +927,24 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
-    let receiver_account: AccountId = "account4".parse().unwrap();
-    let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
-    let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
+    // TODO(resharding) - Add traffic towards the right child too.
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_stable_shard: AccountId = "account1".parse().unwrap();
 
     let params = TestReshardingParameters::new()
-        .deploy_test_contract(receiver_account.clone())
+        .deploy_test_contract(account_in_left_child.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
-            vec![account_1_in_stable_shard.clone(), account_2_in_stable_shard],
-            receiver_account,
+            vec![account_in_stable_shard.clone()],
+            account_in_left_child.clone(),
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
-            account_1_in_stable_shard,
+            account_in_stable_shard.clone(),
+            ReceiptKind::Buffered,
+        ))
+        .add_loop_action(check_receipts_presence_after_resharding_block(
+            account_in_stable_shard,
             ReceiptKind::Buffered,
         ));
     test_resharding_v3_base(params);

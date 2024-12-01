@@ -189,7 +189,6 @@ pub trait TrieQueue {
     /// Unlike `pop`, this method does not return the actual items or even
     /// check if they existed in state.
     fn pop_n(&mut self, state_update: &mut TrieUpdate, n: u64) -> Result<u64, StorageError> {
-        tracing::info!(target: "test", ?n, "pop n");
         self.debug_check_unchanged(state_update);
 
         let indices = self.indices();

@@ -1041,7 +1041,8 @@ impl EpochInfoProvider for MockEpochInfoProvider {
         account_id: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
-        // TODO(wacban) the default if inconsistent with the shard layout
+        // TODO(wacban) Use the shard layout, otherwise it's inconsistent.
+        // Better yet, remove this function and use the shard layout directly.
         Ok(self.account_id_to_shard_id_map.get(account_id).cloned().unwrap_or(ShardId::new(0)))
     }
 
