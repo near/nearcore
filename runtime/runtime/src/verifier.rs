@@ -640,10 +640,7 @@ mod tests {
         let root = MerkleHash::default();
 
         let account_id = alice_account();
-        let signer: Arc<Signer> = Arc::new(
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
-                .into(),
-        );
+        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         for (account_id, initial_balance, initial_locked, access_keys, has_contract, has_data) in

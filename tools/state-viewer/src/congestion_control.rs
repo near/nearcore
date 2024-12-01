@@ -203,7 +203,7 @@ impl PrepareBenchmarkCmd {
             let receipt = self.create_receipt();
             let receipt = Cow::Borrowed(&receipt);
             let receipt = ReceiptOrStateStoredReceipt::Receipt(receipt);
-            queue.push(&mut trie_update, &receipt).unwrap();
+            queue.push_back(&mut trie_update, &receipt).unwrap();
         }
 
         trie_update.commit(StateChangeCause::UpdatedDelayedReceipts);

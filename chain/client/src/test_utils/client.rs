@@ -255,6 +255,7 @@ pub fn create_chunk(
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         last_block.header(),
         next_height,
         last_block.header().block_ordinal() + 1,

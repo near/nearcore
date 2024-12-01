@@ -42,7 +42,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{verify_hash, PartialMerkleTree};
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::shard_layout::{account_id_to_shard_id, get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
@@ -152,14 +152,13 @@ pub(crate) fn deploy_test_contract_with_protocol_version(
     protocol_version: ProtocolVersion,
 ) -> BlockHeight {
     let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
-    let signer =
-        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+    let signer = InMemorySigner::test_signer(&account_id);
 
     let tx = SignedTransaction::from_actions(
         height,
         account_id.clone(),
         account_id,
-        &signer.into(),
+        &signer,
         vec![Action::DeployContract(DeployContractAction { code: wasm_code.to_vec() })],
         *block.hash(),
         0,
@@ -327,6 +326,7 @@ fn receive_network_block() {
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
@@ -412,6 +412,7 @@ fn produce_block_with_approvals() {
             let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
             let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
+                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -627,6 +628,7 @@ fn invalid_blocks_common(is_requested: bool) {
             let signer = create_test_signer("test");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
             let valid_block = Block::produce(
+                PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
@@ -1242,8 +1244,8 @@ fn test_bad_chunk_mask() {
     tracing::info!(target: "test", ?shard_layout, "shard layout");
 
     let [s0, s1] = shard_layout.shard_ids().collect_vec()[..] else { panic!("Expected 2 shards") };
-    assert_eq!(s0, account_id_to_shard_id(&account0, &shard_layout));
-    assert_eq!(s1, account_id_to_shard_id(&account1, &shard_layout));
+    assert_eq!(s0, shard_layout.account_id_to_shard_id(&account0));
+    assert_eq!(s1, shard_layout.account_id_to_shard_id(&account1));
 
     // Generate 4 blocks
     let shard_id = s0;

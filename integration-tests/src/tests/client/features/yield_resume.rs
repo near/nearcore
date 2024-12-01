@@ -6,7 +6,6 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield};
-use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -21,7 +20,7 @@ fn get_outgoing_receipts_from_latest_block(env: &TestEnv) -> Vec<Receipt> {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let epoch_id = *genesis_block.header().epoch_id();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
-    let shard_id = account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap(), &shard_layout);
+    let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block_height = env.clients[0].chain.head().unwrap().height;
 

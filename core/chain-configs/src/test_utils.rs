@@ -1,4 +1,4 @@
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -52,20 +52,19 @@ impl Genesis {
         let mut validators = vec![];
         let mut records = vec![];
         for (i, account) in accounts.into_iter().enumerate() {
-            let signer =
-                InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_ref());
+            let signer = InMemorySigner::test_signer(&account);
             let i = i as u64;
             if i < num_validator_seats {
                 validators.push(AccountInfo {
                     account_id: account.clone(),
-                    public_key: signer.public_key.clone(),
+                    public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
             add_account_with_key(
                 &mut records,
                 account,
-                &signer.public_key.clone(),
+                &signer.public_key(),
                 TESTING_INIT_BALANCE - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
                 if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
                 CryptoHash::default(),
@@ -175,15 +174,11 @@ impl Genesis {
 }
 
 pub fn add_protocol_account(records: &mut Vec<StateRecord>) {
-    let signer = InMemorySigner::from_seed(
-        PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
-        KeyType::ED25519,
-        PROTOCOL_TREASURY_ACCOUNT,
-    );
+    let signer = InMemorySigner::test_signer(&PROTOCOL_TREASURY_ACCOUNT.parse().unwrap());
     add_account_with_key(
         records,
         PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
-        &signer.public_key,
+        &signer.public_key(),
         TESTING_INIT_BALANCE,
         0,
         CryptoHash::default(),

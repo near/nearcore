@@ -352,6 +352,25 @@ impl SignedTransaction {
             0,
         )
     }
+
+    pub fn add_key(
+        nonce: Nonce,
+        signer_id: AccountId,
+        signer: &Signer,
+        public_key: PublicKey,
+        access_key: AccessKey,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id.clone(),
+            signer_id,
+            signer,
+            vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
+            block_hash,
+            0,
+        )
+    }
 }
 
 impl BlockHeader {
@@ -826,6 +845,7 @@ impl TestBlockBuilder {
         Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
@@ -973,11 +993,19 @@ impl Block {
 #[derive(Default)]
 pub struct MockEpochInfoProvider {
     pub validators: HashMap<AccountId, Balance>,
+    pub account_id_to_shard_id_map: HashMap<AccountId, ShardId>,
 }
 
 impl MockEpochInfoProvider {
     pub fn new(validators: impl Iterator<Item = (AccountId, Balance)>) -> Self {
-        MockEpochInfoProvider { validators: validators.collect() }
+        MockEpochInfoProvider {
+            validators: validators.collect(),
+            account_id_to_shard_id_map: HashMap::new(),
+        }
+    }
+
+    pub fn set_shard_id_for_account_id(&mut self, account_id: &AccountId, shard_id: ShardId) {
+        self.account_id_to_shard_id_map.insert(account_id.clone(), shard_id);
     }
 }
 
@@ -1009,10 +1037,10 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn account_id_to_shard_id(
         &self,
-        _account_id: &AccountId,
+        account_id: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
-        Ok(ShardId::new(0))
+        Ok(self.account_id_to_shard_id_map.get(account_id).cloned().unwrap_or(ShardId::new(0)))
     }
 }
 

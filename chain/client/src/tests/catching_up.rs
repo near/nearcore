@@ -12,7 +12,7 @@ use crate::{ClientActor, Query};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::ProcessTxRequest;
 use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
@@ -71,16 +71,11 @@ fn send_tx(
     nonce: u64,
     block_hash: CryptoHash,
 ) {
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     connector.do_send(
         ProcessTxRequest {
             transaction: SignedTransaction::send_money(
-                nonce,
-                from,
-                to,
-                &signer.into(),
-                amount,
-                block_hash,
+                nonce, from, to, &signer, amount, block_hash,
             ),
             is_forwarded: false,
             check_only: false,

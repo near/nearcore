@@ -12,7 +12,7 @@ use near_primitives::errors::{
     ActionErrorKind, FunctionCallError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{EpochId, ShardId};
@@ -196,7 +196,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
 
     let shard_layout = client.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
     let contract_id = CONTRACT_ID.parse().unwrap();
-    let contract_shard_id = account_id_to_shard_id(&contract_id, &shard_layout);
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
 
     for height in genesis_height..head_height + 1 {
         let block = client.chain.get_block_by_height(height);
@@ -698,9 +698,9 @@ fn measure_remote_tx_limit(
 
     let tip = env.clients[0].chain.head().unwrap();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let contract_shard_id = account_id_to_shard_id(&contract_id, &shard_layout);
-    let remote_shard_id = account_id_to_shard_id(&remote_id, &shard_layout);
-    let dummy_shard_id = account_id_to_shard_id(&dummy_id, &shard_layout);
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
+    let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
+    let dummy_shard_id = shard_layout.account_id_to_shard_id(&dummy_id);
 
     // For a clean test setup, ensure we use 3 different shards.
     assert_ne!(remote_shard_id, contract_shard_id);
@@ -740,8 +740,8 @@ fn measure_tx_limit(
         InMemorySigner::from_seed(contract_id.clone(), KeyType::ED25519, contract_id.as_str());
     let tip = env.clients[0].chain.head().unwrap();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let remote_shard_id = account_id_to_shard_id(&remote_id, &shard_layout);
-    let contract_shard_id = account_id_to_shard_id(&contract_id, &shard_layout);
+    let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
 
     // put in enough transactions to create up to
     // `reject_tx_congestion_threshold` incoming congestion

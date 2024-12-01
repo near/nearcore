@@ -63,7 +63,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
     ShardChunkHeader, ShardProof, StateSyncInfo,
@@ -93,7 +93,6 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
@@ -2135,7 +2134,7 @@ impl Chain {
     fn get_new_flat_storage_head(
         &self,
         block: &Block,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
     ) -> Result<Option<CryptoHash>, Error> {
         let epoch_id = block.header().epoch_id();
         let last_final_block_hash = *block.header().last_final_block();
@@ -2144,21 +2143,33 @@ impl Chain {
             return Ok(None);
         }
 
+        let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
+
         let last_final_block = self.get_block(&last_final_block_hash)?;
         let last_final_block_epoch_id = last_final_block.header().epoch_id();
         // If shard layout was changed, the update is impossible so we skip
         // getting candidate.
-        if self.epoch_manager.get_shard_layout(last_final_block_epoch_id)
-            != self.epoch_manager.get_shard_layout(epoch_id)
-        {
+        if self.epoch_manager.get_shard_layout(last_final_block_epoch_id)? != shard_layout {
             return Ok(None);
         }
 
+        // Here we're checking the ShardUID of the chunk because it's possible that it's an old
+        // chunk from before a resharding, in which case we don't want to do anything. This can
+        // happen if we are early into a post-resharding epoch and `shard_uid` is a child shard that
+        // hasn't had any new chunks yet.
+        let shard_index = shard_layout.get_shard_index(shard_uid.shard_id())?;
         let last_final_block_chunks = last_final_block.chunks();
         let chunk_header = last_final_block_chunks
-            .iter_deprecated()
-            .find(|chunk| chunk.shard_id() == shard_id)
-            .ok_or_else(|| Error::InvalidShardId(shard_id))?;
+            .get(shard_index)
+            .ok_or_else(|| Error::InvalidShardId(shard_uid.shard_id()))?;
+        let chunk_shard_layout =
+            self.epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_shard_uid =
+            ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &chunk_shard_layout);
+
+        if shard_uid != chunk_shard_uid {
+            return Ok(None);
+        }
         let new_flat_head = *chunk_header.prev_block_hash();
         if new_flat_head == CryptoHash::default() {
             return Ok(None);
@@ -2179,7 +2190,7 @@ impl Chain {
         // Update flat storage.
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         if flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_some() {
-            if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_id)? {
+            if let Some(new_flat_head) = self.get_new_flat_storage_head(block, shard_uid)? {
                 flat_storage_manager.update_flat_storage_for_shard(shard_uid, new_flat_head)?;
             }
         }
@@ -3023,38 +3034,6 @@ impl Chain {
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
         store_update.set(DBCol::StateParts, &key, data);
         store_update.commit()?;
-        Ok(())
-    }
-
-    pub fn create_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        chunk: &ShardChunk,
-    ) -> Result<(), Error> {
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        // Flat storage must not exist at this point because leftover keys corrupt its state.
-        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-        let flat_head_hash = *chunk.prev_block();
-        let flat_head_header = self.get_block_header(&flat_head_hash)?;
-        let flat_head_prev_hash = *flat_head_header.prev_hash();
-        let flat_head_height = flat_head_header.height();
-
-        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-        let mut store_update = self.runtime_adapter.store().store_update();
-        store_update.flat_store_update().set_flat_storage_status(
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: near_store::flat::BlockInfo {
-                    hash: flat_head_hash,
-                    prev_hash: flat_head_prev_hash,
-                    height: flat_head_height,
-                },
-            }),
-        );
-        store_update.commit()?;
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         Ok(())
     }
 
@@ -4438,7 +4417,7 @@ impl Chain {
     ) -> HashMap<ShardId, Vec<Receipt>> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            let shard_id = account_id_to_shard_id(receipt.receiver_id(), shard_layout);
+            let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
             entry.push(receipt)
         }
@@ -4463,7 +4442,7 @@ impl Chain {
         for receipt in receipts {
             let &mut shard_id = cache
                 .entry(receipt.receiver_id())
-                .or_insert_with(|| account_id_to_shard_id(receipt.receiver_id(), shard_layout));
+                .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
             // This unwrap should be safe as we pre-populated the map with all
             // valid shard ids.
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
