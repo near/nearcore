@@ -903,6 +903,7 @@ fn test_resharding_v3_delayed_receipts_right_child() {
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_split_parent_buffered_receipts() {
     let receiver_account: AccountId = "account0".parse().unwrap();
+    let account_in_parent: AccountId = "account4".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
@@ -914,7 +915,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
-            account_in_right_child,
+            account_in_parent,
             ReceiptKind::Buffered,
         ))
         .add_loop_action(check_receipts_presence_after_resharding_block(

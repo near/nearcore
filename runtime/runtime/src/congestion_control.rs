@@ -229,32 +229,54 @@ impl ReceiptSinkV2 {
         apply_state: &ApplyState,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
-        tracing::info!(target: "test", "forward from buffer");
+        tracing::debug!(target: "runtime", "forwarding receipts from outgoing buffers");
 
+        // TODO(wacban) - check if the order is the same as previously, if not
+        // then this is a protocol upgrade and needs to be handled as such.
+        // DO NOT COMMIT until this is done.
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
         let shard_ids = shard_layout.shard_ids().collect::<Vec<_>>();
 
-        // TODO(wacban) hash set is non-deterministic
+        // TODO(resharding) HashSet is non-deterministic, this will break if there
+        // are multiple parents. This may happen if there are multiple splits
+        // within the same resharding.
         let mut parent_shard_ids = HashSet::new();
         for &shard_id in &shard_ids {
             let parent_shard_id = shard_layout.try_get_parent_shard_id(shard_id).unwrap();
-            if let Some(parent_shard_id) = parent_shard_id {
-                parent_shard_ids.insert(parent_shard_id);
+            let Some(parent_shard_id) = parent_shard_id else {
+                continue;
+            };
+            if parent_shard_id == shard_id {
+                continue;
             }
+            parent_shard_ids.insert(parent_shard_id);
         }
 
+        // First forward any receipts that may still be in the outgoing buffers
+        // of the parent shards.
         for &shard_id in &parent_shard_ids {
-            tracing::info!(target: "test", ?shard_id, "forwarding from parent");
             self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
         }
 
+        // Then forward receipts from the outgoing buffers of the shard in the
+        // current shard layout.
+        //
+        // TODO(wacban) This doesn't seem fair. Or is it?
         for &shard_id in &shard_ids {
-            tracing::info!(target: "test", ?shard_id, "forwarding from self");
             self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
         }
         Ok(())
     }
 
+    /// Forward receipts from the outgoing buffer of buffer_shard_id to the
+    /// outgoing receipts as much as the limits allow.
+    ///
+    /// Please note that the buffer shard id may be different than the target
+    /// shard if for a short period of time after resharding. That is because
+    /// some shards may have receipts for the parent shard that no longer exists
+    /// and those receipts need to be forwarded to either of the child shards.
+    ///
+    /// TODO(resharding) - remove the parent outgoing buffer once it's empty.
     fn forward_from_buffer_to_shard(
         &mut self,
         buffer_shard_id: ShardId,
@@ -284,12 +306,6 @@ impl ReceiptSinkV2 {
                 apply_state,
             )? {
                 ReceiptForwarding::Forwarded => {
-                    tracing::info!(
-                        target: "test",
-                        ?buffer_shard_id,
-                        ?target_shard_id,
-                        "forwarded outgoing receipt"
-                    );
                     self.own_congestion_info.remove_receipt_bytes(size)?;
                     self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
                     if should_update_outgoing_metadatas {
@@ -302,18 +318,11 @@ impl ReceiptSinkV2 {
                     num_forwarded += 1;
                 }
                 ReceiptForwarding::NotForwarded(_) => {
-                    tracing::info!(
-                        target: "test",
-                        ?buffer_shard_id,
-                        ?target_shard_id,
-                        "forwarded outgoing receipt"
-                    );
                     break;
                 }
             }
         }
 
-        tracing::info!(target: "test", ?buffer_shard_id, "about to pop n");
         self.outgoing_buffers.to_shard(buffer_shard_id).pop_n(state_update, num_forwarded)?;
         for (size, gas) in outgoing_metadatas_updates {
             self.outgoing_metadatas.update_on_receipt_popped(
@@ -394,12 +403,15 @@ impl ReceiptSinkV2 {
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
         if forward_limit.gas > gas && forward_limit.size > size {
+            tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
             // underflow impossible: checked forward_limit > gas/size_to_forward above
             forward_limit.gas -= gas;
             forward_limit.size -= size;
+
             Ok(ReceiptForwarding::Forwarded)
         } else {
+            tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "not forwarding buffered receipt");
             Ok(ReceiptForwarding::NotForwarded(receipt))
         }
     }
