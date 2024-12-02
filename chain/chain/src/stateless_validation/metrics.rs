@@ -179,7 +179,7 @@ fn record_witness_size_metrics_fallible(
     encoded_size: usize,
     witness: &ChunkStateWitness,
 ) -> Result<(), std::io::Error> {
-    let shard_id = witness.chunk_header.shard_id().to_string();
+    let shard_id = witness.inner.chunk_header.shard_id().to_string();
     CHUNK_STATE_WITNESS_RAW_SIZE
         .with_label_values(&[shard_id.as_str()])
         .observe(decoded_size as f64);
@@ -188,16 +188,16 @@ fn record_witness_size_metrics_fallible(
         .observe(encoded_size as f64);
     CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE
         .with_label_values(&[shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.main_state_transition)?.len() as f64);
+        .observe(borsh::to_vec(&witness.inner.main_state_transition)?.len() as f64);
     CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE
         .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.new_transactions)?.len() as f64);
+        .observe(borsh::to_vec(&witness.inner.new_transactions)?.len() as f64);
     CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_STATE_SIZE
         .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.new_transactions_validation_state)?.len() as f64);
+        .observe(borsh::to_vec(&witness.inner.new_transactions_validation_state)?.len() as f64);
     CHUNK_STATE_WITNESS_SOURCE_RECEIPT_PROOFS_SIZE
         .with_label_values(&[&shard_id.as_str()])
-        .observe(borsh::to_vec(&witness.source_receipt_proofs)?.len() as f64);
+        .observe(borsh::to_vec(&witness.inner.source_receipt_proofs)?.len() as f64);
     Ok(())
 }
 
