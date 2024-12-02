@@ -2090,10 +2090,6 @@ pub struct CurrentEpochValidatorInfo {
     pub shards_endorsed: Vec<ShardId>,
 }
 
-fn num_blocks_is_zero(n: &NumBlocks) -> bool {
-    n == &0
-}
-
 #[derive(
     BorshSerialize,
     BorshDeserialize,
