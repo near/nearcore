@@ -62,12 +62,12 @@ pub fn run_bandwidth_scheduler(
         let is_allowed_sender_shard =
             *shard_id == ShardId::from(extended_congestion_info.congestion_info.allowed_shard());
 
-        let congestion_level = CongestionControl::new(
+        let congestion_control = CongestionControl::new(
             apply_state.config.congestion_control_config,
             extended_congestion_info.congestion_info,
             extended_congestion_info.missed_chunks_count,
-        )
-        .congestion_level();
+        );
+        let congestion_level = congestion_control.congestion_level();
         let is_fully_congested = CongestionControl::is_fully_congested(congestion_level);
 
         shards_status.insert(
