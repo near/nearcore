@@ -1,6 +1,6 @@
 use near_primitives::{shard_layout::ShardLayout, types::BlockHeight};
 
-use crate::cold_storage::ColdMigrationStore;
+use crate::archive::cold_storage::ColdMigrationStore;
 use crate::{metrics, DBCol, Store};
 use std::io;
 

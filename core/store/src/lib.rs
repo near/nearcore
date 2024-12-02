@@ -49,7 +49,6 @@ use strum;
 
 pub mod adapter;
 pub mod archive;
-pub mod cold_storage;
 mod columns;
 pub mod config;
 pub mod contract;

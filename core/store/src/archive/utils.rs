@@ -1,4 +1,4 @@
-use crate::cold_storage::ColdMigrationStore;
+use crate::archive::cold_storage::ColdMigrationStore;
 use crate::db::Database;
 use borsh::BorshDeserialize;
 use near_primitives::{

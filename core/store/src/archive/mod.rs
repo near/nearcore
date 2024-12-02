@@ -20,7 +20,8 @@ use crate::{
     DBCol,
 };
 
-mod copy_archival_data;
+mod archival_storage;
+pub mod cold_storage;
 mod filesystem;
 mod gcloud;
 mod utils;

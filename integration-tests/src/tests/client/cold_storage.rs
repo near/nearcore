@@ -13,7 +13,7 @@ use near_primitives::transaction::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
-use near_store::cold_storage::{
+use near_store::archive::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
     test_get_store_reads, update_cold_db, update_cold_head,
 };
