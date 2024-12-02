@@ -449,7 +449,7 @@ pub fn spawn_cold_store_loop(
             // Initialize the head of the archival storage (if not before) from the cold head read from the ColdDB.
             // Note that we need to run this check in the new thread, because it runs blocking calls to async code
             // and it panics if run from the main thread.
-            if let Err(err) = archival_store.sync_cold_head() {
+            if let Err(err) = archival_store.try_sync_cold_head() {
                 panic!("Failed to sync cold head: {:?}", err);
             }
 

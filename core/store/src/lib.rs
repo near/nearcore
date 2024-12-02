@@ -273,7 +273,7 @@ impl NodeStorage {
         Self {
             hot_storage: hot,
             cold_storage: Some(cold_db.clone()),
-            archival_store: Some(ArchivalStore::from(cold_db)),
+            archival_store: Some(ArchivalStore::test_with_cold(cold_db)),
         }
     }
 
