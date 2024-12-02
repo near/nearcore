@@ -96,6 +96,7 @@ impl CongestionControl {
     pub fn is_fully_congested(congestion_level: f64) -> bool {
         // note: using float equality is okay here because
         // `clamped_f64_fraction` clamps to exactly 1.0.
+        debug_assert!(congestion_level <= 1.0);
         congestion_level == 1.0
     }
 
