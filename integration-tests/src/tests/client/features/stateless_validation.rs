@@ -14,7 +14,7 @@ use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -160,17 +160,13 @@ fn run_chunk_validation_test(
 
         let sender_account = accounts[round % num_accounts].clone();
         let receiver_account = accounts[(round + 1) % num_accounts].clone();
-        let signer = InMemorySigner::from_seed(
-            sender_account.clone(),
-            KeyType::ED25519,
-            sender_account.as_ref(),
-        );
+        let signer = InMemorySigner::test_signer(&sender_account);
         if round > 1 {
             let tx = SignedTransaction::send_money(
                 round as u64,
                 sender_account,
                 receiver_account,
-                &signer.into(),
+                &signer,
                 ONE_NEAR,
                 tip.last_block_hash,
             );
@@ -356,7 +352,7 @@ fn get_accounts_and_shard_layout(
     // The number of accounts in each shard.
     let mut shard_account_count: HashMap<ShardId, u32> = HashMap::new();
     for account in &accounts[..num_validators] {
-        let shard_id = account_id_to_shard_id(account, &shard_layout);
+        let shard_id = shard_layout.account_id_to_shard_id(account);
         *shard_account_count.entry(shard_id).or_default() += 1;
     }
     for shard_id in shard_layout.shard_ids() {

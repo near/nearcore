@@ -496,7 +496,7 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::InMemorySigner;
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
@@ -571,8 +571,7 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer =
-            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),
@@ -615,8 +614,7 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer =
-            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),

@@ -7,7 +7,7 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_network::types::{
@@ -104,7 +104,7 @@ fn send_tx(
     block_hash: CryptoHash,
 ) {
     let connectors1 = connectors.clone();
-    let signer = InMemorySigner::from_seed(from.clone(), KeyType::ED25519, from.as_ref());
+    let signer = InMemorySigner::test_signer(&from);
     actix::spawn(
         connectors.write().unwrap()[connector_ordinal]
             .client_actor
@@ -114,7 +114,7 @@ fn send_tx(
                         nonce,
                         from.clone(),
                         to.clone(),
-                        &signer.into(),
+                        &signer,
                         amount,
                         block_hash,
                     ),

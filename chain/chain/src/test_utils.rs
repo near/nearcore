@@ -286,7 +286,7 @@ mod test {
 
     use crate::Chain;
 
-    use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+    use near_primitives::shard_layout::ShardLayout;
 
     fn naive_build_receipt_hashes(
         receipts: &[Receipt],
@@ -297,7 +297,7 @@ mod test {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {
-                    account_id_to_shard_id(receipt.receiver_id(), shard_layout) == shard_id
+                    shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
                 })
                 .cloned()
                 .collect();

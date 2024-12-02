@@ -597,8 +597,6 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
-                flat_storage_creation_enabled: false,
-                flat_storage_creation_period: Duration::seconds(1),
                 state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
@@ -1546,7 +1544,6 @@ mod tests {
     use near_async::time::Duration;
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
-    use near_primitives::shard_layout::account_id_to_shard_id;
     use near_primitives::types::{AccountId, NumShards, ShardId};
     use tempfile::tempdir;
 
@@ -1588,19 +1585,19 @@ mod tests {
             panic!("Expected 3 shards, got {:?}", shard_ids);
         };
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("foobar.near").unwrap(), &shard_layout),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("foobar.near").unwrap()),
             s0
         );
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("test0.near").unwrap(), &shard_layout,),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test0.near").unwrap()),
             s0
         );
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("test1.near").unwrap(), &shard_layout,),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test1.near").unwrap()),
             s1
         );
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("test2.near").unwrap(), &shard_layout,),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test2.near").unwrap()),
             s2
         );
     }

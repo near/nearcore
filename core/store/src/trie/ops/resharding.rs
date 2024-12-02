@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
-use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
+use near_primitives::trie_key::col;
 use near_primitives::types::AccountId;
 
 use crate::NibbleSlice;
@@ -38,18 +38,89 @@ pub(crate) fn boundary_account_to_intervals(
     retain_mode: RetainMode,
 ) -> Vec<Range<Vec<u8>>> {
     let mut intervals = vec![];
-    // TODO(#12074): generate correct intervals in nibbles.
-    for (col, _) in COLUMNS_WITH_ACCOUNT_ID_IN_KEY {
-        match retain_mode {
-            RetainMode::Left => {
-                intervals.push(vec![col]..[&[col], boundary_account.as_bytes()].concat())
+    for (prefix, name) in col::ALL_COLUMNS_WITH_NAMES {
+        // Here we are handling all the keys that have the account_id prefix.
+        // These are considered to be the `green` keys in resharding design.
+        if col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY.contains(&(prefix, name)) {
+            intervals.push(get_interval_for_split_keys(boundary_account, &retain_mode, prefix));
+            continue;
+        }
+        // Here we are handling all the keys that DO NOT have the account_id prefix.
+        // These are the `red` and `yellow` keys in resharding design.
+        // They are handled by either copying the keys to both shards or only to the lower index shard.
+        match prefix {
+            col::DELAYED_RECEIPT_OR_INDICES
+            | col::PROMISE_YIELD_INDICES
+            | col::PROMISE_YIELD_TIMEOUT
+            | col::BANDWIDTH_SCHEDULER_STATE => {
+                // This section contains the keys that we need to copy to both shards.
+                intervals.push(get_interval_for_copy_to_both_children(prefix))
             }
-            RetainMode::Right => {
-                intervals.push([&[col], boundary_account.as_bytes()].concat()..vec![col + 1])
+            col::BUFFERED_RECEIPT_INDICES
+            | col::BUFFERED_RECEIPT
+            | col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA
+            | col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM => {
+                // This section contains the keys that we only copy to the lower index shard.
+                if let Some(interval) = get_interval_for_copy_to_one_child(&retain_mode, prefix) {
+                    intervals.push(interval);
+                }
             }
+            // Poor man's exhaustive check for handling all column types.
+            _ => panic!("Unhandled trie key type: {}", name),
         }
     }
     intervals
+}
+
+fn append_key(trie_key: u8, boundary_account: &AccountId) -> Vec<u8> {
+    let mut key = vec![trie_key];
+    key.extend_from_slice(boundary_account.as_bytes());
+    key
+}
+
+// This function generates the range of keys that need to be retained in the trie
+// for trie keys that contain the account_id prefix.
+// This includes trie keys like account, contract code, access key, received data, etc.
+//
+// Suppose the boundary account is "alice.near" and the trie key is ACCESS_KEY with u8 value 2.
+// Left child interval: ["2", "2alice.near")
+// Right child interval: ["2alice.near", "3")
+fn get_interval_for_split_keys(
+    boundary_account: &AccountId,
+    retain_mode: &RetainMode,
+    prefix: u8,
+) -> Range<Vec<u8>> {
+    match retain_mode {
+        RetainMode::Left => vec![prefix]..append_key(prefix, boundary_account),
+        RetainMode::Right => append_key(prefix, boundary_account)..vec![prefix + 1],
+    }
+}
+
+// This function generates the range of keys that need to be retained in the both children.
+// This includes trie keys related to delayed receipts, promise yield and bandwidth scheduler.
+//
+// Suppose the trie key has u8 value K
+// Left child interval: [K, K+1)
+// Right child interval: [K, K+1)
+fn get_interval_for_copy_to_both_children(prefix: u8) -> Range<Vec<u8>> {
+    vec![prefix]..vec![prefix + 1]
+}
+
+// This function generates the range of keys that only need to be retained by the
+// lower index child.
+// This includes trie keys related to buffered receipts.
+//
+// Suppose the trie key has u8 value K
+// Left child interval: [K, K+1)
+// Right child interval: None
+fn get_interval_for_copy_to_one_child(
+    retain_mode: &RetainMode,
+    prefix: u8,
+) -> Option<Range<Vec<u8>>> {
+    match retain_mode {
+        RetainMode::Left => Some(vec![prefix]..vec![prefix + 1]),
+        RetainMode::Right => None,
+    }
 }
 
 /// Converts the list of ranges in bytes to the list of ranges in nibbles.
@@ -212,5 +283,76 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
         RetainDecision::Descend
     } else {
         RetainDecision::DiscardAll
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use itertools::Itertools;
+    use near_primitives::trie_key::col;
+    use near_primitives::types::AccountId;
+
+    use super::{append_key, boundary_account_to_intervals, RetainMode};
+
+    #[test]
+    fn test_boundary_account_to_intervals() {
+        let column_name_map =
+            col::ALL_COLUMNS_WITH_NAMES.iter().cloned().collect::<HashMap<_, _>>();
+        let alice_account = AccountId::try_from("alice.near".to_string()).unwrap();
+
+        let left_intervals = boundary_account_to_intervals(&alice_account, RetainMode::Left);
+        let expected_left_intervals = vec![
+            vec![col::ACCOUNT]..append_key(col::ACCOUNT, &alice_account),
+            vec![col::CONTRACT_CODE]..append_key(col::CONTRACT_CODE, &alice_account),
+            vec![col::ACCESS_KEY]..append_key(col::ACCESS_KEY, &alice_account),
+            vec![col::RECEIVED_DATA]..append_key(col::RECEIVED_DATA, &alice_account),
+            vec![col::POSTPONED_RECEIPT_ID]..append_key(col::POSTPONED_RECEIPT_ID, &alice_account),
+            vec![col::PENDING_DATA_COUNT]..append_key(col::PENDING_DATA_COUNT, &alice_account),
+            vec![col::POSTPONED_RECEIPT]..append_key(col::POSTPONED_RECEIPT, &alice_account),
+            vec![col::DELAYED_RECEIPT_OR_INDICES]..vec![col::DELAYED_RECEIPT_OR_INDICES + 1],
+            vec![col::CONTRACT_DATA]..append_key(col::CONTRACT_DATA, &alice_account),
+            vec![col::PROMISE_YIELD_INDICES]..vec![col::PROMISE_YIELD_INDICES + 1],
+            vec![col::PROMISE_YIELD_TIMEOUT]..vec![col::PROMISE_YIELD_TIMEOUT + 1],
+            vec![col::PROMISE_YIELD_RECEIPT]
+                ..append_key(col::PROMISE_YIELD_RECEIPT, &alice_account),
+            vec![col::BUFFERED_RECEIPT_INDICES]..vec![col::BUFFERED_RECEIPT_INDICES + 1],
+            vec![col::BUFFERED_RECEIPT]..vec![col::BUFFERED_RECEIPT + 1],
+            vec![col::BANDWIDTH_SCHEDULER_STATE]..vec![col::BANDWIDTH_SCHEDULER_STATE + 1],
+            vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA]
+                ..vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA + 1],
+            vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM]
+                ..vec![col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM + 1],
+        ];
+        assert!(left_intervals.iter().all(|range| range.start < range.end));
+        for (actual, expected) in left_intervals.iter().zip_eq(expected_left_intervals.iter()) {
+            let column_name = column_name_map[&expected.start[0]];
+            assert_eq!(actual, expected, "Mismatch in key: {:?}", column_name);
+        }
+
+        let right_intervals = boundary_account_to_intervals(&alice_account, RetainMode::Right);
+        let expected_right_intervals = vec![
+            append_key(col::ACCOUNT, &alice_account)..vec![col::ACCOUNT + 1],
+            append_key(col::CONTRACT_CODE, &alice_account)..vec![col::CONTRACT_CODE + 1],
+            append_key(col::ACCESS_KEY, &alice_account)..vec![col::ACCESS_KEY + 1],
+            append_key(col::RECEIVED_DATA, &alice_account)..vec![col::RECEIVED_DATA + 1],
+            append_key(col::POSTPONED_RECEIPT_ID, &alice_account)
+                ..vec![col::POSTPONED_RECEIPT_ID + 1],
+            append_key(col::PENDING_DATA_COUNT, &alice_account)..vec![col::PENDING_DATA_COUNT + 1],
+            append_key(col::POSTPONED_RECEIPT, &alice_account)..vec![col::POSTPONED_RECEIPT + 1],
+            vec![col::DELAYED_RECEIPT_OR_INDICES]..vec![col::DELAYED_RECEIPT_OR_INDICES + 1],
+            append_key(col::CONTRACT_DATA, &alice_account)..vec![col::CONTRACT_DATA + 1],
+            vec![col::PROMISE_YIELD_INDICES]..vec![col::PROMISE_YIELD_INDICES + 1],
+            vec![col::PROMISE_YIELD_TIMEOUT]..vec![col::PROMISE_YIELD_TIMEOUT + 1],
+            append_key(col::PROMISE_YIELD_RECEIPT, &alice_account)
+                ..vec![col::PROMISE_YIELD_RECEIPT + 1],
+            vec![col::BANDWIDTH_SCHEDULER_STATE]..vec![col::BANDWIDTH_SCHEDULER_STATE + 1],
+        ];
+        assert!(right_intervals.iter().all(|range| range.start < range.end));
+        for (actual, expected) in right_intervals.iter().zip_eq(expected_right_intervals.iter()) {
+            let column_name = column_name_map[&expected.start[0]];
+            assert_eq!(actual, expected, "Mismatch in key: {:?}", column_name);
+        }
     }
 }

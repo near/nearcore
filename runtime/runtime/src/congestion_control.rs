@@ -14,11 +14,11 @@ use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
     StateStoredReceiptMetadata,
 };
-use near_primitives::types::{EpochInfoProvider, Gas, ShardId};
+use near_primitives::types::{EpochId, EpochInfoProvider, Gas, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
 use near_store::trie::receipts_column_helper::{
-    DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue, TrieQueueIterator,
+    DelayedReceiptQueue, ShardsOutgoingReceiptBuffer, TrieQueue,
 };
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
@@ -70,25 +70,6 @@ pub(crate) struct OutgoingLimit {
 enum ReceiptForwarding {
     Forwarded,
     NotForwarded(Receipt),
-}
-
-/// A wrapper around `DelayedReceiptQueue` to accumulate changes in gas and
-/// bytes.
-///
-/// This struct exists for two reasons. One, to encapsulate the accounting of
-/// gas and bytes in functions that can be called in all necessary places. Two,
-/// to accumulate changes and only apply them to `CongestionInfo` in the end,
-/// which avoids problems with multiple mutable borrows with the closure
-/// approach we currently have in receipt processing code.
-///
-/// We use positive added and removed values to avoid integer conversions with
-/// the associated additional overflow conditions.
-pub(crate) struct DelayedReceiptQueueWrapper {
-    queue: DelayedReceiptQueue,
-    new_delayed_gas: Gas,
-    new_delayed_bytes: u64,
-    removed_delayed_gas: Gas,
-    removed_delayed_bytes: u64,
 }
 
 impl ReceiptSink {
@@ -464,7 +445,7 @@ impl ReceiptSinkV2 {
         // version where metadata was not enabled. Metadata doesn't contain information about them.
         // We can't make a proper request in this case, so we make a basic request while we wait for
         // metadata to become fully initialized. The basic request requests just `max_receipt_size`. This is enough to
-        // ensure liveness, as all receipts are smaller than `max_receipt_size`. The resulting behaviour is similar
+        // ensure liveness, as all receipts are smaller than `max_receipt_size`. The resulting behavior is similar
         // to the previous approach where the `allowed_shard` was assigned most of the bandwidth.
         // Over time these old receipts will be removed from the outgoing buffer and eventually metadata will contain
         // information about every receipt in the buffer. From that point on we will be able to make
@@ -610,10 +591,46 @@ pub fn bootstrap_congestion_info(
     }))
 }
 
-impl DelayedReceiptQueueWrapper {
-    pub fn new(queue: DelayedReceiptQueue) -> Self {
+/// A wrapper around `DelayedReceiptQueue` to accumulate changes in gas and
+/// bytes.
+///
+/// This struct exists for two reasons. One, to encapsulate the accounting of
+/// gas and bytes in functions that can be called in all necessary places. Two,
+/// to accumulate changes and only apply them to `CongestionInfo` in the end,
+/// which avoids problems with multiple mutable borrows with the closure
+/// approach we currently have in receipt processing code.
+///
+/// We use positive added and removed values to avoid integer conversions with
+/// the associated additional overflow conditions.
+pub(crate) struct DelayedReceiptQueueWrapper<'a> {
+    // The delayed receipt queue.
+    queue: DelayedReceiptQueue,
+
+    // Epoch_info_provider, shard_id, and epoch_id are used to determine
+    // if a receipt belongs to the current shard or not after a resharding event.
+    epoch_info_provider: &'a dyn EpochInfoProvider,
+    shard_id: ShardId,
+    epoch_id: EpochId,
+
+    // Accumulated changes in gas and bytes for congestion info calculations.
+    new_delayed_gas: Gas,
+    new_delayed_bytes: u64,
+    removed_delayed_gas: Gas,
+    removed_delayed_bytes: u64,
+}
+
+impl<'a> DelayedReceiptQueueWrapper<'a> {
+    pub fn new(
+        queue: DelayedReceiptQueue,
+        epoch_info_provider: &'a dyn EpochInfoProvider,
+        shard_id: ShardId,
+        epoch_id: EpochId,
+    ) -> Self {
         Self {
             queue,
+            epoch_info_provider,
+            shard_id,
+            epoch_id,
             new_delayed_gas: 0,
             new_delayed_bytes: 0,
             removed_delayed_gas: 0,
@@ -654,29 +671,59 @@ impl DelayedReceiptQueueWrapper {
         Ok(())
     }
 
+    // With ReshardingV3, it's possible for a chunk to have delayed receipts that technically
+    // belong to the sibling shard before a resharding event.
+    // Here, we filter all the receipts that don't belong to the current shard_id.
+    //
+    // The function follows the guidelines of standard iterator filter function
+    // We return true if we should retain the receipt and false if we should filter it.
+    fn receipt_filter_fn(&self, receipt: &ReceiptOrStateStoredReceipt) -> bool {
+        let receiver_id = receipt.get_receipt().receiver_id();
+        let receipt_shard_id = self
+            .epoch_info_provider
+            .account_id_to_shard_id(receiver_id, &self.epoch_id)
+            .expect("account_id_to_shard_id should never fail");
+        receipt_shard_id == self.shard_id
+    }
+
     pub(crate) fn pop(
         &mut self,
         trie_update: &mut TrieUpdate,
         config: &RuntimeConfig,
     ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
-        let receipt = self.queue.pop_front(trie_update)?;
-        if let Some(receipt) = &receipt {
-            let delayed_gas = receipt_congestion_gas(receipt, &config)?;
-            let delayed_bytes = receipt_size(receipt)? as u64;
+        // While processing receipts, we need to keep track of the gas and bytes
+        // even for receipts that may be filtered out due to a resharding event
+        while let Some(receipt) = self.queue.pop_front(trie_update)? {
+            let delayed_gas = receipt_congestion_gas(&receipt, &config)?;
+            let delayed_bytes = receipt_size(&receipt)? as u64;
             self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
             self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
+
+            // TODO(resharding): The filter function check here is bypassing the limit check for state witness.
+            // Track gas and bytes for receipt above and return only receipt that belong to the shard.
+            if self.receipt_filter_fn(&receipt) {
+                return Ok(Some(receipt));
+            }
         }
-        Ok(receipt)
+        Ok(None)
     }
 
-    pub(crate) fn peek_iter<'a>(
+    pub(crate) fn peek_iter(
         &'a self,
         trie_update: &'a TrieUpdate,
-    ) -> TrieQueueIterator<'a, DelayedReceiptQueue> {
-        self.queue.iter(trie_update, false)
+    ) -> impl Iterator<Item = ReceiptOrStateStoredReceipt<'static>> + 'a {
+        self.queue
+            .iter(trie_update, false)
+            .map_while(Result::ok)
+            .filter(|receipt| self.receipt_filter_fn(receipt))
     }
 
-    pub(crate) fn len(&self) -> u64 {
+    /// This function returns the maximum length of the delayed receipt queue.
+    /// The only time the real number of delayed receipts differ from the returned value is right
+    /// after a resharding event. During resharding, we duplicate the delayed receipt queue across
+    /// both child shards, which means it's possible that the child shards contain delayed receipts
+    /// that don't belong to them.
+    pub(crate) fn upper_bound_len(&self) -> u64 {
         self.queue.len()
     }
 

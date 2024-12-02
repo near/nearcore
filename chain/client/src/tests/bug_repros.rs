@@ -17,7 +17,7 @@ use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use crate::GetBlock;
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::{BlockApproval, BlockResponse, ProcessTxRequest};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::types::PeerInfo;
@@ -120,12 +120,7 @@ fn slow_test_repro_1183() {
                                         block.header().height() * 16 + nonce_delta,
                                         from.clone(),
                                         to,
-                                        &InMemorySigner::from_seed(
-                                            from.clone(),
-                                            KeyType::ED25519,
-                                            from.as_ref(),
-                                        )
-                                        .into(),
+                                        &InMemorySigner::test_signer(&from),
                                         1,
                                         *block.header().prev_hash(),
                                     ),

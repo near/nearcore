@@ -13,7 +13,7 @@ use near_chain_configs::{Genesis, GenesisContents};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     epoch_manager::EpochConfig,
-    shard_layout::{account_id_to_shard_id, ShardLayout},
+    shard_layout::ShardLayout,
     state_record::{state_record_to_account_id, StateRecord},
     types::{AccountId, NumShards, ShardId, StateRoot},
 };
@@ -151,7 +151,7 @@ fn genesis_state_from_genesis(
                 .validators
                 .iter()
                 .filter_map(|account_info| {
-                    if account_id_to_shard_id(&account_info.account_id, &shard_layout) == shard_id {
+                    if shard_layout.account_id_to_shard_id(&account_info.account_id) == shard_id {
                         Some((
                             account_info.account_id.clone(),
                             account_info.public_key.clone(),
@@ -177,5 +177,5 @@ fn genesis_state_from_genesis(
 }
 
 fn state_record_to_shard_id(state_record: &StateRecord, shard_layout: &ShardLayout) -> ShardId {
-    account_id_to_shard_id(state_record_to_account_id(state_record), shard_layout)
+    shard_layout.account_id_to_shard_id(state_record_to_account_id(state_record))
 }

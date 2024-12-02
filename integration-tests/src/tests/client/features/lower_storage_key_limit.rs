@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::errors::TxExecutionError;
@@ -60,8 +60,7 @@ fn protocol_upgrade() {
         env
     };
 
-    let signer: Signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),

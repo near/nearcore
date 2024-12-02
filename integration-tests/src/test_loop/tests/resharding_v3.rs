@@ -277,7 +277,7 @@ fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
             let tip = client_actor.client.chain.head().unwrap();
 
             // If there's a new shard layout force a chain fork.
-            if next_block_has_new_shard_layout(client_actor.client.epoch_manager.clone(), &tip) {
+            if next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
                 println!("creating chain fork at height {}", tip.height);
                 let height_selection = if double_signing {
                     // In the double signing scenario we want a new block on top of prev block, with consecutive height.
@@ -303,8 +303,8 @@ enum ReceiptKind {
     Buffered,
 }
 
-/// Checks that the shard containing `account` has a non empty set of receipts of type `kind` at the
-/// resharding block.
+/// Checks that the shard containing `account` has a non empty set of receipts
+/// of type `kind` at the resharding block.
 fn check_receipts_presence_at_resharding_block(
     account: AccountId,
     kind: ReceiptKind,
@@ -313,47 +313,82 @@ fn check_receipts_presence_at_resharding_block(
         move |_: &[TestData],
               test_loop_data: &mut TestLoopData,
               client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+            let client_actor = test_loop_data.get_mut(&client_handle);
             let tip = client_actor.client.chain.head().unwrap();
 
-            if !next_block_has_new_shard_layout(client_actor.client.epoch_manager.clone(), &tip) {
+            if !next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
                 return;
             }
 
-            let epoch_manager = &client_actor.client.epoch_manager;
-            let shard_id = epoch_manager.account_id_to_shard_id(&account, &tip.epoch_id).unwrap();
-            let shard_uid = &ShardUId::from_shard_id_and_layout(
-                shard_id,
-                &epoch_manager.get_shard_layout(&tip.epoch_id).unwrap(),
-            );
-            let congestion_info = &client_actor
-                .client
-                .chain
-                .chain_store()
-                .get_chunk_extra(&tip.last_block_hash, shard_uid)
-                .unwrap()
-                .congestion_info()
-                .unwrap();
-            match kind {
-                ReceiptKind::Delayed => {
-                    assert_ne!(congestion_info.delayed_receipts_gas(), 0);
-                    check_delayed_receipts_exist_in_memtrie(
-                        &client_actor.client,
-                        &shard_uid,
-                        &tip.prev_block_hash,
-                    );
-                }
-                ReceiptKind::Buffered => {
-                    assert_ne!(congestion_info.buffered_receipts_gas(), 0);
-                    check_buffered_receipts_exist_in_memtrie(
-                        &client_actor.client,
-                        &shard_uid,
-                        &tip.prev_block_hash,
-                    );
-                }
-            }
+            check_receipts_at_block(client_actor, &account, &kind, tip);
         },
     )
+}
+
+/// Checks that the shard containing `account` has a non empty set of receipts
+/// of type `kind` at the block after the resharding block.
+fn check_receipts_presence_after_resharding_block(
+    account: AccountId,
+    kind: ReceiptKind,
+) -> LoopActionFn {
+    Box::new(
+        move |_: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_handle: TestLoopDataHandle<ClientActorInner>| {
+            let client_actor = test_loop_data.get_mut(&client_handle);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            if !this_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
+                return;
+            }
+
+            check_receipts_at_block(client_actor, &account, &kind, tip);
+        },
+    )
+}
+
+fn check_receipts_at_block(
+    client_actor: &mut ClientActorInner,
+    account: &AccountId,
+    kind: &ReceiptKind,
+    tip: Tip,
+) {
+    let epoch_manager = &client_actor.client.epoch_manager;
+    let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let shard_id = epoch_manager.account_id_to_shard_id(&account, &tip.epoch_id).unwrap();
+    let shard_uid = &ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let congestion_info = &client_actor
+        .client
+        .chain
+        .chain_store()
+        .get_chunk_extra(&tip.last_block_hash, shard_uid)
+        .unwrap()
+        .congestion_info()
+        .unwrap();
+
+    let num_shards = shard_layout.shard_ids().count();
+    let has_delayed = congestion_info.delayed_receipts_gas() != 0;
+    let has_buffered = congestion_info.buffered_receipts_gas() != 0;
+    tracing::info!(target: "test", height=tip.height, num_shards, ?shard_id, has_delayed, has_buffered, "checking receipts");
+
+    match kind {
+        ReceiptKind::Delayed => {
+            assert!(has_delayed);
+            check_delayed_receipts_exist_in_memtrie(
+                &client_actor.client,
+                &shard_uid,
+                &tip.prev_block_hash,
+            );
+        }
+        ReceiptKind::Buffered => {
+            assert!(has_buffered);
+            check_buffered_receipts_exist_in_memtrie(
+                &client_actor.client,
+                &shard_uid,
+                &tip.prev_block_hash,
+            );
+        }
+    }
 }
 
 /// Asserts that a non zero amount of delayed receipts exist in MemTrie for the given shard.
@@ -424,7 +459,7 @@ fn call_burn_gas_contract(
                     }
                 }
             } else {
-                if next_block_has_new_shard_layout(client_actor.client.epoch_manager.clone(), &tip)
+                if next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip)
                 {
                     tracing::debug!(target: "test", height=tip.height, "resharding height set");
                     resharding_height.set(Some(tip.height));
@@ -462,15 +497,39 @@ fn call_burn_gas_contract(
     )
 }
 
-// We want to understand if the most recent block is a resharding block.
-// To do this check if the latest block is an epoch start and compare the two epochs' shard layouts.
-fn next_block_has_new_shard_layout(epoch_manager: Arc<dyn EpochManagerAdapter>, tip: &Tip) -> bool {
-    let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let next_epoch_id =
-        epoch_manager.get_next_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
+// We want to understand if the most recent block is a resharding block. To do
+// this check if the latest block is an epoch start and compare the two epochs'
+// shard layouts.
+fn next_block_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, tip: &Tip) -> bool {
+    if !epoch_manager.is_next_block_epoch_start(&tip.last_block_hash).unwrap() {
+        return false;
+    }
+
+    let this_epoch_id = tip.epoch_id;
+    let next_epoch_id = epoch_manager.get_next_epoch_id(&tip.last_block_hash).unwrap();
+
+    let this_shard_layout = epoch_manager.get_shard_layout(&this_epoch_id).unwrap();
     let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
-    epoch_manager.is_next_block_epoch_start(&tip.last_block_hash).unwrap()
-        && shard_layout != next_shard_layout
+
+    this_shard_layout != next_shard_layout
+}
+
+// We want to understand if the most recent block is the first block with the
+// new shard layout. This is also the block immediately after the resharding
+// block. To do this check if the latest block is an epoch start and compare the
+// two epochs' shard layouts.
+fn this_block_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, tip: &Tip) -> bool {
+    if !epoch_manager.is_next_block_epoch_start(&tip.prev_block_hash).unwrap() {
+        return false;
+    }
+
+    let prev_epoch_id = epoch_manager.get_epoch_id(&tip.prev_block_hash).unwrap();
+    let this_epoch_id = epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();
+
+    let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
+    let this_shard_layout = epoch_manager.get_shard_layout(&this_epoch_id).unwrap();
+
+    this_shard_layout != prev_shard_layout
 }
 
 fn get_memtrie_for_shard(
@@ -840,8 +899,7 @@ fn test_resharding_v3_delayed_receipts_right_child() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_split_parent_buffered_receipts() {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
@@ -850,12 +908,16 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
-            vec![account_in_left_child, account_in_right_child.clone()],
+            vec![account_in_left_child.clone(), account_in_right_child.clone()],
             receiver_account,
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account_in_right_child,
+            ReceiptKind::Buffered,
+        ))
+        .add_loop_action(check_receipts_presence_after_resharding_block(
+            account_in_left_child,
             ReceiptKind::Buffered,
         ));
     test_resharding_v3_base(params);

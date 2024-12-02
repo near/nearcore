@@ -22,7 +22,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
@@ -159,7 +159,7 @@ impl NightshadeRuntime {
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+        let shard_id = shard_layout.account_id_to_shard_id(account_id);
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
@@ -204,7 +204,7 @@ impl NightshadeRuntime {
             let mut slashing_info: HashMap<_, _> = challenges_result
                 .iter()
                 .filter_map(|s| {
-                    if account_id_to_shard_id(&s.account_id, &shard_layout) == shard_id
+                    if shard_layout.account_id_to_shard_id(&s.account_id) == shard_id
                         && !s.is_double_sign
                     {
                         Some((s.account_id.clone(), None))
@@ -220,17 +220,17 @@ impl NightshadeRuntime {
                 let stake_info = stake_info
                     .into_iter()
                     .filter(|(account_id, _)| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     })
                     .collect();
                 let validator_rewards = validator_reward
                     .into_iter()
                     .filter(|(account_id, _)| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     })
                     .collect();
                 let last_proposals = last_validator_proposals
-                    .filter(|v| account_id_to_shard_id(v.account_id(), &shard_layout) == shard_id)
+                    .filter(|v| shard_layout.account_id_to_shard_id(v.account_id()) == shard_id)
                     .fold(HashMap::new(), |mut acc, v| {
                         let (account_id, stake) = v.account_and_stake();
                         acc.insert(account_id, stake);
@@ -239,7 +239,7 @@ impl NightshadeRuntime {
                 let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
                     .into_iter()
                     .filter(|(account_id, _)| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     })
                     .map(|(account_id, stake)| (account_id, Some(stake)))
                     .collect();
@@ -252,7 +252,7 @@ impl NightshadeRuntime {
                         self.genesis_config.protocol_treasury_account.clone(),
                     )
                     .filter(|account_id| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     }),
                     slashing_info,
                 })

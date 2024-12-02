@@ -16,6 +16,7 @@ use near_primitives::network::PeerId;
 
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 
 use crate::test_loop::utils::ONE_NEAR;
@@ -101,6 +102,7 @@ fn test_client_with_simple_test_loop() {
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner()),
         noop().into_multi_sender(),
+        PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
 

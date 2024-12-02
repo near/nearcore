@@ -78,7 +78,7 @@ fn new_account_id(index: usize) -> AccountId {
 
 /// Default signer (corresponding to the default sender) to use in tests of this module.
 fn signer() -> InMemorySigner {
-    InMemorySigner::from_seed(sender(), KeyType::ED25519, "test0")
+    InMemorySigner::test(&sender())
 }
 
 /// Creates a test environment using given protocol version (if some).
@@ -273,11 +273,7 @@ fn delete_account(
 fn deleting_account_with_permanent_storage_bytes() {
     let mut env = setup_env();
     let new_account_id = new_account_id(0);
-    let new_account = InMemorySigner::from_seed(
-        new_account_id.clone(),
-        KeyType::ED25519,
-        new_account_id.as_str(),
-    );
+    let new_account = InMemorySigner::test(&new_account_id);
     let regular_amount = 10u128.pow(20);
     let nonrefundable_amount = NEAR_BASE;
     // Create account with permanent storage bytes.
@@ -325,11 +321,7 @@ fn deleting_account_with_permanent_storage_bytes() {
 fn permanent_storage_bytes_cannot_be_transferred() {
     let mut env = setup_env();
     let new_account_id = new_account_id(0);
-    let new_account = InMemorySigner::from_seed(
-        new_account_id.clone(),
-        KeyType::ED25519,
-        new_account_id.as_str(),
-    );
+    let new_account = InMemorySigner::test(&new_account_id);
     // The `new_account` is created with permanent storage bytes worth 1 NEAR.
     let create_account_tx_result = exec_transfers(
         &mut env,
@@ -451,11 +443,7 @@ fn insufficient_nonrefundable_transfer_amount() {
 fn storage_staking_and_permanent_storage_bytes_taken_into_account() {
     let mut env = setup_env();
     let new_account_id = new_account_id(0);
-    let new_account = InMemorySigner::from_seed(
-        new_account_id.clone(),
-        KeyType::ED25519,
-        new_account_id.as_str(),
-    );
+    let new_account = InMemorySigner::test(&new_account_id);
     let storage_bytes_required = calculate_named_account_storage_usage(TEST_CONTRACT_SIZE) as u128;
     // Just third of the required storage bytes will be covered by permanent storage bytes.
     let permanent_storage_bytes = storage_bytes_required / 3;
