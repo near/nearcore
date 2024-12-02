@@ -615,10 +615,9 @@ impl ShardLayout {
         }
     }
 
-    /// Return the parent shard id for a given shard in the shard layout
-    /// Only calls this function for shard layout that has parent shard layouts
-    /// Returns error if `shard_id` is an invalid shard id in the current layout
-    /// Panics if `self` has no parent shard layout
+    /// Return the parent shard id for a given shard in the shard layout.
+    /// Returns an error if `shard_id` is an invalid shard id in the current
+    /// layout. Returns None if the shard layout has no parent shard layout.
     pub fn try_get_parent_shard_id(
         &self,
         shard_id: ShardId,
@@ -650,9 +649,10 @@ impl ShardLayout {
         Ok(parent_shard_id)
     }
 
-    /// Return the parent shard id for a given shard in the shard layout.
-    /// Returns error if `shard_id` is an invalid shard id in the current
-    /// layout. Returns None if the shard layout has no parent shard layout.
+    /// Return the parent shard id for a given shard in the shard layout. Only
+    /// calls this function for shard layout that has parent shard layout.
+    /// Returns an error if `shard_id` is an invalid shard id in the current
+    /// layout. Panics if `self` has no parent shard layout.
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
         let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
         let parent_shard_id = parent_shard_id.expect("shard_layout has no parent shard");
