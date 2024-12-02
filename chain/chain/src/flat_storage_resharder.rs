@@ -599,7 +599,12 @@ impl FlatStorageResharder {
         mut flat_head_block_hash: CryptoHash,
         chain_store: &ChainStore,
     ) -> Result<(usize, Tip), Error> {
-        const CATCH_UP_BLOCKS: u32 = 50;
+        // How many block heights of deltas are applied in a single commit.
+        let catch_up_blocks = self.resharding_config.get().catch_up_blocks;
+        // Delay between every batch.
+        let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
+
+        info!(target: "resharding", ?shard_uid, ?batch_delay, ?catch_up_blocks, "flat storage shard catchup: starting delta apply");
 
         let mut num_batches_done: usize = 0;
 
@@ -617,7 +622,7 @@ impl FlatStorageResharder {
             let mut store_update = store.store_update();
 
             // Merge deltas from the next blocks until we reach chain final head.
-            for _ in 0..CATCH_UP_BLOCKS {
+            for _ in 0..catch_up_blocks {
                 let height = chain_store.get_block_height(&flat_head_block_hash)?;
                 debug_assert!(
                     height <= chain_final_head.height,
@@ -653,6 +658,10 @@ impl FlatStorageResharder {
             if flat_head_block_hash == chain_final_head.last_block_hash {
                 return Ok((num_batches_done, chain_final_head));
             }
+
+            // Sleep between batches in order to throttle resharding and leave some resource for the
+            // regular node operation.
+            std::thread::sleep(batch_delay);
         }
     }
 
