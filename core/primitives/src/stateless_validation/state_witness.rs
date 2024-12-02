@@ -118,7 +118,10 @@ impl ChunkStateWitness {
         );
         let inner_serialized = borsh::to_vec(&inner).unwrap();
         const WANTED_SIZE: usize = 30 * 1024 * 1024; // 30 MB
-        let padding = vec![0; WANTED_SIZE - inner_serialized.len()];
+        let padding_size = WANTED_SIZE - inner_serialized.len();
+        let padding: Vec<u8> =
+            (0..padding_size).map(|i| if i % 2 == 0 { 0xAA } else { 0x55 }).collect();
+        // let padding = vec![0; WANTED_SIZE - inner_serialized.len()];
         Self { inner, padding }
     }
 
