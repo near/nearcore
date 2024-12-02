@@ -315,9 +315,28 @@ impl BlockBandwidthRequests {
     ProtocolSchema,
 )]
 pub struct BandwidthSchedulerState {
-    pub link_allowances: Vec<((ShardId, ShardId), u64)>,
+    pub link_allowances: Vec<LinkAllowance>,
     /// Sanity check hash to assert that all shards run bandwidth scheduler in the exact same way.
     pub sanity_check_hash: CryptoHash,
+}
+
+/// Allowance for every (sender, receiver) pair of shards.
+/// Used in bandwidth scheduler.
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    ProtocolSchema,
+)]
+pub struct LinkAllowance {
+    pub sender: ShardId,
+    pub receiver: ShardId,
+    pub allowance: u64,
 }
 
 /// Parameters used in the bandwidth scheduler algorithm.

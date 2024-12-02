@@ -110,7 +110,7 @@ use std::rc::Rc;
 
 use near_primitives::bandwidth_scheduler::{
     Bandwidth, BandwidthRequest, BandwidthRequestValues, BandwidthRequests,
-    BandwidthSchedulerParams, BandwidthSchedulerState, BlockBandwidthRequests,
+    BandwidthSchedulerParams, BandwidthSchedulerState, BlockBandwidthRequests, LinkAllowance,
 };
 use near_primitives::types::ShardId;
 use rand::seq::SliceRandom;
@@ -201,13 +201,13 @@ impl BandwidthScheduler {
         // Convert link allowances to the internal representation.
         let mut link_allowances: SchedulerShardLinkMap<Bandwidth> =
             SchedulerShardLinkMap::new(&mapping);
-        for ((sender_id, receiver_id), link_allowance) in &state.link_allowances {
-            let sender_index_opt = mapping.get_index_for_shard_id(*sender_id);
-            let receiver_index_opt = mapping.get_index_for_shard_id(*receiver_id);
+        for link_allowance in &state.link_allowances {
+            let sender_index_opt = mapping.get_index_for_shard_id(link_allowance.sender);
+            let receiver_index_opt = mapping.get_index_for_shard_id(link_allowance.receiver);
             match (sender_index_opt, receiver_index_opt) {
                 (Some(sender_index), Some(receiver_index)) => {
                     let link = ShardLink::new(sender_index, receiver_index);
-                    link_allowances.insert(link, *link_allowance);
+                    link_allowances.insert(link, link_allowance.allowance);
                 }
                 _ => {} // The allowance was for a shard that is not in the current set of shards.
             }
@@ -491,17 +491,15 @@ impl BandwidthScheduler {
     /// Update the persistent scheduler state after running the scheduler algorithm.
     /// This state is persisted in the trie between runs.
     fn update_scheduler_state(&self, state: &mut BandwidthSchedulerState) {
-        let mut new_state_allowances: Vec<((ShardId, ShardId), u64)> = Vec::new();
+        let mut new_state_allowances: Vec<LinkAllowance> = Vec::new();
 
         for link in self.iter_links() {
             if let Some(link_allowance) = self.link_allowances.get(&link) {
-                new_state_allowances.push((
-                    (
-                        self.mapping.get_shard_id_for_index(link.sender).unwrap(),
-                        self.mapping.get_shard_id_for_index(link.receiver).unwrap(),
-                    ),
-                    *link_allowance,
-                ));
+                new_state_allowances.push(LinkAllowance {
+                    sender: self.mapping.get_shard_id_for_index(link.sender).unwrap(),
+                    receiver: self.mapping.get_shard_id_for_index(link.receiver).unwrap(),
+                    allowance: *link_allowance,
+                });
             }
         }
 
@@ -628,9 +626,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use near_primitives::bandwidth_scheduler::{
-        Bandwidth, BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests,
-        BandwidthRequestsV1, BandwidthSchedulerParams, BandwidthSchedulerState,
-        BlockBandwidthRequests,
+        BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
+        BandwidthSchedulerParams, BandwidthSchedulerState, BlockBandwidthRequests, LinkAllowance,
     };
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
@@ -655,12 +652,16 @@ mod tests {
         // as large as possible.
         // Allowances have to be a bit lower than max to avoid a scenario where `increase_allowances()`
         // sets all allowances to max.
-        let mut link_allowances: Vec<((ShardId, ShardId), Bandwidth)> = Vec::new();
+        let mut link_allowances: Vec<LinkAllowance> = Vec::new();
         let allowance_increase = params.max_shard_bandwidth / num_shards;
         let mut next_allowance = params.max_allowance - allowance_increase;
         for sender in &shard_ids {
             for receiver in &shard_ids {
-                link_allowances.push(((*sender, *receiver), next_allowance));
+                link_allowances.push(LinkAllowance {
+                    sender: *sender,
+                    receiver: *receiver,
+                    allowance: next_allowance,
+                });
                 next_allowance -= 1;
             }
         }
