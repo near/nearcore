@@ -328,7 +328,7 @@ impl BandwidthScheduler {
             // Shuffle requests that have the same allowance to resolve ties. Without the shuffle one link
             // could end up being processed before the other every time, which is not fair.
             requests.shuffle(&mut self.rng);
-            for mut request in requests {
+            for mut request in requests.into_iter() {
                 // Try to grant the first bandwidth increase from the request.
                 let Some(bandwidth_increase) = request.bandwidth_increases.pop_front() else {
                     continue;
