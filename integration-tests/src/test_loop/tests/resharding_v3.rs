@@ -551,23 +551,28 @@ fn get_memtrie_for_shard(
 
 /// Asserts that for each child shard:
 /// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
-fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &Client) {
+/// If `load_mem_tries_for_tracked_shards` is false, we only enforce memtries for split shards
+fn assert_state_sanity(client: &Client, load_mem_tries_for_tracked_shards: bool) {
     let final_head = client.chain.final_head().unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
 
-    for child_shard_uid in client
-        .epoch_manager
-        .get_shard_layout(&final_head.epoch_id)
-        .unwrap()
-        .get_children_shards_uids(parent_shard_uid.shard_id())
-        .unwrap()
-    {
-        let memtrie = get_memtrie_for_shard(client, &child_shard_uid, &final_head.prev_block_hash);
+    for shard_uid in shard_layout.shard_uids() {
+        if !load_mem_tries_for_tracked_shards {
+            let Ok(parent) = shard_layout.get_parent_shard_id(shard_uid.shard_id()) else {
+                continue;
+            };
+            if parent == shard_uid.shard_id() {
+                continue;
+            }
+        }
+
+        let memtrie = get_memtrie_for_shard(client, &shard_uid, &final_head.prev_block_hash);
         let memtrie_state =
             memtrie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
 
         let state_root = *client
             .chain
-            .get_chunk_extra(&final_head.prev_block_hash, &child_shard_uid)
+            .get_chunk_extra(&final_head.prev_block_hash, &shard_uid)
             .unwrap()
             .state_root();
 
@@ -575,11 +580,7 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
         // uses memtries.
         let trie = client
             .runtime_adapter
-            .get_view_trie_for_shard(
-                child_shard_uid.shard_id(),
-                &final_head.prev_block_hash,
-                state_root,
-            )
+            .get_view_trie_for_shard(shard_uid.shard_id(), &final_head.prev_block_hash, state_root)
             .unwrap();
         assert!(!trie.has_memtries());
         let trie_state =
@@ -589,7 +590,7 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
             .chain
             .runtime_adapter
             .get_flat_storage_manager()
-            .chunk_view(child_shard_uid, final_head.last_block_hash)
+            .chunk_view(shard_uid, final_head.last_block_hash)
             .unwrap();
         let flat_store_state = flat_store_chunk_view
             .iter_range(None, None)
@@ -600,7 +601,7 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
                         .chain_store()
                         .store()
                         .trie_store()
-                        .get(child_shard_uid, &value.hash)
+                        .get(shard_uid, &value.hash)
                         .unwrap()
                         .to_vec(),
                     FlatStateValue::Inlined(data) => data,
@@ -617,7 +618,7 @@ fn assert_state_sanity_for_children_shard(parent_shard_uid: ShardUId, client: &C
             continue;
         }
         for (key, value) in diff {
-            tracing::error!(target: "test", shard=?child_shard_uid, key=?key, ?value, "Difference in state between trie, memtrie and flat store!");
+            tracing::error!(target: "test", shard=?shard_uid, key=?key, ?value, "Difference in state between trie, memtrie and flat store!");
         }
         assert!(false, "trie, memtrie and flat store state mismatch!");
     }
@@ -785,7 +786,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     // Verify that state is equal across tries and flat storage for all children shards.
     let clients =
         client_handles.iter().map(|handle| &test_loop.data.get(handle).client).collect_vec();
-    assert_state_sanity_for_children_shard(parent_shard_uid, &clients[0]);
+    assert_state_sanity(&clients[0], params.load_mem_tries_for_tracked_shards);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
