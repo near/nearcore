@@ -16,7 +16,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::adapter::StoreAdapter;
-use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
+use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -288,6 +288,12 @@ fn apply_block_from_range(
     );
     progress_reporter.inc_and_report_progress(height, apply_result.total_gas_burnt);
 
+    // See documentation for `ApplyRangeMode` variants.
+    //
+    // Ultimately, this has to handle requirements on storage effects from multiple sources --
+    // `Benchmark` for example repeatedly applies a single block, so no storage effects are
+    // desired, meanwhile other modes can be set to operate on various storage sources, all of
+    // which have their unique propoerties (e.g. flat storage operates on flat_head...)
     match (mode, storage) {
         (ApplyRangeMode::Benchmark, _) => {}
         (_, StorageSource::Trie | StorageSource::TrieFree) => {}
@@ -369,6 +375,9 @@ pub fn apply_chain_range(
     let shard_uid =
         near_primitives::shard_layout::ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 
+    // Load the requested type of storage for transactions and actions to act upon. This may allow
+    // configurations that aren't used in production anymore, in case anybody really wants that
+    // behaviour.
     match storage {
         StorageSource::Trie | StorageSource::TrieFree => {}
         StorageSource::FlatStorage => {
@@ -395,37 +404,28 @@ pub fn apply_chain_range(
             // storage.
             assert!(start_height.is_none());
             assert!(end_height.is_none());
-            let flat_head = match read_store.flat_store().get_flat_storage_status(shard_uid) {
-                Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
-                status => {
-                    panic!(
-                        "cannot create flat storage for shard {shard_uid} with status {status:?}"
-                    )
-                }
+            let flat_status = read_store.flat_store().get_flat_storage_status(shard_uid);
+            let Ok(FlatStorageStatus::Ready(ready)) = flat_status else {
+                panic!("cannot create flat storage for shard {shard_uid} due to {flat_status:?}")
             };
             // We apply the block at flat_head. Users can set the block they want to benchmark by
-            // moving the flat head using the `flat-storage move-flat-head` command.
-            (flat_head.height + 1, 0)
+            // moving the flat head using the `flat-storage move-flat-head` command. End point of
+            // `0` helps indicatif to display more reasonable output.
+            (ready.flat_head.height + 1, 0)
         }
         (_, StorageSource::Trie | StorageSource::TrieFree) => (
             start_height.unwrap_or_else(|| chain_store.tail().unwrap()),
             end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
         ),
         (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
-            (
-                start_height.unwrap_or_else(|| {
-                    let flat_head = match read_store.flat_store().get_flat_storage_status(shard_uid) {
-                        Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
-                        status => {
-                            panic!(
-                                "cannot create flat storage for shard {shard_uid} with status {status:?}"
-                            )
-                        }
-                    };
-                    flat_head.height + 1
-                }),
-                end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
-            )
+            let start_height = start_height.unwrap_or_else(|| {
+                let status = read_store.flat_store().get_flat_storage_status(shard_uid);
+                let Ok(FlatStorageStatus::Ready(ready)) = status else {
+                    panic!("cannot create flat storage for shard {shard_uid} due to {status:?}")
+                };
+                ready.flat_head.height + 1
+            });
+            (start_height, end_height.unwrap_or_else(|| chain_store.head().unwrap().height))
         }
     };
 
