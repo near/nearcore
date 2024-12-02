@@ -27,7 +27,6 @@ use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
-use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
@@ -405,7 +404,7 @@ impl KeyValueRuntime {
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     #[allow(deprecated)]
     let shard_layout = ShardLayout::v0(num_shards, 0);
-    shard_layout::account_id_to_shard_id(account_id, &shard_layout)
+    shard_layout.account_id_to_shard_id(account_id)
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]

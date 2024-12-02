@@ -171,7 +171,7 @@ pub(crate) fn action_function_call(
     code_hash: CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    epoch_info_provider: &(dyn EpochInfoProvider),
+    epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {

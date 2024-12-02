@@ -14,7 +14,6 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
@@ -380,7 +379,7 @@ fn filter_incoming_receipts_for_shard(
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
             let receiver_shard_id =
-                account_id_to_shard_id(receipt.receiver_id(), target_shard_layout);
+                target_shard_layout.account_id_to_shard_id(receipt.receiver_id());
             if receiver_shard_id == target_shard_id {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);

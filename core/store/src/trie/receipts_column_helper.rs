@@ -8,7 +8,10 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::ShardId;
 
 /// Read-only iterator over items stored in a TrieQueue.
-pub struct TrieQueueIterator<'a, Queue: TrieQueue> {
+struct TrieQueueIterator<'a, Queue>
+where
+    Queue: TrieQueue,
+{
     indices: std::ops::Range<u64>,
     trie_queue: &'a Queue,
     trie: &'a dyn TrieAccess,
@@ -217,7 +220,7 @@ pub trait TrieQueue {
         &'a self,
         trie: &'a dyn TrieAccess,
         side_effects: bool,
-    ) -> TrieQueueIterator<'a, Self>
+    ) -> impl DoubleEndedIterator<Item = Result<Self::Item<'static>, StorageError>> + 'a
     where
         Self: Sized,
     {
@@ -330,8 +333,11 @@ impl TrieQueue for OutgoingReceiptBuffer<'_> {
     }
 }
 
-impl<'a, Queue: TrieQueue> Iterator for TrieQueueIterator<'a, Queue> {
-    type Item = Result<Queue::Item<'static>, StorageError>;
+impl<Q> Iterator for TrieQueueIterator<'_, Q>
+where
+    Q: TrieQueue,
+{
+    type Item = Result<Q::Item<'static>, StorageError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
@@ -349,7 +355,10 @@ impl<'a, Queue: TrieQueue> Iterator for TrieQueueIterator<'a, Queue> {
     }
 }
 
-impl<'a, Queue: TrieQueue> DoubleEndedIterator for TrieQueueIterator<'a, Queue> {
+impl<Q> DoubleEndedIterator for TrieQueueIterator<'_, Q>
+where
+    Q: TrieQueue,
+{
     fn next_back(&mut self) -> Option<Self::Item> {
         let index = self.indices.next_back()?;
         let key = self.trie_queue.trie_key(index);

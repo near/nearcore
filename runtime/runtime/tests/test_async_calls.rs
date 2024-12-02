@@ -1,6 +1,6 @@
 use crate::runtime_group_tools::RuntimeGroup;
 
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
@@ -961,8 +961,9 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
 
 #[test]
 fn test_transfer_64len_hex() {
-    let pk = InMemorySigner::from_seed("test_hex".parse().unwrap(), KeyType::ED25519, "test_hex");
-    let account_id = AccountId::try_from(hex::encode(pk.public_key.unwrap_as_ed25519().0)).unwrap();
+    let pk = InMemorySigner::test_signer(&"test_hex".parse().unwrap());
+    let account_id =
+        AccountId::try_from(hex::encode(pk.public_key().unwrap_as_ed25519().0)).unwrap();
 
     let group = RuntimeGroup::new_with_account_ids(
         vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), account_id.clone()],
@@ -1025,8 +1026,9 @@ fn test_transfer_64len_hex() {
 
 #[test]
 fn test_create_transfer_64len_hex_fail() {
-    let pk = InMemorySigner::from_seed("test_hex".parse().unwrap(), KeyType::ED25519, "test_hex");
-    let account_id = AccountId::try_from(hex::encode(pk.public_key.unwrap_as_ed25519().0)).unwrap();
+    let pk = InMemorySigner::test_signer(&"test_hex".parse().unwrap());
+    let account_id =
+        AccountId::try_from(hex::encode(pk.public_key().unwrap_as_ed25519().0)).unwrap();
 
     let group = RuntimeGroup::new_with_account_ids(
         vec!["near_0".parse().unwrap(), "near_1".parse().unwrap(), account_id.clone()],

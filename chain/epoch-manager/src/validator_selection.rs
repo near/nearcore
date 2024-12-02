@@ -408,29 +408,24 @@ fn select_validators(
             break;
         }
     }
-    if validators.len() == max_number_selected {
+    let threshold = if validators.len() == max_number_selected {
         // all slots were filled, so the threshold stake is 1 more than the current
         // smallest stake
-        let threshold = validators.last().unwrap().stake() + 1;
-        (validators, proposals, threshold)
+        validators.last().unwrap().stake() + 1
     } else {
         // the stake ratio condition prevented all slots from being filled,
         // or there were fewer proposals than available slots,
         // so the threshold stake is whatever amount pass the stake ratio condition
-        let threshold = if checked_feature!(
-            "protocol_feature_fix_staking_threshold",
-            FixStakingThreshold,
-            protocol_version
-        ) {
+        if checked_feature!("stable", FixStakingThreshold, protocol_version) {
             (min_stake_ratio * Ratio::from_integer(total_stake)
                 / (Ratio::from_integer(1u128) - min_stake_ratio))
                 .ceil()
                 .to_integer()
         } else {
             (min_stake_ratio * Ratio::new(total_stake, 1)).ceil().to_integer()
-        };
-        (validators, proposals, threshold)
-    }
+        }
+    };
+    (validators, proposals, threshold)
 }
 
 /// We store stakes in max heap and want to order them such that the validator
@@ -1139,10 +1134,7 @@ mod tests {
         // too low stakes are kicked out
         let kickout = epoch_info.validator_kickout();
         assert_eq!(kickout.len(), 2);
-        #[cfg(feature = "protocol_feature_fix_staking_threshold")]
         let expected_threshold = 334;
-        #[cfg(not(feature = "protocol_feature_fix_staking_threshold"))]
-        let expected_threshold = 300;
         assert_eq!(
             kickout.get(AccountIdRef::new_or_panic("test5")).unwrap(),
             &ValidatorKickoutReason::NotEnoughStake { stake: 100, threshold: expected_threshold },
@@ -1175,7 +1167,6 @@ mod tests {
             false,
         )
         .unwrap();
-        #[cfg(feature = "protocol_feature_fix_staking_threshold")]
         assert_eq!(num_validators + 1, epoch_info.validators_iter().len());
 
         let proposals = create_proposals(&[

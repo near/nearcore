@@ -393,7 +393,7 @@ pub(crate) fn check_balance(
 mod tests {
     use super::*;
     use crate::ApplyStats;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::InMemorySigner;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{
         ActionReceipt, BufferedReceiptIndices, ReceiptPriority, ReceiptV0, TrieQueueIndices,
@@ -568,12 +568,12 @@ mod tests {
     }
 
     fn transfer_tx(sender: AccountId, receiver: AccountId, deposit: u128) -> SignedTransaction {
-        let signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
+        let signer = InMemorySigner::test_signer(&sender);
         let tx = SignedTransaction::send_money(
             0,
             sender,
             receiver,
-            &signer.into(),
+            &signer,
             deposit,
             CryptoHash::default(),
         );
