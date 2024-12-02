@@ -124,7 +124,7 @@ pub enum ProtocolFeature {
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+    /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
     /// Allows creating an account with a non refundable balance to cover storage costs.
     /// NEP: <https://github.com/near/NEPs/pull/491>
@@ -250,7 +250,8 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
-            ProtocolFeature::FixStakingThreshold => 74,
+            ProtocolFeature::FixStakingThreshold
+            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -260,8 +261,6 @@ impl ProtocolFeature {
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
-            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code

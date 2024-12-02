@@ -576,34 +576,15 @@ fn invalid_blocks_common(is_requested: bool) {
                         } else {
                             assert_eq!(block.header().height(), 1);
                             assert_eq!(block.header().chunk_mask().len(), 1);
-                            #[cfg(not(
-                                feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
-                            ))]
-                            assert_eq!(ban_counter, 2);
-                            #[cfg(
-                                feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
-                            )]
-                            {
-                                assert_eq!(
-                                    block.header().latest_protocol_version(),
-                                    PROTOCOL_VERSION
-                                );
-                                assert_eq!(ban_counter, 3);
-                            }
+                            assert_eq!(block.header().latest_protocol_version(), PROTOCOL_VERSION);
+                            assert_eq!(ban_counter, 3);
                             System::current().stop();
                         }
                     }
                     NetworkRequests::BanPeer { ban_reason, .. } => {
                         assert_eq!(ban_reason, &ReasonForBan::BadBlockHeader);
                         ban_counter += 1;
-                        #[cfg(
-                            feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
-                        )]
                         let expected_ban_counter = 4;
-                        #[cfg(not(
-                            feature = "protocol_feature_reject_blocks_with_outdated_protocol_version"
-                        ))]
-                        let expected_ban_counter = 3;
                         if ban_counter == expected_ban_counter && is_requested {
                             System::current().stop();
                         }
@@ -665,20 +646,17 @@ fn invalid_blocks_common(is_requested: bool) {
             );
 
             // Send blocks with invalid protocol version
-            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            {
-                let mut block = valid_block.clone();
-                block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
-                block.mut_header().init();
-                actor_handles.client_actor.do_send(
-                    BlockResponse {
-                        block: block.clone(),
-                        peer_id: PeerInfo::random().id,
-                        was_requested: is_requested,
-                    }
-                    .with_span_context(),
-                );
-            }
+            let mut block = valid_block.clone();
+            block.mut_header().set_latest_protocol_version(PROTOCOL_VERSION - 1);
+            block.mut_header().init();
+            actor_handles.client_actor.do_send(
+                BlockResponse {
+                    block: block.clone(),
+                    peer_id: PeerInfo::random().id,
+                    was_requested: is_requested,
+                }
+                .with_span_context(),
+            );
 
             // Send block with invalid chunk signature
             let mut block = valid_block.clone();

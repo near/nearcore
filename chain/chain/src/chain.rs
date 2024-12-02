@@ -992,12 +992,11 @@ impl Chain {
             }
         }
 
-        #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
             if checked_feature!(
-                "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                "stable",
                 RejectBlocksWithOutdatedProtocolVersions,
                 epoch_protocol_version
             ) {
