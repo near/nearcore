@@ -4,6 +4,7 @@ use borsh::BorshDeserialize;
 use near_chain::types::Tip;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::archive::ArchivalStore;
 use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
@@ -93,8 +94,6 @@ fn cold_store_copy(
     epoch_manager: &EpochManagerHandle,
     num_threads: usize,
 ) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
-    let cold_db = archival_store.cold_db().unwrap();
-
     // If HEAD is not set for cold storage we default it to genesis_height.
     let cold_head = archival_store.read_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
@@ -129,7 +128,13 @@ fn cold_store_copy(
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
     let mut next_height = cold_head_height + 1;
-    while !update_cold_db(&cold_db, hot_store, &shard_layout, &next_height, num_threads)? {
+    while !cold_store_copy_block(
+        archival_store,
+        hot_store,
+        &shard_layout,
+        &next_height,
+        num_threads,
+    )? {
         next_height += 1;
         if next_height > hot_final_head_height {
             return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
@@ -150,6 +155,21 @@ fn cold_store_copy(
 
     tracing::trace!(target: "cold_store", ?result, "ending");
     result
+}
+
+fn cold_store_copy_block(
+    archival_store: &ArchivalStore,
+    hot_store: &Store,
+    shard_layout: &ShardLayout,
+    height: &BlockHeight,
+    num_threads: usize,
+) -> std::io::Result<bool> {
+    // If the archival storage is ColdDB, use the old algorithm to copy the block data, otherwise use the new algorithm.
+    if let Some(cold_db) = archival_store.cold_db() {
+        update_cold_db(&cold_db, hot_store, &shard_layout, height, num_threads)
+    } else {
+        archival_store.update_for_block(hot_store, &shard_layout, height, num_threads)
+    }
 }
 
 // Check some basic sanity conditions.
