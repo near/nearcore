@@ -108,6 +108,27 @@
 //! allow to send receipts to it, but make sure that their total size doesn't exceed the grant that
 //! was given when the chunk wasn't missing. This would improve bandwidth utilization in scenarios
 //! with many missing chunks.
+//!
+//! ## Resharding
+//!
+//! During resharding the set of active shards changes. For example, before resharding there could
+//! be three shard ids: [2, 4, 6], but during resharding shard 6 could be split into 7 and 8, and
+//! the resulting list of shard ids would be: [2, 4, 7, 8]. From bandwidth scheduler's perspective,
+//! the only moment that's really problematic is the resharding boundary. For one block height the
+//! sender shards will be from the old layout, but receiver shards will be from the new one. Ideally
+//! bandwidth scheduler would handle this gracefully, but for now this is not implemented. The
+//! bandwidth grants will be slightly wrong for one height, but it is not the end of the world. At
+//! the next height the shard will fully switch to the new layout and all the grants will be correct
+//! again.
+//!
+//! To properly handle resharding we would have to:
+//! * Properly set the `senders` and `receivers` on a resharding boundary.
+//! * Interpret bandwidth requests using the BandwidthSchedulerParams that they were created with
+//! * Make sure that `BandwidthSchedulerParams` are correct on the resharding boundary
+//!
+//! It's doable, but it's out of scope for the initial version of the scheduler. There was a bit of
+//! an effort to write the code in a future-proof way, so adding full support for resharding
+//! shouldn't be too painful.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
