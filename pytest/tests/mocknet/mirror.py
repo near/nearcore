@@ -240,15 +240,16 @@ def _clear_state_parts_if_exists(args, nodes):
     """Looks for the state dumper and clears the GCP bucket where it dumped the parts."""
     # TODO: Maybe add an argument to set the epoch height from where we want to cleanup.
     # It still works without it because the dumper node will start dumping the current epoch after reset.
-
-    state_dumper_node = nodes.find(lambda n: n.want_state_dump)
+    state_dumper_node = next(filter(lambda n: n.want_state_dump, nodes), None)
     if state_dumper_node is None:
         logger.info('No state dumper node found, skipping state parts cleanup.')
         return
 
     logger.info('State dumper node found, cleaning up state parts.')
     bucket_name = _get_state_parts_bucket_name(args)
-    state_dumper_node.run_cmd(f'gsutil -m rm -r gs://{bucket_name}/chain_id=\*')
+
+    state_dumper_node.run_cmd(f'gsutil -m rm -r gs://{bucket_name}/chain_id=\*',
+                              return_on_fail=True)
 
 
 def _get_state_parts_bucket_name(args):
