@@ -6,17 +6,19 @@ use filesystem::FilesystemStorage;
 use gcloud::GoogleCloudStorage;
 use near_primitives::block::Tip;
 use near_primitives::types::BlockHeight;
-use utils::{get_cold_head, get_tip_at_height, map_cold_column_to_path, set_head_tx};
+use utils::{
+    get_tip_at_height, map_cold_column_to_path, read_cold_head, save_cold_head, set_head_tx,
+};
 
 use crate::db::refcount;
 use crate::db::DBOp;
+use crate::Store;
 use crate::HEAD_KEY;
 use crate::{
     config::{ArchivalStorageLocation, ArchivalStoreConfig},
     db::{ColdDB, DBTransaction, Database},
     DBCol,
 };
-use crate::{Store, COLD_HEAD_KEY};
 
 mod filesystem;
 mod gcloud;
@@ -82,6 +84,8 @@ pub struct ArchivalStore {
     /// Target storage for persisting the archival data.
     storage: ArchivalStorage,
     /// If present, the archival data is also synced into the given ColdDB.
+    /// This is to be used at while first launching the external storage,
+    /// by writing the data to both external storage and ColdDB for initial testing.
     /// This is only set if the `storage` points to an external storage
     /// (so no double-write happens to the same ColdDB).
     sync_cold_db: Option<Arc<ColdDB>>,
@@ -117,13 +121,7 @@ impl ArchivalStore {
         self.set_head(&tip)?;
 
         // Write COLD_HEAD to the hot db.
-        {
-            let mut transaction = DBTransaction::new();
-            transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-            hot_store.storage.write(transaction)?;
-
-            crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
-        }
+        save_cold_head(hot_store, &tip)?;
 
         Ok(())
     }
@@ -141,12 +139,12 @@ impl ArchivalStore {
     /// Returns the head of the archival data.
     pub fn get_head(&self) -> io::Result<Option<Tip>> {
         match self.storage {
-            ArchivalStorage::ColdDB(ref cold_db) => get_cold_head(cold_db),
+            ArchivalStorage::ColdDB(ref cold_db) => read_cold_head(cold_db),
             ArchivalStorage::External(ref storage) => {
                 let external_head = self.get_external_head(storage)?;
                 // Check if ColdDB head is in sync with external storage head.
                 if let Some(ref cold_db) = self.sync_cold_db {
-                    let cold_head = get_cold_head(cold_db)?;
+                    let cold_head = read_cold_head(cold_db)?;
                     assert_eq!(
                         cold_head, external_head,
                         "Cold DB head should be in sync with external storage head"
@@ -167,7 +165,7 @@ impl ArchivalStore {
         let ArchivalStorage::External(ref storage) = self.storage else {
             return Ok(());
         };
-        let cold_head = get_cold_head(cold_db)?;
+        let cold_head = read_cold_head(cold_db)?;
         let external_head = self.get_external_head(storage)?;
 
         let Some(cold_head) = cold_head else {

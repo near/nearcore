@@ -23,12 +23,23 @@ pub(crate) fn set_head_tx(tip: &Tip) -> io::Result<DBTransaction> {
 }
 
 /// Reads the head from the Cold DB.
-pub(crate) fn get_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
+pub(crate) fn read_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
     cold_db
         .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
         .as_deref()
         .map(Tip::try_from_slice)
         .transpose()
+}
+
+/// Saves the cold head in the hot DB store.
+pub(crate) fn save_cold_head(hot_store: &Store, tip: &Tip) -> io::Result<()> {
+    let mut transaction = DBTransaction::new();
+    transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+    hot_store.storage.write(transaction)?;
+
+    crate::metrics::COLD_HEAD_HEIGHT.set(tip.height as i64);
+
+    Ok(())
 }
 
 /// Returns the `Tip` at the given block height.
