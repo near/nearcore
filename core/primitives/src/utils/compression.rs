@@ -43,10 +43,7 @@ where
     fn decode_with_limit(&self, limit: ByteSize) -> std::io::Result<(T, usize)> {
         // Flow of data: Bytes --> zstd decompression --> Counting read --> Borsh deserialization --> Original.
         // CountingRead will count the number of bytes for the Borsh-deserialized data, after decompression.
-        let mut counting_read = CountingRead::new_with_limit(
-            zstd::stream::Decoder::new(self.as_ref().reader())?,
-            limit,
-        );
+        let mut counting_read = CountingRead::new_with_limit(self.as_ref().reader(), limit);
 
         match borsh::from_reader(&mut counting_read) {
             Err(err) => {
