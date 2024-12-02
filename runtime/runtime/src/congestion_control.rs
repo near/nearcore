@@ -263,8 +263,6 @@ impl ReceiptSinkV2 {
 
         // Then forward receipts from the outgoing buffers of the shard in the
         // current shard layout.
-        //
-        // TODO(wacban) This doesn't seem fair. Or is it?
         for &shard_id in &shard_ids {
             self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
         }
