@@ -549,6 +549,21 @@ fn get_memtrie_for_shard(
     memtrie
 }
 
+fn assert_tries_equal(
+    values1: &HashSet<(Vec<u8>, Vec<u8>)>,
+    values2: &HashSet<(Vec<u8>, Vec<u8>)>,
+    shard_uid: ShardUId,
+    cmp_msg: &str,
+) {
+    let diff = values1.symmetric_difference(values2);
+    let mut has_diff = false;
+    for (key, value) in diff {
+        has_diff = true;
+        tracing::error!(target: "test", ?shard_uid, key=?key, ?value, "Difference in state between {}!", cmp_msg);
+    }
+    assert!(!has_diff, "{} state mismatch!", cmp_msg);
+}
+
 /// Asserts that for each child shard:
 /// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
 /// If `load_mem_tries_for_tracked_shards` is false, we only enforce memtries for split shards
@@ -611,16 +626,8 @@ fn assert_state_sanity(client: &Client, load_mem_tries_for_tracked_shards: bool)
             .collect::<Result<HashSet<_>, _>>()
             .unwrap();
 
-        let diff_memtrie_flat_store = memtrie_state.symmetric_difference(&flat_store_state);
-        let diff_memtrie_trie = memtrie_state.symmetric_difference(&trie_state);
-        let diff = diff_memtrie_flat_store.chain(diff_memtrie_trie);
-        if diff.clone().count() == 0 {
-            continue;
-        }
-        for (key, value) in diff {
-            tracing::error!(target: "test", shard=?shard_uid, key=?key, ?value, "Difference in state between trie, memtrie and flat store!");
-        }
-        assert!(false, "trie, memtrie and flat store state mismatch!");
+        assert_tries_equal(&memtrie_state, &flat_store_state, shard_uid, "memtrie and flat store");
+        assert_tries_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
     }
 }
 
