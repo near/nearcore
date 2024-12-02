@@ -2,108 +2,112 @@
 //!
 //! ## Overview of the algorithm
 //!
-//! Every shard sends out some outgoing receipts to other shards at every height.
-//! Bandwidth scheduler is used to limit how many bytes of receipts can be sent from one shard to another.
-//! Sending too many receipts could cause overload, the nodes could have too little bandwidth to transfer all
-//! of the receipts in time.
+//! Every shard sends out some outgoing receipts to other shards at every height. Bandwidth
+//! scheduler is used to limit how many bytes of receipts can be sent from one shard to another.
+//! Sending too many receipts could cause overload, the nodes could have too little bandwidth to
+//! transfer all of the receipts in time.
 //!
 //! Bandwidth scheduler makes sure that:
 //! - Every shard sends out at most `max_shard_bandwidth` bytes of receipts at every height.
 //! - Every shard receives at most `max_shard_bandwidth` bytes of receipts at every height.
-//! - The bandwidth is assigned in a fair way. At full load every link (pair of shards) sends and receives
-//!   the same amount of bandwidth on average, there are no favorites.
+//! - The bandwidth is assigned in a fair way. At full load every link (pair of shards) sends and
+//!   receives the same amount of bandwidth on average, there are no favorites.
 //! - Bandwidth utilization is high.
 //!
 //! When a shard has some buffered receipts that it wants to send to another shard, it has to create
-//! a bandwidth request and pass it to the scheduler. Bandwidth request contains a list of values that
-//! could be granted for that link. The sender shard hopes that the scheduler will grant the highest option,
-//! which would allow it to send the most receipts, but if the scheduler chooses a lower value, the sender
-//! will send out fewer receipts.
+//! a bandwidth request and pass it to the scheduler. Bandwidth request contains a list of values
+//! that could be granted for that link. The sender shard hopes that the scheduler will grant the
+//! highest option, which would allow it to send the most receipts, but if the scheduler chooses a
+//! lower value, the sender will send out fewer receipts.
 //!
-//! Bandwidth scheduler looks at bandwidth requests from all shards and decides how much bandwidth to grant
-//! on each link. Every shard runs the same algorithm with the same inputs and calculates the same bandwidth grants.
-//! Then the shards send out receipts, but no more than the granted bandwidth.
-//! After that the shards generate new requests based on buffered receipts and the whole process repeats
-//! at the next height.
+//! Bandwidth scheduler looks at bandwidth requests from all shards and decides how much bandwidth
+//! to grant on each link. Every shard runs the same algorithm with the same inputs and calculates
+//! the same bandwidth grants. Then the shards send out receipts, but no more than the granted
+//! bandwidth. After that the shards generate new requests based on buffered receipts and the whole
+//! process repeats at the next height.
 //!
 //! ## Base bandwidth
 //!
-//! It's not necessary to make a bandwidth request if the shard wants to send less than "base bandwidth".
-//! Base bandwidth is the amount of bandwidth that is always granted on every link, regardless of the requests.
-//! This helps to lower the total number of generated requests, usually shards don't need to send out more than
-//! the base bandwidth. (At the moment of writing there are 6 shards, and base bandwidth is ~50kB,
-//! situation might change in the future).
+//! It's not necessary to make a bandwidth request if the shard wants to send less than "base
+//! bandwidth". Base bandwidth is the amount of bandwidth that is always granted on every link,
+//! regardless of the requests. This helps to lower the total number of generated requests, usually
+//! shards don't need to send out more than the base bandwidth. (At the moment of writing there are
+//! 6 shards, and base bandwidth is ~50kB, situation might change in the future).
 //!
 //! ## Allowance
 //!
-//! There is also a concept of "allowance" - every link (pair of sender and receiver shards) has an allowance.
-//! Allowance is a way to ensure fairness. Every link receives a fair amount of allowance on every height.
-//! When bandwidth is granted on a link, the link's allowance is decreased by the granted amount.
-//! Requests on links with higher allowance have priority over requests on links with lower allowance.
-//! Links that send more than their fair share are deprioritized, which keeps things fair.
-//! It's similar idea to the [Token Bucket](https://en.wikipedia.org/wiki/Token_bucket).
-//! Link allowances are persisted in the state trie, as they're used to track fairness across multiple heights.
+//! There is also a concept of "allowance" - every link (pair of sender and receiver shards) has an
+//! allowance. Allowance is a way to ensure fairness. Every link receives a fair amount of allowance
+//! on every height. When bandwidth is granted on a link, the link's allowance is decreased by the
+//! granted amount. Requests on links with higher allowance have priority over requests on links
+//! with lower allowance. Links that send more than their fair share are deprioritized, which keeps
+//! things fair. It's similar idea to the [Token
+//! Bucket](https://en.wikipedia.org/wiki/Token_bucket). Link allowances are persisted in the state
+//! trie, as they're used to track fairness across multiple heights.
 //!
-//! An intuitive way to think about allowance is that it keeps track how much each link sent recently and
-//! lowers priority of links that recently sent a lot of receipts, which gives other a fair chance.
+//! An intuitive way to think about allowance is that it keeps track how much each link sent
+//! recently and lowers priority of links that recently sent a lot of receipts, which gives other a
+//! fair chance.
 //!
-//! Imagine a situation where one link wants to send a 2MB receipt at every height, and other links want to send
-//! a ton of small receipts to the same shard. Without allowance, the link with 2MB receipts would always get
-//! 2MB of bandwidth assigned, and other links would get less than that, which would be unfair.
-//! Thanks to allowance, the scheduler will grant some bandwidth to the 2MB link, but then it will decrease the
-//! allowance on that link, which will deprioritize it and other links will get their fair share.
+//! Imagine a situation where one link wants to send a 2MB receipt at every height, and other links
+//! want to send a ton of small receipts to the same shard. Without allowance, the link with 2MB
+//! receipts would always get 2MB of bandwidth assigned, and other links would get less than that,
+//! which would be unfair. Thanks to allowance, the scheduler will grant some bandwidth to the 2MB
+//! link, but then it will decrease the allowance on that link, which will deprioritize it and other
+//! links will get their fair share.
 //!
 //! ## The core algorithm
 //!
 //! The algorithm works in 4 stages:
 //! 1) Give out a fair share of allowance to every link.
 //! 2) Grant base bandwidth on every link. Decrease allowance by granted bandwidth.
-//! 3) Process bandwidth requests. Order all bandwidth requests by the link's allowance.
-//!    Take the request with the highest allowance and try to grant the first proposed value.
-//!    Check if it's possible to grant the value without violating any restrictions.
-//!    If yes, grant the bandwidth and decrease the allowance accordingly. Then remove the granted value
-//!    from the request and put it back into the queue with new allowance.
-//!    If no, remove the request from the queue, it will not be fulfilled.
-//! 4) Distribute remaining bandwidth. If there's some bandwidth left after granting base bandwidth and processing
-//!    all requests, distribute it over all links in a fair manner to improve bandwidth utilization.
+//! 3) Process bandwidth requests. Order all bandwidth requests by the link's allowance. Take the
+//!    request with the highest allowance and try to grant the first proposed value. Check if it's
+//!    possible to grant the value without violating any restrictions. If yes, grant the bandwidth
+//!    and decrease the allowance accordingly. Then remove the granted value from the request and
+//!    put it back into the queue with new allowance. If no, remove the request from the queue, it
+//!    will not be fulfilled.
+//! 4) Distribute remaining bandwidth. If there's some bandwidth left after granting base bandwidth
+//!    and processing all requests, distribute it over all links in a fair manner to improve
+//!    bandwidth utilization.
 //!
 //! ## Congestion control
 //!
-//! Bandwidth scheduler limits only the size of outgoing receipts, the gas is limited by congestion control.
-//! It's important to make sure that these two are integrated properly. Situations where
+//! Bandwidth scheduler limits only the size of outgoing receipts, the gas is limited by congestion
+//! control. It's important to make sure that these two are integrated properly. Situations where
 //! one limit allows sending receipts, but the other doesn't could lead to liveness issues.
 //!
-//! To avoid liveness problems, the scheduler checks which shards are fully congested, and doesn't grant
-//! any bandwidth on links to these shards (except for the allowed sender shard). This prevents situations
-//! where the scheduler would grant bandwidth on some link, but no receipts would be sent because of congestion.
-//! There is a guarantee that for every bandwidth grant, the shard will be able to send at least one receipt,
-//! which is enough to ensure liveness.
+//! To avoid liveness problems, the scheduler checks which shards are fully congested, and doesn't
+//! grant any bandwidth on links to these shards (except for the allowed sender shard). This
+//! prevents situations where the scheduler would grant bandwidth on some link, but no receipts
+//! would be sent because of congestion. There is a guarantee that for every bandwidth grant, the
+//! shard will be able to send at least one receipt, which is enough to ensure liveness.
 //!
 //! There can still be unlucky coincidences where the scheduler grants a lot of bandwidth on a link,
-//! but the shard can send only a few receipts because of the gas limit enforced by congestion control.
-//! This is not ideal, in the future we might consider merging these two algorithm into one better algorithm,
-//! but it is good enough for now.
+//! but the shard can send only a few receipts because of the gas limit enforced by congestion
+//! control. This is not ideal, in the future we might consider merging these two algorithm into one
+//! better algorithm, but it is good enough for now.
 //!
 //! ## Missing chunks
 //!
-//! Special care has to be taken to handle missing chunks. When a chunk is missing, it doesn't process
-//! the receipts that were sent to it at previous heights. If other shards keep sending receipts to the
-//! shard with missing chunks, these receipts will accumulate and the size of incoming receipts can grow
-//! into infinity. This would also mean that the state witness for the next chunk would be huge, which
-//! would cause problems.
+//! Special care has to be taken to handle missing chunks. When a chunk is missing, it doesn't
+//! process the receipts that were sent to it at previous heights. If other shards keep sending
+//! receipts to the shard with missing chunks, these receipts will accumulate and the size of
+//! incoming receipts can grow into infinity. This would also mean that the state witness for the
+//! next chunk would be huge, which would cause problems.
 //!
-//! Bandwidth scheduler handles this using a simple rule - if the last chunk was missing on some shard,
-//! don't send any receipts to this shard, it still hasn't processed the previous ones.
+//! Bandwidth scheduler handles this using a simple rule - if the last chunk was missing on some
+//! shard, don't send any receipts to this shard, it still hasn't processed the previous ones.
 //!
-//! TODO(bandwidth_scheduler) - think/prove/test if this is enough to handle missing chunks. We actually
-//! know if other chunks in the same block are missing, which is pretty powerful. I need to think more
-//! about it. Maybe there was no fatal flaw in the previous design after all? ;-;
+//! TODO(bandwidth_scheduler) - think/prove/test if this is enough to handle missing chunks. We
+//! actually know if other chunks in the same block are missing, which is pretty powerful. I need to
+//! think more about it. Maybe there was no fatal flaw in the previous design after all? ;-;
 //!
-//! Future improvements: It's a bit wasteful to not send anything when a chunk is missing. We could track
-//! how much a shard already sent to the shard with missing chunks at previous heights, and allow to send
-//! receipts to it, but make sure that their total size doesn't exceed the grant that was given when the
-//! chunk wasn't missing.
-//! This would improve bandwidth utilization in scenarios with many missing chunks.
+//! Future improvements: It's a bit wasteful to not send anything when a chunk is missing. We could
+//! track how much a shard already sent to the shard with missing chunks at previous heights, and
+//! allow to send receipts to it, but make sure that their total size doesn't exceed the grant that
+//! was given when the chunk wasn't missing. This would improve bandwidth utilization in scenarios
+//! with many missing chunks.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
