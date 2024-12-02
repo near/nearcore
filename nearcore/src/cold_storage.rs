@@ -140,7 +140,7 @@ fn cold_store_copy(
         }
     }
 
-    update_cold_head(&cold_db, hot_store, &next_height)?;
+    archival_store.update_head(hot_store, &next_height)?;
 
     let result = if next_height >= hot_final_head_height {
         Ok(ColdStoreCopyResult::LatestBlockCopied)
@@ -449,7 +449,7 @@ pub fn spawn_cold_store_loop(
             // Initialize the head of the archival storage (if not before) from the cold head read from the ColdDB.
             // Note that we need to run this check in the new thread, because it runs blocking calls to async code
             // and it panics if run from the main thread.
-            if let Err(err) = archival_store.try_sync_cold_head() {
+            if let Err(err) = archival_store.try_init_from_cold_head() {
                 panic!("Failed to sync cold head: {:?}", err);
             }
 
@@ -462,6 +462,9 @@ pub fn spawn_cold_store_loop(
                 panic!("Failed to sanity check cold store: {:?}", err);
             }
 
+            // If the archival storage is ColdDB, try the migration from legacy archival storage (single RocksDB)
+            // to split storage (HotDB + ColdDB).
+            // NOTE: Legacy archival storage is deprecated and this migration should not be needed anymore.
             if let Some(ref cold_db) = archival_store.cold_db() {
                 cold_store_migration_loop(
                     &split_storage_config,

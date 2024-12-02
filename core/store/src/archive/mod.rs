@@ -9,7 +9,7 @@ use strum::IntoEnumIterator;
 
 use crate::db::refcount;
 use crate::db::DBOp;
-use crate::COLD_HEAD_KEY;
+use crate::{Store, COLD_HEAD_KEY};
 use crate::HEAD_KEY;
 use crate::{
     config::{ArchivalStorageLocation, ArchivalStoreConfig},
@@ -119,6 +119,45 @@ impl ArchivalStore {
         ArchivalStore::new(ArchivalStorage::ColdDB(cold_db), None, Default::default())
     }
 
+    pub fn update_head(
+        &self,
+        hot_store: &Store,
+        height: &BlockHeight,
+    ) -> io::Result<()> {
+        tracing::debug!(target: "cold_store", "update HEAD of archival data to {}", height);
+
+        let height_key = height.to_le_bytes();
+        let block_hash_key =
+            hot_store.get_or_err_for_cold(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
+        let tip_header =
+            &hot_store.get_ser_or_err_for_cold::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
+        let tip = Tip::from_header(tip_header);
+    
+        // Write head to the archival storage.
+        self.set_head(&tip)?;
+        
+        // Write COLD_HEAD to the hot db.
+        {
+            let mut transaction = DBTransaction::new();
+            transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+            hot_store.storage.write(transaction)?;
+    
+            crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
+        }
+    
+        Ok(())
+    }
+
+    /// Sets the head of the archival data.
+    fn set_head(&self, tip: &Tip) -> io::Result<()> {
+        let tx = set_head_tx(&tip)?;
+        // Update ColdDB head to make it in sync with external storage head.
+        if let Some(ref cold_db) = self.sync_cold_db {
+            cold_db.write(tx.clone())?;
+        }
+        self.write(tx)
+    }
+
     /// Returns the head of the archival data.
     pub fn get_head(&self) -> io::Result<Option<Tip>> {
         match self.storage {
@@ -138,19 +177,10 @@ impl ArchivalStore {
         }
     }
 
-    /// Sets the head of the archival data.
-    pub fn set_head(&self, tip: &Tip) -> io::Result<()> {
-        let tx = set_head_tx(&tip)?;
-        // Update ColdDB head to make it in sync with external storage head.
-        if let Some(ref cold_db) = self.sync_cold_db {
-            cold_db.write(tx.clone())?;
-        }
-        self.write(tx)
-    }
-
-    /// Sets the head in the external storage from the ColdDB head if the sync-ColdDB is provided.
-    /// Otherwise this is on-op.
-    pub fn try_sync_cold_head(&self) -> io::Result<()> {
+    /// Initializes the head in the external storage from the ColdDB head if the sync-ColdDB is provided;
+    /// otherwise this is no-op. Panics if the head is already set in the external storage to
+    /// a different block than the ColdDB head.
+    pub fn try_init_from_cold_head(&self) -> io::Result<()> {
         let Some(ref cold_db) = self.sync_cold_db else {
             return Ok(());
         };
@@ -208,6 +238,8 @@ impl ArchivalStore {
         }
     }
 
+    /// Returns the ColdDB associated with the archival storage, if the target storage is ColdDB.
+    /// Otherwise (if the archival data is written to external storage), returns None.
     pub fn cold_db(&self) -> Option<Arc<ColdDB>> {
         if let ArchivalStorage::ColdDB(ref cold_db) = self.storage {
             Some(cold_db.clone())
