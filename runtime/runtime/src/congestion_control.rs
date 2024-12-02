@@ -4,6 +4,7 @@ use crate::config::{
 };
 use crate::ApplyState;
 use bytesize::ByteSize;
+use itertools::Itertools;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
@@ -231,11 +232,13 @@ impl ReceiptSinkV2 {
     ) -> Result<(), RuntimeError> {
         tracing::debug!(target: "runtime", "forwarding receipts from outgoing buffers");
 
-        // TODO(wacban) - check if the order is the same as previously, if not
-        // then this is a protocol upgrade and needs to be handled as such.
-        // DO NOT COMMIT until this is done.
+        let protocol_version = apply_state.current_protocol_version;
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-        let shard_ids = shard_layout.shard_ids().collect::<Vec<_>>();
+        let shard_ids = if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+            shard_layout.shard_ids().collect_vec()
+        } else {
+            self.outgoing_limit.keys().copied().collect_vec()
+        };
 
         // TODO(resharding) HashSet is non-deterministic, this will break if there
         // are multiple parents. This may happen if there are multiple splits
