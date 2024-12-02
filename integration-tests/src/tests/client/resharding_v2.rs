@@ -5,7 +5,7 @@ use near_chain::Provenance;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
@@ -781,9 +781,8 @@ fn gen_cross_contract_tx_impl(
     nonce: u64,
     block_hash: &CryptoHash,
 ) -> SignedTransaction {
-    let signer0 = InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, account0.as_ref());
-    let signer_new_account =
-        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
+    let signer0 = InMemorySigner::test_signer(&account0);
+    let signer_new_account = InMemorySigner::test_signer(&new_account);
     let data = serde_json::json!([
         {"create": {
         "account_id": account2.to_string(),
@@ -807,7 +806,7 @@ fn gen_cross_contract_tx_impl(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],
@@ -820,7 +819,7 @@ fn gen_cross_contract_tx_impl(
         nonce,
         account0.clone(),
         account1.clone(),
-        &signer0.into(),
+        &signer0,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),

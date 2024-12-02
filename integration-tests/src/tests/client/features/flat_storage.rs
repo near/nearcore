@@ -2,7 +2,7 @@ use crate::tests::client::process_blocks::deploy_test_contract_with_protocol_ver
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ExtCosts;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{
@@ -51,8 +51,7 @@ fn test_flat_storage_upgrade() {
         old_protocol_version,
     );
 
-    let signer: Signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let gas = 20_000_000_000_000;
     let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
