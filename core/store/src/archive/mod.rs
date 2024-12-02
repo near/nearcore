@@ -101,7 +101,7 @@ impl ArchivalStore {
     ) -> Arc<Self> {
         debug_assert!(
             !matches!(storage, ArchivalStorage::ColdDB(_)) || sync_cold_db.is_none(),
-            "Sync-ColdDB must be None if ColdDB is archival storage"
+            "Sync-ColdDB field must be None if the archival storage is ColdDB"
         );
         Arc::new(Self { storage, sync_cold_db, column_to_path })
     }
@@ -118,16 +118,19 @@ impl ArchivalStore {
         let tip = get_tip_at_height(hot_store, height)?;
 
         // Write head to the archival storage.
-        self.set_head(&tip)?;
+        self.save_head(&tip)?;
 
         // Write COLD_HEAD to the hot db.
         save_cold_head(hot_store, &tip)?;
+
+        // Update metrics.
+        crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
 
         Ok(())
     }
 
     /// Sets the head of the archival data.
-    fn set_head(&self, tip: &Tip) -> io::Result<()> {
+    fn save_head(&self, tip: &Tip) -> io::Result<()> {
         let tx = set_head_tx(&tip)?;
         // Update ColdDB head to make it in sync with external storage head.
         if let Some(ref cold_db) = self.sync_cold_db {
@@ -137,7 +140,7 @@ impl ArchivalStore {
     }
 
     /// Returns the head of the archival data.
-    pub fn get_head(&self) -> io::Result<Option<Tip>> {
+    pub fn read_head(&self) -> io::Result<Option<Tip>> {
         match self.storage {
             ArchivalStorage::ColdDB(ref cold_db) => read_cold_head(cold_db),
             ArchivalStorage::External(ref storage) => {

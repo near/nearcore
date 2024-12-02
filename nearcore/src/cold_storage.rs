@@ -96,7 +96,7 @@ fn cold_store_copy(
     let cold_db = archival_store.cold_db().unwrap();
 
     // If HEAD is not set for cold storage we default it to genesis_height.
-    let cold_head = archival_store.get_head()?;
+    let cold_head = archival_store.read_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
     // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
@@ -160,7 +160,7 @@ fn sanity_check(
     hot_store: &Store,
     genesis_height: BlockHeight,
 ) -> anyhow::Result<()> {
-    let cold_head = archival_store.get_head()?;
+    let cold_head = archival_store.read_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
     let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;

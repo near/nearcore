@@ -35,11 +35,7 @@ pub(crate) fn read_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
 pub(crate) fn save_cold_head(hot_store: &Store, tip: &Tip) -> io::Result<()> {
     let mut transaction = DBTransaction::new();
     transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-    hot_store.storage.write(transaction)?;
-
-    crate::metrics::COLD_HEAD_HEIGHT.set(tip.height as i64);
-
-    Ok(())
+    hot_store.storage.write(transaction)
 }
 
 /// Returns the `Tip` at the given block height.
