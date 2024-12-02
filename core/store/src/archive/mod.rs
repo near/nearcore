@@ -1,21 +1,23 @@
 use std::collections::HashMap;
 use std::{io, sync::Arc};
 
+use crate::cold_storage::ColdMigrationStore;
 use borsh::BorshDeserialize;
 use filesystem::FilesystemStorage;
 use gcloud::GoogleCloudStorage;
-use near_primitives::block::Tip;
+use near_primitives::block::{BlockHeader, Tip};
+use near_primitives::types::BlockHeight;
 use strum::IntoEnumIterator;
 
 use crate::db::refcount;
 use crate::db::DBOp;
-use crate::{Store, COLD_HEAD_KEY};
 use crate::HEAD_KEY;
 use crate::{
     config::{ArchivalStorageLocation, ArchivalStoreConfig},
     db::{ColdDB, DBTransaction, Database},
     DBCol,
 };
+use crate::{Store, COLD_HEAD_KEY};
 
 mod filesystem;
 mod gcloud;
@@ -34,20 +36,7 @@ impl ArchivalStoreOpener {
     }
 
     pub fn open(&self, cold_db: Option<Arc<ColdDB>>) -> io::Result<Arc<ArchivalStore>> {
-        // If `container` is present, prepend it to the path for each column.
-        let container = self.config.container.as_deref();
-        let column_to_path = DBCol::iter().filter_map(|col| {
-            // BlockMisc is managed in the cold/archival storage but not marked as cold column.
-            if col.is_cold() || col == DBCol::BlockMisc {
-                let dirname = cold_column_dirname(col)
-                    .unwrap_or_else(|| panic!("Cold column {} has no entry for dirname", col));
-                let path = container
-                    .map_or_else(|| dirname.into(), |c| c.join(std::path::Path::new(dirname)));
-                Some((col, path))
-            } else {
-                None
-            }
-        });
+        let column_to_path = map_cold_column_to_path(self.config.container.as_deref());
         let mut cold_db = cold_db;
         let storage: ArchivalStorage = match self.config.storage {
             ArchivalStorageLocation::ColdDB => ArchivalStorage::ColdDB(
@@ -119,32 +108,28 @@ impl ArchivalStore {
         ArchivalStore::new(ArchivalStorage::ColdDB(cold_db), None, Default::default())
     }
 
-    pub fn update_head(
-        &self,
-        hot_store: &Store,
-        height: &BlockHeight,
-    ) -> io::Result<()> {
+    pub fn update_head(&self, hot_store: &Store, height: &BlockHeight) -> io::Result<()> {
         tracing::debug!(target: "cold_store", "update HEAD of archival data to {}", height);
 
         let height_key = height.to_le_bytes();
         let block_hash_key =
             hot_store.get_or_err_for_cold(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
-        let tip_header =
-            &hot_store.get_ser_or_err_for_cold::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
+        let tip_header = &hot_store
+            .get_ser_or_err_for_cold::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
         let tip = Tip::from_header(tip_header);
-    
+
         // Write head to the archival storage.
         self.set_head(&tip)?;
-        
+
         // Write COLD_HEAD to the hot db.
         {
             let mut transaction = DBTransaction::new();
             transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
             hot_store.storage.write(transaction)?;
-    
+
             crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
         }
-    
+
         Ok(())
     }
 
@@ -319,6 +304,28 @@ fn get_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
         .as_deref()
         .map(Tip::try_from_slice)
         .transpose()
+}
+
+/// Builds a map from column to relative path to store (key, value) pairs for the respective column.
+///
+/// If `container` is present, prepends it to the path for each column.
+fn map_cold_column_to_path(
+    container: Option<&std::path::Path>,
+) -> HashMap<DBCol, std::path::PathBuf> {
+    DBCol::iter()
+        .filter_map(|col| {
+            // BlockMisc is managed in the cold/archival storage but not marked as cold column.
+            if col.is_cold() || col == DBCol::BlockMisc {
+                let dirname = cold_column_dirname(col)
+                    .unwrap_or_else(|| panic!("Cold column {} has no entry for dirname", col));
+                let path = container
+                    .map_or_else(|| dirname.into(), |c| c.join(std::path::Path::new(dirname)));
+                Some((col, path))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Maps each column to a string to be used as a directory name in the storage.
