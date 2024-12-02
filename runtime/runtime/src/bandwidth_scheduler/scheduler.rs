@@ -569,16 +569,18 @@ impl SchedulerBandwidthRequest {
 
         let request_values = BandwidthRequestValues::new(params).values;
         for bit_idx in 0..bandwidth_request.requested_values_bitmap.len() {
-            if bandwidth_request.requested_values_bitmap.get_bit(bit_idx) {
-                // Request for the total value of bandwidth that should be granted on the link.
-                let requested_value = request_values[bit_idx];
-                if requested_value <= current_total {
-                    continue;
-                }
-                // Convert the absolute value to a bandwidth increase.
-                bandwidth_increases.push_back(requested_value - current_total);
-                current_total = requested_value;
+            if !bandwidth_request.requested_values_bitmap.get_bit(bit_idx) {
+                continue;
             }
+
+            // Request for the total value of bandwidth that should be granted on the link.
+            let requested_value = request_values[bit_idx];
+            if requested_value <= current_total {
+                continue;
+            }
+            // Convert the absolute value to a bandwidth increase.
+            bandwidth_increases.push_back(requested_value - current_total);
+            current_total = requested_value;
         }
 
         if bandwidth_increases.is_empty() {
