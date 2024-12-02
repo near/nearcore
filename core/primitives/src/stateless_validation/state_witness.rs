@@ -81,14 +81,61 @@ pub struct ChunkStateWitnessAck {
 
 impl ChunkStateWitnessAck {
     pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness.chunk_header.chunk_hash() }
+        Self { chunk_hash: witness.inner.chunk_header.chunk_hash() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct ChunkStateWitness {
+    pub inner: ChunkStateWitnessInner,
+    padding: Vec<u8>,
+}
+
+impl ChunkStateWitness {
+    pub fn new(
+        chunk_producer: AccountId,
+        epoch_id: EpochId,
+        chunk_header: ShardChunkHeader,
+        main_state_transition: ChunkStateTransition,
+        source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+        applied_receipts_hash: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+        implicit_transitions: Vec<ChunkStateTransition>,
+        new_transactions: Vec<SignedTransaction>,
+        new_transactions_validation_state: PartialState,
+    ) -> Self {
+        let inner = ChunkStateWitnessInner::new(
+            chunk_producer,
+            epoch_id,
+            chunk_header,
+            main_state_transition,
+            source_receipt_proofs,
+            applied_receipts_hash,
+            transactions,
+            implicit_transitions,
+            new_transactions,
+            new_transactions_validation_state,
+        );
+        let inner_serialized = borsh::to_vec(&inner).unwrap();
+        const WANTED_SIZE: usize = 30 * 1024 * 1024; // 30 MB
+        let padding = vec![0; WANTED_SIZE - inner_serialized.len()];
+        Self { inner, padding }
+    }
+
+    pub fn chunk_production_key(&self) -> ChunkProductionKey {
+        self.inner.chunk_production_key()
+    }
+
+    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
+        let inner = ChunkStateWitnessInner::new_dummy(height, shard_id, prev_block_hash);
+        Self { inner, padding: vec![] }
     }
 }
 
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
-pub struct ChunkStateWitness {
+pub struct ChunkStateWitnessInner {
     // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     pub chunk_producer: AccountId,
     /// EpochId corresponds to the next block after chunk's previous block.
@@ -162,7 +209,7 @@ pub struct ChunkStateWitness {
     signature_differentiator: SignatureDifferentiator,
 }
 
-impl ChunkStateWitness {
+impl ChunkStateWitnessInner {
     pub fn new(
         chunk_producer: AccountId,
         epoch_id: EpochId,
