@@ -208,7 +208,10 @@ pub enum StorageSource {
     /// Use the data stored in trie, but without paying extra gas costs.
     /// This could be used to simulate flat storage when the latter is not present.
     TrieFree,
+    #[value(alias("flat"))]
     FlatStorage,
+    /// Implies flat storage and loads the memtries as well.
+    Memtrie,
 }
 
 impl StorageSource {
@@ -217,6 +220,9 @@ impl StorageSource {
             StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
             StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
             StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
+            // This is the same as FlatStorage handling. That's because memtrie initialization
+            // happens as part of `ShardTries::load_mem_trie` function call.
+            StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
         }
     }
 }
@@ -283,16 +289,16 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
+    ///
+    /// Great for profiling.
     Sequential,
     /// Applies chunks in parallel.
+    ///
     /// Useful for quick correctness check of applying chunks by comparing
     /// results with `ChunkExtra`s.
     Parallel,
-    /// Sequentially applies chunks from flat storage head until chain
-    /// final head, moving flat head forward. Use in combination with
-    /// `MoveFlatHeadCmd` and `MoveFlatHeadMode::Back`.
-    /// Useful for benchmarking.
-    Benchmarking,
+    /// Applies a single block repeatedly without committing any state changes.
+    Benchmark,
 }
 
 #[derive(clap::Parser)]
@@ -326,7 +332,7 @@ impl ApplyRangeCmd {
         store: Store,
         node_storage: NodeStorage,
     ) {
-        if matches!(self.mode, ApplyRangeMode::Benchmarking) && self.save_state.is_some() {
+        if matches!(self.mode, ApplyRangeMode::Benchmark) && self.save_state.is_some() {
             panic!("Persisting trie nodes in storage is not compatible with benchmark mode!");
         }
         apply_range(

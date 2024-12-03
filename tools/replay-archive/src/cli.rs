@@ -27,7 +27,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, Shar
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
-use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
+use near_state_viewer::progress_reporter::ProgressReporter;
 use near_store::{get_genesis_state_roots, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::HashMap;
@@ -132,12 +132,13 @@ impl ReplayController {
 
         let progress_reporter = ProgressReporter {
             cnt: AtomicU64::new(0),
-            ts: AtomicU64::new(timestamp_ms()),
-            all: (end_height + 1).saturating_sub(start_height),
             skipped: AtomicU64::new(0),
             empty_blocks: AtomicU64::new(0),
             non_empty_blocks: AtomicU64::new(0),
             tgas_burned: AtomicU64::new(0),
+            indicatif: near_state_viewer::progress_reporter::default_indicatif(
+                (end_height + 1).checked_sub(start_height),
+            ),
         };
 
         Ok(Self {
@@ -192,7 +193,8 @@ impl ReplayController {
                 total_gas_burnt = Some(gas_burnt);
             }
         }
-        self.progress_reporter.inc_and_report_progress(total_gas_burnt.unwrap_or(0));
+        self.progress_reporter
+            .inc_and_report_progress(self.next_height, total_gas_burnt.unwrap_or(0));
         self.next_height += 1;
         Ok(self.next_height <= self.end_height)
     }
