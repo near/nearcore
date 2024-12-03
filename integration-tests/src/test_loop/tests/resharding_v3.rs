@@ -40,21 +40,24 @@ use near_primitives::views::FinalExecutionStatus;
 use std::cell::Cell;
 use std::u64;
 
-fn client_tracking_shard<'a>(clients: &'a [&Client], tip: &Tip, shard_id: ShardId) -> &'a Client {
+fn client_tracking_shard(client: &Client, shard_id: ShardId, parent_hash: &CryptoHash) -> bool {
+    let signer = client.validator_signer.get();
+    let account_id = signer.as_ref().map(|s| s.validator_id());
+    client.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, true)
+}
+
+fn get_client_tracking_shard<'a>(
+    clients: &'a [&Client],
+    tip: &Tip,
+    shard_id: ShardId,
+) -> &'a Client {
     for client in clients {
-        let signer = client.validator_signer.get();
-        let cares_about_shard = client.shard_tracker.care_about_shard(
-            signer.as_ref().map(|s| s.validator_id()),
-            &tip.prev_block_hash,
-            shard_id,
-            true,
-        );
-        if cares_about_shard {
+        if client_tracking_shard(client, shard_id, &tip.prev_block_hash) {
             return client;
         }
     }
     panic!(
-        "client_tracking_shard() could not find client tracking shard {} at {} #{}",
+        "get_client_tracking_shard() could not find client tracking shard {} at {} #{}",
         shard_id, &tip.last_block_hash, tip.height
     );
 }
@@ -62,7 +65,7 @@ fn client_tracking_shard<'a>(clients: &'a [&Client], tip: &Tip, shard_id: ShardI
 fn print_and_assert_shard_accounts(clients: &[&Client], tip: &Tip) {
     let epoch_config = clients[0].epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
     for shard_uid in epoch_config.shard_layout.shard_uids() {
-        let client = client_tracking_shard(clients, tip, shard_uid.shard_id());
+        let client = get_client_tracking_shard(clients, tip, shard_uid.shard_id());
         let chunk_extra = client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
         let trie = client
             .runtime_adapter
@@ -567,8 +570,7 @@ fn assert_tries_equal(
 /// Asserts that for each child shard:
 /// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
 /// If `load_mem_tries_for_tracked_shards` is false, we only enforce memtries for split shards
-fn assert_state_sanity(client: &Client, load_mem_tries_for_tracked_shards: bool) {
-    let final_head = client.chain.final_head().unwrap();
+fn assert_state_sanity(client: &Client, final_head: &Tip, load_mem_tries_for_tracked_shards: bool) {
     let shard_layout = client.epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
@@ -579,6 +581,9 @@ fn assert_state_sanity(client: &Client, load_mem_tries_for_tracked_shards: bool)
             if parent == shard_uid.shard_id() {
                 continue;
             }
+        }
+        if !client_tracking_shard(client, shard_uid.shard_id(), &final_head.prev_block_hash) {
+            continue;
         }
 
         let memtrie = get_memtrie_for_shard(client, &shard_uid, &final_head.prev_block_hash);
@@ -600,13 +605,16 @@ fn assert_state_sanity(client: &Client, load_mem_tries_for_tracked_shards: bool)
         assert!(!trie.has_memtries());
         let trie_state =
             trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
+        assert_tries_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
 
-        let flat_store_chunk_view = client
+        let Some(flat_store_chunk_view) = client
             .chain
             .runtime_adapter
             .get_flat_storage_manager()
             .chunk_view(shard_uid, final_head.last_block_hash)
-            .unwrap();
+        else {
+            continue;
+        };
         let flat_store_state = flat_store_chunk_view
             .iter_range(None, None)
             .map_ok(|(key, value)| {
@@ -627,7 +635,21 @@ fn assert_state_sanity(client: &Client, load_mem_tries_for_tracked_shards: bool)
             .unwrap();
 
         assert_tries_equal(&memtrie_state, &flat_store_state, shard_uid, "memtrie and flat store");
-        assert_tries_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
+    }
+}
+
+fn assert_clients_state_sanity(clients: &[&Client], load_mem_tries_for_tracked_shards: bool) {
+    for client in clients {
+        let head = client.chain.head().unwrap();
+        let final_head = client.chain.final_head().unwrap();
+        // At the end of an epoch, we unload memtries for shards we'll no longer track. Also,
+        // the key/value equality comparison in assert_tries_equal() is only guaranteed for
+        // final blocks. So these two together mean that we should only check this when the head
+        // and final head are in the same epoch.
+        if head.epoch_id != final_head.epoch_id {
+            continue;
+        }
+        assert_state_sanity(client, &final_head, load_mem_tries_for_tracked_shards);
     }
 }
 
@@ -756,6 +778,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
                 println!("State before resharding:");
                 print_and_assert_shard_accounts(&clients, &tip);
             }
+            assert_clients_state_sanity(&clients, params.load_mem_tries_for_tracked_shards);
             latest_block_height.set(tip.height);
             println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
             if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
@@ -788,12 +811,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     // Wait for garbage collection to kick in, so that it is tested as well.
     test_loop
         .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
-
-    // At the end of the test we know for sure resharding has been completed.
-    // Verify that state is equal across tries and flat storage for all children shards.
-    let clients =
-        client_handles.iter().map(|handle| &test_loop.data.get(handle).client).collect_vec();
-    assert_state_sanity(&clients[0], params.load_mem_tries_for_tracked_shards);
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
