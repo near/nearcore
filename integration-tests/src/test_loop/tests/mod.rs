@@ -14,6 +14,7 @@ mod max_receipt_size;
 mod multinode_stateless_validators;
 mod multinode_test_loop_example;
 mod protocol_upgrade;
+mod reject_outdated_blocks;
 mod resharding_v3;
 mod simple_test_loop_example;
 mod state_sync;

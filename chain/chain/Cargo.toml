@@ -76,9 +76,6 @@ test_features = [
 ]
 shadow_chunk_validation = []
 
-protocol_feature_reject_blocks_with_outdated_protocol_version = [
-  "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
-]
 protocol_feature_relaxed_chunk_validation = [
   "near-primitives/protocol_feature_relaxed_chunk_validation",
   "node-runtime/protocol_feature_relaxed_chunk_validation",
@@ -99,7 +96,6 @@ nightly = [
   "near-vm-runner/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "protocol_feature_relaxed_chunk_validation",
 ]
 nightly_protocol = [
