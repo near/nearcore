@@ -16,7 +16,6 @@ use near_store::flat::{
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-use std::collections::{HashMap, HashSet};
 use std::{path::PathBuf, sync::Arc};
 use tqdm::tqdm;
 
