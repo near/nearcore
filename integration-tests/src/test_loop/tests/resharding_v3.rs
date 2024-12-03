@@ -1074,7 +1074,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
-            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            vec![account_in_left_child.clone(), account_in_right_child],
             receiver_account,
             10 * TGAS,
         ))
@@ -1101,7 +1101,7 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_stable_shard.clone()],
-            account_in_left_child.clone(),
+            account_in_left_child,
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
