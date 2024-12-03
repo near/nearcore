@@ -33,6 +33,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 yansi.workspace = true
+indicatif.workspace = true
 
 near-time.workspace = true
 near-chain-configs.workspace = true
