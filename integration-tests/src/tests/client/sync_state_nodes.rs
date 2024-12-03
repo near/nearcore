@@ -9,7 +9,7 @@ use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig}
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
@@ -469,9 +469,7 @@ fn slow_test_dump_epoch_missing_chunk_in_last_block() {
 
             let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
             let mut blocks = vec![genesis_block.clone()];
-            let signer =
-                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
-                    .into();
+            let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
             let next_epoch_start = epoch_length + 1;
             let protocol_version = env.clients[0]

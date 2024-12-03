@@ -327,6 +327,7 @@ impl ShardLayoutV2 {
 pub enum ShardLayoutError {
     InvalidShardIdError { shard_id: ShardId },
     InvalidShardIndexError { shard_index: ShardIndex },
+    NoParentError { shard_id: ShardId },
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -652,11 +653,10 @@ impl ShardLayout {
     /// Return the parent shard id for a given shard in the shard layout. Only
     /// calls this function for shard layout that has parent shard layout.
     /// Returns an error if `shard_id` is an invalid shard id in the current
-    /// layout. Panics if `self` has no parent shard layout.
+    /// layout or if the shard is has no parent in this shard layout.
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
         let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
-        let parent_shard_id = parent_shard_id.expect("shard_layout has no parent shard");
-        Ok(parent_shard_id)
+        parent_shard_id.ok_or(ShardLayoutError::NoParentError { shard_id })
     }
 
     /// Derive new shard layout from an existing one

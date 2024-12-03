@@ -93,7 +93,6 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
@@ -799,27 +798,6 @@ impl Chain {
             me,
             &prev_hash,
         )?;
-        let prev_block = self.get_block(&prev_hash)?;
-
-        if prev_block.chunks().len() != epoch_first_block.chunks().len()
-            && !shards_to_state_sync.is_empty()
-        {
-            // Currently, the state sync algorithm assumes that the number of chunks do not change
-            // between the epoch being synced to and the last epoch.
-            // For example, if shard layout changes at the beginning of epoch T, validators
-            // will not be able to sync states at epoch T for epoch T+1
-            // Fortunately, since all validators track all shards for now, this error will not be
-            // triggered in live yet
-            // Instead of propagating the error, we simply log the error here because the error
-            // do not affect processing blocks for this epoch. However, when the next epoch comes,
-            // the validator will not have the states ready so it will halt.
-            error!(
-                "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
-                epoch_first_block.header().epoch_id(),
-                me
-            );
-            debug_assert!(false);
-        }
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
@@ -993,12 +971,11 @@ impl Chain {
             }
         }
 
-        #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
             if checked_feature!(
-                "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                "stable",
                 RejectBlocksWithOutdatedProtocolVersions,
                 epoch_protocol_version
             ) {
@@ -3036,38 +3013,6 @@ impl Chain {
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))?;
         store_update.set(DBCol::StateParts, &key, data);
         store_update.commit()?;
-        Ok(())
-    }
-
-    pub fn create_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        chunk: &ShardChunk,
-    ) -> Result<(), Error> {
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        // Flat storage must not exist at this point because leftover keys corrupt its state.
-        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-        let flat_head_hash = *chunk.prev_block();
-        let flat_head_header = self.get_block_header(&flat_head_hash)?;
-        let flat_head_prev_hash = *flat_head_header.prev_hash();
-        let flat_head_height = flat_head_header.height();
-
-        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-        let mut store_update = self.runtime_adapter.store().store_update();
-        store_update.flat_store_update().set_flat_storage_status(
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: near_store::flat::BlockInfo {
-                    hash: flat_head_hash,
-                    prev_hash: flat_head_prev_hash,
-                    height: flat_head_height,
-                },
-            }),
-        );
-        store_update.commit()?;
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         Ok(())
     }
 

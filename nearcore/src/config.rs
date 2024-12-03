@@ -589,8 +589,6 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
-                flat_storage_creation_enabled: false,
-                flat_storage_creation_period: Duration::seconds(1),
                 state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
