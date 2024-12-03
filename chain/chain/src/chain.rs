@@ -890,10 +890,13 @@ impl Chain {
                 if chunk_header.shard_id() != shard_id {
                     return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
+                let parent_hash = block.header().prev_hash();
+                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
                 if !verify_chunk_header_signature_with_epoch_manager(
                     epoch_manager,
                     &chunk_header,
-                    &block.header().prev_hash(),
+                    &parent_hash,
+                    epoch_id,
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk(format!(
