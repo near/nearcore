@@ -16,7 +16,6 @@ use near_store::flat::{
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
-use std::collections::{HashMap, HashSet};
 use std::{path::PathBuf, sync::Arc};
 use tqdm::tqdm;
 
@@ -46,7 +45,7 @@ enum SubCommand {
     /// The trie is constructed for the block height equal to flat_head
     ConstructTrieFromFlat(ConstructTriedFromFlatCmd),
 
-    /// Move flat head forward or backward.
+    /// Move flat storage head.
     MoveFlatHead(MoveFlatHeadCmd),
 }
 
@@ -365,66 +364,6 @@ impl FlatStorageCommand {
         Ok(())
     }
 
-    // This is a hack needed to find all updated keys which are not recorded
-    // in `DBCol::StateChanges`. Takes keys, values for which are different
-    // in flat storage accessible in `store` and given trie.
-    // TODO(1.40): remove after removal of feature `serialize_all_state_changes`
-    // reaches mainnet.
-    fn find_updated_missing_items(
-        &self,
-        shard_uid: ShardUId,
-        store: &Store,
-        trie: near_store::Trie,
-    ) -> anyhow::Result<Vec<(Vec<u8>, Option<FlatStateValue>)>> {
-        let missing_keys_left_boundary = &[near_primitives::trie_key::col::RECEIVED_DATA];
-        let missing_keys_right_boundary =
-            &[near_primitives::trie_key::col::DELAYED_RECEIPT_OR_INDICES + 1];
-
-        let mut prev_iter = trie.disk_iter()?;
-        let nibbles_left_boundary: Vec<_> =
-            near_store::NibbleSlice::new(missing_keys_left_boundary).iter().collect();
-        let nibbles_right_boundary: Vec<_> =
-            near_store::NibbleSlice::new(missing_keys_right_boundary).iter().collect();
-        let prev_missing_items: HashMap<Vec<u8>, near_primitives::state::FlatStateValue> =
-            HashMap::from_iter(
-                prev_iter
-                    .get_trie_items(&nibbles_left_boundary, &nibbles_right_boundary)?
-                    .into_iter()
-                    .map(|(key, value)| {
-                        (
-                            key,
-                            near_primitives::state::FlatStateValue::Ref(
-                                near_primitives::state::ValueRef::new(&value),
-                            ),
-                        )
-                    }),
-            );
-
-        let flat_store = store.flat_store();
-        let iter = flat_store.iter_range(
-            shard_uid,
-            Some(missing_keys_left_boundary),
-            Some(missing_keys_right_boundary),
-        );
-        let missing_items: HashMap<Vec<u8>, near_primitives::state::FlatStateValue> =
-            HashMap::from_iter(iter.map(|it| {
-                let (key, value) = it.unwrap();
-                (key, near_primitives::state::FlatStateValue::Ref(value.to_value_ref()))
-            }));
-
-        let missing_keys: HashSet<_> =
-            prev_missing_items.keys().chain(missing_items.keys()).collect();
-        let mut result = vec![];
-        for key in missing_keys {
-            let prev_value = prev_missing_items.get(key);
-            let value = missing_items.get(key);
-            if prev_value != value {
-                result.push((key.to_vec(), prev_value.cloned()));
-            }
-        }
-        Ok(result)
-    }
-
     fn move_flat_head_back(
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -500,23 +439,30 @@ impl FlatStorageCommand {
                 if let Some(trie_key) = maybe_trie_key {
                     // Take *previous* value for the key from trie corresponding
                     // to pre-state-root for this block.
-                    let prev_value = trie
+                    let prev_value_ref = trie
                         .get_optimized_ref(trie_key, near_store::KeyLookupMode::Trie)?
-                        .map(|value_ref| {
-                            near_primitives::state::FlatStateValue::Ref(value_ref.into_value_ref())
-                        });
-                    let value = flat_store
-                        .get(shard_uid, trie_key)?
-                        .map(|val| near_primitives::state::FlatStateValue::Ref(val.to_value_ref()));
-                    if prev_value != value {
-                        prev_delta.insert(trie_key.to_vec(), prev_value);
+                        .map(|value_ref| value_ref.into_value_ref());
+                    let value_ref =
+                        flat_store.get(shard_uid, trie_key)?.map(|val| val.to_value_ref());
+                    if prev_value_ref == value_ref {
+                        // Value didn't change, skip it.
+                        continue;
                     }
-                }
-            }
 
-            let missing_items = self.find_updated_missing_items(shard_uid, &store, trie)?;
-            for (key, value) in missing_items.into_iter() {
-                prev_delta.insert(key, value);
+                    // Inline value if needed and add it to delta.
+                    let prev_value = match prev_value_ref {
+                        None => None,
+                        Some(value_ref) => {
+                            if value_ref.len() <= FlatStateValue::INLINE_DISK_VALUE_THRESHOLD {
+                                let value = trie.retrieve_value(&value_ref.hash)?;
+                                Some(FlatStateValue::Inlined(value))
+                            } else {
+                                Some(FlatStateValue::Ref(value_ref))
+                            }
+                        }
+                    };
+                    prev_delta.insert(trie_key.to_vec(), prev_value);
+                }
             }
 
             // Change all keys values of which are different for previous
