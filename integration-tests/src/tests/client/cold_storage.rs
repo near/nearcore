@@ -13,7 +13,7 @@ use near_primitives::transaction::{
 };
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
-use near_store::cold_storage::{
+use near_store::archive::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
     test_get_store_reads, update_cold_db, update_cold_head,
 };
@@ -356,7 +356,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let cold_db = storage.cold_db().unwrap();
     let cold_store = storage.get_cold_store().unwrap();
     let client_store = env.clients[0].runtime_adapter.store();
-    copy_all_data_to_cold(cold_db.clone(), &client_store, batch_size, &keep_going).unwrap();
+    copy_all_data_to_cold(cold_db, &client_store, batch_size, &keep_going).unwrap();
 
     for col in DBCol::iter() {
         if !col.is_cold() {
@@ -441,7 +441,7 @@ fn test_cold_loop_on_gc_boundary() {
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     let cold_db = storage.cold_db().unwrap();
-    copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
+    copy_all_data_to_cold(cold_db, &hot_store, 1000000, &keep_going).unwrap();
 
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 

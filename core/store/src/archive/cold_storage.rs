@@ -11,6 +11,7 @@ use near_primitives::types::BlockHeight;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::io;
+use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 type StoreKey = Vec<u8>;
@@ -75,7 +76,7 @@ struct BatchTransaction {
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
 pub fn update_cold_db(
-    cold_db: &ColdDB,
+    cold_db: &Arc<ColdDB>,
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
@@ -165,13 +166,15 @@ fn rc_aware_set(
 fn copy_state_from_store(
     shard_layout: &ShardLayout,
     block_hash_key: &[u8],
-    cold_db: &ColdDB,
+    cold_db: &Arc<ColdDB>,
     hot_store: &Store,
 ) -> io::Result<()> {
     let col = DBCol::State;
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
     let instant = std::time::Instant::now();
 
+    let mut total_keys = 0;
+    let mut total_size = 0;
     let mut transaction = DBTransaction::new();
     for shard_uid in shard_layout.shard_uids() {
         debug_assert_eq!(
@@ -185,11 +188,13 @@ fn copy_state_from_store(
             hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
 
         let Some(trie_changes) = trie_changes else { continue };
+        total_keys += trie_changes.insertions().len();
         for op in trie_changes.insertions() {
             // TODO(reshardingV3) Handle shard_uid not mapped there
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
             let value = op.payload().to_vec();
 
+            total_size += value.len();
             tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
         }
@@ -201,7 +206,7 @@ fn copy_state_from_store(
     cold_db.write(transaction)?;
     let write_duration = instant.elapsed();
 
-    tracing::trace!(target: "cold_store", ?read_duration, ?write_duration, "finished");
+    tracing::trace!(target: "cold_store", ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_state_from_store finished");
 
     Ok(())
 }
@@ -210,7 +215,7 @@ fn copy_state_from_store(
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
 fn copy_from_store(
-    cold_db: &ColdDB,
+    cold_db: &Arc<ColdDB>,
     hot_store: &Store,
     col: DBCol,
     keys: Vec<StoreKey>,
@@ -225,6 +230,7 @@ fn copy_from_store(
 
     let mut transaction = DBTransaction::new();
     let mut good_keys = 0;
+    let mut total_size = 0;
     let total_keys = keys.len();
     for key in keys {
         // TODO: Look into using RocksDB’s multi_key function.  It
@@ -236,11 +242,12 @@ fn copy_from_store(
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we could have
-            // `cold_db: &ColdDB` and then some custom function which lets us
+            // `cold_db: &Arc<ColdDB>` and then some custom function which lets us
             // write raw bytes. This would also allow us to bypass stripping and
             // re-adding the reference count.
 
             good_keys += 1;
+            total_size += value.len();
             rc_aware_set(&mut transaction, col, key, value);
         }
     }
@@ -251,7 +258,7 @@ fn copy_from_store(
     cold_db.write(transaction)?;
     let write_duration = instant.elapsed();
 
-    tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?read_duration, ?write_duration, "finished");
+    tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?total_size, ?read_duration, ?write_duration, "copy_from_store finished");
 
     return Ok(());
 }
@@ -264,8 +271,9 @@ fn copy_from_store(
 /// This method relies on the fact that BlockHeight and BlockHeader are not garbage collectable.
 /// (to construct the Tip we query hot_store for block hash and block header)
 /// If this is to change, caller should be careful about `height` not being garbage collected in hot storage yet.
+// TODO: Remove this and use `ArchivalStore::update_head` instead, once the archival storage logic is updated to use `ArchivalStore`.
 pub fn update_cold_head(
-    cold_db: &ColdDB,
+    cold_db: &Arc<ColdDB>,
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
@@ -304,6 +312,15 @@ pub fn update_cold_head(
     return Ok(());
 }
 
+/// Reads the cold-head from the Cold DB.
+pub fn get_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
+    cold_db
+        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+        .as_deref()
+        .map(Tip::try_from_slice)
+        .transpose()
+}
+
 pub enum CopyAllDataToColdStatus {
     EverythingCopied,
     Interrupted,
@@ -312,7 +329,7 @@ pub enum CopyAllDataToColdStatus {
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
 pub fn copy_all_data_to_cold(
-    cold_db: std::sync::Arc<ColdDB>,
+    cold_db: &Arc<ColdDB>,
     hot_store: &Store,
     batch_size: usize,
     keep_going: &std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -341,7 +358,7 @@ pub fn copy_all_data_to_cold(
 // in the trie changes. This isn't the case for genesis so instead this method
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
-pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
+pub fn test_cold_genesis_update(cold_db: &Arc<ColdDB>, hot_store: &Store) -> io::Result<()> {
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
