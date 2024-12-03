@@ -640,6 +640,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     init_test_logger();
     let mut builder = TestLoopBuilder::new();
 
+    // Adjust the resharding configuration to make the tests faster.
+    builder = builder.config_modifier(|config, _| {
+        let mut resharding_config = config.resharding_config.get();
+        resharding_config.batch_delay = Duration::milliseconds(1);
+        config.resharding_config.update(resharding_config);
+    });
+
     // Prepare shard split configuration.
     let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let base_protocol_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;

@@ -1,6 +1,6 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
 use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
-use crate::progress_reporter::{timestamp_ms, ProgressReporter};
+use crate::progress_reporter::ProgressReporter;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
@@ -78,7 +78,7 @@ fn apply_block_from_range(
         Ok(block_hash) => block_hash,
         Err(_) => {
             // Skipping block because it's not available in ChainStore.
-            progress_reporter.inc_and_report_progress(0);
+            progress_reporter.inc_and_report_progress(height, 0);
             return;
         }
     };
@@ -101,7 +101,7 @@ fn apply_block_from_range(
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
         }
-        progress_reporter.inc_and_report_progress(0);
+        progress_reporter.inc_and_report_progress(height, 0);
         return;
     } else if block.chunks()[shard_index].height_included() == height {
         chunk_present = true;
@@ -137,7 +137,7 @@ fn apply_block_from_range(
                         chunk_present
                     ),
                 );
-                progress_reporter.inc_and_report_progress(0);
+                progress_reporter.inc_and_report_progress(height, 0);
                 return;
             }
         };
@@ -286,43 +286,60 @@ fn apply_block_from_range(
             apply_result.trie_changes.state_changes().len(),
         ),
     );
-    progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
+    progress_reporter.inc_and_report_progress(height, apply_result.total_gas_burnt);
 
-    if mode == ApplyRangeMode::Benchmarking {
-        // Compute delta and immediately apply to flat storage.
-        let changes =
-            FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
-        let delta = near_store::flat::FlatStateDelta {
-            metadata: near_store::flat::FlatStateDeltaMetadata {
-                block: BlockInfo {
-                    hash: block_hash,
-                    height: block.header().height(),
-                    prev_hash: *block.header().prev_hash(),
+    // See documentation for `ApplyRangeMode` variants.
+    //
+    // Ultimately, this has to handle requirements on storage effects from multiple sources --
+    // `Benchmark` for example repeatedly applies a single block, so no storage effects are
+    // desired, meanwhile other modes can be set to operate on various storage sources, all of
+    // which have their unique propoerties (e.g. flat storage operates on flat_head...)
+    match (mode, storage) {
+        (ApplyRangeMode::Benchmark, _) => {}
+        (_, StorageSource::Trie | StorageSource::TrieFree) => {}
+        (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+            // Compute delta and immediately apply to flat storage.
+            let changes =
+                FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
+            let delta = near_store::flat::FlatStateDelta {
+                metadata: near_store::flat::FlatStateDeltaMetadata {
+                    block: BlockInfo {
+                        hash: block_hash,
+                        height: block.header().height(),
+                        prev_hash: *block.header().prev_hash(),
+                    },
+                    prev_block_with_changes: None,
                 },
-                prev_block_with_changes: None,
-            },
-            changes,
-        };
+                changes,
+            };
 
-        let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-        let store_update = flat_storage.add_delta(delta).unwrap();
-        store_update.commit().unwrap();
-        flat_storage.update_flat_head(&block_hash).unwrap();
-
-        // Apply trie changes to trie node caches.
-        let mut fake_store_update = read_store.trie_store().store_update();
-        apply_result.trie_changes.insertions_into(&mut fake_store_update);
-        apply_result.trie_changes.deletions_into(&mut fake_store_update);
-    } else {
-        if let Err(err) = maybe_save_trie_changes(
-            write_store,
-            genesis.config.genesis_height,
-            apply_result,
-            height,
-            shard_id,
-        ) {
-            panic!("Error while saving trie changes at height {height}, shard {shard_id} ({err})");
+            let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+            let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+            let store_update = flat_storage.add_delta(delta).unwrap();
+            store_update.commit().unwrap();
+            flat_storage.update_flat_head(&block_hash).unwrap();
+        }
+    }
+    match (mode, storage) {
+        (ApplyRangeMode::Benchmark, _) => {}
+        (_, StorageSource::FlatStorage) => {
+            // Apply trie changes to trie node caches.
+            let mut fake_store_update = read_store.trie_store().store_update();
+            apply_result.trie_changes.insertions_into(&mut fake_store_update);
+            apply_result.trie_changes.deletions_into(&mut fake_store_update);
+        }
+        (_, StorageSource::Trie | StorageSource::TrieFree | StorageSource::Memtrie) => {
+            if let Err(err) = maybe_save_trie_changes(
+                write_store,
+                genesis.config.genesis_height,
+                apply_result,
+                height,
+                shard_id,
+            ) {
+                panic!(
+                    "Error while saving trie changes at height {height}, shard {shard_id} ({err})"
+                );
+            }
         }
     }
 }
@@ -353,59 +370,81 @@ pub fn apply_chain_range(
         ?storage)
     .entered();
     let chain_store = ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
-    let (start_height, end_height) = match mode {
-        ApplyRangeMode::Benchmarking => {
-            // Benchmarking mode requires flat storage and retrieves start and
-            // end heights from flat storage and chain.
-            assert!(matches!(storage, StorageSource::FlatStorage));
-            assert!(start_height.is_none());
-            assert!(end_height.is_none());
+    let final_head = chain_store.final_head().unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
+    let shard_uid =
+        near_primitives::shard_layout::ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 
-            let chain_store =
-                ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
-            let final_head = chain_store.final_head().unwrap();
-            let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
-            let shard_uid = near_primitives::shard_layout::ShardUId::from_shard_id_and_layout(
-                shard_id,
-                &shard_layout,
-            );
-            let flat_head = match read_store.flat_store().get_flat_storage_status(shard_uid) {
-                Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
-                status => {
-                    panic!("cannot create flat storage for shard {shard_id} with status {status:?}")
-                }
-            };
+    // Load the requested type of storage for transactions and actions to act upon. This may allow
+    // configurations that aren't used in production anymore, in case anybody really wants that
+    // behaviour.
+    match storage {
+        StorageSource::Trie | StorageSource::TrieFree => {}
+        StorageSource::FlatStorage => {
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-
-            // Note that first height to apply is the first one after flat
-            // head.
-            (flat_head.height + 1, final_head.height)
         }
-        _ => (
+        StorageSource::Memtrie => {
+            // Memtries require flat storage to load.
+            let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            runtime_adapter
+                .get_tries()
+                .load_mem_trie(&shard_uid, None, true)
+                .expect("load mem trie");
+        }
+    }
+
+    let (start_height, end_height) = match (mode, storage) {
+        (ApplyRangeMode::Benchmark, StorageSource::Trie | StorageSource::TrieFree) => {
+            panic!("benchmark with --storage trie|trie-free is not supported")
+        }
+        (ApplyRangeMode::Benchmark, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+            // Benchmarking mode requires flat storage and retrieves the block height from flat
+            // storage.
+            assert!(start_height.is_none());
+            assert!(end_height.is_none());
+            let flat_status = read_store.flat_store().get_flat_storage_status(shard_uid);
+            let Ok(FlatStorageStatus::Ready(ready)) = flat_status else {
+                panic!("cannot create flat storage for shard {shard_uid} due to {flat_status:?}")
+            };
+            // We apply the block at flat_head. Users can set the block they want to benchmark by
+            // moving the flat head using the `flat-storage move-flat-head` command. End point of
+            // `0` helps indicatif to display more reasonable output.
+            (ready.flat_head.height + 1, 0)
+        }
+        (_, StorageSource::Trie | StorageSource::TrieFree) => (
             start_height.unwrap_or_else(|| chain_store.tail().unwrap()),
             end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
         ),
+        (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+            let start_height = start_height.unwrap_or_else(|| {
+                let status = read_store.flat_store().get_flat_storage_status(shard_uid);
+                let Ok(FlatStorageStatus::Ready(ready)) = status else {
+                    panic!("cannot create flat storage for shard {shard_uid} due to {status:?}")
+                };
+                ready.flat_head.height + 1
+            });
+            (start_height, end_height.unwrap_or_else(|| chain_store.head().unwrap().height))
+        }
     };
 
-    println!(
-        "Applying chunks in the range {}..={} for shard_id {}",
-        start_height, end_height, shard_id
-    );
-
-    println!("Printing results including outcomes of applying receipts");
+    let range = start_height..=end_height;
+    println!("Applying chunks in the range {range:?} for {shard_uid}…");
+    if csv_file.is_some() {
+        println!("Writing results of applying receipts to the CSV file");
+    }
     let csv_file_mutex = Mutex::new(csv_file);
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
-
-    let range = start_height..=end_height;
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
-        ts: AtomicU64::new(timestamp_ms()),
-        all: (end_height + 1).saturating_sub(start_height),
         skipped: AtomicU64::new(0),
         empty_blocks: AtomicU64::new(0),
         non_empty_blocks: AtomicU64::new(0),
         tgas_burned: AtomicU64::new(0),
+        indicatif: crate::progress_reporter::default_indicatif(
+            (end_height + 1).checked_sub(start_height),
+        ),
     };
     let process_height = |height| {
         apply_block_from_range(
@@ -425,34 +464,45 @@ pub fn apply_chain_range(
         );
     };
 
+    let start_time = near_time::Instant::now();
     match mode {
-        ApplyRangeMode::Sequential | ApplyRangeMode::Benchmarking => {
-            range.into_iter().for_each(|height| {
+        ApplyRangeMode::Sequential => {
+            range.clone().into_iter().for_each(|height| {
                 let _span = tracing::debug_span!(
                     target: "state_viewer",
                     parent: &parent_span,
-                    "process_block_in_order",
+                    "process_block",
                     height)
                 .entered();
                 process_height(height)
             });
         }
         ApplyRangeMode::Parallel => {
-            range.into_par_iter().for_each(|height| {
+            range.clone().into_par_iter().for_each(|height| {
                 let _span = tracing::debug_span!(
                 target: "mock_node",
                 parent: &parent_span,
-                "process_block_in_parallel",
+                "process_block",
                 height)
                 .entered();
                 process_height(height)
             });
         }
+        ApplyRangeMode::Benchmark => loop {
+            let height = range.start();
+            let _span = tracing::debug_span!(
+                    target: "state_viewer",
+                    parent: &parent_span,
+                    "process_block",
+                    height)
+            .entered();
+            process_height(*height)
+        },
     }
 
     println!(
-        "No differences found after applying chunks in the range {}..={} for shard_id {}",
-        start_height, end_height, shard_id
+        "Applied range {range:?} for shard {shard_uid} in {elapsed:?}",
+        elapsed = start_time.elapsed()
     );
 }
 

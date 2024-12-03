@@ -105,8 +105,9 @@ pub enum MoveFlatHeadMode {
         new_flat_head_height: BlockHeight,
     },
     /// Moves head back by specific number of blocks.
-    /// Note: it doesn't record deltas on the way and should be used
-    /// only for replaying chain forward.
+    ///
+    /// Note: it doesn't record deltas on the way and should be used only for replaying chain
+    /// forward.
     Back {
         #[clap(long)]
         blocks: usize,
