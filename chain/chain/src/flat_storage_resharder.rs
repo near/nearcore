@@ -19,7 +19,7 @@ use crate::{ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::col::{self};
 use near_primitives::trie_key::trie_key_parsers::{
@@ -599,7 +599,12 @@ impl FlatStorageResharder {
         mut flat_head_block_hash: CryptoHash,
         chain_store: &ChainStore,
     ) -> Result<(usize, Tip), Error> {
-        const CATCH_UP_BLOCKS: u32 = 50;
+        // How many block heights of deltas are applied in a single commit.
+        let catch_up_blocks = self.resharding_config.get().catch_up_blocks;
+        // Delay between every batch.
+        let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
+
+        info!(target: "resharding", ?shard_uid, ?batch_delay, ?catch_up_blocks, "flat storage shard catchup: starting delta apply");
 
         let mut num_batches_done: usize = 0;
 
@@ -617,7 +622,7 @@ impl FlatStorageResharder {
             let mut store_update = store.store_update();
 
             // Merge deltas from the next blocks until we reach chain final head.
-            for _ in 0..CATCH_UP_BLOCKS {
+            for _ in 0..catch_up_blocks {
                 let height = chain_store.get_block_height(&flat_head_block_hash)?;
                 debug_assert!(
                     height <= chain_final_head.height,
@@ -653,6 +658,10 @@ impl FlatStorageResharder {
             if flat_head_block_hash == chain_final_head.last_block_hash {
                 return Ok((num_batches_done, chain_final_head));
             }
+
+            // Sleep between batches in order to throttle resharding and leave some resource for the
+            // regular node operation.
+            std::thread::sleep(batch_delay);
         }
     }
 
@@ -899,7 +908,7 @@ fn copy_kv_to_child(
         &split_params;
     // Derive the shard uid for this account in the new shard layout.
     let account_id = account_id_parser(&key)?;
-    let new_shard_id = account_id_to_shard_id(&account_id, shard_layout);
+    let new_shard_id = shard_layout.account_id_to_shard_id(&account_id);
     let new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
 
     // Sanity check we are truly writing to one of the expected children shards.

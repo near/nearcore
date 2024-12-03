@@ -8,7 +8,7 @@ use crate::tests::genesis_helpers::genesis_block;
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::GetBlock;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
@@ -358,13 +358,12 @@ fn ultra_slow_test_tx_invalid_tx_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.5".parse().unwrap(), KeyType::ED25519, "near.5");
+        let signer = InMemorySigner::test_signer(&"near.5".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.5".parse().unwrap(),
             "near.2".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10000,
             genesis_hash,
         );
