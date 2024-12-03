@@ -558,6 +558,8 @@ pub struct ClientConfig {
     /// which can cause extra load on the database. This option is not recommended for production use,
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
+    /// Probability of producing a chunk.
+    pub p_produce_chunk: f32,
 }
 
 impl ClientConfig {
@@ -648,6 +650,7 @@ impl ClientConfig {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
+            p_produce_chunk: 1.0,
         }
     }
 }

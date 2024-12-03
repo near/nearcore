@@ -1278,9 +1278,11 @@ impl ClientActorInner {
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self, signer: &Option<Arc<ValidatorSigner>>) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
+        let should_produce_chunk =
+            rand::thread_rng().gen::<f32>() < self.client.config.p_produce_chunk;
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
             Some(self.myself_sender.apply_chunks_done.clone()),
-            true,
+            should_produce_chunk,
             signer,
         );
         if !errors.is_empty() {
