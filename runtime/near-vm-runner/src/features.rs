@@ -153,14 +153,8 @@ impl From<WasmFeatures> for wasmer_types::Features {
 #[cfg(feature = "wasmtime_vm")]
 impl From<WasmFeatures> for wasmtime::Config {
     fn from(_: WasmFeatures) -> Self {
-        let mut config = wasmtime::Config::default();
-        config.wasm_threads(THREADS);
-        config.wasm_reference_types(REFERENCE_TYPES);
-        config.wasm_simd(SIMD);
-        config.wasm_bulk_memory(BULK_MEMORY);
-        config.wasm_multi_value(MULTI_VALUE);
-        config.wasm_multi_memory(MULTI_MEMORY);
-        config.wasm_memory64(MEMORY64);
-        config
+        // preparation code did all the filtering necessary already. Default configuration supports
+        // all the necessary features (and, yes, enables more of them.)
+        wasmtime::Config::default()
     }
 }

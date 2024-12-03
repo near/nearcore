@@ -643,8 +643,7 @@ fn setup_test_env_with_cross_contract_txs(
 
     let mut init_txs = vec![];
     for account_id in &contract_accounts {
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let actions = vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })];
@@ -893,16 +892,16 @@ fn test_latest_protocol_missing_chunks(p_missing: f64, rng_seed: u64) {
 // latest protocol
 
 #[test]
-fn test_latest_protocol_missing_chunks_low_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_mid_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_high_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);
 }

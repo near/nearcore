@@ -65,9 +65,11 @@ impl LoadMemTrieCommand {
 
         println!("Loading memtries for shards {:?}...", selected_shard_uids);
         let start_time = std::time::Instant::now();
-        runtime
-            .get_tries()
-            .load_mem_tries_for_enabled_shards(&selected_shard_uids, !self.no_parallel)?;
+        runtime.get_tries().load_mem_tries_for_enabled_shards(
+            &selected_shard_uids,
+            &[].into(),
+            !self.no_parallel,
+        )?;
         println!(
             "Finished loading memtries, took {:?}, press Ctrl-C to exit.",
             start_time.elapsed()

@@ -14,7 +14,7 @@ use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -257,7 +257,7 @@ fn run_chunk_validation_test(
 }
 
 #[test]
-fn test_chunk_validation_no_missing_chunks() {
+fn slow_test_chunk_validation_no_missing_chunks() {
     run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 
@@ -282,7 +282,7 @@ fn test_chunk_validation_protocol_upgrade_no_missing() {
 }
 
 #[test]
-fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
+fn slow_test_chunk_validation_protocol_upgrade_low_missing_prob() {
     run_chunk_validation_test(
         42,
         0.2,
@@ -292,7 +292,7 @@ fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
 }
 
 #[test]
-fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
+fn slow_test_chunk_validation_protocol_upgrade_mid_missing_prob() {
     run_chunk_validation_test(
         42,
         0.6,
@@ -356,7 +356,7 @@ fn get_accounts_and_shard_layout(
     // The number of accounts in each shard.
     let mut shard_account_count: HashMap<ShardId, u32> = HashMap::new();
     for account in &accounts[..num_validators] {
-        let shard_id = account_id_to_shard_id(account, &shard_layout);
+        let shard_id = shard_layout.account_id_to_shard_id(account);
         *shard_account_count.entry(shard_id).or_default() += 1;
     }
     for shard_id in shard_layout.shard_ids() {

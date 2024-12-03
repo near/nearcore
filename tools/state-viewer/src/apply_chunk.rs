@@ -13,7 +13,6 @@ use near_primitives::block::MaybeNew;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -227,8 +226,7 @@ fn find_tx_or_receipt(
             if &receipt.get_hash() == hash {
                 let shard_layout =
                     epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
-                let to_shard =
-                    shard_layout::account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
+                let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                 return Ok(Some((HashType::Receipt, to_shard)));
             }
         }
@@ -423,10 +421,7 @@ fn apply_receipt_in_chunk(
                     if receipt.get_hash() == *id {
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
-                        let to_shard = shard_layout::account_id_to_shard_id(
-                            receipt.receiver_id(),
-                            &shard_layout,
-                        );
+                        let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         to_apply.insert((height, to_shard));
                         println!(
                             "found receipt in chunk {}. Receiver is in shard {}",
@@ -507,10 +502,9 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{InMemorySigner, Signer};
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::utils::get_num_seats_per_shard;
     use near_store::genesis::initialize_genesis_state;
@@ -523,7 +517,7 @@ mod test {
 
     use crate::cli::StorageSource;
 
-    fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
+    fn send_txs(env: &mut TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
         for (i, signer) in signers.iter().enumerate() {
             let from = format!("test{}", i);
             let to = format!("test{}", (i + 1) % signers.len());
@@ -531,7 +525,7 @@ mod test {
                 height,
                 from.parse().unwrap(),
                 to.parse().unwrap(),
-                &signer.clone().into(),
+                &signer,
                 100,
                 hash,
             );
@@ -568,7 +562,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -656,7 +650,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -712,10 +706,8 @@ mod test {
                     }
 
                     for receipt in chunk.prev_outgoing_receipts() {
-                        let to_shard_id = shard_layout::account_id_to_shard_id(
-                            receipt.receiver_id(),
-                            &shard_layout,
-                        );
+                        let to_shard_id =
+                            shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         let to_shard_index = shard_layout.get_shard_index(to_shard_id).unwrap();
 
                         let results = crate::apply_chunk::apply_receipt(

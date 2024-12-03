@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::{fmt, io};
 
@@ -501,6 +501,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    // TODO(reshardingV3) Revisit this function, probably it is not needed anymore.
     fn get_shard_uids_to_gc(
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -522,7 +523,8 @@ impl<'a> ChainStoreUpdate<'a> {
         if shard_layout != next_shard_layout {
             shard_uids_to_gc.extend(next_shard_layout.shard_uids());
         }
-        shard_uids_to_gc
+        let unique_shard_uids_to_gc = shard_uids_to_gc.into_iter().collect::<HashSet<_>>();
+        unique_shard_uids_to_gc.into_iter().collect()
     }
 
     // Clearing block data of `block_hash`, if on a fork.

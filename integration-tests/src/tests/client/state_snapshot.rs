@@ -190,7 +190,7 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 // Runs a validator node.
 // Makes a state snapshot after processing every block. Each block contains a
 // transaction creating an account.
-fn test_make_state_snapshot() {
+fn slow_test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config)

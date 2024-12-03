@@ -197,6 +197,10 @@ impl TestEnv {
         let _ = cell.set(());
     }
 
+    pub fn contains_client(&self, account_id: &AccountId) -> bool {
+        self.account_indices.contains(account_id)
+    }
+
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
         self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
@@ -399,6 +403,10 @@ impl TestEnv {
                     let processing_done_tracker = ProcessingDoneTracker::new();
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
+                    if !self.contains_client(&account_id) {
+                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        continue;
+                    }
                     let client = self.client(&account_id);
                     let processing_result = client.process_chunk_state_witness(
                         state_witness.clone(),
@@ -434,6 +442,10 @@ impl TestEnv {
                     account_id,
                     endorsement,
                 )) => {
+                    if !self.contains_client(&account_id) {
+                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        return None;
+                    }
                     let processing_result = self
                         .client(&account_id)
                         .chunk_endorsement_tracker
@@ -493,13 +505,12 @@ impl TestEnv {
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
             account_id,
-            &signer.into(),
+            &signer,
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
@@ -875,6 +886,10 @@ pub(crate) struct AccountIndices(pub(crate) HashMap<AccountId, usize>);
 impl AccountIndices {
     pub fn index(&self, account_id: &AccountId) -> usize {
         self.0[account_id]
+    }
+
+    pub fn contains(&self, account_id: &AccountId) -> bool {
+        self.0.contains_key(account_id)
     }
 
     pub fn lookup<'a, T>(&self, container: &'a [T], account_id: &AccountId) -> &'a T {

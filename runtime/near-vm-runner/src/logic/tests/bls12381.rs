@@ -619,13 +619,13 @@ mod tests {
         G1Affine,
         bls12381_p1_sum,
         check_sum_p1,
-        test_bls12381_p1_sum_edge_cases_fuzzer,
-        test_bls12381_p1_sum_fuzzer,
-        test_bls12381_p1_sum_not_g1_points_fuzzer,
-        test_bls12381_p1_sum_inverse_fuzzer,
-        test_bls12381_p1_sum_many_points_fuzzer,
-        test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
-        test_bls12381_p1_sum_incorrect_input_fuzzer
+        slow_test_bls12381_p1_sum_edge_cases_fuzzer,
+        slow_test_bls12381_p1_sum_fuzzer,
+        slow_test_bls12381_p1_sum_not_g1_points_fuzzer,
+        slow_test_bls12381_p1_sum_inverse_fuzzer,
+        slow_test_bls12381_p1_sum_many_points_fuzzer,
+        slow_test_bls12381_p1_crosscheck_sum_and_multiexp_fuzzer,
+        slow_test_bls12381_p1_sum_incorrect_input_fuzzer
     );
     test_bls12381_sum!(
         G2Operations,
@@ -635,13 +635,13 @@ mod tests {
         G2Affine,
         bls12381_p2_sum,
         check_sum_p2,
-        test_bls12381_p2_sum_edge_cases_fuzzer,
-        test_bls12381_p2_sum_fuzzer,
-        test_bls12381_p2_sum_not_g2_points_fuzzer,
-        test_bls12381_p2_sum_inverse_fuzzer,
-        test_bls12381_p2_sum_many_points_fuzzer,
-        test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
-        test_bls12381_p2_sum_incorrect_input_fuzzer
+        slow_test_bls12381_p2_sum_edge_cases_fuzzer,
+        slow_test_bls12381_p2_sum_fuzzer,
+        slow_test_bls12381_p2_sum_not_g2_points_fuzzer,
+        slow_test_bls12381_p2_sum_inverse_fuzzer,
+        slow_test_bls12381_p2_sum_many_points_fuzzer,
+        slow_test_bls12381_p2_crosscheck_sum_and_multiexp_fuzzer,
+        slow_test_bls12381_p2_sum_incorrect_input_fuzzer
     );
 
     macro_rules! test_bls12381_memory_limit {
@@ -824,8 +824,8 @@ mod tests {
         bls12381_p1_sum,
         test_bls12381_g1_multiexp_mul_fuzzer,
         test_bls12381_g1_multiexp_many_points_fuzzer,
-        test_bls12381_g1_multiexp_incorrect_input_fuzzer,
-        test_bls12381_g1_multiexp_invariants_checks_fuzzer,
+        slow_test_bls12381_g1_multiexp_incorrect_input_fuzzer,
+        slow_test_bls12381_g1_multiexp_invariants_checks_fuzzer,
         test_bls12381_error_g1_encoding
     );
     test_bls12381_multiexp!(
@@ -838,8 +838,8 @@ mod tests {
         bls12381_p2_sum,
         test_bls12381_g2_multiexp_mul_fuzzer,
         test_bls12381_g2_multiexp_many_points_fuzzer,
-        test_bls12381_g2_multiexp_incorrect_input_fuzzer,
-        test_bls12381_g2_multiexp_invariants_checks_fuzzer,
+        slow_test_bls12381_g2_multiexp_incorrect_input_fuzzer,
+        slow_test_bls12381_g2_multiexp_invariants_checks_fuzzer,
         test_bls12381_error_g2_encoding
     );
 
@@ -917,8 +917,8 @@ mod tests {
         Fq,
         FP,
         check_map_fp,
-        test_bls12381_map_fp_to_g1_fuzzer,
-        test_bls12381_map_fp_to_g1_many_points_fuzzer
+        slow_test_bls12381_map_fp_to_g1_fuzzer,
+        slow_test_bls12381_map_fp_to_g1_many_points_fuzzer
     );
 
     test_bls12381_map_fp_to_g!(
@@ -927,8 +927,8 @@ mod tests {
         Fq2,
         FP2,
         check_map_fp2,
-        test_bls12381_map_fp2_to_g2_fuzzer,
-        test_bls12381_map_fp2_to_g2_many_points_fuzzer
+        slow_test_bls12381_map_fp2_to_g2_fuzzer,
+        slow_test_bls12381_map_fp2_to_g2_many_points_fuzzer
     );
 
     #[test]
@@ -1051,9 +1051,9 @@ mod tests {
         48,
         bls12381_p1_decompress,
         add_p_x,
-        test_bls12381_p1_decompress_fuzzer,
-        test_bls12381_p1_decompress_many_points_fuzzer,
-        test_bls12381_p1_decompress_incorrect_input_fuzzer
+        slow_test_bls12381_p1_decompress_fuzzer,
+        slow_test_bls12381_p1_decompress_many_points_fuzzer,
+        slow_test_bls12381_p1_decompress_incorrect_input_fuzzer
     );
 
     test_bls12381_decompress!(
@@ -1064,9 +1064,9 @@ mod tests {
         96,
         bls12381_p2_decompress,
         add2_p_x,
-        test_bls12381_p2_decompress_fuzzer,
-        test_bls12381_p2_decompress_many_points_fuzzer,
-        test_bls12381_p2_decompress_incorrect_input_fuzzer
+        slow_test_bls12381_p2_decompress_fuzzer,
+        slow_test_bls12381_p2_decompress_many_points_fuzzer,
+        slow_test_bls12381_p2_decompress_incorrect_input_fuzzer
     );
 
     fn add_p_x(point: &G1Affine) -> Vec<u8> {
@@ -1082,7 +1082,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_one_point_fuzzer() {
+    fn slow_test_bls12381_pairing_check_one_point_fuzzer() {
         bolero::check!().with_type().for_each(|(p1, p2): &(G1Point, G2Point)| {
             let zero1 = G1Affine::zero();
             let zero2 = G2Affine::zero();
@@ -1098,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_two_points_fuzzer() {
+    fn slow_test_bls12381_pairing_check_two_points_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1, p2, s1, s2): &(G1Point, G2Point, Scalar, Scalar)| {
                 let p1_neg = p1.p.neg();
@@ -1134,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_check_many_points_fuzzer() {
+    fn slow_test_bls12381_pairing_check_many_points_fuzzer() {
         bolero::check!()
             .with_generator(
                 bolero::gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),
@@ -1180,7 +1180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_pairing_incorrect_input_point_fuzzer() {
+    fn slow_test_bls12381_pairing_incorrect_input_point_fuzzer() {
         bolero::check!().with_type().for_each(
             |(p1_not_from_g1, p2, p1, p2_not_from_g2, curve_p1, curve_p2): &(
                 EnotG1Point,

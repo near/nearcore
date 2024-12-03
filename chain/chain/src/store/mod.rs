@@ -14,7 +14,6 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
@@ -60,22 +59,15 @@ mod merkle_proof;
 pub use latest_witnesses::LatestWitnessesInfo;
 pub use merkle_proof::MerkleProofAccess;
 
-/// lru cache size
-#[cfg(not(feature = "no_cache"))]
-const CACHE_SIZE: usize = 100;
-#[cfg(not(feature = "no_cache"))]
-const CHUNK_CACHE_SIZE: usize = 1024;
-
-#[cfg(feature = "no_cache")]
+// TODO: Get rid of caches in chain store
 const CACHE_SIZE: usize = 1;
-#[cfg(feature = "no_cache")]
 const CHUNK_CACHE_SIZE: usize = 1;
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
 pub trait ChainStoreAccess {
     /// Returns underlying chain store
     fn chain_store(&self) -> &ChainStore;
-    /// Returns underlaying store.
+    /// Returns underlying store.
     fn store(&self) -> &Store;
     /// The chain head.
     fn head(&self) -> Result<Tip, Error>;
@@ -387,7 +379,7 @@ fn filter_incoming_receipts_for_shard(
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
             let receiver_shard_id =
-                account_id_to_shard_id(receipt.receiver_id(), target_shard_layout);
+                target_shard_layout.account_id_to_shard_id(receipt.receiver_id());
             if receiver_shard_id == target_shard_id {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);

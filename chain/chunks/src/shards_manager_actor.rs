@@ -96,9 +96,7 @@ use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
-use near_chain::signature_verification::{
-    verify_chunk_header_signature, verify_chunk_header_signature_with_epoch_manager,
-};
+use near_chain::signature_verification::verify_chunk_header_signature;
 use near_chain::types::EpochManagerAdapter;
 use near_chain_configs::MutableValidatorSigner;
 pub use near_chunks_primitives::Error;
@@ -1230,12 +1228,13 @@ impl ShardsManagerActor {
         let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
         let block_info = self.epoch_manager.get_block_info(&forward.prev_block_hash)?;
 
-        let valid_signature = verify_chunk_header_signature(
-            &forward.chunk_hash,
-            &forward.signature,
-            chunk_producer,
-            block_info,
-        )?;
+        let valid_signature = !self.epoch_manager.should_validate_signatures()
+            || verify_chunk_header_signature(
+                &forward.chunk_hash,
+                &forward.signature,
+                chunk_producer,
+                block_info,
+            )?;
 
         if !valid_signature {
             return Err(Error::InvalidChunkSignature);
@@ -1394,11 +1393,21 @@ impl ShardsManagerActor {
             }
         };
 
-        if !verify_chunk_header_signature_with_epoch_manager(
-            self.epoch_manager.as_ref(),
-            &header,
-            &ancestor_hash,
-        )? {
+        let key = ChunkProductionKey {
+            epoch_id,
+            height_created: header.height_created(),
+            shard_id: header.shard_id(),
+        };
+        let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
+        let block_info = self.epoch_manager.get_block_info(&ancestor_hash)?;
+        if self.epoch_manager.should_validate_signatures()
+            && !verify_chunk_header_signature(
+                &header.chunk_hash(),
+                header.signature(),
+                chunk_producer,
+                block_info,
+            )?
+        {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)
@@ -2320,12 +2329,14 @@ mod test {
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
+        let epoch_id = EpochId::default();
+        let next_epoch_id = EpochId::default();
         let mock_tip = Tip {
             height: 0,
             last_block_hash: CryptoHash::default(),
             prev_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            next_epoch_id: EpochId::default(),
+            epoch_id,
+            next_epoch_id,
         };
         let store = create_test_store();
         let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
@@ -2336,6 +2347,8 @@ mod test {
             2,
         );
         let epoch_manager = Arc::new(epoch_manager.into_handle());
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
         let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
@@ -2360,7 +2373,7 @@ mod test {
                 height: 0,
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
-                shard_id: ShardId::new(0),
+                shard_id,
                 added,
                 last_requested: added,
             },

@@ -19,9 +19,9 @@ use crate::{ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
-use near_primitives::trie_key::col::{self, ALL_COLUMNS_WITH_NAMES};
+use near_primitives::trie_key::col::{self};
 use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
@@ -869,7 +869,7 @@ fn shard_split_handle_key_value(
                 parse_account_id_from_trie_key_with_separator(
                     key_column_prefix,
                     raw_key,
-                    ALL_COLUMNS_WITH_NAMES[key_column_prefix as usize].1,
+                    &format!("col at index {}", key_column_prefix),
                 )
             })?
         }
@@ -899,7 +899,7 @@ fn copy_kv_to_child(
         &split_params;
     // Derive the shard uid for this account in the new shard layout.
     let account_id = account_id_parser(&key)?;
-    let new_shard_id = account_id_to_shard_id(&account_id, shard_layout);
+    let new_shard_id = shard_layout.account_id_to_shard_id(&account_id);
     let new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
 
     // Sanity check we are truly writing to one of the expected children shards.

@@ -16,7 +16,7 @@ use crate::test_loop::utils::TGAS;
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]
-fn test_max_receipt_size() {
+fn slow_test_max_receipt_size() {
     init_test_logger();
     let mut env: TestLoopEnv = standard_setup_1();
 

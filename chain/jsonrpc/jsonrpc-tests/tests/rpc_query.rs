@@ -578,7 +578,7 @@ fn test_parse_error_status_code() {
 }
 
 #[test]
-fn test_bad_handler_error_status_code() {
+fn slow_test_bad_handler_error_status_code() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let json = serde_json::json!({
             "jsonrpc": "2.0",

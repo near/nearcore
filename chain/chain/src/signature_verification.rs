@@ -47,6 +47,9 @@ pub fn verify_chunk_header_signature_with_epoch_manager(
     chunk_header: &ShardChunkHeader,
     parent_hash: &CryptoHash,
 ) -> Result<bool, Error> {
+    if !epoch_manager.should_validate_signatures() {
+        return Ok(true);
+    }
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
     let key = ChunkProductionKey {
         epoch_id,

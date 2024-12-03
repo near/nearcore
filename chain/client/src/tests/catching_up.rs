@@ -12,7 +12,7 @@ use crate::{ClientActor, Query};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::ProcessTxRequest;
 use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
@@ -71,16 +71,11 @@ fn send_tx(
     nonce: u64,
     block_hash: CryptoHash,
 ) {
-    let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
     connector.do_send(
         ProcessTxRequest {
             transaction: SignedTransaction::send_money(
-                nonce,
-                from,
-                to,
-                &signer.into(),
-                amount,
-                block_hash,
+                nonce, from, to, &signer, amount, block_hash,
             ),
             is_forwarded: false,
             check_only: false,
@@ -108,8 +103,7 @@ pub struct StateRequestStruct {
 
 /// Sanity checks that the incoming and outgoing receipts are properly sent and received
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_receipts_sync_third_epoch() {
+fn ultra_slow_test_catchup_receipts_sync_third_epoch() {
     test_catchup_receipts_sync_common(13, 1, false)
 }
 
@@ -121,20 +115,17 @@ fn test_catchup_receipts_sync_third_epoch() {
 /// The reason of increasing block_prod_time in the test is to allow syncing complete.
 /// Otherwise epochs will be changing faster than state sync happen.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_receipts_sync_hold() {
+fn ultra_slow_test_catchup_receipts_sync_hold() {
     test_catchup_receipts_sync_common(13, 1, true)
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_receipts_sync_last_block() {
+fn ultra_slow_test_catchup_receipts_sync_last_block() {
     test_catchup_receipts_sync_common(13, 5, false)
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_receipts_sync_distant_epoch() {
+fn ultra_slow_test_catchup_receipts_sync_distant_epoch() {
     test_catchup_receipts_sync_common(35, 1, false)
 }
 
@@ -384,8 +375,7 @@ enum RandomSinglePartPhases {
 /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
 /// been incorrect due to wrong receipts applied during the third epoch.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_random_single_part_sync() {
+fn ultra_slow_test_catchup_random_single_part_sync() {
     test_catchup_random_single_part_sync_common(false, false, 13)
 }
 
@@ -393,28 +383,24 @@ fn test_catchup_random_single_part_sync() {
 // It causes all the receipts to be applied only on height 16, which is the next epoch.
 // It tests that the incoming receipts are property synced through epochs
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_random_single_part_sync_skip_15() {
+fn ultra_slow_test_catchup_random_single_part_sync_skip_15() {
     test_catchup_random_single_part_sync_common(true, false, 13)
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_random_single_part_sync_send_15() {
+fn ultra_slow_test_catchup_random_single_part_sync_send_15() {
     test_catchup_random_single_part_sync_common(false, false, 15)
 }
 
 // Make sure that transactions are at least applied.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_random_single_part_sync_non_zero_amounts() {
+fn ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts() {
     test_catchup_random_single_part_sync_common(false, true, 13)
 }
 
 // Use another height to send txs.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_random_single_part_sync_height_6() {
+fn ultra_slow_test_catchup_random_single_part_sync_height_6() {
     test_catchup_random_single_part_sync_common(false, false, 6)
 }
 
@@ -616,8 +602,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 /// This test would fail if at any point validators got stuck with state sync, or block
 /// production stalled for any other reason.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_catchup_sanity_blocks_produced() {
+fn ultra_slow_test_catchup_sanity_blocks_produced() {
     init_integration_logger();
     run_actix(async move {
         let connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>> = Arc::new(RwLock::new(vec![]));
@@ -683,20 +668,17 @@ fn test_catchup_sanity_blocks_produced() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_all_chunks_accepted_1000() {
+fn ultra_slow_test_all_chunks_accepted_1000() {
     test_all_chunks_accepted_common(1000, 3000, 5)
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_all_chunks_accepted_1000_slow() {
+fn ultra_slow_test_all_chunks_accepted_1000_slow() {
     test_all_chunks_accepted_common(1000, 6000, 5)
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_all_chunks_accepted_1000_rare_epoch_changing() {
+fn ultra_slow_test_all_chunks_accepted_1000_rare_epoch_changing() {
     test_all_chunks_accepted_common(1000, 1500, 100)
 }
 

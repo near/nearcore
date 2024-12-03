@@ -136,6 +136,7 @@ def hard_reset_cmd(args, traffic_generator, nodes):
     if sys.stdin.readline().strip() != 'yes':
         return
     init_neard_runners(args, traffic_generator, nodes, remove_home_dir=True)
+    _clear_state_parts_if_exists(args, nodes)
 
 
 def restart_cmd(args, traffic_generator, nodes):
@@ -204,11 +205,11 @@ def _apply_stateless_config(args, node):
     """Applies configuration changes to the node for stateless validation,
     including changing config.json file and updating TCP buffer size at OS level."""
     # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
-    do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     # TODO: Enable saving witness after fixing the performance problems.
     do_update_config(node, 'save_latest_witnesses=false')
     if not node.want_state_dump:
         do_update_config(node, 'tracked_shards=[]')
+        do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
         node.run_cmd(
             "sudo sysctl -w net.core.rmem_max=8388608 && sudo sysctl -w net.core.wmem_max=8388608 && sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 8388608' && sudo sysctl -w net.ipv4.tcp_wmem='4096 16384 8388608' && sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0"
@@ -233,6 +234,25 @@ def _apply_config_changes(node, state_sync_location):
             changes['store.state_snapshot_enabled'] = True
     for key, change in changes.items():
         do_update_config(node, f'{key}={json.dumps(change)}')
+
+
+def _clear_state_parts_if_exists(args, nodes):
+    """Looks for the state dumper and clears the GCP bucket where it dumped the parts."""
+    # TODO: Maybe add an argument to set the epoch height from where we want to cleanup.
+    # It still works without it because the dumper node will start dumping the current epoch after reset.
+
+    state_dumper_node = nodes.find(lambda n: n.want_state_dump)
+    if state_dumper_node is None:
+        logger.info('No state dumper node found, skipping state parts cleanup.')
+        return
+
+    logger.info('State dumper node found, cleaning up state parts.')
+    bucket_name = _get_state_parts_bucket_name(args)
+    state_dumper_node.run_cmd(f'gsutil -m rm -r gs://{bucket_name}/chain_id=\*')
+
+
+def _get_state_parts_bucket_name(args):
+    return f'near-state-dumper-mocknet-{args.chain_id}-{args.start_height}-{args.unique_id}'
 
 
 def new_test_cmd(args, traffic_generator, nodes):
@@ -282,12 +302,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
         }
     else:
         if args.gcs_state_sync:
-            location = {
-                "GCS": {
-                    "bucket":
-                        f'near-state-dumper-mocknet-{args.chain_id}-{args.start_height}-{args.unique_id}'
-                }
-            }
+            location = {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
         else:
             location = None
     logger.info('Applying default config changes')
@@ -296,6 +311,8 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
     if args.stateless_setup:
         logger.info('Configuring nodes for stateless protocol')
         pmap(lambda node: _apply_stateless_config(args, node), nodes)
+
+    _clear_state_parts_if_exists(args, nodes)
 
 
 def status_cmd(args, traffic_generator, nodes):
@@ -345,6 +362,7 @@ def reset_cmd(args, traffic_generator, nodes):
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
+    _clear_state_parts_if_exists(args, nodes)
 
 
 def make_backup_cmd(args, traffic_generator, nodes):
