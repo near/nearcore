@@ -10,7 +10,7 @@ use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
 };
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
-use near_primitives::errors::{IntegerOverflowError, RuntimeError};
+use near_primitives::errors::{EpochError, IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, StateStoredReceipt,
     StateStoredReceiptMetadata,
@@ -25,7 +25,7 @@ use near_store::trie::receipts_column_helper::{
 use near_store::{StorageError, TrieAccess, TrieUpdate};
 use near_vm_runner::logic::ProtocolVersion;
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 /// Handle receipt forwarding for different protocol versions.
 pub(crate) enum ReceiptSink {
@@ -240,12 +240,10 @@ impl ReceiptSinkV2 {
             self.outgoing_limit.keys().copied().collect_vec()
         };
 
-        // TODO(resharding) HashSet is non-deterministic, this will break if there
-        // are multiple parents. This may happen if there are multiple splits
-        // within the same resharding.
-        let mut parent_shard_ids = HashSet::new();
+        let mut parent_shard_ids = BTreeSet::new();
         for &shard_id in &shard_ids {
-            let parent_shard_id = shard_layout.try_get_parent_shard_id(shard_id).unwrap();
+            let parent_shard_id =
+                shard_layout.try_get_parent_shard_id(shard_id).map_err(Into::<EpochError>::into)?;
             let Some(parent_shard_id) = parent_shard_id else {
                 continue;
             };
