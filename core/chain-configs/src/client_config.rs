@@ -277,6 +277,11 @@ pub struct ReshardingConfig {
     /// report error early enough for the node maintainer to have time to recover.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub max_poll_time: Duration,
+
+    /// The number of blocks applied in a single batch during shard catch up.
+    /// This value can be decreased if resharding is consuming too many
+    /// resources and interfering with regular node operation.
+    pub catch_up_blocks: BlockHeightDelta,
 }
 
 impl Default for ReshardingConfig {
@@ -292,6 +297,7 @@ impl Default for ReshardingConfig {
             // epoch start. Set the default higher in case we need to wait for
             // state sync.
             max_poll_time: Duration::seconds(2 * 60 * 60), // 2 hours
+            catch_up_blocks: 50,
         }
     }
 }
