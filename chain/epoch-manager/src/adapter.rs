@@ -8,7 +8,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -545,7 +545,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<ShardId, EpochError> {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(account_id_to_shard_id(account_id, &shard_layout))
+        Ok(shard_layout.account_id_to_shard_id(account_id))
     }
 
     fn account_id_to_shard_info(
@@ -555,7 +555,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<ShardUIdAndIndex, EpochError> {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+        let shard_id = shard_layout.account_id_to_shard_id(account_id);
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         Ok(ShardUIdAndIndex { shard_uid, shard_index })

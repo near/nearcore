@@ -15,7 +15,7 @@ use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, Balance, EpochId, ShardId, StateChangeCause, StateRoot};
@@ -164,7 +164,7 @@ impl GenesisBuilder {
         let bar = ProgressBar::new(total_accounts_num as _);
         bar.set_style(ProgressStyle::default_bar().template(
             "[elapsed {elapsed_precise} remaining {eta_precise}] Writing into storage {bar} {pos:>7}/{len:7}",
-        ));
+        ).unwrap());
         // Add records in chunks of 3000 per shard for memory efficiency reasons.
         for i in 0..total_accounts_num {
             let account_id = get_account_id(i);
@@ -328,7 +328,7 @@ impl GenesisBuilder {
     fn add_additional_account(&mut self, account_id: AccountId) -> Result<()> {
         let testing_init_balance: Balance = 10u128.pow(30);
         let testing_init_stake: Balance = 0;
-        let shard_id = account_id_to_shard_id(&account_id, &self.genesis.config.shard_layout);
+        let shard_id = self.genesis.config.shard_layout.account_id_to_shard_id(&account_id);
         let mut records = self.unflushed_records.remove(&shard_id).unwrap_or_default();
         let mut state_update =
             self.state_updates.remove(&shard_id).expect("State update should have been added");

@@ -63,7 +63,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
     ShardChunkHeader, ShardProof, StateSyncInfo,
@@ -93,7 +93,6 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
@@ -799,27 +798,6 @@ impl Chain {
             me,
             &prev_hash,
         )?;
-        let prev_block = self.get_block(&prev_hash)?;
-
-        if prev_block.chunks().len() != epoch_first_block.chunks().len()
-            && !shards_to_state_sync.is_empty()
-        {
-            // Currently, the state sync algorithm assumes that the number of chunks do not change
-            // between the epoch being synced to and the last epoch.
-            // For example, if shard layout changes at the beginning of epoch T, validators
-            // will not be able to sync states at epoch T for epoch T+1
-            // Fortunately, since all validators track all shards for now, this error will not be
-            // triggered in live yet
-            // Instead of propagating the error, we simply log the error here because the error
-            // do not affect processing blocks for this epoch. However, when the next epoch comes,
-            // the validator will not have the states ready so it will halt.
-            error!(
-                "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
-                epoch_first_block.header().epoch_id(),
-                me
-            );
-            debug_assert!(false);
-        }
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
@@ -993,12 +971,11 @@ impl Chain {
             }
         }
 
-        #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
         if let Ok(epoch_protocol_version) =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())
         {
             if checked_feature!(
-                "protocol_feature_reject_blocks_with_outdated_protocol_version",
+                "stable",
                 RejectBlocksWithOutdatedProtocolVersions,
                 epoch_protocol_version
             ) {
@@ -3039,38 +3016,6 @@ impl Chain {
         Ok(())
     }
 
-    pub fn create_flat_storage_for_shard(
-        &self,
-        shard_uid: ShardUId,
-        chunk: &ShardChunk,
-    ) -> Result<(), Error> {
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        // Flat storage must not exist at this point because leftover keys corrupt its state.
-        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-        let flat_head_hash = *chunk.prev_block();
-        let flat_head_header = self.get_block_header(&flat_head_hash)?;
-        let flat_head_prev_hash = *flat_head_header.prev_hash();
-        let flat_head_height = flat_head_header.height();
-
-        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-        let mut store_update = self.runtime_adapter.store().store_update();
-        store_update.flat_store_update().set_flat_storage_status(
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: near_store::flat::BlockInfo {
-                    hash: flat_head_hash,
-                    prev_hash: flat_head_prev_hash,
-                    height: flat_head_height,
-                },
-            }),
-        );
-        store_update.commit()?;
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-        Ok(())
-    }
-
     /// This method is called when the state sync is finished for a shard. It
     /// applies the chunks and populates information in the db, most notably for
     /// the chunk, chunk extra and flat storage.
@@ -4451,7 +4396,7 @@ impl Chain {
     ) -> HashMap<ShardId, Vec<Receipt>> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            let shard_id = account_id_to_shard_id(receipt.receiver_id(), shard_layout);
+            let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
             entry.push(receipt)
         }
@@ -4476,7 +4421,7 @@ impl Chain {
         for receipt in receipts {
             let &mut shard_id = cache
                 .entry(receipt.receiver_id())
-                .or_insert_with(|| account_id_to_shard_id(receipt.receiver_id(), shard_layout));
+                .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
             // This unwrap should be safe as we pre-populated the map with all
             // valid shard ids.
             let shard_index = shard_layout.get_shard_index(shard_id).unwrap();

@@ -26,7 +26,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt, ReceiptV0,
 };
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -75,7 +75,7 @@ fn slow_test_bandwidth_scheduler_request_generation() {
     let workload_accounts: Vec<AccountId> =
         (0..num_shards).map(|i| format!("shard{}_workload_sender", i).parse().unwrap()).collect();
     let workload_accounts_shards: BTreeSet<ShardId> =
-        workload_accounts.iter().map(|a| account_id_to_shard_id(a, &shard_layout)).collect();
+        workload_accounts.iter().map(|a| shard_layout.account_id_to_shard_id(a)).collect();
     assert_eq!(workload_accounts_shards, shard_layout.shard_ids().collect::<BTreeSet<_>>());
 
     // Account of the only producer/validator in the chain

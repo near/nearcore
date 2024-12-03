@@ -10,7 +10,7 @@ pub use crate::scenario_builder::ScenarioBuilder;
 #[test]
 // Use this test as a base for creating reproducers.
 fn scenario_smoke_test() {
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::InMemorySigner;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::AccountId;
 
@@ -36,8 +36,7 @@ fn scenario_smoke_test() {
         let transaction = {
             let signer_id = accounts[h as usize].clone();
             let receiver_id = accounts[(h - 1) as usize].clone();
-            let signer =
-                InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_ref());
+            let signer = InMemorySigner::test(&signer_id);
 
             TransactionConfig {
                 nonce: h,

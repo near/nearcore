@@ -42,10 +42,7 @@ pub(crate) struct FlatStorageInner {
     flat_head: BlockInfo,
     /// Cached deltas for all blocks supported by this flat storage.
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
-    /// This flag enables skipping flat head moves, needed temporarily for FlatState
-    /// values inlining migration.
-    /// The flag has a numerical value and not a bool, to let us detect attempts
-    /// to disable move head multiple times.
+    /// Defines whether flat head can be moved forward or not.
     move_head_enabled: bool,
     metrics: FlatStorageMetrics,
 }

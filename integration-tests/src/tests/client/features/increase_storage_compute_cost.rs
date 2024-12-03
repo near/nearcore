@@ -13,7 +13,7 @@
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::sharding::ShardChunk;
@@ -210,11 +210,7 @@ fn assert_compute_limit_reached(
         let code = near_test_contracts::backwards_compatible_rs_contract().to_vec();
         let actions = vec![Action::DeployContract(DeployContractAction { code })];
 
-        let signer = InMemorySigner::from_seed(
-            contract_account.clone(),
-            KeyType::ED25519,
-            contract_account.as_ref(),
-        );
+        let signer = InMemorySigner::test(&contract_account);
         let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
         env.execute_tx(tx).unwrap().assert_success();
     }
@@ -301,9 +297,7 @@ fn produce_saturated_chunk(
         gas,
         deposit: 0,
     }))];
-    let signer: Signer =
-        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref())
-            .into();
+    let signer: Signer = InMemorySigner::test_signer(&user_account);
 
     let tip = env.clients[0].chain.head().unwrap();
     let mut tx_factory = || {

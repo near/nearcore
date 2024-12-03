@@ -69,7 +69,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -166,6 +166,7 @@ pub fn start_client(
         resharding_sender,
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
+        PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
@@ -910,8 +911,6 @@ impl fmt::Display for SyncRequirement {
 
 impl ClientActorInner {
     pub fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        self.start_flat_storage_creation(ctx);
-
         // Start syncing job.
         self.start_sync(ctx);
 
@@ -1519,29 +1518,6 @@ impl ClientActorInner {
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
             }
         }
-    }
-
-    fn start_flat_storage_creation(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        if !self.client.config.flat_storage_creation_enabled {
-            return;
-        }
-        match self.client.run_flat_storage_creation_step() {
-            Ok(false) => {}
-            Ok(true) => {
-                return;
-            }
-            Err(err) => {
-                error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
-            }
-        }
-
-        ctx.run_later(
-            "ClientActor start_flat_storage_creation",
-            self.client.config.flat_storage_creation_period,
-            move |act, ctx| {
-                act.start_flat_storage_creation(ctx);
-            },
-        );
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.

@@ -120,12 +120,11 @@ pub enum ProtocolFeature {
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
-    #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+    /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
     /// Allows creating an account with a non refundable balance to cover storage costs.
     /// NEP: <https://github.com/near/NEPs/pull/491>
@@ -251,7 +250,9 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
-            ProtocolFeature::SimpleNightshadeV4 => 74,
+            ProtocolFeature::SimpleNightshadeV4
+            | ProtocolFeature::FixStakingThreshold
+            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -259,12 +260,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeTestonly => 100,
 
             // Nightly features:
-            #[cfg(feature = "protocol_feature_fix_staking_threshold")]
-            ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
-            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
