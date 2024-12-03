@@ -233,6 +233,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
     /// Block producers for given height for the main block. Return EpochError if outside of known boundaries.
+    /// TODO: Deprecate in favour of get_block_producer_info
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,

@@ -14,7 +14,9 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
-use crate::signature_verification::verify_chunk_header_signature_with_epoch_manager;
+use crate::signature_verification::{
+    verify_block_vrf, verify_chunk_header_signature_with_epoch_manager,
+};
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
@@ -2306,12 +2308,7 @@ impl Chain {
 
         let validator =
             self.epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
-        crate::signature_verification::verify_block_vrf(
-            validator,
-            &prev_random_value,
-            block.vrf_value(),
-            block.vrf_proof(),
-        )?;
+        verify_block_vrf(validator, &prev_random_value, block.vrf_value(), block.vrf_proof())?;
 
         if header.random_value() != &hash(block.vrf_value().0.as_ref()) {
             return Err(Error::InvalidRandomnessBeaconOutput);
