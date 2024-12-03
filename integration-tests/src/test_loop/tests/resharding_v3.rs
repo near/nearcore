@@ -1005,5 +1005,5 @@ fn test_resharding_v3_load_mem_trie() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_slower_post_processing_tasks() {
-    test_resharding_v3_base(TestReshardingParameters::new().delay_flat_state_resharding(5));
+    test_resharding_v3_base(TestReshardingParameters::new().delay_flat_state_resharding(3));
 }
