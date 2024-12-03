@@ -798,27 +798,6 @@ impl Chain {
             me,
             &prev_hash,
         )?;
-        let prev_block = self.get_block(&prev_hash)?;
-
-        if prev_block.chunks().len() != epoch_first_block.chunks().len()
-            && !shards_to_state_sync.is_empty()
-        {
-            // Currently, the state sync algorithm assumes that the number of chunks do not change
-            // between the epoch being synced to and the last epoch.
-            // For example, if shard layout changes at the beginning of epoch T, validators
-            // will not be able to sync states at epoch T for epoch T+1
-            // Fortunately, since all validators track all shards for now, this error will not be
-            // triggered in live yet
-            // Instead of propagating the error, we simply log the error here because the error
-            // do not affect processing blocks for this epoch. However, when the next epoch comes,
-            // the validator will not have the states ready so it will halt.
-            error!(
-                "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
-                epoch_first_block.header().epoch_id(),
-                me
-            );
-            debug_assert!(false);
-        }
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
