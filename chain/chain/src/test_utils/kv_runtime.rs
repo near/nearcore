@@ -886,6 +886,10 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(())
     }
 
+    fn should_validate_signatures(&self) -> bool {
+        false
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,

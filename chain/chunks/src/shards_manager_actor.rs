@@ -1228,12 +1228,13 @@ impl ShardsManagerActor {
         let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
         let block_info = self.epoch_manager.get_block_info(&forward.prev_block_hash)?;
 
-        let valid_signature = verify_chunk_header_signature(
-            &forward.chunk_hash,
-            &forward.signature,
-            chunk_producer,
-            block_info,
-        )?;
+        let valid_signature = !self.epoch_manager.should_validate_signatures()
+            || verify_chunk_header_signature(
+                &forward.chunk_hash,
+                &forward.signature,
+                chunk_producer,
+                block_info,
+            )?;
 
         if !valid_signature {
             return Err(Error::InvalidChunkSignature);
@@ -1399,12 +1400,14 @@ impl ShardsManagerActor {
         };
         let chunk_producer = self.epoch_manager.get_chunk_producer_info(&key)?;
         let block_info = self.epoch_manager.get_block_info(&ancestor_hash)?;
-        if !verify_chunk_header_signature(
-            &header.chunk_hash(),
-            header.signature(),
-            chunk_producer,
-            block_info,
-        )? {
+        if self.epoch_manager.should_validate_signatures()
+            && !verify_chunk_header_signature(
+                &header.chunk_hash(),
+                header.signature(),
+                chunk_producer,
+                block_info,
+            )?
+        {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)

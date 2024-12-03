@@ -327,6 +327,10 @@ pub trait EpochManagerAdapter: Send + Sync {
         next_epoch_info: EpochInfo,
     ) -> Result<(), EpochError>;
 
+    fn should_validate_signatures(&self) -> bool {
+        true
+    }
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
