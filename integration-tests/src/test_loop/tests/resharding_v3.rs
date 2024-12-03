@@ -1019,7 +1019,6 @@ fn test_resharding_v3_double_sign_resharding_block() {
 
 // TODO(resharding): fix nearcore and un-ignore this test
 #[test]
-#[ignore]
 fn test_resharding_v3_shard_shuffling() {
     let params = TestReshardingParameters::new()
         .shuffle_shard_assignment()
