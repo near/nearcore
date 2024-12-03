@@ -552,7 +552,7 @@ fn get_memtrie_for_shard(
     memtrie
 }
 
-fn assert_tries_equal(
+fn assert_state_equal(
     values1: &HashSet<(Vec<u8>, Vec<u8>)>,
     values2: &HashSet<(Vec<u8>, Vec<u8>)>,
     shard_uid: ShardUId,
@@ -615,7 +615,7 @@ fn assert_state_sanity(
         assert!(!trie.has_memtries());
         let trie_state =
             trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
-        assert_tries_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
+        assert_state_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
 
         let Some(flat_store_chunk_view) = client
             .chain
@@ -644,7 +644,7 @@ fn assert_state_sanity(
             .collect::<Result<HashSet<_>, _>>()
             .unwrap();
 
-        assert_tries_equal(&memtrie_state, &flat_store_state, shard_uid, "memtrie and flat store");
+        assert_state_equal(&memtrie_state, &flat_store_state, shard_uid, "memtrie and flat store");
         checked_shards.push(shard_uid);
     }
     checked_shards
@@ -731,7 +731,7 @@ impl TrieSanityCheck {
             }
             let final_head = client.chain.final_head().unwrap();
             // At the end of an epoch, we unload memtries for shards we'll no longer track. Also,
-            // the key/value equality comparison in assert_tries_equal() is only guaranteed for
+            // the key/value equality comparison in assert_state_equal() is only guaranteed for
             // final blocks. So these two together mean that we should only check this when the head
             // and final head are in the same epoch.
             if head.epoch_id != final_head.epoch_id {
