@@ -450,13 +450,18 @@ impl<'a> ArchivalConfig<'a> {
     /// In the former case, the `ArchivalConfig` contains references to the archival related sub-configs provided in the params.
     /// Also validates the config, for example, panics if `archive` is true and no archival storage configuration is provided or
     /// `archive` is false but cold-storage or archival-store configuration is provided.
-    pub fn get(
+    pub fn new(
         archive: bool,
         archival_store_config: Option<&'a ArchivalStoreConfig>,
         cold_store_config: Option<&'a StoreConfig>,
         split_storage_config: Option<&'a SplitStorageConfig>,
     ) -> Option<Self> {
-        Self::validate_configs(archive, archival_store_config, cold_store_config);
+        Self::validate_configs(
+            archive,
+            archival_store_config,
+            cold_store_config,
+            split_storage_config,
+        );
         archive.then_some(Self { archival_store_config, cold_store_config, split_storage_config })
     }
 
@@ -464,6 +469,7 @@ impl<'a> ArchivalConfig<'a> {
         archive: bool,
         archival_store_config: Option<&'a ArchivalStoreConfig>,
         cold_store_config: Option<&'a StoreConfig>,
+        split_storage_config: Option<&'a SplitStorageConfig>,
     ) {
         if archive {
             // Since only ColdDB storage is supported for now, assert that cold storage is configured.
@@ -474,7 +480,9 @@ impl<'a> ArchivalConfig<'a> {
                     "Archival storage must be ColdDB and it must be configured with a valid StoreConfig");
         } else {
             assert!(
-                cold_store_config.is_none() && archival_store_config.is_none(),
+                cold_store_config.is_none()
+                    && archival_store_config.is_none()
+                    && split_storage_config.is_none(),
                 "Cold-store config and archival config must not be set for non-archival nodes"
             );
         }

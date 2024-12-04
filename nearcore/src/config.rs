@@ -464,7 +464,7 @@ impl Config {
 
     /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
     pub fn archival_config(&self) -> Option<ArchivalConfig> {
-        ArchivalConfig::get(
+        ArchivalConfig::new(
             self.archive,
             self.archival_storage.as_ref(),
             self.cold_store.as_ref(),
