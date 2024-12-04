@@ -33,7 +33,7 @@ pub(super) struct StateSyncDownloader {
     pub header_validation_sender:
         AsyncSender<StateHeaderValidationRequest, Result<(), near_chain::Error>>,
     pub runtime: Arc<dyn RuntimeAdapter>,
-    pub retry_timeout: Duration,
+    pub retry_backoff: Duration,
     pub task_tracker: TaskTracker,
 }
 
@@ -56,7 +56,7 @@ impl StateSyncDownloader {
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
         let task_tracker = self.task_tracker.clone();
         let clock = self.clock.clone();
-        let retry_timeout = self.retry_timeout;
+        let retry_backoff = self.retry_backoff;
         async move {
             let handle = task_tracker.get_handle(&format!("shard {} header", shard_id)).await;
             handle.set_status("Reading existing header");
@@ -104,9 +104,9 @@ impl StateSyncDownloader {
                     Err(err) => {
                         handle.set_status(&format!(
                             "Error: {}, will retry in {}",
-                            err, retry_timeout
+                            err, retry_backoff
                         ));
-                        let deadline = clock.now() + retry_timeout;
+                        let deadline = clock.now() + retry_backoff;
                         tokio::select! {
                             _ = cancel.cancelled() => {
                                 return Err(near_chain::Error::Other("Cancelled".to_owned()));
@@ -122,17 +122,19 @@ impl StateSyncDownloader {
         .boxed()
     }
 
-    /// Ensures that the shard part is downloaded and validated. If the part exists on disk,
-    /// just returns. Otherwise, downloads the part, validates it, and retries if needed.
+    /// Attempts once to ensure that the shard part is downloaded and validated.
+    /// If the part exists on disk, just returns. Otherwise, makes one attempt
+    /// to download the part and validate it.
     ///
-    /// This method will only return an error if the download cannot be completed even
-    /// with retries, or if the download is cancelled.
-    pub fn ensure_shard_part_downloaded(
+    /// This method will return an error if the download fails or is cancelled.
+    pub fn ensure_shard_part_downloaded_single_attempt(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
+        state_root: CryptoHash,
+        num_state_parts: u64,
         part_id: u64,
-        header: ShardStateSyncResponseHeader,
+        num_prior_attempts: usize,
         cancel: CancellationToken,
     ) -> BoxFuture<'static, Result<(), near_chain::Error>> {
         let store = self.store.clone();
@@ -142,8 +144,11 @@ impl StateSyncDownloader {
         let num_attempts_before_fallback = self.num_attempts_before_fallback;
         let clock = self.clock.clone();
         let task_tracker = self.task_tracker.clone();
-        let retry_timeout = self.retry_timeout;
+        let retry_backoff = self.retry_backoff;
         async move {
+            if cancel.is_cancelled() {
+                return Err(near_chain::Error::Other("Cancelled".to_owned()));
+            }
             let handle =
                 task_tracker.get_handle(&format!("shard {} part {}", shard_id, part_id)).await;
             handle.set_status("Reading existing part");
@@ -151,15 +156,15 @@ impl StateSyncDownloader {
                 return Ok(());
             }
 
-            let i = AtomicUsize::new(0); // for easier Rust async capture
             let attempt = || async {
                 let source = if fallback_source.is_some()
-                    && i.load(Ordering::Relaxed) >= num_attempts_before_fallback
+                    && num_prior_attempts >= num_attempts_before_fallback
                 {
                     fallback_source.as_ref().unwrap().as_ref()
                 } else {
                     preferred_source.as_ref()
                 };
+
                 let part = source
                     .download_shard_part(
                         shard_id,
@@ -169,10 +174,9 @@ impl StateSyncDownloader {
                         cancel.clone(),
                     )
                     .await?;
-                let state_root = header.chunk_prev_state_root();
                 if runtime_adapter.validate_state_part(
                     &state_root,
-                    PartId { idx: part_id, total: header.num_state_parts() },
+                    PartId { idx: part_id, total: num_state_parts },
                     &part,
                 ) {
                     let mut store_update = store.store_update();
@@ -187,27 +191,20 @@ impl StateSyncDownloader {
                 Ok(())
             };
 
-            loop {
-                match attempt().await {
-                    Ok(()) => return Ok(()),
-                    Err(err) => {
-                        handle.set_status(&format!(
-                            "Error: {}, will retry in {}",
-                            err, retry_timeout
-                        ));
-                        let deadline = clock.now() + retry_timeout;
-                        tokio::select! {
-                            _ = cancel.cancelled() => {
-                                return Err(near_chain::Error::Other("Cancelled".to_owned()));
-                            }
-                            _ = clock.sleep_until(deadline) => {}
-                        }
-                    }
+            let res = attempt().await;
+            if let Err(ref err) = res {
+                handle.set_status(&format!("Error: {}, will retry in {}", err, retry_backoff));
+                let deadline = clock.now() + retry_backoff;
+                tokio::select! {
+                    _ = cancel.cancelled() => {}
+                    _ = clock.sleep_until(deadline) => {}
                 }
-                i.fetch_add(1, Ordering::Relaxed);
             }
+            res
         }
-        .instrument(tracing::debug_span!("StateSyncDownloader::ensure_shard_part_downloaded"))
+        .instrument(tracing::debug_span!(
+            "StateSyncDownloader::ensure_shard_part_downloaded_single_attempt"
+        ))
         .boxed()
     }
 }
