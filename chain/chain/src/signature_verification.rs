@@ -5,8 +5,24 @@ use near_primitives::{
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     stateless_validation::ChunkProductionKey,
-    types::{BlockHeight, EpochId, ShardId},
+    types::{validator_stake::ValidatorStake, BlockHeight, EpochId, ShardId},
 };
+
+pub fn verify_block_vrf(
+    validator: ValidatorStake,
+    prev_random_value: &CryptoHash,
+    vrf_value: &near_crypto::vrf::Value,
+    vrf_proof: &near_crypto::vrf::Proof,
+) -> Result<(), Error> {
+    let public_key =
+        near_crypto::key_conversion::convert_public_key(validator.public_key().unwrap_as_ed25519())
+            .unwrap();
+
+    if !public_key.is_vrf_valid(&prev_random_value.as_ref(), vrf_value, vrf_proof) {
+        return Err(Error::InvalidRandomnessBeaconOutput);
+    }
+    Ok(())
+}
 
 /// Verify chunk header signature.
 /// return false if the header signature does not match the key for the assigned chunk producer
