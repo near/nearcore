@@ -303,8 +303,6 @@ fn validate_chunk_authorship(
         parent_hash,
         epoch_id,
     )? {
-        let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
         let chunk_producer = epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
                 epoch_id,
