@@ -127,13 +127,7 @@ fn cold_store_copy(
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
     let mut next_height = cold_head_height + 1;
-    while !cold_store_copy_block(
-        archival_store,
-        hot_store,
-        &shard_layout,
-        &next_height,
-        num_threads,
-    )? {
+    while !archival_store.archive_block(hot_store, &shard_layout, &next_height, num_threads)? {
         next_height += 1;
         if next_height > hot_final_head_height {
             return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
@@ -154,21 +148,6 @@ fn cold_store_copy(
 
     tracing::trace!(target: "cold_store", ?result, "ending");
     result
-}
-
-fn cold_store_copy_block(
-    archival_store: &ArchivalStore,
-    hot_store: &Store,
-    shard_layout: &ShardLayout,
-    height: &BlockHeight,
-    num_threads: usize,
-) -> std::io::Result<bool> {
-    // If the archival storage is ColdDB, use the old algorithm to copy the block data, otherwise use the new algorithm.
-    if let Some(cold_db) = archival_store.cold_db() {
-        update_cold_db(&cold_db, hot_store, &shard_layout, height, num_threads)
-    } else {
-        archival_store.update_for_block(hot_store, &shard_layout, height, num_threads)
-    }
 }
 
 // Check some basic sanity conditions.
@@ -479,7 +458,7 @@ pub fn spawn_cold_store_loop(
             // If the archival storage is ColdDB, try the migration from legacy archival storage (single RocksDB)
             // to split storage (HotDB + ColdDB).
             // NOTE: Legacy archival storage is deprecated and this migration should not be needed anymore.
-            if let Some(ref cold_db) = archival_store.cold_db() {
+            if let Some(cold_db) = archival_store.cold_db() {
                 cold_store_migration_loop(
                     &split_storage_config,
                     &keep_going_clone,

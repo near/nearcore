@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::{io, sync::Arc};
 
 use borsh::BorshDeserialize;
-use cold_storage::{get_cold_head, set_cold_head_in_hot_store};
+use cold_storage::{get_cold_head, get_tip_at_height, set_cold_head_in_hot_store, update_cold_db};
+use external_storage::update_external_storage;
 use filesystem::FilesystemStorage;
 use gcloud::GoogleCloudStorage;
 use near_primitives::block::Tip;
+use strum::IntoEnumIterator;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
-use utils::{get_tip_at_height, map_cold_column_to_path, set_head_tx};
 
 use crate::db::refcount;
 use crate::db::DBOp;
-use crate::Store;
+use crate::{Store, COLD_HEAD_KEY};
 use crate::HEAD_KEY;
 use crate::{
     config::{ArchivalStorageLocation, ArchivalStoreConfig},
@@ -19,11 +21,10 @@ use crate::{
     DBCol,
 };
 
-mod archival_storage;
 pub mod cold_storage;
+mod external_storage;
 mod filesystem;
 mod gcloud;
-mod utils;
 
 /// Opener for the arhival storage, which results in an `ArchivalStore` instance.
 pub struct ArchivalStoreOpener {
@@ -190,6 +191,28 @@ impl ArchivalStore {
         Ok(())
     }
 
+    pub fn archive_block(
+        &self,
+        hot_store: &Store,
+        shard_layout: &ShardLayout,
+        height: &BlockHeight,
+        num_threads: usize,
+    ) -> io::Result<bool> {
+        // If the archival storage is ColdDB, use the old algorithm to copy the block data, otherwise use the new algorithm.
+        match self.storage {
+            ArchivalStorage::ColdDB(ref cold_db) => {
+                update_cold_db(cold_db.as_ref(), hot_store, shard_layout, height, num_threads)
+            }
+            ArchivalStorage::External(ref storage) => update_external_storage(
+                storage.as_ref(),
+                hot_store,
+                &shard_layout,
+                height,
+                num_threads,
+            ),
+        }
+    }
+
     /// Persists the updates in the given transaction to the archival storage.
     pub fn write(&self, tx: DBTransaction) -> io::Result<()> {
         match self.storage {
@@ -219,9 +242,9 @@ impl ArchivalStore {
 
     /// Returns the ColdDB associated with the archival storage, if the target storage is ColdDB.
     /// Otherwise (if the archival data is written to external storage), returns None.
-    pub fn cold_db(&self) -> Option<Arc<ColdDB>> {
+    pub fn cold_db(&self) -> Option<&Arc<ColdDB>> {
         if let ArchivalStorage::ColdDB(ref cold_db) = self.storage {
-            Some(cold_db.clone())
+            Some(cold_db)
         } else {
             None
         }
@@ -280,4 +303,85 @@ impl ArchivalStore {
 pub(crate) trait ExternalStorage: Sync + Send {
     fn put(&self, _path: &std::path::Path, _value: &[u8]) -> io::Result<()>;
     fn get(&self, _path: &std::path::Path) -> io::Result<Option<Vec<u8>>>;
+}
+
+/// Creates a transaction to write head to the archival storage.
+pub(crate) fn set_head_tx(tip: &Tip) -> io::Result<DBTransaction> {
+    let mut tx = DBTransaction::new();
+    // TODO: Write these to the same file for external storage.
+    tx.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+    tx.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+    Ok(tx)
+}
+
+/// Builds a map from column to relative path to store (key, value) pairs for the respective column.
+///
+/// If `container` is present, prepends it to the path for each column.
+pub(crate) fn map_cold_column_to_path(
+    container: Option<&std::path::Path>,
+) -> HashMap<DBCol, std::path::PathBuf> {
+    DBCol::iter()
+        .filter_map(|col| {
+            // BlockMisc is managed in the cold/archival storage but not marked as cold column.
+            if col.is_cold() || col == DBCol::BlockMisc {
+                let dirname = cold_column_dirname(col)
+                    .unwrap_or_else(|| panic!("Cold column {} has no entry for dirname", col));
+                let path = container
+                    .map_or_else(|| dirname.into(), |c| c.join(std::path::Path::new(dirname)));
+                Some((col, path))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Maps each column to a string to be used as a directory name in the storage.
+/// This mapping is partial and only supports cold DB columns and `DBCol::BlockMisc`.
+fn cold_column_dirname(col: DBCol) -> Option<&'static str> {
+    let dirname = match col {
+        DBCol::BlockMisc => "BlockMisc",
+        DBCol::Block => "Block",
+        DBCol::BlockExtra => "BlockExtra",
+        DBCol::BlockInfo => "BlockInfo",
+        DBCol::BlockPerHeight => "BlockPerHeight",
+        DBCol::ChunkExtra => "ChunkExtra",
+        DBCol::ChunkHashesByHeight => "ChunkHashesByHeight",
+        DBCol::Chunks => "Chunks",
+        DBCol::IncomingReceipts => "IncomingReceipts",
+        DBCol::NextBlockHashes => "NextBlockHashes",
+        DBCol::OutcomeIds => "OutcomeIds",
+        DBCol::OutgoingReceipts => "OutgoingReceipts",
+        DBCol::Receipts => "Receipts",
+        DBCol::State => "State",
+        DBCol::StateChanges => "StateChanges",
+        DBCol::StateChangesForSplitStates => "StateChangesForSplitStates",
+        DBCol::StateHeaders => "StateHeaders",
+        DBCol::TransactionResultForBlock => "TransactionResultForBlock",
+        DBCol::Transactions => "Transactions",
+        DBCol::StateShardUIdMapping => "StateShardUIdMapping",
+        _ => "",
+    };
+    dirname.is_empty().then_some(dirname)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cold_column_dirname;
+    use crate::DBCol;
+    use strum::IntoEnumIterator;
+
+    /// Tets that all cold-DB columns and BlockMisc have mappings in `cold_column_dirname` function.
+    #[test]
+    fn test_cold_column_dirname() {
+        for col in DBCol::iter() {
+            if col.is_cold() || col == DBCol::BlockMisc {
+                assert!(
+                    cold_column_dirname(col).is_some(),
+                    "Cold column {} has no entry for dirname",
+                    col
+                );
+            }
+        }
+    }
 }
