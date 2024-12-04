@@ -633,7 +633,10 @@ impl ShardLayout {
                 // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
                     let shard_index = self.get_shard_index(shard_id)?;
-                    Some(*to_parent_shard_map.get(shard_index).unwrap())
+                    let parent_shard_id = to_parent_shard_map
+                        .get(shard_index)
+                        .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
+                    Some(*parent_shard_id)
                 }
                 None => None,
             },
