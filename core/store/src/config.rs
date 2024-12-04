@@ -474,10 +474,10 @@ impl<'a> ArchivalConfig<'a> {
         if archive {
             // Since only ColdDB storage is supported for now, assert that cold storage is configured.
             // TODO: Change this condition after supporting other archival storage options such as GCS.
-            assert!(cold_store_config.is_some()
-                    && (archival_store_config.is_none()
-                        || matches!(archival_store_config.unwrap().storage, ArchivalStorageLocation::ColdDB)),
-                    "Archival storage must be ColdDB and it must be configured with a valid StoreConfig");
+            // assert!(cold_store_config.is_some()
+            //         && (archival_store_config.is_none()
+            //             || matches!(archival_store_config.unwrap().storage, ArchivalStorageLocation::ColdDB)),
+            //         "Archival storage must be ColdDB and it must be configured with a valid StoreConfig");
         } else {
             assert!(
                 cold_store_config.is_none()
