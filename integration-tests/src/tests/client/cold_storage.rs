@@ -149,7 +149,7 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = client.runtime_adapter.store();
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(&cold_db, &client_store, &shard_layout, &height, 4).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, 4).unwrap();
 
         last_hash = *block.hash();
     }
@@ -219,7 +219,7 @@ fn test_cold_db_head_update() {
     for height in 1..max_height {
         env.produce_block(0, height);
         let client_store = env.clients[0].runtime_adapter.store();
-        update_cold_head(cold_db, &client_store, &height).unwrap();
+        update_cold_head(&cold_db, &client_store, &height).unwrap();
 
         let head = &client_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY).unwrap();
         let cold_head_in_hot = hot_store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY).unwrap();
@@ -415,7 +415,6 @@ fn test_cold_loop_on_gc_boundary() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
-    let cold_db = storage.cold_db().unwrap();
     let mut env = TestEnv::builder(&genesis.config)
         .archive(true)
         .save_trie_changes(true)
@@ -441,6 +440,7 @@ fn test_cold_loop_on_gc_boundary() {
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
+    let cold_db = storage.cold_db().unwrap();
     copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
 
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
