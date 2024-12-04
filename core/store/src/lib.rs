@@ -15,6 +15,7 @@ pub use crate::trie::{
 use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
+use config::ArchivalConfig;
 use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
@@ -126,11 +127,10 @@ impl NodeStorage {
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
-        archive: bool,
-        config: &'a StoreConfig,
-        cold_config: Option<&'a StoreConfig>,
+        store_config: &'a StoreConfig,
+        archival_config: Option<ArchivalConfig<'a>>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, archive, config, cold_config)
+        StoreOpener::new(home_dir, store_config, archival_config)
     }
 
     /// Constructs new object backed by given database.
@@ -161,7 +161,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
         (dir, opener)
     }
 

@@ -189,12 +189,12 @@ impl StateSyncDownloadSourcePeer {
         match request_sender.send_async(network_request).await {
             Ok(response) => {
                 if let NetworkResponses::RouteNotFound = response.as_network_response() {
-                    increment_download_count(key.shard_id, typ, "network", "error");
+                    increment_download_count(key.shard_id, typ, "network", "route_not_found");
                     return Err(near_chain::Error::Other("Route not found".to_owned()));
                 }
             }
             Err(e) => {
-                increment_download_count(key.shard_id, typ, "network", "error");
+                increment_download_count(key.shard_id, typ, "network", "failed_to_send");
                 return Err(near_chain::Error::Other(format!("Failed to send request: {}", e)));
             }
         }
@@ -206,7 +206,7 @@ impl StateSyncDownloadSourcePeer {
                 Err(near_chain::Error::Other("Timeout".to_owned()))
             }
             _ = cancel.cancelled() => {
-                increment_download_count(key.shard_id, typ, "network", "error");
+                increment_download_count(key.shard_id, typ, "network", "cancelled");
                 Err(near_chain::Error::Other("Cancelled".to_owned()))
             }
             result = receiver => {
@@ -216,7 +216,7 @@ impl StateSyncDownloadSourcePeer {
                         Ok(result)
                     }
                     Err(_) => {
-                        increment_download_count(key.shard_id, typ, "network", "error");
+                        increment_download_count(key.shard_id, typ, "network", "sender_dropped");
                         Err(near_chain::Error::Other("Sender dropped".to_owned()))
                     },
                 }

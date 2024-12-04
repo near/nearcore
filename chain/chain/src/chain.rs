@@ -14,6 +14,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
+use crate::signature_verification::verify_chunk_header_signature_with_epoch_manager;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
@@ -798,27 +799,6 @@ impl Chain {
             me,
             &prev_hash,
         )?;
-        let prev_block = self.get_block(&prev_hash)?;
-
-        if prev_block.chunks().len() != epoch_first_block.chunks().len()
-            && !shards_to_state_sync.is_empty()
-        {
-            // Currently, the state sync algorithm assumes that the number of chunks do not change
-            // between the epoch being synced to and the last epoch.
-            // For example, if shard layout changes at the beginning of epoch T, validators
-            // will not be able to sync states at epoch T for epoch T+1
-            // Fortunately, since all validators track all shards for now, this error will not be
-            // triggered in live yet
-            // Instead of propagating the error, we simply log the error here because the error
-            // do not affect processing blocks for this epoch. However, when the next epoch comes,
-            // the validator will not have the states ready so it will halt.
-            error!(
-                "Cannot download states for epoch {:?} because sharding just changed. I'm {:?}",
-                epoch_first_block.header().epoch_id(),
-                me
-            );
-            debug_assert!(false);
-        }
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
@@ -888,10 +868,13 @@ impl Chain {
                 if chunk_header.shard_id() != shard_id {
                     return Err(Error::InvalidShardId(chunk_header.shard_id()));
                 }
-                if !epoch_manager.verify_chunk_header_signature(
-                    &chunk_header.clone(),
-                    block.header().epoch_id(),
-                    block.header().prev_hash(),
+                let parent_hash = block.header().prev_hash();
+                let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+                if !verify_chunk_header_signature_with_epoch_manager(
+                    epoch_manager,
+                    &chunk_header,
+                    &parent_hash,
+                    epoch_id,
                 )? {
                     byzantine_assert!(false);
                     return Err(Error::InvalidChunk(format!(
@@ -2786,8 +2769,10 @@ impl Chain {
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
         if let Ok(Some(state_part)) = self.chain_store.store().get(DBCol::StateParts, &key) {
+            metrics::STATE_PART_CACHE_HIT.inc();
             return Ok(state_part.into());
         }
+        metrics::STATE_PART_CACHE_MISS.inc();
 
         let block = self
             .get_block(&sync_hash)
@@ -2832,9 +2817,6 @@ impl Chain {
             .max(0) as u128;
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
-
-        // Before saving State Part data, we need to make sure we can calculate and save State Header
-        self.get_state_response_header(shard_id, sync_hash)?;
 
         // Saving the part data
         let mut store_update = self.chain_store.store().store_update();

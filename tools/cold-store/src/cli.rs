@@ -114,9 +114,8 @@ impl ColdStoreCommand {
 
         let opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_config(),
         );
 
         match self.subcmd {
@@ -137,9 +136,8 @@ impl ColdStoreCommand {
 
         NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_config(),
         )
     }
 }
@@ -349,7 +347,7 @@ impl PrepareHotCmd {
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
-        let rpc_opener = NodeStorage::opener(home_dir, false, &rpc_store_config, None);
+        let rpc_opener = NodeStorage::opener(home_dir, &rpc_store_config, None);
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 

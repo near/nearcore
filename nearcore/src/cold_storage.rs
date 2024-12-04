@@ -4,16 +4,13 @@ use near_chain::types::Tip;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
-use near_store::archive::cold_storage::{
-    copy_all_data_to_cold, get_cold_head, CopyAllDataToColdStatus,
-};
+use near_store::config::SplitStorageConfig;
 use near_store::{
-    archive::cold_storage::{update_cold_db, update_cold_head},
+    archive::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus, update_cold_db, update_cold_head},
     db::ColdDB,
     DBCol, NodeStorage, Store, FINAL_HEAD_KEY, TAIL_KEY,
 };
 
-use crate::config::SplitStorageConfig;
 use crate::{metrics, NearConfig};
 
 /// A handle that keeps the state of the cold store loop and can be used to stop it.

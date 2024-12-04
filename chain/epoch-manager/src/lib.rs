@@ -133,6 +133,11 @@ impl EpochInfoProvider for EpochManagerHandle {
     ) -> Result<ShardId, EpochError> {
         EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
     }
+
+    fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_shard_layout(epoch_id)
+    }
 }
 
 /// Tracks epoch information across different forks, such as validators.
