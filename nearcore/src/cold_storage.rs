@@ -86,7 +86,7 @@ impl From<EpochError> for ColdStoreError {
 /// Updates cold store head after.
 fn cold_store_copy(
     hot_store: &Store,
-    cold_db: &Arc<ColdDB>,
+    cold_db: &ColdDB,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
     num_threads: usize,
@@ -153,7 +153,7 @@ fn cold_store_copy(
 // * cold head >= hot tail
 fn sanity_check(
     hot_store: &Store,
-    cold_db: &Arc<ColdDB>,
+    cold_db: &ColdDB,
     genesis_height: BlockHeight,
 ) -> anyhow::Result<()> {
     let cold_head = get_cold_head(cold_db)?;
@@ -254,11 +254,11 @@ fn cold_store_migration(
     keep_going: &Arc<AtomicBool>,
     genesis_height: BlockHeight,
     hot_store: &Store,
-    cold_db: &Arc<ColdDB>,
+    cold_db: Arc<ColdDB>,
 ) -> anyhow::Result<ColdStoreMigrationResult> {
     // Migration is only needed if cold storage is not properly initialised,
     // i.e. if cold head is not set.
-    if get_cold_head(cold_db)?.is_some() {
+    if get_cold_head(cold_db.as_ref())?.is_some() {
         return Ok(ColdStoreMigrationResult::NoNeedForMigration);
     }
 
@@ -288,10 +288,10 @@ fn cold_store_migration(
     tracing::info!(target: "cold_store", new_cold_height, "Determined cold storage head height after migration");
 
     let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
-    match copy_all_data_to_cold(cold_db, hot_store, batch_size, keep_going)? {
+    match copy_all_data_to_cold(&cold_db, hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
             tracing::info!(target: "cold_store", new_cold_height, "Cold storage population was successful, writing cold head.");
-            update_cold_head(cold_db, hot_store, &new_cold_height)?;
+            update_cold_head(cold_db.as_ref(), hot_store, &new_cold_height)?;
             Ok(ColdStoreMigrationResult::SuccessfulMigration)
         }
         CopyAllDataToColdStatus::Interrupted => {
@@ -322,7 +322,7 @@ fn cold_store_migration_loop(
             keep_going,
             genesis_height,
             hot_store,
-            &cold_db,
+            cold_db.clone(),
         ) {
             // We can either stop the cold store thread or hope that next time migration will not fail.
             // Here we pick the second option.
@@ -370,7 +370,7 @@ fn cold_store_loop(
         let instant = std::time::Instant::now();
         let result = cold_store_copy(
             &hot_store,
-            &cold_db,
+            cold_db.as_ref(),
             genesis_height,
             epoch_manager,
             split_storage_config.num_cold_store_read_threads,
@@ -441,7 +441,7 @@ pub fn spawn_cold_store_loop(
     // Perform the sanity check before spawning the thread.
     // If the check fails when the node is starting it's better to just fail
     // fast and crash the node immediately.
-    sanity_check(&hot_store, &cold_db, genesis_height)?;
+    sanity_check(&hot_store, cold_db.as_ref(), genesis_height)?;
 
     let split_storage_config = config.config.split_storage.clone().unwrap_or_default();
 
