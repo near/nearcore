@@ -189,9 +189,8 @@ fn run_estimation(cli_args: CliArgs) -> anyhow::Result<Option<CostTable>> {
             .context("Error loading config")?;
         let store = near_store::NodeStorage::opener(
             &state_dump_path,
-            near_config.config.archive,
             &near_config.config.store,
-            None,
+            near_config.config.archival_config(),
         )
         .open()
         .unwrap()

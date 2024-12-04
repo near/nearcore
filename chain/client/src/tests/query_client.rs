@@ -6,7 +6,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_async::time::{Clock, Duration};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_o11y::testonly::init_test_logger;
@@ -149,7 +149,7 @@ fn test_execution_outcome_for_chunk() {
             true,
             false,
         );
-        let signer = InMemorySigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
+        let signer = InMemorySigner::test_signer(&"test".parse().unwrap());
 
         actix::spawn(async move {
             let block_hash = actor_handles
@@ -165,7 +165,7 @@ fn test_execution_outcome_for_chunk() {
                 1,
                 "test".parse().unwrap(),
                 "near".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 10,
                 block_hash,
             );

@@ -120,7 +120,7 @@ fn setup_account(
     let block_hash = block.hash();
 
     let signer_id = account_parent_id.clone();
-    let signer = InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_str());
+    let signer = InMemorySigner::test(&signer_id);
 
     let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
     let amount = 10 * 10u128.pow(24);
@@ -149,7 +149,7 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
     let contract = near_test_contracts::rs_contract();
 
     let signer_id: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
-    let signer = InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_str());
+    let signer = InMemorySigner::test(&signer_id);
 
     *nonce += 1;
     let create_contract_tx = SignedTransaction::create_contract(
@@ -350,7 +350,7 @@ fn slow_test_protocol_upgrade_under_congestion() {
     let mut nonce = 10;
     setup_contract(&mut env, &mut nonce);
 
-    let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
+    let signer = InMemorySigner::test(&sender_id);
     // Now, congest the network with ~100 Pgas, enough to have some left after the protocol upgrade.
     let n = 1000;
     submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
@@ -734,10 +734,8 @@ fn measure_tx_limit(
         setup_account(&mut env, &mut nonce, &remote_id, &ACCOUNT_PARENT_ID.parse().unwrap());
     }
 
-    let remote_signer =
-        InMemorySigner::from_seed(remote_id.clone(), KeyType::ED25519, remote_id.as_str());
-    let local_signer =
-        InMemorySigner::from_seed(contract_id.clone(), KeyType::ED25519, contract_id.as_str());
+    let remote_signer = InMemorySigner::test(&remote_id);
+    let local_signer = InMemorySigner::test(&contract_id);
     let tip = env.clients[0].chain.head().unwrap();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
     let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
@@ -831,7 +829,7 @@ fn test_rpc_client_rejection() {
     let mut nonce = 10;
     setup_contract(&mut env, &mut nonce);
 
-    let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
+    let signer = InMemorySigner::test(&sender_id);
 
     // Check we can send transactions at the start.
     let fn_tx = new_fn_call_100tgas(

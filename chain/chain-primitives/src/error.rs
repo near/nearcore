@@ -193,6 +193,8 @@ pub enum Error {
     InvalidShardId(ShardId),
     #[error("Shard index {0} does not exist")]
     InvalidShardIndex(ShardIndex),
+    #[error("Shard id {0} does not have a parent")]
+    NoParentShardId(ShardId),
     /// Invalid shard id
     #[error("Invalid state request: {0}")]
     InvalidStateRequest(String),
@@ -326,6 +328,7 @@ impl Error {
             | Error::InvalidBandwidthRequests(_)
             | Error::InvalidShardId(_)
             | Error::InvalidShardIndex(_)
+            | Error::NoParentShardId(_)
             | Error::InvalidStateRequest(_)
             | Error::InvalidRandomnessBeaconOutput
             | Error::InvalidBlockMerkleRoot
@@ -407,6 +410,7 @@ impl Error {
             Error::InvalidBandwidthRequests(_) => "invalid_bandwidth_requests",
             Error::InvalidShardId(_) => "invalid_shard_id",
             Error::InvalidShardIndex(_) => "invalid_shard_index",
+            Error::NoParentShardId(_) => "no_parent_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
             Error::InvalidBlockMerkleRoot => "invalid_block_merkele_root",
@@ -450,6 +454,7 @@ impl From<ShardLayoutError> for Error {
             ShardLayoutError::InvalidShardIndexError { shard_index } => {
                 Error::InvalidShardIndex(shard_index)
             }
+            ShardLayoutError::NoParentError { shard_id } => Error::NoParentShardId(shard_id),
         }
     }
 }

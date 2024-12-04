@@ -2,7 +2,7 @@ use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -161,7 +161,7 @@ fn verify_make_snapshot(
     }
     // check that the stored snapshot in file system is an actual snapshot
     let store_config = StoreConfig::default();
-    let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
+    let opener = NodeStorage::opener(&snapshot_path, &store_config, None);
     let _storage = opener.open_in_mode(Mode::ReadOnly)?;
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
@@ -200,8 +200,7 @@ fn slow_test_make_state_snapshot() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer: Signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
 

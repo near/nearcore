@@ -160,17 +160,13 @@ fn run_chunk_validation_test(
 
         let sender_account = accounts[round % num_accounts].clone();
         let receiver_account = accounts[(round + 1) % num_accounts].clone();
-        let signer = InMemorySigner::from_seed(
-            sender_account.clone(),
-            KeyType::ED25519,
-            sender_account.as_ref(),
-        );
+        let signer = InMemorySigner::test_signer(&sender_account);
         if round > 1 {
             let tx = SignedTransaction::send_money(
                 round as u64,
                 sender_account,
                 receiver_account,
-                &signer.into(),
+                &signer,
                 ONE_NEAR,
                 tip.last_block_hash,
             );

@@ -560,11 +560,7 @@ mod tests {
         let transactions = (1..=10)
             .map(|i| {
                 let signer_id = AccountId::try_from(format!("user_{}", i)).unwrap();
-                let signer_seed = signer_id.as_ref();
-                let signer = Arc::new(
-                    InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed)
-                        .into(),
-                );
+                let signer = Arc::new(InMemorySigner::test_signer(&signer_id));
                 SignedTransaction::send_money(
                     i,
                     signer_id,
