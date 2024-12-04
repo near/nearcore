@@ -329,7 +329,7 @@ pub enum CopyAllDataToColdStatus {
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
 pub fn copy_all_data_to_cold(
-    cold_db: &Arc<ColdDB>,
+    cold_db: Arc<ColdDB>,
     hot_store: &Store,
     batch_size: usize,
     keep_going: &Arc<std::sync::atomic::AtomicBool>,

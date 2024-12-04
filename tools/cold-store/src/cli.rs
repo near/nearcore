@@ -256,7 +256,7 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     copy_all_data_to_cold(
-        storage.cold_db().unwrap(),
+        (*storage.cold_db().unwrap()).clone(),
         &storage.get_hot_store(),
         batch_size,
         &keep_going,

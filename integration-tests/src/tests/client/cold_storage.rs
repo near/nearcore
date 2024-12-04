@@ -356,7 +356,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let cold_db = storage.cold_db().unwrap();
     let cold_store = storage.get_cold_store().unwrap();
     let client_store = env.clients[0].runtime_adapter.store();
-    copy_all_data_to_cold(cold_db, &client_store, batch_size, &keep_going).unwrap();
+    copy_all_data_to_cold(cold_db.clone(), &client_store, batch_size, &keep_going).unwrap();
 
     for col in DBCol::iter() {
         if !col.is_cold() {
@@ -441,7 +441,7 @@ fn test_cold_loop_on_gc_boundary() {
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
     let cold_db = storage.cold_db().unwrap();
-    copy_all_data_to_cold(cold_db, &hot_store, 1000000, &keep_going).unwrap();
+    copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
 
     update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 

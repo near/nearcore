@@ -288,7 +288,7 @@ fn cold_store_migration(
     tracing::info!(target: "cold_store", new_cold_height, "Determined cold storage head height after migration");
 
     let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
-    match copy_all_data_to_cold(&cold_db, hot_store, batch_size, keep_going)? {
+    match copy_all_data_to_cold(cold_db.clone(), hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
             tracing::info!(target: "cold_store", new_cold_height, "Cold storage population was successful, writing cold head.");
             update_cold_head(cold_db.as_ref(), hot_store, &new_cold_height)?;
