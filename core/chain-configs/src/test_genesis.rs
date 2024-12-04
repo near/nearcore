@@ -1,9 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -18,6 +17,22 @@ use near_time::Clock;
 use num_rational::Rational32;
 
 use crate::{Genesis, GenesisConfig, GenesisContents, GenesisRecords};
+
+/// Builder for constructing `EpochConfig` for testing.
+#[derive(Debug, Clone, Default)]
+pub struct TestEpochConfigBuilder {
+    epoch_length: Option<BlockHeightDelta>,
+    shard_layout: Option<ShardLayout>,
+    validators_spec: Option<ValidatorsSpec>,
+    target_validator_mandates_per_shard: Option<NumSeats>,
+    block_producer_kickout_threshold: Option<u8>,
+    chunk_producer_kickout_threshold: Option<u8>,
+    chunk_validator_only_kickout_threshold: Option<u8>,
+    // validator selection
+    minimum_stake_ratio: Option<Rational32>,
+    minimum_validators_per_shard: Option<NumSeats>,
+    shuffle_shard_assignment_for_chunk_producers: Option<bool>,
+}
 
 /// A builder for constructing a valid genesis for testing.
 ///
@@ -40,15 +55,15 @@ pub struct TestGenesisBuilder {
     min_max_gas_price: Option<(Balance, Balance)>,
     gas_limit: Option<Gas>,
     transaction_validity_period: Option<NumBlocks>,
-    validators: Option<ValidatorsSpec>,
+    validators_spec: Option<ValidatorsSpec>,
     protocol_treasury_account: Option<String>,
     max_inflation_rate: Option<Rational32>,
     user_accounts: Vec<UserAccount>,
-    epoch_config: Option<EpochConfig>,
+    shard_layout: Option<ShardLayout>,
 }
 
 #[derive(Debug, Clone)]
-enum ValidatorsSpec {
+pub enum ValidatorsSpec {
     DesiredRoles {
         block_and_chunk_producers: Vec<String>,
         chunk_validators_only: Vec<String>,
@@ -68,20 +83,141 @@ struct UserAccount {
     access_keys: Vec<PublicKey>,
 }
 
-impl TestGenesisBuilder {
+impl TestEpochConfigBuilder {
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn epoch_config_mut(&mut self) -> &mut EpochConfig {
-        if self.epoch_config.is_none() {
-            let mut epoch_config = Genesis::test_epoch_config(1, ShardLayout::single_shard(), 100);
-            epoch_config.block_producer_kickout_threshold = 0;
-            epoch_config.chunk_producer_kickout_threshold = 0;
-            epoch_config.chunk_validator_only_kickout_threshold = 0;
-            self.epoch_config = Some(epoch_config);
+    pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
+        self.epoch_length = Some(epoch_length);
+        self
+    }
+
+    pub fn shard_layout_single(mut self) -> Self {
+        self.shard_layout = Some(ShardLayout::single_shard());
+        self
+    }
+
+    pub fn shard_layout_simple_v1(mut self, boundary_accounts: &[&str]) -> Self {
+        let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
+        self.shard_layout = Some(ShardLayout::multi_shard_custom(boundary_accounts, 1));
+        self
+    }
+
+    pub fn shard_layout(mut self, shard_layout: ShardLayout) -> Self {
+        self.shard_layout = Some(shard_layout);
+        self
+    }
+
+    pub fn validators_spec(mut self, validators_spec: ValidatorsSpec) -> Self {
+        self.validators_spec = Some(validators_spec);
+        self
+    }
+
+    pub fn minimum_stake_ratio(mut self, minimum_stake_ratio: Rational32) -> Self {
+        self.minimum_stake_ratio = Some(minimum_stake_ratio);
+        self
+    }
+
+    pub fn minimum_validators_per_shard(mut self, minimum_validators_per_shard: NumSeats) -> Self {
+        self.minimum_validators_per_shard = Some(minimum_validators_per_shard);
+        self
+    }
+
+    pub fn target_validator_mandates_per_shard(
+        mut self,
+        target_validator_mandates_per_shard: NumSeats,
+    ) -> Self {
+        self.target_validator_mandates_per_shard = Some(target_validator_mandates_per_shard);
+        self
+    }
+
+    pub fn shuffle_shard_assignment_for_chunk_producers(mut self, shuffle: bool) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers = Some(shuffle);
+        self
+    }
+
+    pub fn kickouts_disabled(mut self) -> Self {
+        self.block_producer_kickout_threshold = Some(0);
+        self.chunk_producer_kickout_threshold = Some(0);
+        self.chunk_validator_only_kickout_threshold = Some(0);
+        self
+    }
+
+    // Validators with performance below 80% are kicked out, similarly to
+    // mainnet as of 28 Jun 2024.
+    pub fn kickouts_standard_80_percent(mut self) -> Self {
+        self.block_producer_kickout_threshold = Some(80);
+        self.chunk_producer_kickout_threshold = Some(80);
+        self.chunk_validator_only_kickout_threshold = Some(80);
+        self
+    }
+
+    // Only chunk validator-only nodes can be kicked out.
+    pub fn kickouts_for_chunk_validators_only(mut self) -> Self {
+        self.block_producer_kickout_threshold = Some(0);
+        self.chunk_producer_kickout_threshold = Some(0);
+        self.chunk_validator_only_kickout_threshold = Some(50);
+        self
+    }
+
+    pub fn build(self) -> EpochConfig {
+        let epoch_length = self.epoch_length.unwrap_or(100);
+        let shard_layout = self.shard_layout.unwrap_or_else(ShardLayout::single_shard);
+        let validators_spec = self.validators_spec.unwrap_or(ValidatorsSpec::DesiredRoles {
+            block_and_chunk_producers: vec!["validator0".to_string()],
+            chunk_validators_only: vec![],
+        });
+        let DerivedValidatorSetup {
+            validators: _,
+            num_block_producer_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
+        } = derive_validator_setup(validators_spec);
+
+        let mut epoch_config =
+            Genesis::test_epoch_config(num_block_producer_seats, shard_layout, epoch_length);
+        epoch_config.num_block_producer_seats = num_block_producer_seats;
+        epoch_config.validator_selection_config.num_chunk_producer_seats = num_chunk_producer_seats;
+        epoch_config.validator_selection_config.num_chunk_validator_seats =
+            num_chunk_validator_seats;
+
+        if let Some(target_validator_mandates_per_shard) = self.target_validator_mandates_per_shard
+        {
+            epoch_config.target_validator_mandates_per_shard = target_validator_mandates_per_shard;
         }
-        self.epoch_config.as_mut().unwrap()
+        if let Some(block_producer_kickout_threshold) = self.block_producer_kickout_threshold {
+            epoch_config.block_producer_kickout_threshold = block_producer_kickout_threshold;
+        }
+        if let Some(chunk_producer_kickout_threshold) = self.chunk_producer_kickout_threshold {
+            epoch_config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
+        }
+        if let Some(chunk_validator_only_kickout_threshold) =
+            self.chunk_validator_only_kickout_threshold
+        {
+            epoch_config.chunk_validator_only_kickout_threshold =
+                chunk_validator_only_kickout_threshold;
+        }
+        if let Some(minimum_stake_ratio) = self.minimum_stake_ratio {
+            epoch_config.validator_selection_config.minimum_stake_ratio = minimum_stake_ratio;
+        }
+        if let Some(minimum_validators_per_shard) = self.minimum_validators_per_shard {
+            epoch_config.validator_selection_config.minimum_validators_per_shard =
+                minimum_validators_per_shard;
+        }
+        if let Some(shuffle_shard_assignment_for_chunk_producers) =
+            self.shuffle_shard_assignment_for_chunk_producers
+        {
+            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+                shuffle_shard_assignment_for_chunk_producers;
+        }
+        epoch_config
+    }
+}
+
+impl TestGenesisBuilder {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn chain_id(&mut self, chain_id: String) -> &mut Self {
@@ -119,22 +255,8 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn shard_layout_single(&mut self) -> &mut Self {
-        self.epoch_config_mut().shard_layout = ShardLayout::single_shard();
-        self
-    }
-
-    pub fn shard_layout_simple_v1(&mut self, boundary_accounts: &[&str]) -> &mut Self {
-        let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
-        self.epoch_config_mut().shard_layout =
-            ShardLayout::multi_shard_custom(boundary_accounts, 1);
-        self
-    }
-
-    // TODO(#11265): move this and relevant methods to epoch config builder.
-    // In dynamic resharding world, shard layout will not be static.
     pub fn shard_layout(&mut self, shard_layout: ShardLayout) -> &mut Self {
-        self.epoch_config_mut().shard_layout = shard_layout;
+        self.shard_layout = Some(shard_layout);
         self
     }
 
@@ -166,49 +288,8 @@ impl TestGenesisBuilder {
         self
     }
 
-    /// Specifies that we want the validators to be exactly the specified accounts.
-    /// This will generate a reasonable set of parameters so that the given
-    /// validators are selected as specified.
-    pub fn validators_desired_roles(
-        &mut self,
-        block_and_chunk_producers: &[&str],
-        chunk_validators_only: &[&str],
-    ) -> &mut Self {
-        self.validators = Some(ValidatorsSpec::DesiredRoles {
-            block_and_chunk_producers: block_and_chunk_producers
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-            chunk_validators_only: chunk_validators_only.iter().map(|s| s.to_string()).collect(),
-        });
-        self
-    }
-
-    /// Specifies the validator fields directly, relying on the validator selection
-    /// algorithm to determine which validators are selected as block or chunk
-    /// producers.
-    pub fn validators_raw(
-        &mut self,
-        validators: Vec<AccountInfo>,
-        num_block_producer_seats: NumSeats,
-        num_chunk_producer_seats: NumSeats,
-        num_chunk_validator_only_seats: NumSeats,
-    ) -> &mut Self {
-        let num_chunk_validator_seats =
-            std::cmp::max(num_block_producer_seats, num_chunk_producer_seats)
-                + num_chunk_validator_only_seats;
-        self.validators = Some(ValidatorsSpec::Raw {
-            validators,
-            num_block_producer_seats,
-            num_chunk_producer_seats,
-            num_chunk_validator_seats,
-        });
-        self
-    }
-
-    pub fn minimum_stake_ratio(&mut self, minimum_stake_ratio: Rational32) -> &mut Self {
-        self.epoch_config_mut().validator_selection_config.minimum_stake_ratio =
-            minimum_stake_ratio;
+    pub fn validators_spec(&mut self, validators: ValidatorsSpec) -> &mut Self {
+        self.validators_spec = Some(validators);
         self
     }
 
@@ -217,63 +298,11 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn minimum_validators_per_shard(
-        &mut self,
-        minimum_validators_per_shard: NumSeats,
-    ) -> &mut Self {
-        self.epoch_config_mut().validator_selection_config.minimum_validators_per_shard =
-            minimum_validators_per_shard;
-        self
-    }
-
-    pub fn target_validator_mandates_per_shard(
-        &mut self,
-        target_validator_mandates_per_shard: NumSeats,
-    ) -> &mut Self {
-        self.epoch_config_mut().target_validator_mandates_per_shard =
-            target_validator_mandates_per_shard;
-        self
-    }
-
     /// Specifies the protocol treasury account. If not specified, this will
     /// pick an arbitrary account name and ensure that it is included in the
     /// genesis records.
     pub fn protocol_treasury_account(&mut self, protocol_treasury_account: String) -> &mut Self {
         self.protocol_treasury_account = Some(protocol_treasury_account);
-        self
-    }
-
-    pub fn shuffle_shard_assignment_for_chunk_producers(&mut self, shuffle: bool) -> &mut Self {
-        self.epoch_config_mut()
-            .validator_selection_config
-            .shuffle_shard_assignment_for_chunk_producers = shuffle;
-        self
-    }
-
-    pub fn kickouts_disabled(&mut self) -> &mut Self {
-        let epoch_config = self.epoch_config_mut();
-        epoch_config.block_producer_kickout_threshold = 0;
-        epoch_config.chunk_producer_kickout_threshold = 0;
-        epoch_config.chunk_validator_only_kickout_threshold = 0;
-        self
-    }
-
-    /// Validators with performance below 80% are kicked out, similarly to
-    /// mainnet as of 28 Jun 2024.
-    pub fn kickouts_standard_80_percent(&mut self) -> &mut Self {
-        let epoch_config = self.epoch_config_mut();
-        epoch_config.block_producer_kickout_threshold = 80;
-        epoch_config.chunk_producer_kickout_threshold = 80;
-        epoch_config.chunk_validator_only_kickout_threshold = 80;
-        self
-    }
-
-    /// Only chunk validator-only nodes can be kicked out.
-    pub fn kickouts_for_chunk_validators_only(&mut self) -> &mut Self {
-        let epoch_config = self.epoch_config_mut();
-        epoch_config.block_producer_kickout_threshold = 0;
-        epoch_config.chunk_producer_kickout_threshold = 0;
-        epoch_config.chunk_validator_only_kickout_threshold = 50;
         self
     }
 
@@ -290,7 +319,7 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn build(mut self) -> (Genesis, EpochConfigStore) {
+    pub fn build(self) -> Genesis {
         let chain_id = self.chain_id.clone().unwrap_or_else(|| {
             let default = "test".to_string();
             tracing::warn!("Genesis chain_id not explicitly set, defaulting to {:?}.", default);
@@ -301,7 +330,7 @@ impl TestGenesisBuilder {
             tracing::warn!("Genesis protocol_version not explicitly set, defaulting to latest protocol version {:?}.", default);
             default
         });
-        let validator_specs = self.validators.clone().unwrap_or_else(|| {
+        let validators_spec = self.validators_spec.clone().unwrap_or_else(|| {
             let default = ValidatorsSpec::DesiredRoles {
                 block_and_chunk_producers: vec!["validator0".to_string()],
                 chunk_validators_only: vec![],
@@ -317,22 +346,11 @@ impl TestGenesisBuilder {
             tracing::warn!("Genesis epoch_length not explicitly set, defaulting to {:?}.", default);
             default
         });
-
-        let derived_validator_setup = derive_validator_setup(validator_specs);
-
-        let mut epoch_config = self.epoch_config_mut().clone();
-        epoch_config.num_block_producer_seats = derived_validator_setup.num_block_producer_seats;
-        epoch_config.validator_selection_config.num_chunk_producer_seats =
-            derived_validator_setup.num_chunk_producer_seats;
-        epoch_config.validator_selection_config.num_chunk_validator_seats =
-            derived_validator_setup.num_chunk_validator_seats;
-        let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
-            protocol_version,
-            Arc::new(epoch_config),
-        )]));
-        let shard_layout =
-            epoch_config_store.get_config(protocol_version).as_ref().shard_layout.clone();
-
+        let shard_layout = self.shard_layout.clone().unwrap_or_else(|| {
+            let default = ShardLayout::single_shard();
+            tracing::warn!("Genesis shard_layout not explicitly set, defaulting to {:?}.", default);
+            default
+        });
         let genesis_time = self.genesis_time.unwrap_or_else(|| {
             let default = chrono::Utc::now();
             tracing::warn!(
@@ -407,7 +425,7 @@ impl TestGenesisBuilder {
         // that the protocol treasury account is included too. We will use all
         // of this to generate the genesis records and also calculate the
         // total supply.
-        let mut user_accounts = self.user_accounts.clone();
+        let mut user_accounts = self.user_accounts;
         if user_accounts.iter().all(|account| &account.account_id != &protocol_treasury_account) {
             tracing::warn!(
                 "Protocol treasury account {:?} not found in user accounts;
@@ -421,9 +439,16 @@ impl TestGenesisBuilder {
             });
         }
 
+        let DerivedValidatorSetup {
+            validators,
+            num_block_producer_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
+        } = derive_validator_setup(validators_spec);
+
         let mut total_supply = 0;
         let mut validator_stake: HashMap<AccountId, Balance> = HashMap::new();
-        for validator in &derived_validator_setup.validators {
+        for validator in &validators {
             total_supply += validator.amount;
             validator_stake.insert(validator.account_id.clone(), validator.amount);
         }
@@ -483,30 +508,65 @@ impl TestGenesisBuilder {
             protocol_reward_rate: Rational32::new(0, 1),
             total_supply,
             max_kickout_stake_perc: 100,
-            validators: derived_validator_setup.validators,
+            validators,
             shard_layout: shard_layout.clone(),
-            num_block_producer_seats: derived_validator_setup.num_block_producer_seats,
+            num_block_producer_seats,
             num_block_producer_seats_per_shard: shard_layout
                 .shard_ids()
-                .map(|_| derived_validator_setup.num_block_producer_seats)
+                .map(|_| num_block_producer_seats)
                 .collect(),
             num_chunk_only_producer_seats: 0,
             minimum_stake_divisor: 10,
             max_inflation_rate,
             protocol_upgrade_stake_threshold: Rational32::new(8, 10),
-            num_chunk_producer_seats: derived_validator_setup.num_chunk_producer_seats,
-            num_chunk_validator_seats: derived_validator_setup.num_chunk_validator_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
             chunk_producer_assignment_changes_limit: 5,
             ..Default::default()
         };
 
-        (
-            Genesis {
-                config: genesis_config,
-                contents: GenesisContents::Records { records: GenesisRecords(records) },
-            },
-            epoch_config_store,
-        )
+        Genesis {
+            config: genesis_config,
+            contents: GenesisContents::Records { records: GenesisRecords(records) },
+        }
+    }
+}
+
+impl ValidatorsSpec {
+    /// Specifies that we want the validators to be exactly the specified accounts.
+    /// This will generate a reasonable set of parameters so that the given
+    /// validators are selected as specified.
+    pub fn desired_roles(
+        block_and_chunk_producers: &[&str],
+        chunk_validators_only: &[&str],
+    ) -> Self {
+        ValidatorsSpec::DesiredRoles {
+            block_and_chunk_producers: block_and_chunk_producers
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            chunk_validators_only: chunk_validators_only.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    /// Specifies the validator fields directly, relying on the validator selection
+    /// algorithm to determine which validators are selected as block or chunk
+    /// producers.
+    pub fn raw(
+        validators: Vec<AccountInfo>,
+        num_block_producer_seats: NumSeats,
+        num_chunk_producer_seats: NumSeats,
+        num_chunk_validator_only_seats: NumSeats,
+    ) -> Self {
+        let num_chunk_validator_seats =
+            std::cmp::max(num_block_producer_seats, num_chunk_producer_seats)
+                + num_chunk_validator_only_seats;
+        ValidatorsSpec::Raw {
+            validators,
+            num_block_producer_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
+        }
     }
 }
 
