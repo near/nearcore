@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::Addr;
-use near_store::config::{ArchivalConfig, ArchivalStoreConfig};
 use rocksdb::DB;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -372,8 +371,6 @@ pub(crate) async fn start(
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
-    let archival_config =
-        ArchivalConfig::get(archive, archival_store_config.as_ref(), cold_store_config.as_ref());
     let indexer_db_path =
         near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config, None)
             .path()
