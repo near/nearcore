@@ -220,80 +220,77 @@ impl TestGenesisBuilder {
         Default::default()
     }
 
-    pub fn chain_id(&mut self, chain_id: String) -> &mut Self {
+    pub fn chain_id(mut self, chain_id: String) -> Self {
         self.chain_id = Some(chain_id);
         self
     }
 
-    pub fn genesis_time(&mut self, genesis_time: chrono::DateTime<chrono::Utc>) -> &mut Self {
+    pub fn genesis_time(mut self, genesis_time: chrono::DateTime<chrono::Utc>) -> Self {
         self.genesis_time = Some(genesis_time);
         self
     }
 
-    pub fn genesis_time_from_clock(&mut self, clock: &Clock) -> &mut Self {
+    pub fn genesis_time_from_clock(mut self, clock: &Clock) -> Self {
         self.genesis_time = Some(from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64));
         self
     }
 
-    pub fn protocol_version(&mut self, protocol_version: ProtocolVersion) -> &mut Self {
+    pub fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
         self.protocol_version = Some(protocol_version);
         self
     }
 
-    pub fn protocol_version_latest(&mut self) -> &mut Self {
+    pub fn protocol_version_latest(mut self) -> Self {
         self.protocol_version = Some(PROTOCOL_VERSION);
         self
     }
 
-    pub fn genesis_height(&mut self, genesis_height: BlockHeight) -> &mut Self {
+    pub fn genesis_height(mut self, genesis_height: BlockHeight) -> Self {
         self.genesis_height = Some(genesis_height);
         self
     }
 
-    pub fn epoch_length(&mut self, epoch_length: BlockHeightDelta) -> &mut Self {
+    pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
         self.epoch_length = Some(epoch_length);
         self
     }
 
-    pub fn shard_layout(&mut self, shard_layout: ShardLayout) -> &mut Self {
+    pub fn shard_layout(mut self, shard_layout: ShardLayout) -> Self {
         self.shard_layout = Some(shard_layout);
         self
     }
 
-    pub fn gas_prices(&mut self, min: Balance, max: Balance) -> &mut Self {
+    pub fn gas_prices(mut self, min: Balance, max: Balance) -> Self {
         self.min_max_gas_price = Some((min, max));
         self
     }
 
-    pub fn gas_prices_free(&mut self) -> &mut Self {
+    pub fn gas_prices_free(mut self) -> Self {
         self.min_max_gas_price = Some((0, 0));
         self
     }
 
-    pub fn gas_limit(&mut self, gas_limit: Gas) -> &mut Self {
+    pub fn gas_limit(mut self, gas_limit: Gas) -> Self {
         self.gas_limit = Some(gas_limit);
         self
     }
 
-    pub fn gas_limit_one_petagas(&mut self) -> &mut Self {
+    pub fn gas_limit_one_petagas(mut self) -> Self {
         self.gas_limit = Some(1_000_000_000_000_000);
         self
     }
 
-    pub fn transaction_validity_period(
-        &mut self,
-        transaction_validity_period: NumBlocks,
-    ) -> &mut Self {
+    pub fn transaction_validity_period(mut self, transaction_validity_period: NumBlocks) -> Self {
         self.transaction_validity_period = Some(transaction_validity_period);
         self
     }
 
-    pub fn validators_spec(&mut self, validators: ValidatorsSpec) -> &mut Self {
+    pub fn validators_spec(mut self, validators: ValidatorsSpec) -> Self {
         self.validators_spec = Some(validators);
         self
     }
 
-    pub fn max_inflation_rate(&mut self, max_inflation_rate: Rational32) -> &mut Self {
+    pub fn max_inflation_rate(mut self, max_inflation_rate: Rational32) -> Self {
         self.max_inflation_rate = Some(max_inflation_rate);
         self
     }
@@ -301,21 +298,19 @@ impl TestGenesisBuilder {
     /// Specifies the protocol treasury account. If not specified, this will
     /// pick an arbitrary account name and ensure that it is included in the
     /// genesis records.
-    pub fn protocol_treasury_account(&mut self, protocol_treasury_account: String) -> &mut Self {
+    pub fn protocol_treasury_account(mut self, protocol_treasury_account: String) -> Self {
         self.protocol_treasury_account = Some(protocol_treasury_account);
         self
     }
 
-    pub fn add_user_account_simple(
-        &mut self,
-        account_id: AccountId,
-        balance: Balance,
-    ) -> &mut Self {
-        self.user_accounts.push(UserAccount {
-            balance,
-            access_keys: vec![create_user_test_signer(&account_id).public_key()],
-            account_id,
-        });
+    pub fn add_user_accounts_simple(mut self, accounts: &Vec<AccountId>, balance: Balance) -> Self {
+        for account_id in accounts {
+            self.user_accounts.push(UserAccount {
+                balance,
+                access_keys: vec![create_user_test_signer(account_id).public_key()],
+                account_id: account_id.clone(),
+            });
+        }
         self
     }
 
