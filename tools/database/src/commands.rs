@@ -80,7 +80,7 @@ impl DatabaseCommand {
             SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = load_config(home, genesis_validation);
-                cmd.run(home, near_config.config.archive, &near_config.config.store)
+                cmd.run(home, &near_config.config.store, near_config.config.archival_config())
             }
             SubCommand::RunMigrations(cmd) => cmd.run(home, genesis_validation),
             SubCommand::StatePerf(cmd) => cmd.run(home),

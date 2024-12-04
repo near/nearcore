@@ -5367,6 +5367,7 @@ dependencies = [
  "bytesize",
  "enum-map",
  "hex",
+ "itertools 0.12.1",
  "near-chain-configs",
  "near-crypto",
  "near-o11y",

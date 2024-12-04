@@ -28,6 +28,8 @@ use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_received_data_key, parse_account_id_from_trie_key_with_separator,
 };
 use near_primitives::types::AccountId;
+#[cfg(feature = "test_features")]
+use near_primitives::types::BlockHeightDelta;
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
@@ -75,6 +77,11 @@ pub struct FlatStorageResharder {
     pub controller: FlatStorageResharderController,
     /// Configuration for resharding.
     resharding_config: MutableConfigValue<ReshardingConfig>,
+    #[cfg(feature = "test_features")]
+    /// TEST ONLY.
+    /// If non zero, the start of schedulable tasks (such as split parent) will be postponed by
+    /// the specified number of blocks.
+    pub adv_task_delay_by_blocks: BlockHeightDelta,
 }
 
 impl FlatStorageResharder {
@@ -92,7 +99,15 @@ impl FlatStorageResharder {
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {
         let resharding_event = Arc::new(Mutex::new(None));
-        Self { runtime, resharding_event, sender, controller, resharding_config }
+        Self {
+            runtime,
+            resharding_event,
+            sender,
+            controller,
+            resharding_config,
+            #[cfg(feature = "test_features")]
+            adv_task_delay_by_blocks: 0,
+        }
     }
 
     /// Starts a resharding event.
@@ -319,6 +334,14 @@ impl FlatStorageResharder {
                 return FlatStorageReshardingSchedulableTaskResult::Postponed;
             }
         };
+
+        #[cfg(feature = "test_features")]
+        {
+            if self.adv_should_delay_task(&resharding_hash, chain_store) {
+                info!(target: "resharding", "flat storage shard split task has been artificially postponed!");
+                return FlatStorageReshardingSchedulableTaskResult::Postponed;
+            }
+        }
 
         // We know that the resharding block has become final so let's start the real work.
         let task_status = self.split_shard_task_impl();
@@ -785,6 +808,28 @@ impl FlatStorageResharder {
 
     fn remove_resharding_event(&self) {
         *self.resharding_event.lock().unwrap() = None;
+    }
+
+    #[cfg(feature = "test_features")]
+    /// Returns true if a task should be "artificially" delayed. This behavior is configured through
+    /// `adv_task_delay_by_blocks`.`
+    fn adv_should_delay_task(
+        &self,
+        resharding_hash: &CryptoHash,
+        chain_store: &ChainStore,
+    ) -> bool {
+        let blocks_delay = self.adv_task_delay_by_blocks;
+        if blocks_delay == 0 {
+            return false;
+        }
+        // Unwrap freely since this function is only used in tests.
+        let chain_final_height = chain_store.final_head().unwrap().height;
+        let resharding_height = chain_store.get_block_height(resharding_hash).unwrap();
+        debug!(
+            target = "resharding",
+            resharding_height, chain_final_height, blocks_delay, "checking adversarial task delay"
+        );
+        return resharding_height + blocks_delay > chain_final_height;
     }
 }
 

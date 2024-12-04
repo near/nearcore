@@ -32,8 +32,8 @@ SHARD_LAYOUT = {
             "uuu",
         ],
         "version": 2,
-        "shards_split_map": [],
-        "to_parent_shard_map": [],
+        "shards_split_map": None,
+        "to_parent_shard_map": None,
     }
 }
 

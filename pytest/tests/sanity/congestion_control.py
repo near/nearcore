@@ -36,8 +36,8 @@ SHARD_LAYOUT = {
     "V1": {
         "boundary_accounts": BOUNDARY_ACCOUNT_LIST,
         "version": 2,
-        "shards_split_map": [],
-        "to_parent_shard_map": [],
+        "shards_split_map": None,
+        "to_parent_shard_map": None,
     }
 }
 
