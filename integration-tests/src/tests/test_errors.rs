@@ -4,7 +4,7 @@ use crate::node::{Node, ThreadNode};
 use crate::user::CommitError;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::Genesis;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_jsonrpc::RpcInto;
 use near_network::tcp;
 use near_o11y::testonly::init_integration_logger;
@@ -33,8 +33,7 @@ fn start_node() -> ThreadNode {
 #[test]
 fn test_check_tx_error_log() {
     let node = start_node();
-    let signer =
-        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near").into());
+    let signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
     let block_hash = node.user().get_best_block_hash().unwrap();
     let tx = SignedTransaction::from_actions(
         1,
@@ -75,8 +74,7 @@ fn test_deliver_tx_error_log() {
         RuntimeConfig::clone(&runtime_config),
         node.genesis().config.min_gas_price,
     );
-    let signer =
-        Arc::new(InMemorySigner::from_seed(alice_account(), KeyType::ED25519, "alice.near").into());
+    let signer = Arc::new(InMemorySigner::test_signer(&alice_account()));
     let block_hash = node.user().get_best_block_hash().unwrap();
     let cost = fee_helper.create_account_transfer_full_key_cost_no_reward();
     let tx = SignedTransaction::from_actions(

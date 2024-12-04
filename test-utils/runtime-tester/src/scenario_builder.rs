@@ -1,5 +1,5 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_primitives::{
     transaction::Action,
     types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce},
@@ -115,8 +115,7 @@ impl ScenarioBuilder {
         let signer_id = AccountId::from_str(&id_to_seed(signer_index)).unwrap();
         let receiver_id = AccountId::from_str(&id_to_seed(receiver_index)).unwrap();
 
-        let signer =
-            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_ref());
+        let signer = InMemorySigner::test(&signer_id);
 
         let block = {
             let last_id = self.scenario.blocks.len() - 1;
@@ -125,8 +124,8 @@ impl ScenarioBuilder {
 
         (*block).transactions.push(TransactionConfig {
             nonce: self.nonce,
-            signer_id: signer_id,
-            receiver_id: receiver_id,
+            signer_id,
+            receiver_id,
             signer,
             actions,
         });

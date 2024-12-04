@@ -72,7 +72,7 @@ fn setup_runtime_for_shard(
     initial_locked: Balance,
     gas_limit: Gas,
     shard_uid: ShardUId,
-) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, MockEpochInfoProvider) {
     let tries = TestTriesBuilder::new().build();
     let root = MerkleHash::default();
     let runtime = Runtime::new();
@@ -2109,7 +2109,7 @@ fn test_contract_accesses_when_validating_chunk() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
 }
 
-/// Tests that the existing contract is not recorded in the state witness for a deply-contract action.
+/// Tests that the existing contract is not recorded in the state witness for a deploy-contract action.
 /// For this, it deploys two contracts to the same account and checks the storage proof size after the second deploy action.
 #[test]
 fn test_exclude_existing_contract_code_for_deploy_action() {
@@ -2334,7 +2334,7 @@ fn test_empty_apply() {
     if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
         assert!(
             root_before != root_after,
-            "state root not changed - did the bandwdith scheduler run?"
+            "state root not changed - did the bandwidth scheduler run?"
         );
     } else {
         assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
@@ -2397,10 +2397,9 @@ fn test_congestion_buffering() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    // In the test setup with he MockEpochInfoProvider, all accounts are on
-    // shard 0. Hence all receipts will be forwarded to shard 0. We don't
-    // want local forwarding in the test, hence we need to use a different
-    // shard id.
+    // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account
+    // is on shard 1. Hence all receipts will be forwarded from shard 1 to shard 0. We don't want local
+    // forwarding in the test, hence we need to use a different shard id.
     let local_shard = ShardId::new(1);
     let local_shard_uid = ShardUId::new(0, local_shard);
     let receiver_shard = ShardId::new(0);
@@ -2410,7 +2409,7 @@ fn test_congestion_buffering() {
     let deposit = to_yocto(10_000);
     // execute a single receipt per chunk
     let gas_limit = 1;
-    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
+    let (runtime, tries, mut root, mut apply_state, _, mut epoch_info_provider) =
         setup_runtime_for_shard(
             vec![alice_account(), bob_account()],
             initial_balance,
@@ -2419,7 +2418,10 @@ fn test_congestion_buffering() {
             local_shard_uid,
         );
 
+    // Set account_id_to_shard_id for alice_account delayed receipts handling to work properly
+    // setup_runtime_for_shard sets up account for alice on `local_shard_uid`.
     apply_state.shard_id = local_shard;
+    epoch_info_provider.set_shard_id_for_account_id(&alice_account(), local_shard);
 
     // Mark shard 0 as congested. Which method we use doesn't matter, this
     // test only checks that receipt buffering works. Unit tests

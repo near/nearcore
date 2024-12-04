@@ -92,7 +92,7 @@ fn test_eth_implicit_account_creation() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let chain_id = &genesis.config.chain_id;
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test(&"test0".parse().unwrap());
     let eth_implicit_account_id = eth_implicit_test_account();
 
     // Make zero-transfer to ETH-implicit account, invoking its creation.
@@ -148,7 +148,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let deposit_for_account_creation = NEAR_BASE;
     let mut height = 1;
     let blocks_number = 5;
-    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
 
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
     let public_key = secret_key.public_key();
@@ -161,7 +161,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         1,
         "test1".parse().unwrap(),
         eth_implicit_account_id.clone(),
-        &signer1.into(),
+        &signer1,
         deposit_for_account_creation,
         *genesis_block.hash(),
     );

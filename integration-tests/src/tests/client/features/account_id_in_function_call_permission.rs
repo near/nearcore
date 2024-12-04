@@ -1,7 +1,7 @@
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
@@ -35,8 +35,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
             .build()
     };
 
-    let signer: Signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
@@ -104,7 +103,7 @@ fn test_very_long_account_id() {
     };
 
     let tip = env.clients[0].chain.head().unwrap();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = Transaction::V0(TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
@@ -123,7 +122,7 @@ fn test_very_long_account_id() {
         nonce: 0,
         block_hash: tip.last_block_hash,
     })
-    .sign(&signer.into());
+    .sign(&signer);
 
     assert_eq!(
         env.clients[0].process_tx(tx, false, false),
