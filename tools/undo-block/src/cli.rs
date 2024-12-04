@@ -23,9 +23,8 @@ impl UndoBlockCommand {
 
         let store_opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            None,
+            near_config.config.archival_config(),
         );
 
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();

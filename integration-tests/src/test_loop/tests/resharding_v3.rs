@@ -1086,18 +1086,19 @@ fn test_resharding_v3_delayed_receipts_right_child() {
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_split_parent_buffered_receipts() {
     let receiver_account: AccountId = "account0".parse().unwrap();
+    let account_in_parent: AccountId = "account4".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
-            vec![account_in_left_child.clone(), account_in_right_child.clone()],
+            vec![account_in_left_child.clone(), account_in_right_child],
             receiver_account,
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
-            account_in_right_child,
+            account_in_parent,
             ReceiptKind::Buffered,
         ))
         .add_loop_action(check_receipts_presence_after_resharding_block(
@@ -1108,22 +1109,26 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
-    let receiver_account: AccountId = "account4".parse().unwrap();
-    let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
-    let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
+    // TODO(resharding) - Add traffic towards the right child too.
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_stable_shard: AccountId = "account1".parse().unwrap();
+
     let params = TestReshardingParameters::new()
-        .deploy_test_contract(receiver_account.clone())
+        .deploy_test_contract(account_in_left_child.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
-            vec![account_1_in_stable_shard.clone(), account_2_in_stable_shard],
-            receiver_account,
+            vec![account_in_stable_shard.clone()],
+            account_in_left_child,
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
-            account_1_in_stable_shard,
+            account_in_stable_shard.clone(),
+            ReceiptKind::Buffered,
+        ))
+        .add_loop_action(check_receipts_presence_after_resharding_block(
+            account_in_stable_shard,
             ReceiptKind::Buffered,
         ));
     test_resharding_v3_base(params);

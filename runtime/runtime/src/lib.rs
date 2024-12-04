@@ -1504,7 +1504,11 @@ impl Runtime {
             bandwidth_scheduler_output,
         )?;
         // Forward buffered receipts from previous chunks.
-        receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
+        receipt_sink.forward_from_buffer(
+            &mut processing_state.state_update,
+            apply_state,
+            processing_state.epoch_info_provider,
+        )?;
 
         // Step 3: process transactions.
         self.process_transactions(&mut processing_state, &mut receipt_sink)?;

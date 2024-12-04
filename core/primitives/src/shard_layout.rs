@@ -616,36 +616,50 @@ impl ShardLayout {
         }
     }
 
-    /// Return the parent shard id for a given shard in the shard layout
-    /// Only calls this function for shard layout that has parent shard layouts
-    /// Returns error if `shard_id` is an invalid shard id in the current layout
-    /// Panics if `self` has no parent shard layout
-    pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
+    /// Return the parent shard id for a given shard in the shard layout.
+    /// Returns an error if `shard_id` is an invalid shard id in the current
+    /// layout. Returns None if the shard layout has no parent shard layout.
+    pub fn try_get_parent_shard_id(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<Option<ShardId>, ShardLayoutError> {
         if !self.shard_ids().any(|id| id == shard_id) {
             return Err(ShardLayoutError::InvalidShardIdError { shard_id });
         }
         let parent_shard_id = match self {
-            Self::V0(_) => return Err(ShardLayoutError::NoParentError { shard_id }),
+            Self::V0(_) => None,
             Self::V1(v1) => match &v1.to_parent_shard_map {
                 // we can safely unwrap here because the construction of to_parent_shard_map guarantees
                 // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
                     let shard_index = self.get_shard_index(shard_id)?;
-                    *to_parent_shard_map.get(shard_index).unwrap()
+                    let parent_shard_id = to_parent_shard_map
+                        .get(shard_index)
+                        .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
+                    Some(*parent_shard_id)
                 }
-                None => return Err(ShardLayoutError::NoParentError { shard_id }),
+                None => None,
             },
             Self::V2(v2) => match &v2.shards_parent_map {
                 Some(to_parent_shard_map) => {
                     let parent_shard_id = to_parent_shard_map.get(&shard_id);
                     let parent_shard_id = parent_shard_id
                         .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
-                    *parent_shard_id
+                    Some(*parent_shard_id)
                 }
-                None => return Err(ShardLayoutError::NoParentError { shard_id }),
+                None => None,
             },
         };
         Ok(parent_shard_id)
+    }
+
+    /// Return the parent shard id for a given shard in the shard layout. Only
+    /// calls this function for shard layout that has parent shard layout.
+    /// Returns an error if `shard_id` is an invalid shard id in the current
+    /// layout or if the shard is has no parent in this shard layout.
+    pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
+        let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
+        parent_shard_id.ok_or(ShardLayoutError::NoParentError { shard_id })
     }
 
     /// Derive new shard layout from an existing one

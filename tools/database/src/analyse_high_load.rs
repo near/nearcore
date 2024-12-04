@@ -80,12 +80,7 @@ impl HighLoadStatsCommand {
         let near_config = nearcore::config::Config::from_file_skip_validation(
             &home.join(nearcore::config::CONFIG_FILENAME),
         )?;
-        let opener = NodeStorage::opener(
-            home,
-            near_config.archive,
-            &near_config.store,
-            near_config.cold_store.as_ref(),
-        );
+        let opener = NodeStorage::opener(home, &near_config.store, near_config.archival_config());
         let storage = opener.open()?;
         let store = std::sync::Arc::new(
             storage.get_split_store().unwrap_or_else(|| storage.get_hot_store()),
