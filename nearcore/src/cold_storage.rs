@@ -92,7 +92,7 @@ fn cold_store_copy(
     num_threads: usize,
 ) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
     // If HEAD is not set for cold storage we default it to genesis_height.
-    let cold_head = archival_store.read_head()?;
+    let cold_head = archival_store.get_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
     // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
@@ -156,7 +156,7 @@ fn sanity_check(
     hot_store: &Store,
     genesis_height: BlockHeight,
 ) -> anyhow::Result<()> {
-    let cold_head = archival_store.read_head()?;
+    let cold_head = archival_store.get_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
     let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
@@ -440,7 +440,7 @@ pub fn spawn_cold_store_loop(
             // Initialize the head of the archival storage (if not before) from the cold head read from the ColdDB.
             // Note that we need to run this check in the new thread, because it runs blocking calls to async code
             // and it panics if run from the main thread.
-            if let Err(err) = archival_store.try_init_from_cold_head() {
+            if let Err(err) = archival_store.try_init_head_from_cold_db() {
                 panic!("Failed to sync cold head: {:?}", err);
             }
 
