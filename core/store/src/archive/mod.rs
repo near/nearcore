@@ -2,13 +2,12 @@ use std::collections::HashMap;
 use std::{io, sync::Arc};
 
 use borsh::BorshDeserialize;
+use cold_storage::{get_cold_head, set_cold_head_in_hot_store};
 use filesystem::FilesystemStorage;
 use gcloud::GoogleCloudStorage;
 use near_primitives::block::Tip;
 use near_primitives::types::BlockHeight;
-use utils::{
-    get_tip_at_height, map_cold_column_to_path, read_cold_head, save_cold_head, set_head_tx,
-};
+use utils::{get_tip_at_height, map_cold_column_to_path, set_head_tx};
 
 use crate::db::refcount;
 use crate::db::DBOp;
@@ -123,10 +122,7 @@ impl ArchivalStore {
         self.save_head(&tip)?;
 
         // Write COLD_HEAD to the hot db.
-        save_cold_head(hot_store, &tip)?;
-
-        // Update metrics.
-        crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
+        set_cold_head_in_hot_store(hot_store, &tip)?;
 
         Ok(())
     }
@@ -144,12 +140,12 @@ impl ArchivalStore {
     /// Returns the head of the archival data.
     pub fn read_head(&self) -> io::Result<Option<Tip>> {
         match self.storage {
-            ArchivalStorage::ColdDB(ref cold_db) => read_cold_head(cold_db),
+            ArchivalStorage::ColdDB(ref cold_db) => get_cold_head(cold_db),
             ArchivalStorage::External(ref storage) => {
                 let external_head = self.get_external_head(storage)?;
                 // Check if ColdDB head is in sync with external storage head.
                 if let Some(ref cold_db) = self.sync_cold_db {
-                    let cold_head = read_cold_head(cold_db)?;
+                    let cold_head = get_cold_head(cold_db)?;
                     assert_eq!(
                         cold_head, external_head,
                         "Cold DB head should be in sync with external storage head"
@@ -170,7 +166,7 @@ impl ArchivalStore {
         let ArchivalStorage::External(ref storage) = self.storage else {
             return Ok(());
         };
-        let cold_head = read_cold_head(cold_db)?;
+        let cold_head = get_cold_head(cold_db)?;
         let external_head = self.get_external_head(storage)?;
 
         let Some(cold_head) = cold_head else {

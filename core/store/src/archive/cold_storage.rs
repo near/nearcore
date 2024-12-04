@@ -286,28 +286,8 @@ pub fn update_cold_head(
         &hot_store.get_ser_or_err_for_cold::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
     let tip = Tip::from_header(tip_header);
 
-    // Write HEAD to the cold db.
-    {
-        let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        cold_db.write(transaction)?;
-    }
-
-    // Write COLD_HEAD_KEY to the cold db.
-    {
-        let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        cold_db.write(transaction)?;
-    }
-
-    // Write COLD_HEAD to the hot db.
-    {
-        let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-        hot_store.storage.write(transaction)?;
-
-        crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
-    }
+    set_cold_head_in_cold_store(cold_db, &tip)?;
+    set_cold_head_in_hot_store(hot_store, &tip)?;
 
     return Ok(());
 }
@@ -319,6 +299,33 @@ pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
         .as_deref()
         .map(Tip::try_from_slice)
         .transpose()
+}
+
+/// Saves the cold head in the hot DB.
+pub(crate) fn set_cold_head_in_hot_store(hot_store: &Store, tip: &Tip) -> io::Result<()> {
+    let mut transaction = DBTransaction::new();
+    transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+    hot_store.storage.write(transaction)?;
+
+    crate::metrics::COLD_HEAD_HEIGHT.set(tip.height as i64);
+    Ok(())
+}
+
+/// Saves the cold head in the cold DB.
+pub(crate) fn set_cold_head_in_cold_store(cold_db: &ColdDB, tip: &Tip) -> io::Result<()> {
+    // Write HEAD to the cold db.
+    {
+        let mut transaction = DBTransaction::new();
+        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+        cold_db.write(transaction)?;
+    }
+    // Write COLD_HEAD_KEY to the cold db.
+    {
+        let mut transaction = DBTransaction::new();
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
+        cold_db.write(transaction)?;
+    }
+    Ok(())
 }
 
 pub enum CopyAllDataToColdStatus {

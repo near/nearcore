@@ -1,17 +1,12 @@
 use crate::archive::cold_storage::ColdMigrationStore;
-use crate::db::Database;
-use borsh::BorshDeserialize;
 use near_primitives::{
     block::{BlockHeader, Tip},
     types::BlockHeight,
 };
-use std::{collections::HashMap, io, sync::Arc};
+use std::{collections::HashMap, io};
 use strum::IntoEnumIterator;
 
-use crate::{
-    db::{ColdDB, DBTransaction},
-    DBCol, Store, COLD_HEAD_KEY, HEAD_KEY,
-};
+use crate::{db::DBTransaction, DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
 
 /// Creates a transaction to write head to the archival storage.
 pub(crate) fn set_head_tx(tip: &Tip) -> io::Result<DBTransaction> {
@@ -20,22 +15,6 @@ pub(crate) fn set_head_tx(tip: &Tip) -> io::Result<DBTransaction> {
     tx.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
     tx.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
     Ok(tx)
-}
-
-/// Reads the head from the Cold DB.
-pub(crate) fn read_cold_head(cold_db: &Arc<ColdDB>) -> io::Result<Option<Tip>> {
-    cold_db
-        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
-        .as_deref()
-        .map(Tip::try_from_slice)
-        .transpose()
-}
-
-/// Saves the cold head in the hot DB store.
-pub(crate) fn save_cold_head(hot_store: &Store, tip: &Tip) -> io::Result<()> {
-    let mut transaction = DBTransaction::new();
-    transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
-    hot_store.storage.write(transaction)
 }
 
 /// Returns the `Tip` at the given block height.
