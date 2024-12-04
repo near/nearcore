@@ -90,9 +90,8 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
-        near_config.client_config.archive,
         &near_config.config.store,
-        near_config.config.cold_store.as_ref(),
+        near_config.config.archival_config(),
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {

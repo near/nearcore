@@ -51,7 +51,9 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::StateSnapshotType;
+use near_store::config::{
+    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
+};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -274,6 +276,8 @@ pub struct Config {
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archival_storage: Option<ArchivalStoreConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -368,6 +372,7 @@ impl Default for Config {
             store: near_store::StoreConfig::default(),
             cold_store: None,
             split_storage: None,
+            archival_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -383,59 +388,6 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
-        }
-    }
-}
-
-fn default_enable_split_storage_view_client() -> bool {
-    false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::seconds(30)
-}
-
-fn default_num_cold_store_read_threads() -> usize {
-    4
-}
-
-fn default_cold_store_loop_sleep_duration() -> Duration {
-    Duration::seconds(1)
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct SplitStorageConfig {
-    #[serde(default = "default_enable_split_storage_view_client")]
-    pub enable_split_storage_view_client: bool,
-
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_cold_store_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_num_cold_store_read_threads")]
-    pub num_cold_store_read_threads: usize,
-}
-
-impl Default for SplitStorageConfig {
-    fn default() -> Self {
-        SplitStorageConfig {
-            enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
-            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
-            num_cold_store_read_threads: default_num_cold_store_read_threads(),
         }
     }
 }
@@ -508,6 +460,16 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
+    }
+
+    /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
+    pub fn archival_config(&self) -> Option<ArchivalConfig> {
+        ArchivalConfig::new(
+            self.archive,
+            self.archival_storage.as_ref(),
+            self.cold_store.as_ref(),
+            self.split_storage.as_ref(),
+        )
     }
 }
 
