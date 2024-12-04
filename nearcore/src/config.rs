@@ -1046,7 +1046,6 @@ impl LocalnetNodeParams {
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
 /// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
-
 pub fn create_localnet_configs_from_seeds(
     seeds: Vec<String>,
     num_shards: NumShards,
