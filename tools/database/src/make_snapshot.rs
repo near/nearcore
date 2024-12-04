@@ -1,6 +1,6 @@
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, Mode, NodeStorage, StoreConfig,
-    STATE_SNAPSHOT_COLUMNS,
+    checkpoint_hot_storage_and_cleanup_columns, config::ArchivalConfig, Mode, NodeStorage,
+    StoreConfig, STATE_SNAPSHOT_COLUMNS,
 };
 use std::path::{Path, PathBuf};
 
@@ -15,8 +15,13 @@ pub(crate) struct MakeSnapshotCommand {
 }
 
 impl MakeSnapshotCommand {
-    pub(crate) fn run(&self, home_dir: &Path, store_config: &StoreConfig) -> anyhow::Result<()> {
-        let opener = NodeStorage::opener(home_dir, store_config, None);
+    pub(crate) fn run(
+        &self,
+        home_dir: &Path,
+        store_config: &StoreConfig,
+        archival_config: Option<ArchivalConfig>,
+    ) -> anyhow::Result<()> {
+        let opener = NodeStorage::opener(home_dir, store_config, archival_config);
         let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
         let columns_to_keep =
             if self.flat_state_only { Some(STATE_SNAPSHOT_COLUMNS) } else { None };
@@ -58,7 +63,7 @@ mod tests {
 
         let destination = home_dir.path().join("data").join("snapshot");
         let cmd = MakeSnapshotCommand { destination: destination.clone(), flat_state_only: false };
-        cmd.run(home_dir.path(), &store_config).unwrap();
+        cmd.run(home_dir.path(), &store_config, None).unwrap();
         println!("Made a checkpoint");
 
         {

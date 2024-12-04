@@ -1,4 +1,3 @@
-use crate::archive::ArchivalStoreOpener;
 use crate::config::ArchivalConfig;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
@@ -227,6 +226,11 @@ impl<'a> StoreOpener<'a> {
         self.archival.is_some()
     }
 
+    /// Returns true is this opener is for an archival node.
+    fn is_archive(&self) -> bool {
+        self.archival_config.is_some()
+    }
+
     /// Configures the opener with specified [`StoreMigrator`].
     ///
     /// If the migrator is not configured, the opener will fail to open
@@ -275,13 +279,13 @@ impl<'a> StoreOpener<'a> {
 
         let hot_snapshot = {
             Self::ensure_created(mode, &self.hot)?;
-            Self::ensure_kind(mode, &self.hot, self.is_archival(), Temperature::Hot)?;
+            Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
             Self::ensure_version(mode, &self.hot, &self.migrator)?
         };
 
         let cold_snapshot = if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
-            Self::ensure_kind(mode, cold, self.is_archival(), Temperature::Cold)?;
+            Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
             Self::ensure_version(mode, cold, &self.migrator)?
         } else {
             Snapshot::none()
@@ -319,7 +323,7 @@ impl<'a> StoreOpener<'a> {
 
         let hot_snapshot = {
             Self::ensure_created(mode, &self.hot)?;
-            Self::ensure_kind(mode, &self.hot, self.is_archival(), Temperature::Hot)?;
+            Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
             let snapshot = Self::ensure_version(mode, &self.hot, &self.migrator)?;
             if snapshot.0.is_none() {
                 self.hot.snapshot()?
@@ -330,7 +334,7 @@ impl<'a> StoreOpener<'a> {
 
         let cold_snapshot = if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
-            Self::ensure_kind(mode, cold, self.is_archival(), Temperature::Cold)?;
+            Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
             let snapshot = Self::ensure_version(mode, cold, &self.migrator)?;
             if snapshot.0.is_none() {
                 cold.snapshot()?

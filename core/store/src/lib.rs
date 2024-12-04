@@ -128,10 +128,27 @@ impl NodeStorage {
     /// Initialises a new opener with given home directory and archival store configs.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
-        config: &'a StoreConfig,
+        store_config: &'a StoreConfig,
         archival_config: Option<ArchivalConfig<'a>>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, config, archival_config)
+        StoreOpener::new(home_dir, store_config, archival_config)
+    }
+
+    /// Constructs new object backed by given database.
+    fn from_rocksdb(
+        hot_storage: crate::db::RocksDB,
+        cold_storage: Option<crate::db::RocksDB>,
+    ) -> Self {
+        let hot_storage = Arc::new(hot_storage);
+        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
+
+        let cold_db = if let Some(cold_storage) = cold_storage {
+            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
+        } else {
+            None
+        };
+
+        Self { hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.

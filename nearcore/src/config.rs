@@ -51,7 +51,9 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::{ArchivalConfig, ArchivalStoreConfig, StateSnapshotType};
+use near_store::config::{
+    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
+};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -390,59 +392,6 @@ impl Default for Config {
     }
 }
 
-fn default_enable_split_storage_view_client() -> bool {
-    false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::seconds(30)
-}
-
-fn default_num_cold_store_read_threads() -> usize {
-    4
-}
-
-fn default_cold_store_loop_sleep_duration() -> Duration {
-    Duration::seconds(1)
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct SplitStorageConfig {
-    #[serde(default = "default_enable_split_storage_view_client")]
-    pub enable_split_storage_view_client: bool,
-
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_cold_store_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_num_cold_store_read_threads")]
-    pub num_cold_store_read_threads: usize,
-}
-
-impl Default for SplitStorageConfig {
-    fn default() -> Self {
-        SplitStorageConfig {
-            enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
-            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
-            num_cold_store_read_threads: default_num_cold_store_read_threads(),
-        }
-    }
-}
-
 impl Config {
     /// load Config from config.json without panic. Do semantic validation on field values.
     /// If config file issues occur, a ValidationError::ConfigFileError will be returned;
@@ -515,7 +464,12 @@ impl Config {
 
     /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
     pub fn archival_config(&self) -> Option<ArchivalConfig> {
-        ArchivalConfig::get(self.archive, self.archival_storage.as_ref(), self.cold_store.as_ref())
+        ArchivalConfig::new(
+            self.archive,
+            self.archival_storage.as_ref(),
+            self.cold_store.as_ref(),
+            self.split_storage.as_ref(),
+        )
     }
 }
 
