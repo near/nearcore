@@ -48,7 +48,7 @@ pub trait ColdMigrationStore {
 /// [`write`] is called every time `transaction_size` overgrows `threshold_transaction_size`.
 /// [`write`] should also be called manually before dropping BatchTransaction to write any leftovers.
 struct BatchTransaction {
-    cold_db: std::sync::Arc<ColdDB>,
+    cold_db: Arc<ColdDB>,
     transaction: DBTransaction,
     /// Size of all values keys and values in `transaction` in bytes.
     transaction_size: usize,
@@ -76,7 +76,7 @@ struct BatchTransaction {
 /// 2. define `DBCol::key_type` for it (if it isn't already defined)
 /// 3. add new clause in `get_keys_from_store` for new key types used for this column (if there are any)
 pub fn update_cold_db(
-    cold_db: &Arc<ColdDB>,
+    cold_db: &ColdDB,
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
@@ -166,7 +166,7 @@ fn rc_aware_set(
 fn copy_state_from_store(
     shard_layout: &ShardLayout,
     block_hash_key: &[u8],
-    cold_db: &Arc<ColdDB>,
+    cold_db: &ColdDB,
     hot_store: &Store,
 ) -> io::Result<()> {
     let col = DBCol::State;
@@ -215,7 +215,7 @@ fn copy_state_from_store(
 /// Creates a transaction based on that values with set DBOp s.
 /// Writes that transaction to cold_db.
 fn copy_from_store(
-    cold_db: &Arc<ColdDB>,
+    cold_db: &ColdDB,
     hot_store: &Store,
     col: DBCol,
     keys: Vec<StoreKey>,
@@ -242,7 +242,7 @@ fn copy_from_store(
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
             // rather than using `cold_db: &dyn Database` argument we could have
-            // `cold_db: &Arc<ColdDB>` and then some custom function which lets us
+            // `cold_db: &ColdDB` and then some custom function which lets us
             // write raw bytes. This would also allow us to bypass stripping and
             // re-adding the reference count.
 
@@ -273,7 +273,7 @@ fn copy_from_store(
 /// If this is to change, caller should be careful about `height` not being garbage collected in hot storage yet.
 // TODO: Remove this and use `ArchivalStore::update_head` instead, once the archival storage logic is updated to use `ArchivalStore`.
 pub fn update_cold_head(
-    cold_db: &Arc<ColdDB>,
+    cold_db: &ColdDB,
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
@@ -312,6 +312,15 @@ pub fn update_cold_head(
     return Ok(());
 }
 
+/// Reads the cold-head from the Cold DB.
+pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
+    cold_db
+        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+        .as_deref()
+        .map(Tip::try_from_slice)
+        .transpose()
+}
+
 pub enum CopyAllDataToColdStatus {
     EverythingCopied,
     Interrupted,
@@ -320,10 +329,10 @@ pub enum CopyAllDataToColdStatus {
 /// Copies all contents of all cold columns from `hot_store` to `cold_db`.
 /// Does it column by column, and because columns can be huge, writes in batches of ~`batch_size`.
 pub fn copy_all_data_to_cold(
-    cold_db: &Arc<ColdDB>,
+    cold_db: Arc<ColdDB>,
     hot_store: &Store,
     batch_size: usize,
-    keep_going: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    keep_going: &Arc<std::sync::atomic::AtomicBool>,
 ) -> io::Result<CopyAllDataToColdStatus> {
     for col in DBCol::iter() {
         if col.is_cold() {
@@ -349,7 +358,7 @@ pub fn copy_all_data_to_cold(
 // in the trie changes. This isn't the case for genesis so instead this method
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
-pub fn test_cold_genesis_update(cold_db: &Arc<ColdDB>, hot_store: &Store) -> io::Result<()> {
+pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
@@ -588,7 +597,7 @@ impl ColdMigrationStore for Store {
 }
 
 impl BatchTransaction {
-    pub fn new(cold_db: std::sync::Arc<ColdDB>, batch_size: usize) -> Self {
+    pub fn new(cold_db: Arc<ColdDB>, batch_size: usize) -> Self {
         Self {
             cold_db,
             transaction: DBTransaction::new(),

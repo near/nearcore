@@ -255,7 +255,7 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let cold_db = storage.cold_db().unwrap();
 
-    copy_all_data_to_cold(cold_db, &storage.get_hot_store(), batch_size, &keep_going)
+    copy_all_data_to_cold(cold_db.clone(), &storage.get_hot_store(), batch_size, &keep_going)
         .expect("Failed to do migration to cold db");
 
     // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
