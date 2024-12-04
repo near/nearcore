@@ -642,11 +642,7 @@ impl FlatStorageResharder {
             let chain_final_head = chain_store.final_head()?;
 
             // If we reached the desired new flat head, we can terminate the delta application step.
-            // Note that as a result of delta application during parent split, if the resharding is
-            // extremely fast the flat head might be already on the last final block.
-            if flat_head_block_hash == chain_final_head.prev_block_hash
-                || flat_head_block_hash == chain_final_head.last_block_hash
-            {
+            if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
                 return Ok((
                     num_batches_done,
                     Tip::from_header(&chain_store.get_block_header(&flat_head_block_hash)?),
@@ -664,10 +660,8 @@ impl FlatStorageResharder {
                     height <= chain_final_head.height,
                     "flat head: {flat_head_block_hash}"
                 );
-                // Stop if we reached the desired new flat head. Note that the new flat head
-                // candidate is the previous block hash of the final head as stated in
-                // `Chain::get_new_flat_storage_head`.
-                if flat_head_block_hash == chain_final_head.prev_block_hash {
+                // Stop if we reached the desired new flat head.
+                if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
                     break;
                 }
                 flat_head_block_hash = chain_store.get_next_block_hash(&flat_head_block_hash)?;
@@ -996,6 +990,23 @@ fn copy_kv_to_left_child(
     store_update: &mut FlatStoreUpdateAdapter,
 ) {
     store_update.set(split_params.left_child_shard, key, value);
+}
+
+/// Returns `true` if a flat head at `flat_head_block_hash` has reached the necessary height to be
+/// considered in sync with the chain.
+///
+///  Observations:
+/// - as a result of delta application during parent split, if the resharding is extremely fast the
+///   flat head might be already on the last final block.
+/// - the new flat head candidate is the previous block hash of the final head as stated in
+///   `Chain::get_new_flat_storage_head`.
+/// - this method assumes the flat head is never beyond the final chain.
+fn is_flat_head_on_par_with_chain(
+    flat_head_block_hash: &CryptoHash,
+    chain_final_head: &Tip,
+) -> bool {
+    *flat_head_block_hash == chain_final_head.prev_block_hash
+        || *flat_head_block_hash == chain_final_head.last_block_hash
 }
 
 /// Struct to describe, perform and track progress of a flat storage resharding.
