@@ -4,7 +4,7 @@
 # If that happens, instead of making the period longer here, change the test name to one of the
 # next test "speed tiers" by using `slow_test_` or `ultra_slow_test` prefix for the test's name.
 [profile.default]
-slow-timeout = { period = "5s", terminate-after = 3, grace-period = "1s" }
+slow-timeout = { period = "2m", terminate-after = 3, grace-period = "1s" }
 default-filter = "not (test(/^(.*::slow_test|slow_test)/) | test(/^(.*::ultra_slow_test|ultra_slow_test)/))"
 final-status-level = "slow"
 

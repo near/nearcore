@@ -368,7 +368,7 @@ pub trait ChainStoreAccess {
 /// Given a vector of receipts return only the receipts that should be assigned
 /// to the target shard id in the target shard layout. Used when collecting the
 /// incoming receipts and the shard layout changed.
-fn filter_incoming_receipts_for_shard(
+pub fn filter_incoming_receipts_for_shard(
     target_shard_layout: &ShardLayout,
     target_shard_id: ShardId,
     receipt_proofs: Arc<Vec<ReceiptProof>>,
