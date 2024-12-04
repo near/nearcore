@@ -146,6 +146,9 @@ struct TestReshardingParameters {
     deploy_test_contract: Option<AccountId>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
     limit_outgoing_gas: bool,
+    /// If non zero, split parent shard for flat state resharding will be delayed by an additional
+    /// `BlockHeightDelta` number of blocks. Useful to simulate slower task completion.
+    delay_flat_state_resharding: BlockHeightDelta,
 }
 
 impl TestReshardingParameters {
@@ -221,7 +224,6 @@ impl TestReshardingParameters {
         self
     }
 
-    #[allow(unused)]
     fn add_loop_action(mut self, loop_action: LoopActionFn) -> Self {
         self.loop_actions.push(loop_action);
         self
@@ -257,6 +259,12 @@ impl TestReshardingParameters {
         load_mem_tries_for_tracked_shards: bool,
     ) -> Self {
         self.load_mem_tries_for_tracked_shards = load_mem_tries_for_tracked_shards;
+        self
+    }
+
+    #[allow(unused)]
+    fn delay_flat_state_resharding(mut self, num_blocks: BlockHeightDelta) -> Self {
+        self.delay_flat_state_resharding = num_blocks;
         self
     }
 }
@@ -893,6 +901,17 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let client_handles =
         node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
 
+    #[cfg(feature = "test_features")]
+    {
+        if params.delay_flat_state_resharding > 0 {
+            client_handles.iter().for_each(|handle| {
+                let client = &mut test_loop.data.get_mut(handle).client;
+                client.chain.resharding_manager.flat_storage_resharder.adv_task_delay_by_blocks =
+                    params.delay_flat_state_resharding;
+            });
+        }
+    }
+
     let clients =
         client_handles.iter().map(|handle| &test_loop.data.get(handle).client).collect_vec();
     let mut trie_sanity_check =
@@ -1146,4 +1165,12 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 fn test_resharding_v3_load_mem_trie() {
     let params = TestReshardingParameters::new().load_mem_tries_for_tracked_shards(false);
     test_resharding_v3_base(params);
+}
+
+#[test]
+// TODO(resharding): fix nearcore and un-ignore this test
+// #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore]
+fn test_resharding_v3_slower_post_processing_tasks() {
+    test_resharding_v3_base(TestReshardingParameters::new().delay_flat_state_resharding(3));
 }
