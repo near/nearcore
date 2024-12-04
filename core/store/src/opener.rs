@@ -1,3 +1,4 @@
+use crate::archive::ArchivalStoreOpener;
 use crate::config::ArchivalConfig;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
@@ -221,14 +222,9 @@ impl<'a> StoreOpener<'a> {
         Self { hot, cold, archival, migrator: None }
     }
 
-    /// Returns true is thie opener is for an archival node.
-    fn is_archival(&self) -> bool {
-        self.archival.is_some()
-    }
-
     /// Returns true is this opener is for an archival node.
     fn is_archive(&self) -> bool {
-        self.archival_config.is_some()
+        self.archival.is_some()
     }
 
     /// Configures the opener with specified [`StoreMigrator`].

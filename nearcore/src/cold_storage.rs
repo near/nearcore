@@ -6,8 +6,11 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
-use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
+use near_store::archive::ArchivalStore;
 use near_store::config::SplitStorageConfig;
+use near_store::db::ColdDB;
+use near_store::db::Database;
+use near_store::HEAD_KEY;
 use near_store::{
     archive::cold_storage::{
         copy_all_data_to_cold, update_cold_db, update_cold_head, CopyAllDataToColdStatus,

@@ -412,6 +412,9 @@ pub struct PrefetchConfig {
 pub struct ArchivalStoreConfig {
     /// The storage to persist the archival data (by default ColdDB).
     pub storage: ArchivalStorageLocation,
+    /// Valid only for path-based storage systems, eg. filesystem, GCS.
+    /// If set, this is used as the common path prefix for all objects.
+    pub container: Option<std::path::PathBuf>,
 }
 
 /// Similar to External
@@ -428,13 +431,13 @@ pub enum ArchivalStorageLocation {
     /// NOTE: This option not implemented yet.
     Filesystem {
         /// Root directory containing the archival storage files.
-        _path: std::path::PathBuf,
+        path: std::path::PathBuf,
     },
     /// Archival data is persisted in the Google Cloud Storage.
     /// NOTE: This option not implemented yet.
     GCloud {
         /// GCS bucket containing the archival storage objects.
-        _bucket: String,
+        bucket: String,
     },
 }
 
