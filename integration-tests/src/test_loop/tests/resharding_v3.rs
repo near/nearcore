@@ -911,7 +911,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             });
         }
     }
-    
+
     let clients =
         client_handles.iter().map(|handle| &test_loop.data.get(handle).client).collect_vec();
     let mut trie_sanity_check =
@@ -1170,5 +1170,18 @@ fn test_resharding_v3_load_mem_trie() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_slower_post_processing_tasks() {
-    test_resharding_v3_base(TestReshardingParameters::new().delay_flat_state_resharding(3));
+    test_resharding_v3_base(TestReshardingParameters::new().delay_flat_state_resharding(2));
+}
+
+#[test]
+// TODO(resharding): fix nearcore and change the ignore condition
+// #[cfg_attr(not(feature = "test_features"), ignore)]
+#[ignore]
+fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
+    let params = TestReshardingParameters::new()
+        .shuffle_shard_assignment()
+        .single_shard_tracking()
+        .chunk_miss_possible()
+        .delay_flat_state_resharding(2);
+    test_resharding_v3_base(params);
 }
