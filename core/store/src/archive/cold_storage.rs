@@ -283,7 +283,7 @@ pub fn update_cold_head(
 
     // Write HEAD and COLD_HEAD_KEY to the cold db.
     set_cold_head_in_cold_store(cold_db, &tip)?;
-    
+
     // Write COLD_HEAD to the hot db.
     set_cold_head_in_hot_store(hot_store, &tip)?;
 

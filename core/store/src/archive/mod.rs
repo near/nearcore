@@ -7,19 +7,19 @@ use external_storage::update_external_storage;
 use filesystem::FilesystemStorage;
 use gcloud::GoogleCloudStorage;
 use near_primitives::block::Tip;
-use strum::IntoEnumIterator;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
+use strum::IntoEnumIterator;
 
 use crate::db::refcount;
 use crate::db::DBOp;
-use crate::{Store, COLD_HEAD_KEY};
 use crate::HEAD_KEY;
 use crate::{
     config::{ArchivalStorageLocation, ArchivalStoreConfig},
     db::{ColdDB, DBTransaction, Database},
     DBCol,
 };
+use crate::{Store, COLD_HEAD_KEY};
 
 pub mod cold_storage;
 mod external_storage;
