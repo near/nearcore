@@ -642,7 +642,7 @@ impl FlatStorageResharder {
             let chain_final_head = chain_store.final_head()?;
 
             // If we reached the desired new flat head, we can terminate the delta application step.
-            // Note that as a result of delta application during parent spit, if the resharding is
+            // Note that as a result of delta application during parent split, if the resharding is
             // extremely fast the flat head might be already on the last final block.
             if flat_head_block_hash == chain_final_head.prev_block_hash
                 || flat_head_block_hash == chain_final_head.last_block_hash
