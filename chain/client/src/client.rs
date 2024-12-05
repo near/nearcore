@@ -92,7 +92,7 @@ use near_chain::resharding::types::ReshardingSender;
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 /// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
-const BLOCK_HORIZON: u64 = 500;
+const BLOCK_HORIZON: u64 = 10; // 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;

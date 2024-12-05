@@ -327,9 +327,9 @@ fn ultra_slow_test_sync_state_dump() {
             let (port1, port2) =
                 (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
             // Produce more blocks to make sure that state sync gets triggered when the second node starts.
-            let state_sync_horizon = 50;
-            let block_header_fetch_horizon = 1;
-            let block_fetch_horizon = 1;
+            let state_sync_horizon = epoch_length + 2;
+            let block_header_fetch_horizon = 10;
+            // let block_fetch_horizon = 1;
 
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
@@ -375,7 +375,7 @@ fn ultra_slow_test_sync_state_dump() {
                     let genesis2 = genesis.clone();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
-                        Ok(Ok(b)) if b.header.height >= epoch_length + 2 => {
+                        Ok(Ok(b)) if b.header.height >= state_sync_horizon + 10 => {
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
                             let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
 
@@ -390,7 +390,7 @@ fn ultra_slow_test_sync_state_dump() {
                                     Duration::milliseconds(600);
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
-                                near2.client_config.block_fetch_horizon = block_fetch_horizon;
+                                near2.client_config.block_fetch_horizon = state_sync_horizon;
                                 near2.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
                                 near2.client_config.state_sync_enabled = true;
                                 near2.client_config.state_sync_external_timeout =
@@ -415,7 +415,7 @@ fn ultra_slow_test_sync_state_dump() {
                                 *arbiters_holder2 = arbiters;
                             }
                         }
-                        Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
+                        Ok(Ok(b)) => {
                             println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                             tracing::info!("FIRST STAGE {}", b.header.height);
                         }
@@ -427,10 +427,10 @@ fn ultra_slow_test_sync_state_dump() {
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
                     match view_client2.send(GetBlock::latest().with_span_context()).await {
-                        Ok(Ok(b)) if b.header.height >= epoch_length + 10 => {
+                        Ok(Ok(b)) if b.header.height >= 2 * epoch_length + 2 => {
                             return ControlFlow::Break(());
                         }
-                        Ok(Ok(b)) if b.header.height < epoch_length + 10 => {
+                        Ok(Ok(b)) if b.header.height < 2 * epoch_length + 2 => {
                             println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                             tracing::info!("SECOND STAGE {}", b.header.height)
                         }

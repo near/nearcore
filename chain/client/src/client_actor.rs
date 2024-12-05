@@ -1890,7 +1890,7 @@ impl ClientActorInner {
             return Ok(true);
         }
 
-        // Check that we have enough headers to start block sync.
+        // Check that we have enough headers to start state sync.
         let min_header_height =
             highest_height.saturating_sub(self.client.config.block_header_fetch_horizon);
         if header_head.height < min_header_height {
