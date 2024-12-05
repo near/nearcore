@@ -96,6 +96,7 @@ fn ultra_slow_test_sync_state_nodes() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
+                                    println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                                     println!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
@@ -245,6 +246,7 @@ fn ultra_slow_test_sync_state_nodes_multishard() {
                                     }
                                 }
                                 Ok(Ok(b)) if b.header.height < 101 => {
+                                    println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                                     println!("FIRST STAGE {}", b.header.height)
                                 }
                                 Err(_) => return future::ready(()),
@@ -400,6 +402,7 @@ fn ultra_slow_test_sync_state_dump() {
                             }
                         }
                         Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
+                            println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                             tracing::info!("FIRST STAGE {}", b.header.height);
                         }
                         Err(_) => {}
