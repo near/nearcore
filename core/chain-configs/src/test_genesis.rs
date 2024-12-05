@@ -19,6 +19,14 @@ use num_rational::Rational32;
 use crate::{Genesis, GenesisConfig, GenesisContents, GenesisRecords};
 
 /// Builder for constructing `EpochConfig` for testing.
+///
+/// Defaults
+/// * single shard
+/// * single block and chunk producer
+/// * epoch_length: 5
+/// * block_producer_kickout_threshold: 0
+/// * chunk_producer_kickout_threshold: 0
+/// * chunk_validator_only_kickout_threshold: 0
 #[derive(Debug, Clone, Default)]
 pub struct TestEpochConfigBuilder {
     epoch_length: Option<BlockHeightDelta>,
@@ -93,11 +101,6 @@ impl TestEpochConfigBuilder {
         self
     }
 
-    pub fn shard_layout_single(mut self) -> Self {
-        self.shard_layout = Some(ShardLayout::single_shard());
-        self
-    }
-
     pub fn shard_layout_simple_v1(mut self, boundary_accounts: &[&str]) -> Self {
         let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
         self.shard_layout = Some(ShardLayout::multi_shard_custom(boundary_accounts, 1));
@@ -137,13 +140,6 @@ impl TestEpochConfigBuilder {
         self
     }
 
-    pub fn kickouts_disabled(mut self) -> Self {
-        self.block_producer_kickout_threshold = Some(0);
-        self.chunk_producer_kickout_threshold = Some(0);
-        self.chunk_validator_only_kickout_threshold = Some(0);
-        self
-    }
-
     // Validators with performance below 80% are kicked out, similarly to
     // mainnet as of 28 Jun 2024.
     pub fn kickouts_standard_80_percent(mut self) -> Self {
@@ -162,7 +158,7 @@ impl TestEpochConfigBuilder {
     }
 
     pub fn build(self) -> EpochConfig {
-        let epoch_length = self.epoch_length.unwrap_or(100);
+        let epoch_length = self.epoch_length.unwrap_or(5);
         let shard_layout = self.shard_layout.unwrap_or_else(ShardLayout::single_shard);
         let validators_spec = self.validators_spec.unwrap_or(ValidatorsSpec::DesiredRoles {
             block_and_chunk_producers: vec!["validator0".to_string()],
@@ -178,6 +174,9 @@ impl TestEpochConfigBuilder {
         let mut epoch_config =
             Genesis::test_epoch_config(num_block_producer_seats, shard_layout, epoch_length);
         epoch_config.num_block_producer_seats = num_block_producer_seats;
+        epoch_config.block_producer_kickout_threshold = 0;
+        epoch_config.chunk_producer_kickout_threshold = 0;
+        epoch_config.chunk_validator_only_kickout_threshold = 0;
         epoch_config.validator_selection_config.num_chunk_producer_seats = num_chunk_producer_seats;
         epoch_config.validator_selection_config.num_chunk_validator_seats =
             num_chunk_validator_seats;
@@ -237,11 +236,6 @@ impl TestGenesisBuilder {
 
     pub fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
         self.protocol_version = Some(protocol_version);
-        self
-    }
-
-    pub fn protocol_version_latest(mut self) -> Self {
-        self.protocol_version = Some(PROTOCOL_VERSION);
         self
     }
 
