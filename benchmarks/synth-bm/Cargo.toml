@@ -1,0 +1,26 @@
+[package]
+name = "near-synth-bm"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true, features = ["derive"] }
+env_logger.workspace = true
+log.workspace = true
+rand.workspace = true
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+# The nearcore workspace already has another member named near-jsonrpc-client.
+near-jsonrpc-client = "0.14.0"
+# To be compatible with near-jsonrpc-client, the following crate versions need to be pinned.
+# TODO try bumping `metadata.workspaces.version` in root `Cargo.toml`.
+near-crypto = ">0.22,<0.28"
+near-primitives = ">0.22,<0.28"
+near-jsonrpc-primitives = ">0.22,<0.28"
