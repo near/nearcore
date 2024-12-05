@@ -1004,7 +1004,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             }
             trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
             latest_block_height.set(tip.height);
-            println!("boom block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
             if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
@@ -1043,8 +1042,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 }
 
 #[test]
-fn test_resharding_v3_simple() {
-    test_resharding_v3_base(TestReshardingParameters::with_clients(1));
+fn test_resharding_v3() {
+    test_resharding_v3_base(TestReshardingParameters::new());
 }
 
 #[test]
