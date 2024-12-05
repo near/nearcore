@@ -632,19 +632,17 @@ impl ShardLayout {
                 // we can safely unwrap here because the construction of to_parent_shard_map guarantees
                 // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
-                    let shard_index = self.get_shard_index(shard_id)?;
-                    let parent_shard_id = to_parent_shard_map
-                        .get(shard_index)
-                        .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
+                    let shard_index = self.get_shard_index(shard_id).unwrap();
+                    let parent_shard_id = to_parent_shard_map.get(shard_index).unwrap();
                     Some(*parent_shard_id)
                 }
                 None => None,
             },
             Self::V2(v2) => match &v2.shards_parent_map {
+                // we can safely unwrap here because the construction of to_parent_shard_map guarantees
+                // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
-                    let parent_shard_id = to_parent_shard_map.get(&shard_id);
-                    let parent_shard_id = parent_shard_id
-                        .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
+                    let parent_shard_id = to_parent_shard_map.get(&shard_id).unwrap();
                     Some(*parent_shard_id)
                 }
                 None => None,

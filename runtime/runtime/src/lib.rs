@@ -14,6 +14,7 @@ use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
 use config::total_prepaid_send_fees;
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
+use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -23,7 +24,7 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, IntegerOverflowError, InvalidTxError, RuntimeError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
     TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
@@ -2061,6 +2062,7 @@ impl Runtime {
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
+        let epoch_info_provider = processing_state.epoch_info_provider;
         let mut state_update = processing_state.state_update;
         let delayed_receipts = processing_state.delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
@@ -2081,15 +2083,18 @@ impl Runtime {
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let all_shards = apply_state.congestion_info.all_shards();
+            let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+            let shard_ids = shard_layout.shard_ids().collect_vec();
+            let shard_index = shard_layout
+                .get_shard_index(apply_state.shard_id)
+                .map_err(Into::<EpochError>::into)?
+                .try_into()
+                .expect("Shard Index must fit within u64");
 
-            // TODO(wacban) Using non-contiguous shard id here breaks some
-            // assumptions. The shard index should be used here instead.
-            let congestion_seed =
-                apply_state.block_height.wrapping_add(apply_state.shard_id.into());
+            let congestion_seed = apply_state.block_height.wrapping_add(shard_index);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
-                all_shards.as_slice(),
+                shard_ids.as_slice(),
                 congestion_seed,
             );
         }
