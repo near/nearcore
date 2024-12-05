@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -13,7 +14,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_time::Clock;
+use near_time::{Clock, FakeClock};
 use num_rational::Rational32;
 
 use crate::{Genesis, GenesisConfig, GenesisContents, GenesisRecords};
@@ -98,12 +99,6 @@ impl TestEpochConfigBuilder {
 
     pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
         self.epoch_length = Some(epoch_length);
-        self
-    }
-
-    pub fn shard_layout_simple_v1(mut self, boundary_accounts: &[&str]) -> Self {
-        let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
-        self.shard_layout = Some(ShardLayout::multi_shard_custom(boundary_accounts, 1));
         self
     }
 
@@ -297,10 +292,27 @@ impl TestGenesisBuilder {
         self
     }
 
-    pub fn add_user_accounts_simple(mut self, accounts: &Vec<AccountId>, balance: Balance) -> Self {
+    pub fn add_user_account_simple(
+        mut self,
+        account_id: AccountId,
+        initial_balance: Balance,
+    ) -> Self {
+        self.user_accounts.push(UserAccount {
+            balance: initial_balance,
+            access_keys: vec![create_user_test_signer(&account_id).public_key()],
+            account_id,
+        });
+        self
+    }
+
+    pub fn add_user_accounts_simple(
+        mut self,
+        accounts: &Vec<AccountId>,
+        initial_balance: Balance,
+    ) -> Self {
         for account_id in accounts {
             self.user_accounts.push(UserAccount {
-                balance,
+                balance: initial_balance,
                 access_keys: vec![create_user_test_signer(account_id).public_key()],
                 account_id: account_id.clone(),
             });
@@ -613,4 +625,37 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
             num_chunk_validator_seats,
         },
     }
+}
+
+pub fn genesis_epoch_config_store(
+    epoch_length: BlockHeightDelta,
+    protocol_version: ProtocolVersion,
+    shard_layout: ShardLayout,
+    validators_spec: ValidatorsSpec,
+    accounts: &Vec<AccountId>,
+    customize_genesis_builder: impl FnOnce(TestGenesisBuilder) -> TestGenesisBuilder,
+    customize_epoch_config_builder: impl FnOnce(TestEpochConfigBuilder) -> TestEpochConfigBuilder,
+) -> (Genesis, EpochConfigStore) {
+    let genesis_builder = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&FakeClock::default().clock())
+        .protocol_version(protocol_version)
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout.clone())
+        .validators_spec(validators_spec.clone())
+        .add_user_accounts_simple(accounts, 1_000_000 * ONE_NEAR)
+        .gas_prices_free()
+        .gas_limit_one_petagas();
+    let epoch_config_builder = TestEpochConfigBuilder::new()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec);
+    let genesis_builder = customize_genesis_builder(genesis_builder);
+    let epoch_config_builder = customize_epoch_config_builder(epoch_config_builder);
+
+    let genesis = genesis_builder.build();
+    let epoch_config = epoch_config_builder.build();
+    let epoch_config_store =
+        EpochConfigStore::test(BTreeMap::from([(protocol_version, Arc::new(epoch_config))]));
+
+    (genesis, epoch_config_store)
 }

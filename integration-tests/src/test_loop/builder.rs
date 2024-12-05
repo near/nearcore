@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use tempfile::TempDir;
 
 use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
@@ -12,6 +14,9 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     MutableConfigValue, StateSyncConfig, SyncConfig,
@@ -27,9 +32,11 @@ use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerAct
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, Balance, ShardId};
+use near_primitives::types::{BlockHeightDelta, Gas, NumBlocks, NumSeats};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
@@ -40,10 +47,10 @@ use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
-use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
 use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
+use super::utils::ONE_NEAR;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
