@@ -1315,11 +1315,9 @@ mod tests {
     /// Utility function to derive the resharding event type from chain and shard layout.
     fn event_type_from_chain_and_layout(
         chain: &Chain,
-        current_shard_layout: &ShardLayout,
         new_shard_layout: &ShardLayout,
     ) -> ReshardingEventType {
         ReshardingEventType::from_shard_layout(
-            current_shard_layout,
             &new_shard_layout,
             chain.head().unwrap().last_block_hash,
         )
@@ -1369,13 +1367,11 @@ mod tests {
     #[test]
     fn concurrent_reshardings_are_disallowed() {
         init_test_logger();
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, _) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
         let controller = FlatStorageResharderController::new();
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         assert!(resharder
             .start_resharding(resharding_event_type.clone(), &new_shard_layout)
@@ -1393,13 +1389,11 @@ mod tests {
     #[test]
     fn flat_storage_split_status_set() {
         init_test_logger();
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, _) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
         let flat_store = resharder.runtime.store().flat_store();
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
 
@@ -1430,13 +1424,11 @@ mod tests {
     #[test]
     fn resume_split_starts_from_clean_state() {
         init_test_logger();
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, _) =
-            create_chain_resharder_sender::<SimpleSender>(shard_layout.clone());
+            create_chain_resharder_sender::<SimpleSender>(simple_shard_layout());
         let flat_store = resharder.runtime.store().flat_store();
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
         } = match resharding_event_type {
@@ -1497,13 +1489,10 @@ mod tests {
     #[test]
     fn simple_split_shard() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (mut chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let left_child = ShardUId { version: 3, shard_id: 2 };
         let right_child = ShardUId { version: 3, shard_id: 3 };
         let flat_store = resharder.runtime.store().flat_store();
@@ -1586,12 +1575,10 @@ mod tests {
     #[test]
     fn split_shard_batching() {
         init_test_logger();
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         // Tweak the resharding config to make smaller batches.
         let mut config = resharder.resharding_config.get();
@@ -1614,12 +1601,10 @@ mod tests {
     #[test]
     fn cancel_split_shard() {
         init_test_logger();
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         // Perform resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
@@ -1651,12 +1636,10 @@ mod tests {
     /// A shard can't be split if it isn't in ready state.
     #[test]
     fn reject_split_shard_if_parent_is_not_ready() {
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, _) =
-            create_chain_resharder_sender::<SimpleSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+            create_chain_resharder_sender::<SimpleSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
 
         // Make flat storage of parent shard not ready.
         let parent_shard = ShardUId { version: 3, shard_id: 1 };
@@ -1674,13 +1657,9 @@ mod tests {
     #[test]
     fn split_shard_parent_flat_store_with_deltas() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (mut chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
 
         // In order to have flat state deltas we must bring the chain forward by adding blocks.
         add_blocks_to_chain(
@@ -1690,6 +1669,7 @@ mod tests {
             NextBlockHeight::ChainHeadPlusOne,
         );
 
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
         } = match resharding_event_type.clone() {
@@ -1884,14 +1864,10 @@ mod tests {
     #[test]
     fn split_shard_handle_account_id_keys() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
-
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
         } = match resharding_event_type.clone() {
@@ -1974,14 +1950,10 @@ mod tests {
     #[test]
     fn split_shard_handle_delayed_receipts() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
-
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
         } = match resharding_event_type.clone() {
@@ -2027,14 +1999,10 @@ mod tests {
     #[test]
     fn split_shard_handle_promise_yield() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
-
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
         } = match resharding_event_type.clone() {
@@ -2117,13 +2085,10 @@ mod tests {
     #[test]
     fn split_shard_handle_buffered_receipts() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
         } = match resharding_event_type.clone() {
@@ -2173,13 +2138,10 @@ mod tests {
     /// Base test scenario for testing children catchup.
     fn children_catchup_base(with_restart: bool) {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (mut chain, mut resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard,
             left_child_shard,
@@ -2375,11 +2337,9 @@ mod tests {
     #[test]
     fn shard_split_should_wait_final_block() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (mut chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
         let flat_store = resharder.runtime.store().flat_store();
 
         // Add two blocks on top of genesis.
@@ -2391,8 +2351,7 @@ mod tests {
         );
 
         // Trigger resharding at block 2 and it shouldn't split the parent shard.
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
             ReshardingEventType::SplitShard(params) => params,
         };
@@ -2427,11 +2386,9 @@ mod tests {
     #[test]
     fn resharding_event_not_started_can_be_replaced() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (mut chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
         let flat_store = resharder.runtime.store().flat_store();
 
         // Add two blocks on top of genesis.
@@ -2443,8 +2400,7 @@ mod tests {
         );
 
         // Trigger resharding at block 2. Parent shard shouldn't get split yet.
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
             ReshardingEventType::SplitShard(params) => params,
         };
@@ -2464,8 +2420,7 @@ mod tests {
         );
 
         // Get the new resharding event and re-trigger the shard split.
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
             ReshardingEventType::SplitShard(params) => params,
         };
@@ -2498,11 +2453,9 @@ mod tests {
     #[test]
     fn scheduled_task_failure_is_handled_correctly() {
         init_test_logger();
-
-        let shard_layout = simple_shard_layout();
-        let new_shard_layout = shard_layout_after_split();
         let (mut chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(shard_layout.clone());
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
 
         // Add two blocks on top of genesis.
         add_blocks_to_chain(
@@ -2513,8 +2466,7 @@ mod tests {
         );
 
         // Trigger resharding at block 2.
-        let resharding_event_type =
-            event_type_from_chain_and_layout(&chain, &shard_layout, &new_shard_layout);
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
         let (parent_shard, split_params) = resharder.get_parent_shard_and_split_params().unwrap();
         let ParentSplitParameters { flat_head, .. } = split_params;

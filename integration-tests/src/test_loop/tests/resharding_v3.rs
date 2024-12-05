@@ -564,7 +564,6 @@ fn get_memtrie_for_shard(
         .runtime_adapter
         .get_trie_for_shard(shard_uid.shard_id(), prev_block_hash, state_root, false)
         .unwrap();
-    tracing::info!(target: "test", ?shard_uid, ?prev_block_hash, "checking memtrie for shard");
     assert!(memtrie.has_memtries());
     memtrie
 }
@@ -588,15 +587,19 @@ fn shard_was_split(shard_layout: &ShardLayout, shard_id: ShardId) -> bool {
     let Ok(parent) = shard_layout.get_parent_shard_id(shard_id) else {
         return false;
     };
-    tracing::info!(target: "test", ?shard_layout, ?shard_id, ?parent, "checking if shard was split");
     parent != shard_id
 }
 
-/// Asserts that for each child shard:
-/// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
-/// If `load_mem_tries_for_tracked_shards` is false, TODO
+/// Asserts that for each child shard, MemTrie, FlatState and DiskTrie all
+/// contain the same key-value pairs. If `load_mem_tries_for_tracked_shards` is
+/// false, we only enforce memtries for shards pending resharding in the old
+/// layout and the shards thet were split in the new shard layout.
 ///
-/// Returns the ShardUIds that this client tracks and has sane memtries and flat storage for
+/// Returns the ShardUIds that this client tracks and has sane memtries and flat
+/// storage for
+///
+/// The new num shards argument is a clumsy way to check if the head is before
+/// or after resharding.
 fn assert_state_sanity(
     client: &Client,
     final_head: &Tip,
@@ -615,6 +618,8 @@ fn assert_state_sanity(
         .unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
+        // TODO - the condition for checks is duplicated in the
+        // `get_epoch_check` method, refactor this.
         if !load_mem_tries_for_tracked_shards {
             // In the old layout do not enforce except for shards pending resharding.
             if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {

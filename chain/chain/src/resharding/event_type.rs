@@ -47,7 +47,6 @@ impl ReshardingEventType {
     /// Returns a [ReshardingEventType] if exactly one resharding change is contained in
     /// `next_shard_layout`, otherwise returns `None`.
     pub fn from_shard_layout(
-        current_shard_layout: &ShardLayout,
         next_shard_layout: &ShardLayout,
         resharding_hash: CryptoHash,
     ) -> Result<Option<ReshardingEventType>, Error> {
@@ -80,7 +79,12 @@ impl ReshardingEventType {
                         return log_and_error("can't perform two reshardings at the same time!");
                     }
                     // Parent shard is no longer part of this shard layout.
-                    let parent_shard = ShardUId::new(current_shard_layout.version(), *parent_id);
+                    //
+                    // Please note the use of the next shard layout version.
+                    // Technically speaking the current shard layout version
+                    // should be used for the parent. However since
+                    // ShardLayoutV2 the version is frozen so it is ok.
+                    let parent_shard = ShardUId::new(next_shard_layout.version(), *parent_id);
                     let left_child_shard =
                         ShardUId::from_shard_id_and_layout(children_ids[0], next_shard_layout);
                     let right_child_shard =
@@ -149,32 +153,28 @@ mod tests {
         #[allow(deprecated)]
         let layout_v1 =
             ShardLayout::v1(vec!["ccc".parse().unwrap(), "kkk".parse().unwrap()], None, 1);
-        assert!(ReshardingEventType::from_shard_layout(&layout_v0, &layout_v0, block).is_err());
-        assert!(ReshardingEventType::from_shard_layout(&layout_v0, &layout_v1, block).is_err());
+        assert!(ReshardingEventType::from_shard_layout(&layout_v0, block).is_err());
+        assert!(ReshardingEventType::from_shard_layout(&layout_v1, block).is_err());
 
         // No resharding is ok.
         let shards_split_map = BTreeMap::from([(s0, vec![s0])]);
         let layout = ShardLayout::v2(vec![], vec![s0], Some(shards_split_map));
-        assert!(ReshardingEventType::from_shard_layout(&layout, &layout, block)
+        assert!(ReshardingEventType::from_shard_layout(&layout, block)
             .is_ok_and(|event| event.is_none()));
 
         // Single split shard is ok.
-        let base_version = 2;
-        #[allow(deprecated)]
-        let base_layout = ShardLayout::v1(vec![account!("ff")], None, base_version);
         let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s2, s3])]);
-        let new_layout = ShardLayout::v2(
+        let layout = ShardLayout::v2(
             vec![account!("ff"), account!("pp")],
             vec![s0, s2, s3],
             Some(shards_split_map),
         );
 
-        let event_type =
-            ReshardingEventType::from_shard_layout(&base_layout, &new_layout, block).unwrap();
+        let event_type = ReshardingEventType::from_shard_layout(&layout, block).unwrap();
         assert_eq!(
             event_type,
             Some(ReshardingEventType::SplitShard(ReshardingSplitShardParams {
-                parent_shard: ShardUId { version: base_version, shard_id: 1 },
+                parent_shard: ShardUId { version: 3, shard_id: 1 },
                 left_child_shard: ShardUId { version: 3, shard_id: 2 },
                 right_child_shard: ShardUId { version: 3, shard_id: 3 },
                 resharding_hash: block,
@@ -183,14 +183,12 @@ mod tests {
         );
 
         // Double split shard is not ok.
-        #[allow(deprecated)]
-        let base_layout = ShardLayout::v1(vec![account!("pp")], None, 2);
         let shards_split_map = BTreeMap::from([(s0, vec![s2, s3]), (s1, vec![s4, s5])]);
-        let new_layout = ShardLayout::v2(
+        let layout = ShardLayout::v2(
             vec![account!("ff"), account!("pp"), account!("ss")],
             vec![s2, s3, s4, s5],
             Some(shards_split_map),
         );
-        assert!(ReshardingEventType::from_shard_layout(&base_layout, &new_layout, block).is_err());
+        assert!(ReshardingEventType::from_shard_layout(&layout, block).is_err());
     }
 }
