@@ -277,6 +277,11 @@ pub struct ReshardingConfig {
     /// report error early enough for the node maintainer to have time to recover.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub max_poll_time: Duration,
+
+    /// The number of blocks applied in a single batch during shard catch up.
+    /// This value can be decreased if resharding is consuming too many
+    /// resources and interfering with regular node operation.
+    pub catch_up_blocks: BlockHeightDelta,
 }
 
 impl Default for ReshardingConfig {
@@ -292,6 +297,7 @@ impl Default for ReshardingConfig {
             // epoch start. Set the default higher in case we need to wait for
             // state sync.
             max_poll_time: Duration::seconds(2 * 60 * 60), // 2 hours
+            catch_up_blocks: 50,
         }
     }
 }
@@ -316,8 +322,12 @@ pub fn default_state_sync_p2p_timeout() -> Duration {
     Duration::seconds(10)
 }
 
-pub fn default_state_sync_retry_timeout() -> Duration {
+pub fn default_state_sync_retry_backoff() -> Duration {
     Duration::seconds(1)
+}
+
+pub fn default_state_sync_external_backoff() -> Duration {
+    Duration::seconds(60)
 }
 
 pub fn default_header_sync_expected_height_per_second() -> u64 {
@@ -453,8 +463,10 @@ pub struct ClientConfig {
     pub state_sync_external_timeout: Duration,
     /// How long to wait for a response from p2p state sync
     pub state_sync_p2p_timeout: Duration,
-    /// How long to wait between attempts to obtain a state part
-    pub state_sync_retry_timeout: Duration,
+    /// How long to wait after a failed state sync request
+    pub state_sync_retry_backoff: Duration,
+    /// Additional waiting period after a failed request to external storage
+    pub state_sync_external_backoff: Duration,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -594,7 +606,8 @@ impl ClientConfig {
             header_sync_stall_ban_timeout: Duration::seconds(30),
             state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
-            state_sync_retry_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::seconds(10),

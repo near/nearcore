@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 borsh.workspace = true
+itertools.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
 rand.workspace = true

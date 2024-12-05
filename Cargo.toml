@@ -199,7 +199,7 @@ hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5.0"
 im = "15"
 indexmap = "2"
-indicatif = { version = "0.15.0", features = ["with_rayon"] }
+indicatif = { version = "0.17.0", features = ["rayon"] }
 insta = { version = "1.41.0", features = ["json", "yaml", "redactions"] }
 integration-tests = { path = "integration-tests" }
 inventory = "0.3.15"

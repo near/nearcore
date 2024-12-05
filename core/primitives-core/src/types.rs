@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::num::ParseIntError;
 use std::ops::Add;
 use std::str::FromStr;
@@ -71,7 +70,6 @@ pub type ShardIndex = usize;
     Hash,
     Clone,
     Copy,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -123,7 +121,13 @@ impl ShardId {
     }
 }
 
-impl Display for ShardId {
+impl std::fmt::Debug for ShardId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::fmt::Display for ShardId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }

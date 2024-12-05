@@ -473,7 +473,7 @@ pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_state_sync_header_download_result",
+        "near_state_sync_download_result",
         "Count of number of state sync downloads by type (header, part),
                source (network, external), and result (timeout, error, success)",
         &["shard_id", "type", "source", "result"],

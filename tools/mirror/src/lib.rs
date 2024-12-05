@@ -850,9 +850,8 @@ impl<T: ChainAccess> TxMirror<T> {
                 // keep backward compatibility
                 let mirror_db_path = near_store::NodeStorage::opener(
                     target_home,
-                    target_config.config.archive,
                     &target_config.config.store,
-                    None,
+                    target_config.config.archival_config(),
                 )
                 .path()
                 .join("mirror");

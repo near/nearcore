@@ -28,7 +28,6 @@ use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -887,6 +886,10 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(())
     }
 
+    fn should_validate_signatures(&self) -> bool {
+        false
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -924,18 +927,6 @@ impl EpochManagerAdapter for MockEpochManager {
         let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
         let validator_stake = &self.validators[&validator];
         Ok(header.verify_block_producer(validator_stake.public_key()))
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        _chunk_hash: &ChunkHash,
-        _signature: &Signature,
-        _epoch_id: &EpochId,
-        _last_kown_hash: &CryptoHash,
-        _height_created: BlockHeight,
-        _shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        Ok(true)
     }
 
     fn verify_chunk_endorsement_signature(

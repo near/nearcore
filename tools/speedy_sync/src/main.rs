@@ -129,7 +129,7 @@ fn write_epoch_checkpoint(store_update: &mut StoreUpdate, epoch_checkpoint: &Epo
 
 fn create_snapshot(create_cmd: CreateCmd) {
     let path = Path::new(&create_cmd.home);
-    let store = NodeStorage::opener(path, false, &Default::default(), None)
+    let store = NodeStorage::opener(path, &Default::default(), None)
         .open_in_mode(Mode::ReadOnly)
         .unwrap()
         .get_hot_store();
@@ -225,20 +225,27 @@ fn load_snapshot(load_cmd: LoadCmd) {
     )
     .unwrap();
 
-    let config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
+    let near_config = nearcore::config::load_config(&home_dir, GenesisValidationMode::UnsafeFast)
         .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-    let store = NodeStorage::opener(home_dir, config.config.archive, &Default::default(), None)
-        .open()
-        .unwrap()
-        .get_hot_store();
-    let chain_genesis = ChainGenesis::new(&config.genesis.config);
+    let store =
+        NodeStorage::opener(home_dir, &Default::default(), near_config.config.archival_config())
+            .open()
+            .unwrap()
+            .get_hot_store();
+    let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
     let epoch_manager =
-        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
-    let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
-    let runtime =
-        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone())
-            .expect("could not create transaction runtime");
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
+    let shard_tracker = ShardTracker::new(
+        TrackedConfig::from_config(&near_config.client_config),
+        epoch_manager.clone(),
+    );
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    )
+    .expect("could not create transaction runtime");
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
@@ -248,7 +255,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         &chain_genesis,
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
-            save_trie_changes: config.client_config.save_trie_changes,
+            save_trie_changes: near_config.client_config.save_trie_changes,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
