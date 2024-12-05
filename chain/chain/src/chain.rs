@@ -2769,8 +2769,10 @@ impl Chain {
         // Check cache
         let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
         if let Ok(Some(state_part)) = self.chain_store.store().get(DBCol::StateParts, &key) {
+            metrics::STATE_PART_CACHE_HIT.inc();
             return Ok(state_part.into());
         }
+        metrics::STATE_PART_CACHE_MISS.inc();
 
         let block = self
             .get_block(&sync_hash)
@@ -2815,9 +2817,6 @@ impl Chain {
             .max(0) as u128;
         self.requested_state_parts
             .save_state_part_elapsed(&sync_hash, &shard_id, &part_id, elapsed_ms);
-
-        // Before saving State Part data, we need to make sure we can calculate and save State Header
-        self.get_state_response_header(shard_id, sync_hash)?;
 
         // Saving the part data
         let mut store_update = self.chain_store.store().store_update();
