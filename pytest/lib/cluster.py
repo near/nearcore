@@ -1003,8 +1003,7 @@ def apply_config_changes(node_dir: str,
     # file.  Those are often Option<T> types which are not stored in JSON file
     # when None.
     allowed_missing_configs = (
-        'archive', 'archival_storage',
-        'consensus.block_fetch_horizon',
+        'archive', 'archival_storage', 'consensus.block_fetch_horizon',
         'consensus.block_header_fetch_horizon',
         'consensus.min_block_production_delay',
         'consensus.max_block_production_delay',
