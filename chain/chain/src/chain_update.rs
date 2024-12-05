@@ -228,6 +228,7 @@ impl<'a> ChainUpdate<'a> {
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
         should_save_state_transition_data: bool,
     ) -> Result<Option<Tip>, Error> {
+        println!("!!!BLOCK!!! {} {}", block.header().height(), block.hash());
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|(shard_id, x)| {
             if let Err(err) = &x {
