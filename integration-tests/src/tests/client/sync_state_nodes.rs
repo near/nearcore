@@ -357,13 +357,17 @@ fn ultra_slow_test_sync_state_dump() {
             let arbiters_holder2 = arbiters_holder;
 
             wait_or_timeout(1000, 60000, || async {
+                println!("\n=== Dump directory contents ===");
+                let _ = std::process::Command::new("ls").arg("-la").arg(dump_dir.path()).status();
+                println!("===========================\n");
+
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
                     let genesis2 = genesis.clone();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
-                        Ok(Ok(b)) if b.header.height >= 2 * epoch_length + 2 => {
+                        Ok(Ok(b)) if b.header.height >= epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
                             let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
 
@@ -414,10 +418,10 @@ fn ultra_slow_test_sync_state_dump() {
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
                     match view_client2.send(GetBlock::latest().with_span_context()).await {
-                        Ok(Ok(b)) if b.header.height >= 2 * epoch_length + 10 => {
+                        Ok(Ok(b)) if b.header.height >= epoch_length + 10 => {
                             return ControlFlow::Break(());
                         }
-                        Ok(Ok(b)) if b.header.height < 2 * epoch_length + 10 => {
+                        Ok(Ok(b)) if b.header.height < epoch_length + 10 => {
                             println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                             tracing::info!("SECOND STAGE {}", b.header.height)
                         }
