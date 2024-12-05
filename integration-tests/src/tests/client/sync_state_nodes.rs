@@ -414,6 +414,7 @@ fn ultra_slow_test_sync_state_dump() {
                             return ControlFlow::Break(());
                         }
                         Ok(Ok(b)) if b.header.height < 40 => {
+                            println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                             tracing::info!("SECOND STAGE {}", b.header.height)
                         }
                         Ok(Err(e)) => {
