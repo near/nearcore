@@ -287,7 +287,11 @@ fn get_resharding_transition(
         return Ok(None);
     }
 
-    let params = match ReshardingEventType::from_shard_layout(&shard_layout, *prev_hash)? {
+    let params = match ReshardingEventType::from_shard_layout(
+        &prev_shard_layout,
+        &shard_layout,
+        *prev_hash,
+    )? {
         Some(ReshardingEventType::SplitShard(params)) => params,
         None => return Ok(None),
     };

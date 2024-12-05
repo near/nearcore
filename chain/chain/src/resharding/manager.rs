@@ -83,8 +83,10 @@ impl ReshardingManager {
             return Ok(());
         }
 
+        tracing::debug!(target: "resharding", "start resharding");
+
         let resharding_event_type =
-            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash)?;
+            ReshardingEventType::from_shard_layout(&shard_layout, &next_shard_layout, *block_hash)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
                 self.split_shard(
@@ -114,9 +116,11 @@ impl ReshardingManager {
     ) -> Result<(), Error> {
         if split_shard_event.parent_shard != shard_uid {
             let parent_shard = split_shard_event.parent_shard;
-            tracing::debug!(target: "resharding", ?parent_shard, "ShardUId does not match event parent shard, skipping");
+            tracing::debug!(target: "resharding", ?parent_shard, ?shard_uid, "ShardUId does not match event parent shard, skipping");
             return Ok(());
         }
+
+        tracing::debug!(target: "resharding", ?shard_uid, "splitting shard");
 
         // Reshard the State column by setting ShardUId mapping from children to parent.
         self.set_state_shard_uid_mapping(&split_shard_event)?;
