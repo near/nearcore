@@ -317,6 +317,7 @@ fn ultra_slow_test_sync_state_dump() {
         let _dump_dir =
             Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
         let dump_dir = _dump_dir.clone();
+        println!("dump_dir: {:?}", dump_dir.path());
         let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
         let dir1 = _dir1.clone();
         let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
@@ -359,6 +360,13 @@ fn ultra_slow_test_sync_state_dump() {
             wait_or_timeout(1000, 60000, || async {
                 println!("\n=== Dump directory contents ===");
                 let _ = std::process::Command::new("ls").arg("-la").arg(dump_dir.path()).status();
+                // Add recursive listing for subdirectories
+                let _ = std::process::Command::new("find")
+                    .arg(dump_dir.path())
+                    .arg("-maxdepth")
+                    .arg("3")
+                    .arg("-ls")
+                    .status();
                 println!("===========================\n");
 
                 if view_client2_holder.read().unwrap().is_none() {
