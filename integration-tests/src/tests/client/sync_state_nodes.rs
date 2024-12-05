@@ -406,6 +406,7 @@ fn ultra_slow_test_sync_state_dump() {
                                         external_storage_fallback_threshold: 0,
                                     });
 
+                                println!("!!!STARTING NODE 2!!! {}", b.header.height);
                                 let nearcore::NearNode {
                                     view_client: view_client2, arbiters, ..
                                 } = start_with_config(dir2.path(), near2)

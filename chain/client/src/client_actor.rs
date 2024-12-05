@@ -1507,10 +1507,13 @@ impl ClientActorInner {
             if highest_height <= head.height {
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
             } else {
+                println!("!!!SYNC NEEDED1!!! {} {}", highest_height, head.height);
+                println!("{} {:?}", shutdown_height, peer_info);
                 Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
             }
         } else {
             if highest_height > head.height + self.client.config.sync_height_threshold {
+                println!("!!!SYNC NEEDED2!!! {} {}", highest_height, head.height);
                 Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
             } else {
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
@@ -1891,6 +1894,7 @@ impl ClientActorInner {
         let min_header_height =
             highest_height.saturating_sub(self.client.config.block_header_fetch_horizon);
         if header_head.height < min_header_height {
+            println!("!!!SKIP SS 1!!! {} {}", header_head.height, min_header_height);
             return Ok(false);
         }
 
@@ -1900,6 +1904,11 @@ impl ClientActorInner {
             let current_epoch_start =
                 self.client.epoch_manager.get_epoch_start_height(&header_head.last_block_hash)?;
             if &header_head.epoch_id == epoch_sync_boundary_block_header.epoch_id() {
+                println!(
+                    "!!!SKIP SS 2!!! {} {}",
+                    epoch_sync_boundary_block_header.height(),
+                    current_epoch_start
+                );
                 // We do not want to state sync into the same epoch that epoch sync bootstrapped us with,
                 // because we're missing block headers before this epoch. Wait till we have a header in
                 // the next epoch before starting state sync. (This is not a long process; epoch sync
@@ -1911,6 +1920,11 @@ impl ClientActorInner {
                 + self.client.chain.transaction_validity_period
                 > current_epoch_start
             {
+                println!(
+                    "!!!SKIP SS 3!!! {} {}",
+                    epoch_sync_boundary_block_header.height(),
+                    current_epoch_start
+                );
                 // We also do not want to state sync, if by doing so we would not have enough headers to
                 // perform transaction validity checks. Again, epoch sync should have picked an old
                 // enough epoch to ensure that we would have enough headers if we just continued with
