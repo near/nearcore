@@ -311,7 +311,8 @@ fn ultra_slow_test_sync_state_dump() {
         );
         // Needs to be long enough to give enough time to the second node to
         // start, sync headers and find a dump of state.
-        genesis.config.epoch_length = 30;
+        let epoch_length = 30;
+        genesis.config.epoch_length = epoch_length;
 
         let _dump_dir =
             Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
@@ -362,7 +363,7 @@ fn ultra_slow_test_sync_state_dump() {
                     let genesis2 = genesis.clone();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
-                        Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
+                        Ok(Ok(b)) if b.header.height >= 2 * epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
                             let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
 
@@ -413,10 +414,10 @@ fn ultra_slow_test_sync_state_dump() {
 
                 if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
                     match view_client2.send(GetBlock::latest().with_span_context()).await {
-                        Ok(Ok(b)) if b.header.height >= 40 => {
+                        Ok(Ok(b)) if b.header.height >= 2 * epoch_length + 10 => {
                             return ControlFlow::Break(());
                         }
-                        Ok(Ok(b)) if b.header.height < 40 => {
+                        Ok(Ok(b)) if b.header.height < 2 * epoch_length + 10 => {
                             println!("!!!BLOCK!!! {} {}", b.header.height, b.header.hash);
                             tracing::info!("SECOND STAGE {}", b.header.height)
                         }
