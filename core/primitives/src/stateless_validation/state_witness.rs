@@ -119,8 +119,8 @@ impl ChunkStateWitness {
         let inner_len = borsh::to_vec(&inner).unwrap().len();
         const WANTED_SIZE: usize = 30 * 1024 * 1024; // 30 MB
         let padding_size = WANTED_SIZE - inner_len;
-        let padding = vec![0; padding_size];
-        Self { inner, padding }
+        let _padding = vec![0; padding_size];
+        Self { inner, padding: vec![0; 0] }
     }
 
     pub fn chunk_production_key(&self) -> ChunkProductionKey {
