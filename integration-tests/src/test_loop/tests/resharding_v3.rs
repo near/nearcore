@@ -142,8 +142,8 @@ struct TestReshardingParameters {
     // epoch length, but it's good to also check what happens with shorter ones.
     all_chunks_expected: bool,
     /// Optionally deploy the test contract
-    /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided account.
-    deploy_test_contract: Option<AccountId>,
+    /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
+    deploy_test_contract: Vec<AccountId>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
     limit_outgoing_gas: bool,
     /// If non zero, split parent shard for flat state resharding will be delayed by an additional
@@ -245,7 +245,7 @@ impl TestReshardingParameters {
     }
 
     fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
-        self.deploy_test_contract = Some(account_id);
+        self.deploy_test_contract.push(account_id);
         self
     }
 
@@ -427,11 +427,15 @@ fn check_buffered_receipts_exist_in_memtrie(
     assert_ne!(indices.shard_buffers.values().fold(0, |acc, buffer| acc + buffer.len()), 0);
 }
 
-/// Returns a loop action that invokes a costly method from a contract `CALLS_PER_BLOCK_HEIGHT` times per block height.
+/// Returns a loop action that invokes a costly method from a contract
+/// `CALLS_PER_BLOCK_HEIGHT` times per block height.
+///
 /// The account invoking the contract is taken in sequential order from `signed_ids`.
+///
+/// The account receiving the contract call is taken in sequential order from `receiver_ids`.
 fn call_burn_gas_contract(
     signer_ids: Vec<AccountId>,
-    receiver_id: AccountId,
+    receiver_ids: Vec<AccountId>,
     gas_burnt_per_call: Gas,
 ) -> LoopActionFn {
     const TX_CHECK_BLOCKS_AFTER_RESHARDING: u64 = 5;
@@ -480,7 +484,11 @@ fn call_burn_gas_contract(
             // The objective is to pile up receipts (e.g. delayed).
             if tip.height <= resharding_height.get().unwrap_or(1000) + 1 {
                 for i in 0..CALLS_PER_BLOCK_HEIGHT {
+                    // Note that if the number of signers and receivers is the
+                    // same then the traffic will always flow the same way. It
+                    // would be nice to randomize it a bit.
                     let signer_id = &signer_ids[i % signer_ids.len()];
+                    let receiver_id = &receiver_ids[i % receiver_ids.len()];
                     let signer: Signer = create_user_test_signer(signer_id).into();
                     nonce.set(nonce.get() + 1);
                     let method_name = "burn_gas_raw".to_owned();
@@ -498,7 +506,7 @@ fn call_burn_gas_contract(
                         tip.last_block_hash,
                     );
                     let mut txs_vec = txs.take();
-                    tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), "submitting transaction");
+                    tracing::debug!(target: "test", height=tip.height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
                     txs_vec.push((tx.get_hash(), tip.height));
                     txs.set(txs_vec);
                     submit_tx(&node_datas, &rpc_id, tx);
@@ -886,11 +894,11 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         )
         .build();
 
-    if let Some(account) = params.deploy_test_contract {
-        let signer = &create_user_test_signer(&account).into();
+    for contract_id in &params.deploy_test_contract {
+        let signer = &create_user_test_signer(&contract_id).into();
         let deploy_contract_tx = SignedTransaction::deploy_contract(
             101,
-            &account,
+            &contract_id,
             near_test_contracts::rs_contract().into(),
             &signer,
             get_shared_block_hash(&node_datas, &test_loop),
@@ -1059,7 +1067,11 @@ fn test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account.clone())
-        .add_loop_action(call_burn_gas_contract(vec![account.clone()], account.clone(), 275 * TGAS))
+        .add_loop_action(call_burn_gas_contract(
+            vec![account.clone()],
+            vec![account.clone()],
+            275 * TGAS,
+        ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account,
             ReceiptKind::Delayed,
@@ -1074,7 +1086,11 @@ fn test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account.clone())
-        .add_loop_action(call_burn_gas_contract(vec![account.clone()], account.clone(), 275 * TGAS))
+        .add_loop_action(call_burn_gas_contract(
+            vec![account.clone()],
+            vec![account.clone()],
+            275 * TGAS,
+        ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account,
             ReceiptKind::Delayed,
@@ -1094,7 +1110,7 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child.clone(), account_in_right_child],
-            receiver_account,
+            vec![receiver_account],
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1111,16 +1127,17 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
-    // TODO(resharding) - Add traffic towards the right child too.
     let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
     let account_in_stable_shard: AccountId = "account1".parse().unwrap();
 
     let params = TestReshardingParameters::new()
         .deploy_test_contract(account_in_left_child.clone())
+        .deploy_test_contract(account_in_right_child.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_stable_shard.clone()],
-            account_in_left_child,
+            vec![account_in_left_child, account_in_right_child],
             10 * TGAS,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
@@ -1144,7 +1161,7 @@ fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
         .deploy_test_contract(receiver_account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account_1_in_stable_shard, account_2_in_stable_shard],
-            receiver_account,
+            vec![receiver_account],
             5 * TGAS,
         ));
     test_resharding_v3_base(params);
@@ -1160,7 +1177,7 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
         .deploy_test_contract(receiver_account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child],
-            receiver_account,
+            vec![receiver_account],
             5 * TGAS,
         ));
     test_resharding_v3_base(params);
