@@ -50,3 +50,39 @@ impl FlatStorageMetrics {
         self.cached_changes_size.set(cached_changes_size as i64);
     }
 }
+
+/// Metrics to observe flat storage resharding post-processing. This struct is specific to
+/// reshardings where a shard get split into two children.
+#[derive(Clone, Debug)]
+pub struct FlatStorageShardSplitReshardingMetrics {
+    parent_status: IntGauge,
+    left_child_status: IntGauge,
+    right_child_status: IntGauge,
+    left_child_head_height: IntGauge,
+    right_child_head_height: IntGauge,
+    split_shard_processed_batches: IntGauge,
+}
+
+impl FlatStorageShardSplitReshardingMetrics {
+    pub fn new(
+        parent_shard: &ShardUId,
+        left_child_shard: &ShardUId,
+        right_child_shard: &ShardUId,
+    ) -> Self {
+        use flat_state_metrics::*;
+        let parent_shard_label = parent_shard.to_string();
+        let left_child_shard_label = left_child_shard.to_string();
+        let right_child_shard_label = right_child_shard.to_string();
+        Self {
+            parent_status: resharding::STATUS.with_label_values(&[&parent_shard_label]),
+            left_child_status: resharding::STATUS.with_label_values(&[&left_child_shard_label]),
+            right_child_status: resharding::STATUS.with_label_values(&[&right_child_shard_label]),
+            left_child_head_height: FLAT_STORAGE_HEAD_HEIGHT
+                .with_label_values(&[&left_child_shard_label]),
+            right_child_head_height: FLAT_STORAGE_HEAD_HEIGHT
+                .with_label_values(&[&right_child_shard_label]),
+            split_shard_processed_batches: resharding::SPLIT_SHARD_PROCESSED_BATCHES
+                .with_label_values(&[&parent_shard_label]),
+        }
+    }
+}

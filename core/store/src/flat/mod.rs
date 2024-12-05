@@ -37,6 +37,7 @@ mod types;
 pub use chunk_view::FlatStorageChunkView;
 pub use delta::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 pub use manager::FlatStorageManager;
+pub use metrics::FlatStorageShardSplitReshardingMetrics;
 pub use storage::FlatStorage;
 pub use types::{
     BlockInfo, FetchingStateStatus, FlatStateIterator, FlatStorageCreationStatus, FlatStorageError,

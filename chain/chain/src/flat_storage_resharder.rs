@@ -32,7 +32,8 @@ use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStorageError, FlatStorageReadyStatus,
-    FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
+    FlatStorageReshardingStatus, FlatStorageShardSplitReshardingMetrics, FlatStorageStatus,
+    ParentSplitParameters,
 };
 use near_store::{ShardUId, StorageError};
 use std::fmt::{Debug, Formatter};
@@ -244,6 +245,11 @@ impl FlatStorageResharder {
             parent_shard,
             split_params.clone(),
             TaskExecutionStatus::NotStarted,
+            FlatStorageShardSplitReshardingMetrics::new(
+                &parent_shard,
+                &split_params.left_child_shard,
+                &split_params.right_child_shard,
+            ),
         );
         self.set_resharding_event(event);
         info!(target: "resharding", ?parent_shard, ?split_params,"scheduling flat storage shard split");
@@ -720,7 +726,7 @@ impl FlatStorageResharder {
         debug_assert!(!current_event.has_started());
         // Clean up the database state.
         match current_event {
-            FlatStorageReshardingEventStatus::SplitShard(parent_shard, split_status, _) => {
+            FlatStorageReshardingEventStatus::SplitShard(parent_shard, split_status, ..) => {
                 let flat_store = self.runtime.store().flat_store();
                 let mut store_update = flat_store.store_update();
                 // Parent go back to Ready state.
@@ -947,16 +953,21 @@ fn copy_kv_to_left_child(
 #[derive(Clone, Debug)]
 pub enum FlatStorageReshardingEventStatus {
     /// Split a shard. Includes the parent shard uid, the detailed information about the split
-    /// operation (`ParentSplitParameters`) and the execution status of the task that is performing
-    /// the split.
-    SplitShard(ShardUId, ParentSplitParameters, TaskExecutionStatus),
+    /// operation (`ParentSplitParameters`), the execution status of the task that is performing
+    /// the split and observability metrics.
+    SplitShard(
+        ShardUId,
+        ParentSplitParameters,
+        TaskExecutionStatus,
+        FlatStorageShardSplitReshardingMetrics,
+    ),
 }
 
 impl FlatStorageReshardingEventStatus {
     /// Returns `true` if the resharding event has started processing.
     fn has_started(&self) -> bool {
         match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status) => {
+            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status, ..) => {
                 matches!(execution_status, TaskExecutionStatus::Started)
             }
         }
@@ -964,7 +975,7 @@ impl FlatStorageReshardingEventStatus {
 
     fn set_execution_status(&mut self, new_status: TaskExecutionStatus) {
         match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status) => {
+            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status, ..) => {
                 *execution_status = new_status
             }
         }
@@ -972,7 +983,7 @@ impl FlatStorageReshardingEventStatus {
 
     fn resharding_hash(&self) -> CryptoHash {
         match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, split_status, _) => {
+            FlatStorageReshardingEventStatus::SplitShard(_, split_status, ..) => {
                 split_status.resharding_hash
             }
         }
@@ -1354,7 +1365,7 @@ mod tests {
 
         let resharding_event = resharder.resharding_event();
         match resharding_event.unwrap() {
-            FlatStorageReshardingEventStatus::SplitShard(parent, status, exec_status) => {
+            FlatStorageReshardingEventStatus::SplitShard(parent, status, exec_status, _) => {
                 assert_eq!(
                     flat_store.get_flat_storage_status(parent),
                     Ok(FlatStorageStatus::Resharding(
