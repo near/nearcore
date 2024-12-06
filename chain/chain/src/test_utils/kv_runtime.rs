@@ -233,9 +233,8 @@ impl MockEpochManager {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self
-            .get_block_header(&prev_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(prev_hash))?;
+        let prev_block_header =
+            self.get_block_header(&prev_hash)?.ok_or(EpochError::MissingBlock(prev_hash))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -303,7 +302,7 @@ impl MockEpochManager {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))? as usize
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))? as usize
             % self.validators_by_valset.len())
     }
 
@@ -581,9 +580,8 @@ impl EpochManagerAdapter for MockEpochManager {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header = self
-            .get_block_header(parent_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(*parent_hash))?;
+        let prev_block_header =
+            self.get_block_header(parent_hash)?.ok_or(EpochError::MissingBlock(*parent_hash))?;
         let prev_prev_hash = *prev_block_header.prev_hash();
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
@@ -693,7 +691,7 @@ impl EpochManagerAdapter for MockEpochManager {
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
-                .ok_or_else(|| EpochError::MissingBlock(candidate_hash))?;
+                .ok_or(EpochError::MissingBlock(candidate_hash))?;
             candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);

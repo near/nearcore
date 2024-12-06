@@ -185,9 +185,9 @@ impl ChunkInclusionTracker {
 
     fn get_chunk_info(&self, chunk_hash: &ChunkHash) -> Result<&ChunkInfo, Error> {
         // It should never happen that we are missing the key in chunk_hash_to_chunk_info
-        self.chunk_hash_to_chunk_info
-            .get(chunk_hash)
-            .ok_or(Error::Other(format!("missing key {:?} in ChunkInclusionTracker", chunk_hash)))
+        self.chunk_hash_to_chunk_info.get(chunk_hash).ok_or_else(|| {
+            Error::Other(format!("missing key {:?} in ChunkInclusionTracker", chunk_hash))
+        })
     }
 
     pub fn get_chunk_header_and_endorsements(

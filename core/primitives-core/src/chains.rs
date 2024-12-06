@@ -1,4 +1,4 @@
-/// Chain IDs of commonly used environment.
+//! Chain IDs of commonly used environment.
 
 /// Main production environment.
 pub const MAINNET: &str = "mainnet";

@@ -1,40 +1,37 @@
-use std::sync::{Arc, Mutex};
-use std::task::Context;
-
-use futures::future::BoxFuture;
-use futures::task::{waker_ref, ArcWake};
-use near_time::Duration;
-
-use crate::futures::{AsyncComputationSpawner, FutureSpawner};
+//! Support for futures in TestLoop.
+//!
+//! There are two key features this file provides for TestLoop:
+//!
+//!   1. A general way to spawn futures and have the TestLoop drive the futures.
+//!      To support this, pass test_loop.future_spawner() the &dyn FutureSpawner
+//!      to any component that needs to spawn futures.
+//!
+//!      This causes any futures spawned during the test to end up as an callback in the
+//!      test loop. The event will eventually be executed by the drive_futures function,
+//!      which will drive the future until it is either suspended or completed. If suspended,
+//!      then the waker of the future (called when the future is ready to resume) will place
+//!      the event back into the test loop to be executed again.
+//!
+//!   2. A way to send a message to the TestLoop and expect a response as a
+//!      future, which will resolve whenever the TestLoop handles the message.
+//!      To support this, use MessageWithCallback<Request, Response> as the
+//!      event type, and in the handler, call (event.responder)(result)
+//!      (possibly asynchronously) to complete the future.
+//!
+//!      This is needed to support the AsyncSender interface, which is required
+//!      by some components as they expect a response to each message. The way
+//!      this is implemented is by implementing a conversion from
+//!      DelaySender<MessageWithCallback<Request, Response>> to
+//!      AsyncSender<Request, Response>.
 
 use super::data::TestLoopData;
 use super::PendingEventsSender;
-
-/// Support for futures in TestLoop.
-///
-/// There are two key features this file provides for TestLoop:
-///
-///   1. A general way to spawn futures and have the TestLoop drive the futures.
-///      To support this, pass test_loop.future_spawner() the &dyn FutureSpawner
-///      to any component that needs to spawn futures.
-///
-///      This causes any futures spawned during the test to end up as an callback in the
-///      test loop. The event will eventually be executed by the drive_futures function,
-///      which will drive the future until it is either suspended or completed. If suspended,
-///      then the waker of the future (called when the future is ready to resume) will place
-///      the event back into the test loop to be executed again.
-///
-///   2. A way to send a message to the TestLoop and expect a response as a
-///      future, which will resolve whenever the TestLoop handles the message.
-///      To support this, use MessageWithCallback<Request, Response> as the
-///      event type, and in the handler, call (event.responder)(result)
-///      (possibly asynchronously) to complete the future.
-///
-///      This is needed to support the AsyncSender interface, which is required
-///      by some components as they expect a response to each message. The way
-///      this is implemented is by implementing a conversion from
-///      DelaySender<MessageWithCallback<Request, Response>> to
-///      AsyncSender<Request, Response>.
+use crate::futures::{AsyncComputationSpawner, FutureSpawner};
+use futures::future::BoxFuture;
+use futures::task::{waker_ref, ArcWake};
+use near_time::Duration;
+use std::sync::{Arc, Mutex};
+use std::task::Context;
 
 /// A DelaySender is a FutureSpawner that can be used to
 /// spawn futures into the test loop. We give it a convenient alias.
