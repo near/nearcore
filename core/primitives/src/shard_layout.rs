@@ -462,6 +462,15 @@ impl ShardLayout {
                 let prev = shards_parent_map.insert(shard_id, parent_shard_id);
                 assert!(prev.is_none(), "no shard should appear in the map twice");
             }
+            if let &[shard_id] = shard_ids.as_slice() {
+                // The parent shards with only one child shard are not split and
+                // should keep the same shard id.
+                assert_eq!(parent_shard_id, shard_id);
+            } else {
+                // The parent shards with multiple children shards are split.
+                // The parent shard id should not longer be used.
+                assert!(!shard_ids.contains(&parent_shard_id));
+            }
         }
 
         assert_eq!(
