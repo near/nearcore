@@ -792,7 +792,6 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
-    dump_epoch_config: Option<ProtocolVersion>,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
@@ -985,20 +984,6 @@ pub fn init_configs(
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
-    }
-
-    if let Some(first_version) = dump_epoch_config {
-        let epoch_config_dir = dir.join("epoch_configs");
-        fs::create_dir_all(epoch_config_dir.clone())
-            .with_context(|| anyhow!("Failed to create directory {:?}", epoch_config_dir))?;
-        EpochConfigStore::for_chain_id(MAINNET, None)
-            .expect("Could not load the EpochConfigStore for mainnet.")
-            .dump_epoch_configs_between(
-                &first_version,
-                &PROTOCOL_VERSION,
-                epoch_config_dir.to_str().unwrap(),
-            );
-        info!(target: "near", "Generated epoch configs files in {}", epoch_config_dir.display());
     }
 
     Ok(())
