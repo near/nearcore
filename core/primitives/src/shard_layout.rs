@@ -1,3 +1,15 @@
+//! This file implements two data structure `ShardLayout` and `ShardUId`
+//!
+//! ## `get_parent_shard_id` and `get_split_shard_ids`
+//!
+//! `ShardLayout` also includes information needed for resharding. In particular, it encodes
+//! which shards from the previous shard layout split to which shards in the following shard layout.
+//! If shard A in shard layout 0 splits to shard B and C in shard layout 1,
+//! we call shard A the parent shard of shard B and C.
+//! Note that a shard can only have one parent shard. For example, the following case will be prohibited,
+//! a shard C in shard layout 1 contains accounts in both shard A and B in shard layout 0.
+//! Parent/split shard information can be accessed through these two functions.
+
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -10,48 +22,22 @@ use rand::SeedableRng;
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fmt, str};
 
-/// This file implements two data structure `ShardLayout` and `ShardUId`
+/// `ShardLayout` has a version number.
 ///
-/// `ShardLayout`
-/// A versioned struct that contains all information needed to assign accounts
-/// to shards. Because of re-sharding, the chain may use different shard layout to
-/// split shards at different times.
-/// Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each epoch
-/// given the epoch protocol version.
-/// In mainnet/testnet, we use two shard layouts since re-sharding has only happened once.
-/// It is stored as part of genesis config, see default_simple_nightshade_shard_layout()
-/// Below is an overview for some important functionalities of ShardLayout interface.
-///
-/// `version`
-/// `ShardLayout` has a version number. The version number should increment as when sharding changes.
-/// This guarantees the version number is unique across different shard layouts, which in turn guarantees
-/// `ShardUId` is different across shards from different shard layouts, as `ShardUId` includes
-/// `version` and `shard_id`
-///
-/// `get_parent_shard_id` and `get_split_shard_ids`
-/// `ShardLayout` also includes information needed for resharding. In particular, it encodes
-/// which shards from the previous shard layout split to which shards in the following shard layout.
-/// If shard A in shard layout 0 splits to shard B and C in shard layout 1,
-/// we call shard A the parent shard of shard B and C.
-/// Note that a shard can only have one parent shard. For example, the following case will be prohibited,
-/// a shard C in shard layout 1 contains accounts in both shard A and B in shard layout 0.
-/// Parent/split shard information can be accessed through these two functions.
-///
-/// `account_id_to_shard_id`
-///  Maps an account to the shard that it belongs to given a shard_layout
-///
-/// `ShardUId`
-/// `ShardUId` is a unique representation for shards from different shard layouts.
-/// Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,
-/// `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.
-/// This is important because we store states indexed by shards in our database, so we need a
-/// way to unique identify shard even when shards change across epochs.
-/// Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in
-/// a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol
-/// level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)
-
+/// The version number should increment as when sharding changes. This guarantees the version
+/// number is unique across different shard layouts, which in turn guarantees `ShardUId` is
+/// different across shards from different shard layouts, as `ShardUId` includes `version` and
+/// `shard_id`
 pub type ShardVersion = u32;
 
+/// A versioned struct that contains all information needed to assign accounts to shards.
+///
+/// Because of re-sharding, the chain may use different shard layout to split shards at different
+/// times. Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each
+/// epoch given the epoch protocol version. In mainnet/testnet, we use two shard layouts since
+/// re-sharding has only happened once. It is stored as part of genesis config, see
+/// default_simple_nightshade_shard_layout() Below is an overview for some important
+/// functionalities of ShardLayout interface.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -811,7 +797,15 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
     )
 }
 
-/// ShardUId is an unique representation for shards from different shard layout
+/// `ShardUId` is a unique representation for shards from different shard layouts.
+///
+/// Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,
+/// `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.
+/// This is important because we store states indexed by shards in our database, so we need a
+/// way to unique identify shard even when shards change across epochs.
+/// Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in
+/// a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol
+/// level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)
 #[derive(
     BorshSerialize,
     BorshDeserialize,
