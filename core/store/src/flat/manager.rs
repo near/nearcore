@@ -220,39 +220,12 @@ impl FlatStorageManager {
         }
     }
 
-    /// Updates `move_head_enabled` for all shards and returns whether it succeeded.
-    /// If at least one of the shards fails to update move_head_enabled, then that operation is rolled back for all shards.
-    ///
-    /// Rollbacks should work, because we assume that this function is the only
-    /// entry point to locking/unlocking flat head updates in a system with
-    /// multiple FlatStorages running in parallel.
-    pub fn set_flat_state_updates_mode(&self, enabled: bool) -> bool {
+    /// Updates `move_head_enabled` for all shards.
+    pub fn set_flat_state_updates_mode(&self, enabled: bool) {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let mut all_updated = true;
-        let mut updated_flat_storages = vec![];
-        let mut updated_shard_uids = vec![];
-        for (shard_uid, flat_storage) in flat_storages.iter() {
-            if flat_storage.set_flat_head_update_mode(enabled) {
-                updated_flat_storages.push(flat_storage);
-                updated_shard_uids.push(shard_uid);
-            } else {
-                all_updated = false;
-                tracing::error!(target: "store", rolling_back_shards = ?updated_shard_uids, enabled, ?shard_uid, "Locking/Unlocking of flat head updates failed for shard. Reverting.");
-                break;
-            }
+        for flat_storage in flat_storages.values() {
+            flat_storage.set_flat_head_update_mode(enabled);
         }
-        if all_updated {
-            tracing::debug!(target: "store", enabled, "Locking/Unlocking of flat head updates succeeded");
-            true
-        } else {
-            // Do rollback.
-            // It does allow for a data race if somebody updates move_head_enabled on individual shards.
-            // The assumption is that all shards get locked/unlocked at the same time.
-            for flat_storage in updated_flat_storages {
-                flat_storage.set_flat_head_update_mode(!enabled);
-            }
-            tracing::error!(target: "store", enabled, "Locking/Unlocking of flat head updates failed");
-            false
-        }
+        tracing::debug!(target: "store", enabled, "Locked/Unlocked flat head updates");
     }
 }
