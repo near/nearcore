@@ -91,7 +91,8 @@ impl StateSync {
         network_adapter: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
         external_timeout: Duration,
         p2p_timeout: Duration,
-        retry_timeout: Duration,
+        retry_backoff: Duration,
+        external_backoff: Duration,
         chain_id: &str,
         sync_config: &SyncConfig,
         chain_requests_sender: ChainSenderForStateSync,
@@ -147,6 +148,7 @@ impl StateSync {
                     chain_id: chain_id.to_string(),
                     conn: external,
                     timeout: external_timeout,
+                    backoff: external_backoff,
                 }) as Arc<dyn StateSyncDownloadSource>;
                 (
                     Some(fallback_source),
@@ -166,7 +168,7 @@ impl StateSync {
             num_attempts_before_fallback,
             header_validation_sender: chain_requests_sender.clone().into_sender(),
             runtime: runtime.clone(),
-            retry_timeout,
+            retry_backoff,
             task_tracker: downloading_task_tracker.clone(),
         });
 
