@@ -604,9 +604,6 @@ impl EpochSync {
             return Ok(());
         }
         match status {
-            SyncStatus::AwaitingPeers | SyncStatus::StateSync(_) => {
-                return Ok(());
-            }
             SyncStatus::EpochSync(status) => {
                 if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!("Epoch sync from {} timed out; retrying", status.source_peer_id);
