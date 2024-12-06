@@ -532,6 +532,8 @@ impl ForkNetworkCommand {
         return Ok(());
     }
 
+    /// Creates epoch config overrides since `first_version` and places them
+    /// in `home_dir`.
     fn override_epoch_configs(
         &self,
         first_version: ProtocolVersion,
