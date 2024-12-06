@@ -787,7 +787,7 @@ impl ShardLayout {
 
     /// Returns all of the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
-    pub fn get_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
+    pub fn get_split_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
         let mut parent_shard_ids = BTreeSet::new();
         for shard_id in self.shard_ids() {
             let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
