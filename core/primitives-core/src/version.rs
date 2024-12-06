@@ -250,9 +250,9 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
-            ProtocolFeature::SimpleNightshadeV4
-            | ProtocolFeature::FixStakingThreshold
-            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 74,
+            ProtocolFeature::FixStakingThreshold
+            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::SimpleNightshadeV4 => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later

@@ -918,18 +918,6 @@ impl ForkNetworkCommand {
             home_dir,
         )?;
 
-        // let epoch_config_dir = home_dir.join("epoch_configs");
-        // let epoch_config = if epoch_config_dir.exists() {
-        //     tracing::info!(target: "fork-network", "Loading epoch config from {:?}", epoch_config_dir);
-        //     EpochConfigStore::for_chain_id(&new_chain_id, Some(epoch_config_dir))
-        //         .unwrap()
-        //         .get_config(genesis_protocol_version)
-        //         .as_ref()
-        //         .clone()
-        // } else {
-        //     tracing::info!(target: "fork-network", "Loading epoch config from epoch manager");
-        //     epoch_manager.get_epoch_config(epoch_id)?
-        // };
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
