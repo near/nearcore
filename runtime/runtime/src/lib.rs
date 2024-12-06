@@ -2593,21 +2593,24 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
-        let key = TrieKey::Account { account_id: account_id.clone() };
-        let receiver = get_pure::<Account>(state_update, &key);
-        let Ok(Some(receiver)) = receiver else {
-            // Most likely reason this can happen is because the receipt is for an account that
-            // does not yet exist. This is a routine occurrence as accounts are created by sending
-            // some NEAR to a name that's about to be created.
-            return false;
-        };
+        let receiver = std::cell::LazyCell::new(|| {
+            let key = TrieKey::Account { account_id: account_id.clone() };
+            let receiver = get_pure::<Account>(state_update, &key);
+            let Ok(Some(receiver)) = receiver else {
+                // Most likely reason this can happen is because the receipt is for an account that
+                // does not yet exist. This is a routine occurrence as accounts are created by
+                // sending some NEAR to a name that's about to be created.
+                return None;
+            };
+            Some(receiver)
+        });
 
         // We need to inspect each receipt recursively in case these are data receipts, thus a
         // function.
         fn handle_receipt(
             mgr: &mut ReceiptPreparationPipeline,
             state_update: &TrieUpdate,
-            receiver: &Account,
+            receiver: &std::cell::LazyCell<Option<Account>, impl FnOnce() -> Option<Account>>,
             account_id: &AccountId,
             receipt: &Receipt,
         ) -> bool {
