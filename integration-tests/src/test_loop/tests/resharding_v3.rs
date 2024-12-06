@@ -756,43 +756,61 @@ impl TrieSanityCheck {
         let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let is_resharded = shard_layout.num_shards() == new_num_shards;
 
-        match self.checks.entry(tip.epoch_id) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                let shard_uids = shard_layout.shard_uids().collect_vec();
-                let mut check = HashMap::new();
-                for account_id in self.accounts.iter() {
-                    let tracked = shard_uids
-                        .iter()
-                        .filter_map(|uid| {
-                            if !should_assert_state_sanity(
-                                self.load_mem_tries_for_tracked_shards,
-                                is_resharded,
-                                &shards_pending_resharding,
-                                &shard_layout,
-                                uid,
-                            ) {
-                                return None;
-                            }
-
-                            let cares = client.shard_tracker.care_about_shard(
-                                Some(account_id),
-                                &tip.prev_block_hash,
-                                uid.shard_id(),
-                                false,
-                            );
-                            if cares {
-                                Some((*uid, false))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    check.insert(account_id.clone(), tracked);
-                }
-                e.insert(check)
-            }
+        if self.checks.contains_key(&tip.epoch_id) {
+            return self.checks.get_mut(&tip.epoch_id).unwrap();
         }
+
+        let mut check = HashMap::new();
+        for account_id in self.accounts.iter() {
+            let check_shard_uids = self.get_epoch_check_for_account(
+                client,
+                tip,
+                is_resharded,
+                &shards_pending_resharding,
+                &shard_layout,
+                account_id,
+            );
+            check.insert(account_id.clone(), check_shard_uids);
+        }
+
+        self.checks.insert(tip.epoch_id, check);
+        self.checks.get_mut(&tip.epoch_id).unwrap()
+    }
+
+    // Returns the expected shard uids for the given account.
+    fn get_epoch_check_for_account(
+        &self,
+        client: &Client,
+        tip: &Tip,
+        is_resharded: bool,
+        shards_pending_resharding: &HashSet<ShardUId>,
+        shard_layout: &ShardLayout,
+        account_id: &AccountId,
+    ) -> HashMap<ShardUId, bool> {
+        let mut check_shard_uids = HashMap::new();
+        for shard_uid in shard_layout.shard_uids() {
+            if !should_assert_state_sanity(
+                self.load_mem_tries_for_tracked_shards,
+                is_resharded,
+                shards_pending_resharding,
+                shard_layout,
+                &shard_uid,
+            ) {
+                continue;
+            }
+
+            let cares = client.shard_tracker.care_about_shard(
+                Some(account_id),
+                &tip.prev_block_hash,
+                shard_uid.shard_id(),
+                false,
+            );
+            if !cares {
+                continue;
+            }
+            check_shard_uids.insert(shard_uid, false);
+        }
+        check_shard_uids
     }
 
     // Check trie sanity and keep track of which shards were succesfully fully checked
