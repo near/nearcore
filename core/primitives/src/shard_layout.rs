@@ -255,6 +255,23 @@ impl TryFrom<SerdeShardLayoutV2> for ShardLayoutV2 {
             .map(|(k, v)| Ok((k.parse()?, v)))
             .collect::<Result<_, Self::Error>>()?;
 
+        match (&shards_split_map, &shards_parent_map) {
+            (None, None) => {}
+            (Some(shard_split_map), Some(shards_parent_map)) => {
+                let expected_shards_parent_map =
+                    validate_and_derive_shard_parent_map_v2(&shard_ids, &shard_split_map);
+                if &expected_shards_parent_map != shards_parent_map {
+                    return Err("shards_parent_map does not match the expected value".into());
+                }
+            }
+            _ => {
+                return Err(
+                    "shards_split_map and shards_parent_map must be both present or both absent"
+                        .into(),
+                )
+            }
+        }
+
         Ok(Self {
             boundary_accounts,
             shard_ids,
@@ -442,19 +459,8 @@ impl ShardLayout {
             });
         };
 
-        let mut shards_parent_map = ShardsParentMapV2::new();
-        for (&parent_shard_id, shard_ids) in shards_split_map.iter() {
-            for &shard_id in shard_ids {
-                let prev = shards_parent_map.insert(shard_id, parent_shard_id);
-                assert!(prev.is_none(), "no shard should appear in the map twice");
-            }
-        }
-
-        assert_eq!(
-            shard_ids.iter().copied().sorted().collect_vec(),
-            shards_parent_map.keys().copied().collect_vec()
-        );
-
+        let shards_parent_map =
+            validate_and_derive_shard_parent_map_v2(&shard_ids, &shards_split_map);
         let shards_split_map = Some(shards_split_map);
         let shards_parent_map = Some(shards_parent_map);
         Self::V2(ShardLayoutV2 {
@@ -773,7 +779,7 @@ impl ShardLayout {
 
     /// Returns all of the shards from the previous shard layout that were
     /// split into multiple shards in this shard layout.
-    pub fn get_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
+    pub fn get_split_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
         let mut parent_shard_ids = BTreeSet::new();
         for shard_id in self.shard_ids() {
             let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
@@ -787,6 +793,35 @@ impl ShardLayout {
         }
         Ok(parent_shard_ids)
     }
+}
+
+// Validates the shards_split_map and derives the shards_parent_map from it.
+fn validate_and_derive_shard_parent_map_v2(
+    shard_ids: &Vec<ShardId>,
+    shards_split_map: &ShardsSplitMapV2,
+) -> ShardsParentMapV2 {
+    let mut shards_parent_map = ShardsParentMapV2::new();
+    for (&parent_shard_id, child_shard_ids) in shards_split_map.iter() {
+        for &child_shard_id in child_shard_ids {
+            let prev = shards_parent_map.insert(child_shard_id, parent_shard_id);
+            assert!(prev.is_none(), "no shard should appear in the map twice");
+        }
+        if let &[child_shard_id] = child_shard_ids.as_slice() {
+            // The parent shards with only one child shard are not split and
+            // should keep the same shard id.
+            assert_eq!(parent_shard_id, child_shard_id);
+        } else {
+            // The parent shards with multiple children shards are split.
+            // The parent shard id should not longer be used.
+            assert!(!shard_ids.contains(&parent_shard_id));
+        }
+    }
+
+    assert_eq!(
+        shard_ids.iter().copied().sorted().collect_vec(),
+        shards_parent_map.keys().copied().collect_vec()
+    );
+    shards_parent_map
 }
 
 /// Maps an account to the shard that it belongs to given a shard_layout

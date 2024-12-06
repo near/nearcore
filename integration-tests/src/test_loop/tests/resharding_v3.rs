@@ -618,20 +618,14 @@ fn assert_state_sanity(
         .unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
-        // TODO - the condition for checks is duplicated in the
-        // `get_epoch_check` method, refactor this.
-        if !load_mem_tries_for_tracked_shards {
-            // In the old layout do not enforce except for shards pending resharding.
-            if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
-                tracing::debug!(target: "test", ?shard_uid, "skipping shard not pending resharding");
-                continue;
-            }
-
-            // In the new layout do not enforce for shards that were not split.
-            if is_resharded && !shard_was_split(&shard_layout, shard_uid.shard_id()) {
-                tracing::debug!(target: "test", ?shard_uid, "skipping shard not split");
-                continue;
-            }
+        if !should_assert_state_sanity(
+            load_mem_tries_for_tracked_shards,
+            is_resharded,
+            &shards_pending_resharding,
+            &shard_layout,
+            &shard_uid,
+        ) {
+            continue;
         }
 
         if !client_tracking_shard(client, shard_uid.shard_id(), &final_head.prev_block_hash) {
@@ -692,6 +686,31 @@ fn assert_state_sanity(
     checked_shards
 }
 
+fn should_assert_state_sanity(
+    load_mem_tries_for_tracked_shards: bool,
+    is_resharded: bool,
+    shards_pending_resharding: &HashSet<ShardUId>,
+    shard_layout: &ShardLayout,
+    shard_uid: &ShardUId,
+) -> bool {
+    // Always assert if the tracked shards are loaded into memory.
+    if load_mem_tries_for_tracked_shards {
+        return true;
+    }
+
+    // In the old layout do not enforce except for shards pending resharding.
+    if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
+        return false;
+    }
+
+    // In the new layout do not enforce for shards that were not split.
+    if is_resharded && !shard_was_split(shard_layout, shard_uid.shard_id()) {
+        return false;
+    }
+
+    true
+}
+
 // For each epoch, keep a map from AccountId to a map with keys equal to
 // the set of shards that account tracks in that epoch, and bool values indicating
 // whether the equality of flat storage and memtries has been checked for that shard
@@ -737,47 +756,61 @@ impl TrieSanityCheck {
         let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let is_resharded = shard_layout.num_shards() == new_num_shards;
 
-        match self.checks.entry(tip.epoch_id) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                let shard_uids = shard_layout.shard_uids().collect_vec();
-                let mut check = HashMap::new();
-                for account_id in self.accounts.iter() {
-                    let tracked = shard_uids
-                        .iter()
-                        .filter_map(|uid| {
-                            if !is_resharded
-                                && !self.load_mem_tries_for_tracked_shards
-                                && !shards_pending_resharding.contains(uid)
-                            {
-                                return None;
-                            }
-
-                            if is_resharded
-                                && !self.load_mem_tries_for_tracked_shards
-                                && !shard_was_split(&shard_layout, uid.shard_id())
-                            {
-                                return None;
-                            }
-
-                            let cares = client.shard_tracker.care_about_shard(
-                                Some(account_id),
-                                &tip.prev_block_hash,
-                                uid.shard_id(),
-                                false,
-                            );
-                            if cares {
-                                Some((*uid, false))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    check.insert(account_id.clone(), tracked);
-                }
-                e.insert(check)
-            }
+        if self.checks.contains_key(&tip.epoch_id) {
+            return self.checks.get_mut(&tip.epoch_id).unwrap();
         }
+
+        let mut check = HashMap::new();
+        for account_id in self.accounts.iter() {
+            let check_shard_uids = self.get_epoch_check_for_account(
+                client,
+                tip,
+                is_resharded,
+                &shards_pending_resharding,
+                &shard_layout,
+                account_id,
+            );
+            check.insert(account_id.clone(), check_shard_uids);
+        }
+
+        self.checks.insert(tip.epoch_id, check);
+        self.checks.get_mut(&tip.epoch_id).unwrap()
+    }
+
+    // Returns the expected shard uids for the given account.
+    fn get_epoch_check_for_account(
+        &self,
+        client: &Client,
+        tip: &Tip,
+        is_resharded: bool,
+        shards_pending_resharding: &HashSet<ShardUId>,
+        shard_layout: &ShardLayout,
+        account_id: &AccountId,
+    ) -> HashMap<ShardUId, bool> {
+        let mut check_shard_uids = HashMap::new();
+        for shard_uid in shard_layout.shard_uids() {
+            if !should_assert_state_sanity(
+                self.load_mem_tries_for_tracked_shards,
+                is_resharded,
+                shards_pending_resharding,
+                shard_layout,
+                &shard_uid,
+            ) {
+                continue;
+            }
+
+            let cares = client.shard_tracker.care_about_shard(
+                Some(account_id),
+                &tip.prev_block_hash,
+                shard_uid.shard_id(),
+                false,
+            );
+            if !cares {
+                continue;
+            }
+            check_shard_uids.insert(shard_uid, false);
+        }
+        check_shard_uids
     }
 
     // Check trie sanity and keep track of which shards were succesfully fully checked
