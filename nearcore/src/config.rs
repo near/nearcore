@@ -37,8 +37,6 @@ use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
 use near_network::tcp;
 use near_o11y::log_config::LogConfig;
-use near_primitives::chains::MAINNET;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
@@ -48,7 +46,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{from_timestamp, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::{
@@ -1513,7 +1511,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .unwrap();
         let genesis = Genesis::from_file(
@@ -1571,7 +1568,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .unwrap();
 
@@ -1599,7 +1595,6 @@ mod tests {
             false,
             None,
             false,
-            None,
             None,
             None,
             None,

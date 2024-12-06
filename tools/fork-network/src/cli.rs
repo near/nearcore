@@ -17,7 +17,7 @@ use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::dec_format;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
@@ -427,7 +427,7 @@ impl ForkNetworkCommand {
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
         let storage_mutator =
-            StorageMutator::new(epoch_manager.clone(), &runtime, epoch_id, prev_state_roots)?;
+            StorageMutator::new(epoch_manager, &runtime, epoch_id, prev_state_roots)?;
         let (new_state_roots, new_validator_accounts) =
             self.add_validator_accounts(validators, runtime_config, home_dir, storage_mutator)?;
 
@@ -441,10 +441,8 @@ impl ForkNetworkCommand {
             block_height,
             chain_id_suffix,
             chain_id,
-            &epoch_id,
             new_state_roots.clone(),
             new_validator_accounts.clone(),
-            epoch_manager,
             home_dir,
             near_config,
         )?;
@@ -879,10 +877,8 @@ impl ForkNetworkCommand {
         height: BlockHeight,
         chain_id_suffix: &str,
         chain_id: &Option<String>,
-        epoch_id: &EpochId,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
-        epoch_manager: Arc<EpochManagerHandle>,
         home_dir: &Path,
         near_config: &mut NearConfig,
     ) -> anyhow::Result<()> {

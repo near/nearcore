@@ -255,6 +255,7 @@ pub(super) enum NeardSubCommand {
     ReplayArchive(ReplayArchiveCommand),
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone)]
 enum FirstProtocolVersion {
     Since(ProtocolVersion),
