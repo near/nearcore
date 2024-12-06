@@ -414,7 +414,14 @@ impl ReceiptSinkV2 {
             OutgoingLimit { gas: default_gas_limit, size: default_size_limit };
         let forward_limit = outgoing_limit.entry(shard).or_insert(default_outgoing_limit);
 
-        if forward_limit.gas > gas && forward_limit.size > size {
+        let can_forward =
+            if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
+                forward_limit.gas >= gas && forward_limit.size >= size
+            } else {
+                forward_limit.gas > gas && forward_limit.size > size
+            };
+
+        if can_forward {
             tracing::trace!(target: "runtime", ?shard, receipt_id=?receipt.receipt_id(), "forwarding buffered receipt");
             outgoing_receipts.push(receipt);
             // underflow impossible: checked forward_limit > gas/size_to_forward above
