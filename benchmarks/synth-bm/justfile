@@ -22,3 +22,12 @@ csa:
         --interval-duration-micros 800 \
         --user-data-dir user-data
 
+bmnt:
+    RUST_LOG=info \
+    cargo run --release -- benchmark-native-transfers \
+        --rpc-url {{rpc_url}} \
+        --user-data-dir user-data/ \
+        --num-transfers 200 \
+        --channel-buffer-size 30000 \
+        --interval-duration-micros 550 \
+        --amount 1

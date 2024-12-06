@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 mod account;
 use account::{create_sub_accounts, CreateSubAccountsArgs};
 mod block_service;
+mod native_transfer;
 mod rpc;
 
 #[derive(Parser)]
@@ -17,6 +18,7 @@ struct Cli {
 enum Commands {
     /// Creates sub accounts for the signer.
     CreateSubAccounts(CreateSubAccountsArgs),
+    BenchmarkNativeTransfers(native_transfer::BenchmarkArgs),
 }
 
 #[tokio::main]
@@ -29,6 +31,9 @@ async fn main() -> anyhow::Result<()> {
     match &cli.command {
         Commands::CreateSubAccounts(args) => {
             create_sub_accounts(args).await?;
+        }
+        Commands::BenchmarkNativeTransfers(args) => {
+            native_transfer::benchmark(args).await?;
         }
     }
     Ok(())

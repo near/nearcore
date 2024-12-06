@@ -110,11 +110,6 @@ impl Account {
     pub fn as_signer(&self) -> Signer {
         Signer::from(InMemorySigner::from_secret_key(self.id.clone(), self.secret_key.clone()))
     }
-
-    pub fn get_and_bump_nonce(&mut self) -> u64 {
-        self.nonce += 1;
-        self.nonce
-    }
 }
 
 /// Tries to deserialize all json files in `dir` as [`Account`].

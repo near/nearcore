@@ -4,14 +4,10 @@ use std::{
 };
 
 use near_jsonrpc_client::JsonRpcClient;
-use near_primitives::{
-    hash::CryptoHash,
-    types::{BlockReference, Finality},
-    views::BlockView,
-};
+use near_primitives::{hash::CryptoHash, views::BlockView};
 use tokio::time;
 
-use crate::rpc::get_block;
+use crate::rpc::get_latest_block;
 
 pub struct BlockService {
     rpc_client: JsonRpcClient,
@@ -31,9 +27,7 @@ impl BlockService {
         // if longer refresh intervals might be fine too. A shorter interval reduces the chances
         // expiring transactions.
         let refresh_interval = Duration::from_secs(30);
-        let block = get_block(&rpc_client, BlockReference::Finality(Finality::Final))
-            .await
-            .expect("should be able to get a block");
+        let block = get_latest_block(&rpc_client).await.expect("should be able to get a block");
         Self { rpc_client, refresh_interval, block: RwLock::new(block) }
     }
 
@@ -49,10 +43,9 @@ impl BlockService {
             interval.tick().await;
             loop {
                 interval.tick().await;
-                let new_block =
-                    get_block(&self.rpc_client, BlockReference::Finality(Finality::Final))
-                        .await
-                        .expect("should be able to get a block");
+                let new_block = get_latest_block(&self.rpc_client)
+                    .await
+                    .expect("should be able to get a block");
                 let mut block = self.block.write().unwrap();
                 *block = new_block;
             }

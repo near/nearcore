@@ -1,5 +1,4 @@
 use std::time::Instant;
-use std::{collections::HashMap, sync::LazyLock};
 
 use log::{info, warn};
 use near_crypto::{InMemorySigner, PublicKey, Signer};
@@ -14,8 +13,8 @@ use near_primitives::{
     transaction::Transaction,
     types::{AccountId, BlockReference, Finality},
     views::{
-        AccessKeyView, BlockView, ExecutionStatusView, FinalExecutionOutcomeView,
-        FinalExecutionStatus, QueryRequest, TxExecutionStatus,
+        AccessKeyView, BlockView, ExecutionStatusView, FinalExecutionStatus, QueryRequest,
+        TxExecutionStatus,
     },
 };
 use tokio::sync::mpsc::Receiver;
