@@ -1048,7 +1048,7 @@ impl FlatStorageReshardingEventStatus {
     /// Returns `true` if the resharding event has started processing.
     fn has_started(&self) -> bool {
         match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status, ..) => {
+            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status) => {
                 matches!(execution_status, TaskExecutionStatus::Started)
             }
         }
@@ -1056,7 +1056,7 @@ impl FlatStorageReshardingEventStatus {
 
     fn set_execution_status(&mut self, new_status: TaskExecutionStatus) {
         match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status, ..) => {
+            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status) => {
                 *execution_status = new_status
             }
         }
