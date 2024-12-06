@@ -27,23 +27,30 @@ use std::sync::Arc;
 
 fn setup_runtime(
     home_dir: &Path,
-    config: &NearConfig,
+    near_config: &NearConfig,
     in_memory_storage: bool,
 ) -> (Arc<EpochManagerHandle>, ShardTracker, Arc<NightshadeRuntime>) {
     let store = if in_memory_storage {
         create_test_store()
     } else {
-        near_store::NodeStorage::opener(home_dir, config.config.archive, &config.config.store, None)
-            .open()
-            .unwrap()
-            .get_hot_store()
+        near_store::NodeStorage::opener(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.archival_config(),
+        )
+        .open()
+        .unwrap()
+        .get_hot_store()
     };
     let epoch_manager =
-        EpochManager::new_arc_handle(store.clone(), &config.genesis.config, Some(home_dir));
-    let shard_tracker =
-        ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
-    let runtime = NightshadeRuntime::from_config(home_dir, store, config, epoch_manager.clone())
-        .expect("could not create transaction runtime");
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
+    let shard_tracker = ShardTracker::new(
+        TrackedConfig::from_config(&near_config.client_config),
+        epoch_manager.clone(),
+    );
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone())
+            .expect("could not create transaction runtime");
     (epoch_manager, shard_tracker, runtime)
 }
 

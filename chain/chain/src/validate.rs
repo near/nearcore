@@ -18,6 +18,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
+use crate::signature_verification::verify_chunk_header_signature_with_epoch_manager;
 use crate::types::RuntimeAdapter;
 use crate::{byzantine_assert, Chain};
 use crate::{ChainStore, Error};
@@ -294,11 +295,13 @@ fn validate_chunk_authorship(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
-    if epoch_manager.verify_chunk_header_signature(
+    let parent_hash = chunk_header.prev_block_hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+    if verify_chunk_header_signature_with_epoch_manager(
+        epoch_manager,
         chunk_header,
-        &epoch_id,
-        &chunk_header.prev_block_hash(),
+        parent_hash,
+        epoch_id,
     )? {
         let chunk_producer = epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {

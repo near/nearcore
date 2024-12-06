@@ -12,7 +12,7 @@ use near_vm_types::entity::{entity_impl, SecondaryMap};
 /// `JumpTable`s are used for indirect branching and are specialized for dense,
 /// 0-based jump offsets.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
-#[archive_attr(derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord))]
+#[rkyv(derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord))]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct JumpTable(u32);
 
