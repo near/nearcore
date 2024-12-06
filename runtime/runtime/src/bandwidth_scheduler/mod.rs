@@ -3,13 +3,11 @@ use std::num::NonZeroU64;
 
 use near_primitives::bandwidth_scheduler::{BandwidthSchedulerParams, BandwidthSchedulerState};
 use near_primitives::congestion_info::CongestionControl;
+use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{ShardId, StateChangeCause};
+use near_primitives::types::{EpochInfoProvider, ShardId, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
-use near_store::{
-    get_bandwidth_scheduler_state, set_bandwidth_scheduler_state, ShardUId, StorageError,
-    TrieUpdate,
-};
+use near_store::{get_bandwidth_scheduler_state, set_bandwidth_scheduler_state, TrieUpdate};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;
@@ -32,7 +30,8 @@ pub struct BandwidthSchedulerOutput {
 pub fn run_bandwidth_scheduler(
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
-) -> Result<Option<BandwidthSchedulerOutput>, StorageError> {
+    epoch_info_provider: &dyn EpochInfoProvider,
+) -> Result<Option<BandwidthSchedulerOutput>, RuntimeError> {
     if !ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
         return Ok(None);
     }
@@ -54,6 +53,8 @@ pub fn run_bandwidth_scheduler(
             }
         }
     };
+
+    let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
 
     // Prepare the status info for each shard based on congestion info.
     let mut shards_status: BTreeMap<ShardId, ShardStatus> = BTreeMap::new();
@@ -77,25 +78,7 @@ pub fn run_bandwidth_scheduler(
     }
 
     // Prepare lists of sender and receiver shards.
-    // TODO(bandwidth_scheduler) - find a better way to get the sender and receiver shards.
-    // Maybe pass shard layout in ApplyState? That might also be needed for resharding.
-    // Taking all shards from the congestion info will be wrong for only one height during
-    // resharding, so it might be good enough for now, but it's not ideal.
-    let mut all_shards = apply_state.congestion_info.all_shards();
-    all_shards.sort();
-    if all_shards.is_empty() {
-        // In some tests there's no congestion info and the list of shards ends up empty.
-        // Pretend that there's only one default shard.
-        all_shards = vec![ShardUId::single_shard().shard_id()];
-        shards_status.insert(
-            all_shards[0],
-            ShardStatus {
-                last_chunk_missing: false,
-                is_allowed_sender_shard: true,
-                is_fully_congested: false,
-            },
-        );
-    }
+    let all_shards: Vec<ShardId> = shard_layout.shard_ids().collect();
     let sender_shards = &all_shards;
     let receiver_shards = &all_shards;
 
