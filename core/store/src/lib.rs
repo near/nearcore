@@ -267,7 +267,7 @@ impl NodeStorage {
         })
     }
 
-    fn test_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
+    fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
         let cold_db = Arc::new(crate::db::ColdDB::new(cold));
         Self {
             hot_storage: hot,

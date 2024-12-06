@@ -48,12 +48,11 @@ pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =
 pub const STATE_TRANSITION_START_HEIGHTS: &[u8] = b"STATE_TRANSITION_START_HEIGHTS";
 pub const LATEST_WITNESSES_INFO: &[u8] = b"LATEST_WITNESSES_INFO";
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug)]
 pub struct DBTransaction {
     pub(crate) ops: Vec<DBOp>,
 }
 
-#[derive(Clone)]
 pub(crate) enum DBOp {
     /// Sets `key` to `value`, without doing any checks.
     Set { col: DBCol, key: Vec<u8>, value: Vec<u8> },
@@ -268,7 +267,7 @@ pub trait Database: Sync + Send {
     }
 }
 
-pub(crate) fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
+fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {
     assert!(
         value == old_value,
         "\

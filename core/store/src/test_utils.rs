@@ -53,7 +53,7 @@ pub fn create_test_node_storage_with_cold(
 ) -> (NodeStorage, Arc<TestDB>, Arc<TestDB>) {
     let hot = TestDB::new();
     let cold = TestDB::new();
-    let storage = NodeStorage::test_with_cold(hot.clone(), cold.clone());
+    let storage = NodeStorage::new_with_cold(hot.clone(), cold.clone());
 
     storage.get_hot_store().set_db_version(version).unwrap();
     storage.get_hot_store().set_db_kind(hot_kind).unwrap();
