@@ -86,11 +86,12 @@ impl ExternalConnection {
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(location);
                 tracing::debug!(target: "sync", %shard_id, ?path, "Reading a file");
-                let data = std::fs::read(&path)?;
+                println!("Reading a file {:?}", path);
+                let data = std::fs::read(&path);
                 // tracing::debug!(target: "sync", %shard_id, ?path, num_bytes = data.len(), "!!!FILESYSTEM!!!");
                 // tracing::debug!(target: "sync", %shard_id, ?path, ?data, "!!!FILESYSTEM!!!");
-                println!("!!!FILESYSTEM!!! {} {}", shard_id, data.len());
-                Ok(data)
+                println!("!!!FILESYSTEM!!! {} {:?}", shard_id, data);
+                Ok(data?)
             }
             ExternalConnection::GCS { reqwest_client, bucket, .. } => {
                 // Download should be handled anonymously, therefore we are not using cloud-storage crate.
