@@ -5,7 +5,6 @@
 //! `wasmer::Module`.
 
 use crate::entity::{EntityRef, PrimaryMap};
-use crate::ArchivableIndexMap;
 use crate::{
     CustomSectionIndex, DataIndex, ElemIndex, ExportIndex, FunctionIndex, FunctionType,
     GlobalIndex, GlobalInit, GlobalType, ImportIndex, LocalFunctionIndex, LocalGlobalIndex,
@@ -13,12 +12,7 @@ use crate::{
     SignatureIndex, TableIndex, TableType,
 };
 use indexmap::IndexMap;
-use rkyv::{
-    de::SharedDeserializeRegistry, ser::ScratchSpace, ser::Serializer,
-    ser::SharedSerializeRegistry, Archive, Archived, Fallible,
-};
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::Arc;
@@ -45,7 +39,6 @@ impl Default for ModuleId {
 #[derive(
     Debug, Copy, Clone, Default, PartialEq, Eq, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive,
 )]
-#[archive(as = "Self")]
 pub struct ImportCounts {
     /// Number of imported functions in the module.
     pub functions: u32,
@@ -116,16 +109,13 @@ impl ImportCounts {
 
 /// A translated WebAssembly module, excluding the function bodies and
 /// memory initializers.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
 pub struct ModuleInfo {
     /// A unique identifier (within this process) for this module.
     ///
     /// We skip serialization/deserialization of this field, as it
     /// should be computed by the process.
-    ///
-    /// It's not skipped in rkyv, but that is okay, because even though it's skipped in
-    /// bincode/serde it's still deserialized back as a garbage number, and later override from
-    /// computed by the process
+    #[rkyv(with = rkyv::with::Skip)]
     pub id: ModuleId,
 
     /// The name of this wasm module, often found in the wasm file.
@@ -157,7 +147,7 @@ pub struct ModuleInfo {
     pub global_initializers: PrimaryMap<LocalGlobalIndex, GlobalInit>,
 
     /// WebAssembly function names.
-    pub function_names: HashMap<FunctionIndex, String>,
+    pub function_names: BTreeMap<FunctionIndex, String>,
 
     /// WebAssembly function signatures.
     pub signatures: PrimaryMap<SignatureIndex, FunctionType>,
@@ -182,110 +172,6 @@ pub struct ModuleInfo {
 
     /// The counts of imported entities.
     pub import_counts: ImportCounts,
-}
-
-/// Mirror version of ModuleInfo that can derive rkyv traits
-#[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
-pub struct ArchivableModuleInfo {
-    pub name: Option<String>,
-    pub imports: ArchivableIndexMap<(String, String, u32), ImportIndex>,
-    pub exports: ArchivableIndexMap<String, ExportIndex>,
-    pub start_function: Option<FunctionIndex>,
-    pub table_initializers: Vec<OwnedTableInitializer>,
-    pub passive_elements: BTreeMap<ElemIndex, Box<[FunctionIndex]>>,
-    pub passive_data: BTreeMap<DataIndex, Arc<[u8]>>,
-    pub global_initializers: PrimaryMap<LocalGlobalIndex, GlobalInit>,
-    pub function_names: BTreeMap<FunctionIndex, String>,
-    pub signatures: PrimaryMap<SignatureIndex, FunctionType>,
-    pub functions: PrimaryMap<FunctionIndex, SignatureIndex>,
-    pub tables: PrimaryMap<TableIndex, TableType>,
-    pub memories: PrimaryMap<MemoryIndex, MemoryType>,
-    pub globals: PrimaryMap<GlobalIndex, GlobalType>,
-    pub custom_sections: ArchivableIndexMap<String, CustomSectionIndex>,
-    pub custom_sections_data: PrimaryMap<CustomSectionIndex, Arc<[u8]>>,
-    pub import_counts: ImportCounts,
-}
-
-impl From<ModuleInfo> for ArchivableModuleInfo {
-    fn from(it: ModuleInfo) -> Self {
-        Self {
-            name: it.name,
-            imports: ArchivableIndexMap::from(it.imports),
-            exports: ArchivableIndexMap::from(it.exports),
-            start_function: it.start_function,
-            table_initializers: it.table_initializers,
-            passive_elements: it.passive_elements.into_iter().collect(),
-            passive_data: it.passive_data.into_iter().collect(),
-            global_initializers: it.global_initializers,
-            function_names: it.function_names.into_iter().collect(),
-            signatures: it.signatures,
-            functions: it.functions,
-            tables: it.tables,
-            memories: it.memories,
-            globals: it.globals,
-            custom_sections: ArchivableIndexMap::from(it.custom_sections),
-            custom_sections_data: it.custom_sections_data,
-            import_counts: it.import_counts,
-        }
-    }
-}
-
-impl From<ArchivableModuleInfo> for ModuleInfo {
-    fn from(it: ArchivableModuleInfo) -> Self {
-        Self {
-            id: Default::default(),
-            name: it.name,
-            imports: it.imports.into(),
-            exports: it.exports.into(),
-            start_function: it.start_function,
-            table_initializers: it.table_initializers,
-            passive_elements: it.passive_elements.into_iter().collect(),
-            passive_data: it.passive_data.into_iter().collect(),
-            global_initializers: it.global_initializers,
-            function_names: it.function_names.into_iter().collect(),
-            signatures: it.signatures,
-            functions: it.functions,
-            tables: it.tables,
-            memories: it.memories,
-            globals: it.globals,
-            custom_sections: it.custom_sections.into(),
-            custom_sections_data: it.custom_sections_data,
-            import_counts: it.import_counts,
-        }
-    }
-}
-
-impl From<&ModuleInfo> for ArchivableModuleInfo {
-    fn from(it: &ModuleInfo) -> Self {
-        Self::from(it.clone())
-    }
-}
-
-impl Archive for ModuleInfo {
-    type Archived = <ArchivableModuleInfo as Archive>::Archived;
-    type Resolver = <ArchivableModuleInfo as Archive>::Resolver;
-
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        ArchivableModuleInfo::from(self).resolve(pos, resolver, out)
-    }
-}
-
-impl<S: Serializer + SharedSerializeRegistry + ScratchSpace + ?Sized> rkyv::Serialize<S>
-    for ModuleInfo
-{
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-        ArchivableModuleInfo::from(self).serialize(serializer)
-    }
-}
-
-impl<D: Fallible + ?Sized + SharedDeserializeRegistry> rkyv::Deserialize<ModuleInfo, D>
-    for Archived<ModuleInfo>
-{
-    fn deserialize(&self, deserializer: &mut D) -> Result<ModuleInfo, D::Error> {
-        let r: ArchivableModuleInfo =
-            rkyv::Deserialize::<ArchivableModuleInfo, D>::deserialize(self, deserializer)?;
-        Ok(ModuleInfo::from(r))
-    }
 }
 
 // For test serialization correctness, everything except module id should be same

@@ -245,6 +245,14 @@ where
     pub fn iter(&self) -> Iter<K, rkyv::Archived<V>> {
         Iter::new(self.elems.iter())
     }
+
+    /// Similar to `Index::index` but keys by the native type rather than archive of it.
+    pub fn index_by_native(&self, k: &K) -> &<V as rkyv::Archive>::Archived
+    where
+        K: EntityRef + Archive,
+    {
+        &self.elems[k.index()]
+    }
 }
 
 /// Immutable indexing into an `PrimaryMap`.

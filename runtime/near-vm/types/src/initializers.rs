@@ -65,8 +65,9 @@ impl<'a> From<&'a OwnedDataInitializer> for DataInitializer<'a> {
 impl<'a> From<&'a ArchivedOwnedDataInitializer> for DataInitializer<'a> {
     fn from(init: &'a ArchivedOwnedDataInitializer) -> Self {
         DataInitializer {
-            location: rkyv::Deserialize::deserialize(&init.location, &mut rkyv::Infallible)
-                .expect("deserialization cannot fail"),
+            location: rkyv::rancor::ResultExt::<_, rkyv::rancor::Panic>::always_ok(
+                rkyv::api::deserialize_using(&init.location, &mut ()),
+            ),
             data: &*init.data,
         }
     }

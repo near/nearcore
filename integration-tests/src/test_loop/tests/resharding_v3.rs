@@ -12,7 +12,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, Gas, ShardId};
+use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, Gas, NumShards, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
@@ -590,24 +590,50 @@ fn shard_was_split(shard_layout: &ShardLayout, shard_id: ShardId) -> bool {
     parent != shard_id
 }
 
-/// Asserts that for each child shard:
-/// MemTrie, FlatState and DiskTrie all contain the same key-value pairs.
-/// If `load_mem_tries_for_tracked_shards` is false, we only enforce memtries for split shards
-/// Returns the ShardUIds that this client tracks and has sane memtries and flat storage for
+/// Asserts that for each child shard, MemTrie, FlatState and DiskTrie all
+/// contain the same key-value pairs. If `load_mem_tries_for_tracked_shards` is
+/// false, we only enforce memtries for shards pending resharding in the old
+/// layout and the shards thet were split in the new shard layout.
+///
+/// Returns the ShardUIds that this client tracks and has sane memtries and flat
+/// storage for
+///
+/// The new num shards argument is a clumsy way to check if the head is before
+/// or after resharding.
 fn assert_state_sanity(
     client: &Client,
     final_head: &Tip,
     load_mem_tries_for_tracked_shards: bool,
+    new_num_shards: NumShards,
 ) -> Vec<ShardUId> {
     let shard_layout = client.epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
+    let is_resharded = shard_layout.num_shards() == new_num_shards;
     let mut checked_shards = Vec::new();
 
+    let protocol_version =
+        client.epoch_manager.get_epoch_protocol_version(&final_head.epoch_id).unwrap();
+    let shards_pending_resharding = client
+        .epoch_manager
+        .get_shard_uids_pending_resharding(protocol_version, PROTOCOL_VERSION)
+        .unwrap();
+
     for shard_uid in shard_layout.shard_uids() {
-        if !load_mem_tries_for_tracked_shards
-            && !shard_was_split(&shard_layout, shard_uid.shard_id())
-        {
-            continue;
+        // TODO - the condition for checks is duplicated in the
+        // `get_epoch_check` method, refactor this.
+        if !load_mem_tries_for_tracked_shards {
+            // In the old layout do not enforce except for shards pending resharding.
+            if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
+                tracing::debug!(target: "test", ?shard_uid, "skipping shard not pending resharding");
+                continue;
+            }
+
+            // In the new layout do not enforce for shards that were not split.
+            if is_resharded && !shard_was_split(&shard_layout, shard_uid.shard_id()) {
+                tracing::debug!(target: "test", ?shard_uid, "skipping shard not split");
+                continue;
+            }
         }
+
         if !client_tracking_shard(client, shard_uid.shard_id(), &final_head.prev_block_hash) {
             continue;
         }
@@ -696,22 +722,44 @@ impl TrieSanityCheck {
     }
 
     // If it's not already stored, initialize it with the expected ShardUIds for each account
-    fn get_epoch_check(&mut self, client: &Client, tip: &Tip) -> &mut EpochTrieCheck {
+    fn get_epoch_check(
+        &mut self,
+        client: &Client,
+        tip: &Tip,
+        new_num_shards: NumShards,
+    ) -> &mut EpochTrieCheck {
+        let protocol_version =
+            client.epoch_manager.get_epoch_protocol_version(&tip.epoch_id).unwrap();
+        let shards_pending_resharding = client
+            .epoch_manager
+            .get_shard_uids_pending_resharding(protocol_version, PROTOCOL_VERSION)
+            .unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+        let is_resharded = shard_layout.num_shards() == new_num_shards;
+
         match self.checks.entry(tip.epoch_id) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
-                let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
                 let shard_uids = shard_layout.shard_uids().collect_vec();
                 let mut check = HashMap::new();
                 for account_id in self.accounts.iter() {
                     let tracked = shard_uids
                         .iter()
                         .filter_map(|uid| {
-                            if !self.load_mem_tries_for_tracked_shards
+                            if !is_resharded
+                                && !self.load_mem_tries_for_tracked_shards
+                                && !shards_pending_resharding.contains(uid)
+                            {
+                                return None;
+                            }
+
+                            if is_resharded
+                                && !self.load_mem_tries_for_tracked_shards
                                 && !shard_was_split(&shard_layout, uid.shard_id())
                             {
                                 return None;
                             }
+
                             let cares = client.shard_tracker.care_about_shard(
                                 Some(account_id),
                                 &tip.prev_block_hash,
@@ -733,7 +781,7 @@ impl TrieSanityCheck {
     }
 
     // Check trie sanity and keep track of which shards were succesfully fully checked
-    fn assert_state_sanity(&mut self, clients: &[&Client]) {
+    fn assert_state_sanity(&mut self, clients: &[&Client], new_num_shards: NumShards) {
         for client in clients {
             let signer = client.validator_signer.get();
             let Some(account_id) = signer.as_ref().map(|s| s.validator_id()) else {
@@ -753,9 +801,13 @@ impl TrieSanityCheck {
             if head.epoch_id != final_head.epoch_id {
                 continue;
             }
-            let checked_shards =
-                assert_state_sanity(client, &final_head, self.load_mem_tries_for_tracked_shards);
-            let check = self.get_epoch_check(client, &head);
+            let checked_shards = assert_state_sanity(
+                client,
+                &final_head,
+                self.load_mem_tries_for_tracked_shards,
+                new_num_shards,
+            );
+            let check = self.get_epoch_check(client, &head, new_num_shards);
             let check = check.get_mut(account_id).unwrap();
             for shard_uid in checked_shards {
                 check.insert(shard_uid, true);
@@ -834,8 +886,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         base_epoch_config.chunk_validator_only_kickout_threshold = 0;
     }
 
+    // Set the base shard layout to V1 with non-unique shard ids. This is what
+    // we have on mainnet before the ReshardingV3 release.
+    // TODO(resharding) test both V1->V2 and V2->V2
     let boundary_accounts = vec!["account1".parse().unwrap(), "account3".parse().unwrap()];
-    let base_shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
+    let split_map = vec![vec![ShardId::new(0), ShardId::new(1), ShardId::new(2)]];
+    #[allow(deprecated)]
+    let base_shard_layout = ShardLayout::v1(boundary_accounts, Some(split_map), 3);
 
     base_epoch_config.shard_layout = base_shard_layout.clone();
     let new_boundary_account = "account6".parse().unwrap();
@@ -846,7 +903,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account);
     tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
 
-    let expected_num_shards = epoch_config.shard_layout.shard_ids().count();
+    let expected_num_shards = epoch_config.shard_layout.num_shards();
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
         (base_protocol_version, Arc::new(base_epoch_config)),
         (base_protocol_version + 1, Arc::new(epoch_config)),
@@ -945,9 +1002,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
                 println!("State before resharding:");
                 print_and_assert_shard_accounts(&clients, &tip);
             }
-            trie_sanity_check.assert_state_sanity(&clients);
+            trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
             latest_block_height.set(tip.height);
-            println!("block: {} chunks: {:?}", tip.height, block_header.chunk_mask());
             if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
@@ -960,7 +1016,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         let prev_epoch_id =
             client.epoch_manager.get_prev_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
         let epoch_config = client.epoch_manager.get_epoch_config(&prev_epoch_id).unwrap();
-        if epoch_config.shard_layout.shard_ids().count() != expected_num_shards {
+        if epoch_config.shard_layout.num_shards() != expected_num_shards {
             return false;
         }
 

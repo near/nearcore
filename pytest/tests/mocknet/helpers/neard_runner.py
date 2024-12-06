@@ -386,8 +386,6 @@ class NeardRunner:
         config['consensus']['min_block_production_delay']['nanos'] = 300000000
         config['consensus']['max_block_production_delay']['secs'] = 3
         config['consensus']['max_block_production_delay']['nanos'] = 0
-        if self.is_traffic_generator():
-            config['archive'] = True
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
