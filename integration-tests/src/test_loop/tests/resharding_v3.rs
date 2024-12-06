@@ -956,7 +956,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Return true if we passed an epoch with increased number of shards.
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
-        assert!(epoch_height < 6);
+        assert!(epoch_height < 20);
         let prev_epoch_id =
             client.epoch_manager.get_prev_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
         let epoch_config = client.epoch_manager.get_epoch_config(&prev_epoch_id).unwrap();
@@ -967,13 +967,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         println!("State after resharding:");
         print_and_assert_shard_accounts(&clients, &tip);
         check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
-        return true;
+        return epoch_height >= 10;
     };
 
     test_loop.run_until(
         success_condition,
         // Give enough time to produce ~7 epochs.
-        Duration::seconds((7 * params.epoch_length) as i64),
+        Duration::seconds((20 * params.epoch_length) as i64),
     );
     let client = &test_loop.data.get(&client_handles[0]).client;
     trie_sanity_check.check_epochs(client);
