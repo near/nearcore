@@ -64,7 +64,7 @@ use near_primitives::views::{
 };
 use near_primitives_core::num_rational::{Ratio, Rational32};
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::cold_storage::{update_cold_db, update_cold_head};
+use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
