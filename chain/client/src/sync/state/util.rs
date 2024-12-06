@@ -7,6 +7,7 @@ use near_primitives::types::{EpochHeight, EpochId, ShardId};
 use near_store::{DBCol, Store};
 
 pub(super) fn increment_download_count(shard_id: ShardId, typ: &str, source: &str, result: &str) {
+    println!("!!!DOWNLOAD COUNT!!! {} {} {} {}", shard_id, typ, source, result);
     metrics::STATE_SYNC_DOWNLOAD_RESULT
         .with_label_values(&[&shard_id.to_string(), typ, source, result])
         .inc();
