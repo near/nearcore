@@ -87,8 +87,9 @@ impl ExternalConnection {
                 let path = root_dir.join(location);
                 tracing::debug!(target: "sync", %shard_id, ?path, "Reading a file");
                 let data = std::fs::read(&path)?;
-                tracing::debug!(target: "sync", %shard_id, ?path, num_bytes = data.len(), "!!!FILESYSTEM!!!");
+                // tracing::debug!(target: "sync", %shard_id, ?path, num_bytes = data.len(), "!!!FILESYSTEM!!!");
                 // tracing::debug!(target: "sync", %shard_id, ?path, ?data, "!!!FILESYSTEM!!!");
+                println!("!!!FILESYSTEM!!! {} {}", shard_id, data.len());
                 Ok(data)
             }
             ExternalConnection::GCS { reqwest_client, bucket, .. } => {
