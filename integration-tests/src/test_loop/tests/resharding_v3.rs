@@ -618,20 +618,14 @@ fn assert_state_sanity(
         .unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
-        // TODO - the condition for checks is duplicated in the
-        // `get_epoch_check` method, refactor this.
-        if !load_mem_tries_for_tracked_shards {
-            // In the old layout do not enforce except for shards pending resharding.
-            if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
-                tracing::debug!(target: "test", ?shard_uid, "skipping shard not pending resharding");
-                continue;
-            }
-
-            // In the new layout do not enforce for shards that were not split.
-            if is_resharded && !shard_was_split(&shard_layout, shard_uid.shard_id()) {
-                tracing::debug!(target: "test", ?shard_uid, "skipping shard not split");
-                continue;
-            }
+        if !should_assert_state_sanity(
+            load_mem_tries_for_tracked_shards,
+            is_resharded,
+            &shards_pending_resharding,
+            &shard_layout,
+            &shard_uid,
+        ) {
+            continue;
         }
 
         if !client_tracking_shard(client, shard_uid.shard_id(), &final_head.prev_block_hash) {
@@ -692,6 +686,31 @@ fn assert_state_sanity(
     checked_shards
 }
 
+fn should_assert_state_sanity(
+    load_mem_tries_for_tracked_shards: bool,
+    is_resharded: bool,
+    shards_pending_resharding: &HashSet<ShardUId>,
+    shard_layout: &ShardLayout,
+    shard_uid: &ShardUId,
+) -> bool {
+    // Always assert if the tracked shards are loaded into memory.
+    if load_mem_tries_for_tracked_shards {
+        return true;
+    }
+
+    // In the old layout do not enforce except for shards pending resharding.
+    if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
+        return false;
+    }
+
+    // In the new layout do not enforce for shards that were not split.
+    if is_resharded && !shard_was_split(shard_layout, shard_uid.shard_id()) {
+        return false;
+    }
+
+    true
+}
+
 // For each epoch, keep a map from AccountId to a map with keys equal to
 // the set of shards that account tracks in that epoch, and bool values indicating
 // whether the equality of flat storage and memtries has been checked for that shard
@@ -746,17 +765,13 @@ impl TrieSanityCheck {
                     let tracked = shard_uids
                         .iter()
                         .filter_map(|uid| {
-                            if !is_resharded
-                                && !self.load_mem_tries_for_tracked_shards
-                                && !shards_pending_resharding.contains(uid)
-                            {
-                                return None;
-                            }
-
-                            if is_resharded
-                                && !self.load_mem_tries_for_tracked_shards
-                                && !shard_was_split(&shard_layout, uid.shard_id())
-                            {
+                            if !should_assert_state_sanity(
+                                self.load_mem_tries_for_tracked_shards,
+                                is_resharded,
+                                &shards_pending_resharding,
+                                &shard_layout,
+                                uid,
+                            ) {
                                 return None;
                             }
 
