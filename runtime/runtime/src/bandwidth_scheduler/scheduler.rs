@@ -122,7 +122,7 @@
 //! again.
 //!
 //! To properly handle resharding we would have to:
-//! * Properly set the `senders` and `receivers` on a resharding boundary.
+//! * Use different ShardLayouts for sender shards and receiver shards
 //! * Interpret bandwidth requests using the BandwidthSchedulerParams that they were created with
 //! * Make sure that `BandwidthSchedulerParams` are correct on the resharding boundary
 //!
@@ -131,21 +131,16 @@
 //! shouldn't be too painful.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::rc::Rc;
 
 use near_primitives::bandwidth_scheduler::{
     Bandwidth, BandwidthRequest, BandwidthRequestValues, BandwidthRequests,
     BandwidthSchedulerParams, BandwidthSchedulerState, BlockBandwidthRequests, LinkAllowance,
 };
-use near_primitives::types::ShardId;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::{ShardId, ShardIndex};
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-
-use super::shard_mapping::{
-    SchedulerShardIndex, SchedulerShardIndexMap, SchedulerShardLinkMap, SchedulerShardMapping,
-    ShardLink,
-};
 
 /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
 /// Produced by the bandwidth scheduler.
@@ -160,23 +155,20 @@ impl GrantedBandwidth {
 }
 
 pub struct BandwidthScheduler {
-    /// Mapping from shard ids to shard indexes.
-    mapping: SchedulerShardMapping,
-    /// List of shards that want to send receipts.
-    senders: Rc<[SchedulerShardIndex]>,
-    /// List of shards that the senders can send to.
-    receivers: Rc<[SchedulerShardIndex]>,
+    shard_layout: ShardLayout,
     /// Configuration parameters for the algorithm.
     params: BandwidthSchedulerParams,
     /// ShardStatus for each shard.
-    shards_status: SchedulerShardIndexMap<ShardStatus>,
+    /// (ShardIndex -> ShardStatus)
+    shards_status: ShardIndexMap<ShardStatus>,
     /// Each shard can send and receive at most `max_shard_bandwidth` bytes of receipts.
     /// This is tracked in the `sender_budget` and `receiver_budget` fields, which keep
     /// track of how much more a shard can send or receive before hitting the limit.
     /// The sender and receiver budgets are decreased when bandwidth is granted on some link.
     /// It's not possible to grant more bandwidth than the sender or receiver budget.
-    sender_budget: SchedulerShardIndexMap<Bandwidth>,
-    receiver_budget: SchedulerShardIndexMap<Bandwidth>,
+    /// (ShardIndex -> Bandwidth)
+    sender_budget: ShardIndexMap<Bandwidth>,
+    receiver_budget: ShardIndexMap<Bandwidth>,
     /// Allowance for every link
     /// Bandwidth scheduler uses `allowance` to ensure fairness.
     /// Every link receives a fair amount of allowance on every height.
@@ -184,53 +176,36 @@ pub struct BandwidthScheduler {
     /// by the granted amount. Requests on links with higher allowance have priority
     /// over requests on links with lower allowance.
     /// Links that send more than their fair share are deprioritized, which keeps things fair.
-    link_allowances: SchedulerShardLinkMap<Bandwidth>,
+    /// (ShardLink -> Bandwidth)
+    link_allowances: ShardLinkMap<Bandwidth>,
     /// How much bandwidth was granted on each link.
-    granted_bandwidth: SchedulerShardLinkMap<Bandwidth>,
+    /// (ShardLink -> Bandwidth)
+    granted_bandwidth: ShardLinkMap<Bandwidth>,
     /// Rng used to resolve ties when multiple requests have the same allowance.
     rng: ChaCha20Rng,
 }
 
 impl BandwidthScheduler {
     pub fn run(
-        sender_shards: &[ShardId],
-        receiver_shards: &[ShardId],
+        shard_layout: ShardLayout,
         state: &mut BandwidthSchedulerState,
         params: &BandwidthSchedulerParams,
         bandwidth_requests: &BlockBandwidthRequests,
         shards_status: &BTreeMap<ShardId, ShardStatus>,
         rng_seed: u64,
     ) -> GrantedBandwidth {
-        if sender_shards.is_empty() || receiver_shards.is_empty() {
+        if shard_layout.num_shards() == 0 {
             // No shards, nothing to grant.
             return GrantedBandwidth { granted: BTreeMap::new() };
         }
 
-        // Map shard ids to shard indexes.
-        // Non-contiguous shard ids are mapped to contiguous shard indexes, e.g [1, 23, 55, 200] -> [0, 1, 2, 3].
-        // The scheduler algorithm operates on shard indexes. Shard indexes can be used to index into arrays,
-        // which is faster than doing shard id map lookups.
-        let mapping =
-            SchedulerShardMapping::new(sender_shards.iter().chain(receiver_shards.iter()).copied());
-
-        // Translate senders and receivers to shard indexes.
-        let senders: Rc<[SchedulerShardIndex]> = sender_shards
-            .iter()
-            .map(|sender_id| mapping.get_index_for_shard_id(*sender_id).unwrap())
-            .collect();
-        let receivers: Rc<[SchedulerShardIndex]> = receiver_shards
-            .iter()
-            .map(|receiver_id| mapping.get_index_for_shard_id(*receiver_id).unwrap())
-            .collect();
-
         // Convert link allowances to the internal representation.
-        let mut link_allowances: SchedulerShardLinkMap<Bandwidth> =
-            SchedulerShardLinkMap::new(&mapping);
+        let mut link_allowances: ShardLinkMap<Bandwidth> = ShardLinkMap::new(&shard_layout);
         for link_allowance in &state.link_allowances {
-            let sender_index_opt = mapping.get_index_for_shard_id(link_allowance.sender);
-            let receiver_index_opt = mapping.get_index_for_shard_id(link_allowance.receiver);
+            let sender_index_opt = shard_layout.get_shard_index(link_allowance.sender);
+            let receiver_index_opt = shard_layout.get_shard_index(link_allowance.receiver);
             match (sender_index_opt, receiver_index_opt) {
-                (Some(sender_index), Some(receiver_index)) => {
+                (Ok(sender_index), Ok(receiver_index)) => {
                     let link = ShardLink::new(sender_index, receiver_index);
                     link_allowances.insert(link, link_allowance.allowance);
                 }
@@ -239,10 +214,10 @@ impl BandwidthScheduler {
         }
 
         // Translate shard statuses to the internal representation.
-        let mut shard_status_by_index: SchedulerShardIndexMap<ShardStatus> =
-            SchedulerShardIndexMap::new(&mapping);
+        let mut shard_status_by_index: ShardIndexMap<ShardStatus> =
+            ShardIndexMap::new(&shard_layout);
         for (shard_id, status) in shards_status {
-            if let Some(idx) = mapping.get_index_for_shard_id(*shard_id) {
+            if let Ok(idx) = shard_layout.get_shard_index(*shard_id) {
                 shard_status_by_index.insert(idx, *status);
             }
         }
@@ -261,23 +236,25 @@ impl BandwidthScheduler {
                     *sender_shard,
                     bandwidth_request,
                     params,
-                    &mapping,
+                    &shard_layout,
                 ) {
                     scheduler_bandwidth_requests.push(request);
                 }
             }
         }
 
+        let sender_budget = ShardIndexMap::new(&shard_layout);
+        let receiver_budget = ShardIndexMap::new(&shard_layout);
+        let granted_bandwidth = ShardLinkMap::new(&shard_layout);
+
         // Init the scheduler state
         let mut scheduler = BandwidthScheduler {
-            mapping: mapping.clone(),
-            senders,
-            receivers,
+            shard_layout,
             shards_status: shard_status_by_index,
-            sender_budget: SchedulerShardIndexMap::new(&mapping),
-            receiver_budget: SchedulerShardIndexMap::new(&mapping),
+            sender_budget,
+            receiver_budget,
             link_allowances,
-            granted_bandwidth: SchedulerShardLinkMap::new(&mapping),
+            granted_bandwidth,
             params: *params,
             rng: ChaCha20Rng::seed_from_u64(rng_seed),
         };
@@ -303,11 +280,11 @@ impl BandwidthScheduler {
 
     /// Initialize sender and receiver budgets. Every shard can send and receive at most `max_shard_bandwidth`.
     fn init_budgets(&mut self) {
-        for sender in self.senders.iter() {
-            self.sender_budget.insert(*sender, self.params.max_shard_bandwidth);
+        for sender in self.iter_shard_indexes() {
+            self.sender_budget.insert(sender, self.params.max_shard_bandwidth);
         }
-        for receiver in self.receivers.iter() {
-            self.receiver_budget.insert(*receiver, self.params.max_shard_bandwidth);
+        for receiver in self.iter_shard_indexes() {
+            self.receiver_budget.insert(receiver, self.params.max_shard_bandwidth);
         }
     }
 
@@ -316,8 +293,7 @@ impl BandwidthScheduler {
         // In an ideal, fair world, every link would send the same amount of bandwidth.
         // There would be `max_bandwidth / num_shards` sent on every link, fully saturating
         // all senders and receivers.
-        let num_shards: u64 =
-            std::cmp::max(self.senders.len(), self.receivers.len()).try_into().unwrap();
+        let num_shards = self.shard_layout.num_shards();
         assert_ne!(num_shards, 0);
         let fair_link_bandwidth = self.params.max_shard_bandwidth / num_shards;
 
@@ -394,8 +370,8 @@ impl BandwidthScheduler {
             if let Some(granted_bandwidth) = self.granted_bandwidth.get(&link) {
                 granted.insert(
                     (
-                        self.mapping.get_shard_id_for_index(link.sender).unwrap(),
-                        self.mapping.get_shard_id_for_index(link.receiver).unwrap(),
+                        self.shard_layout.get_shard_id(link.sender).unwrap(),
+                        self.shard_layout.get_shard_id(link.receiver).unwrap(),
                     ),
                     *granted_bandwidth,
                 );
@@ -404,10 +380,22 @@ impl BandwidthScheduler {
         GrantedBandwidth { granted }
     }
 
+    fn iter_shard_indexes(&self) -> impl Iterator<Item = ShardIndex> + 'static {
+        let max_index: usize =
+            self.shard_layout.num_shards().try_into().expect("num_shards doesn't fit into usize!");
+        0..max_index
+    }
+
     /// Iterate over all links from senders to receivers without borrowing &self.
     /// Allows to modify other fields of the struct while iterating over links.
     fn iter_links(&self) -> impl Iterator<Item = ShardLink> + 'static {
-        LinksIterator::new(self.senders.clone(), self.receivers.clone())
+        let num_indexes: usize =
+            self.shard_layout.num_shards().try_into().expect("num_shards doesn't fit into usize!");
+        (0..num_indexes)
+            .map(move |sender_idx| {
+                (0..num_indexes).map(move |receiver_idx| ShardLink::new(sender_idx, receiver_idx))
+            })
+            .flatten()
     }
 
     fn get_allowance(&self, link: &ShardLink) -> Bandwidth {
@@ -521,8 +509,8 @@ impl BandwidthScheduler {
         for link in self.iter_links() {
             if let Some(link_allowance) = self.link_allowances.get(&link) {
                 new_state_allowances.push(LinkAllowance {
-                    sender: self.mapping.get_shard_id_for_index(link.sender).unwrap(),
-                    receiver: self.mapping.get_shard_id_for_index(link.receiver).unwrap(),
+                    sender: self.shard_layout.get_shard_id(link.sender).unwrap(),
+                    receiver: self.shard_layout.get_shard_id(link.receiver).unwrap(),
                     allowance: *link_allowance,
                 });
             }
@@ -570,15 +558,13 @@ impl SchedulerBandwidthRequest {
         sender_shard: ShardId,
         bandwidth_request: &BandwidthRequest,
         params: &BandwidthSchedulerParams,
-        mapping: &SchedulerShardMapping,
+        layout: &ShardLayout,
     ) -> Option<Self> {
-        let Some(sender_index) = mapping.get_index_for_shard_id(sender_shard) else {
+        let Ok(sender_index) = layout.get_shard_index(sender_shard) else {
             // Request from a shard that is not in the current set of shards.
             return None;
         };
-        let Some(receiver_index) =
-            mapping.get_index_for_shard_id(bandwidth_request.to_shard.into())
-        else {
+        let Ok(receiver_index) = layout.get_shard_index(bandwidth_request.to_shard.into()) else {
             // Request to a shard that is not in the current set of shards.
             return None;
         };
@@ -614,35 +600,92 @@ impl SchedulerBandwidthRequest {
     }
 }
 
-/// Iterator over all links from senders to receivers.
-pub struct LinksIterator {
-    senders: Rc<[SchedulerShardIndex]>,
-    receivers: Rc<[SchedulerShardIndex]>,
-    current_sender: usize,
-    current_receiver: usize,
+/// Represents a link between a sender shard that sends receipts and a receiver shard that receives them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ShardLink {
+    /// Sender shard
+    pub sender: ShardIndex,
+    /// Receiver shard
+    pub receiver: ShardIndex,
 }
 
-impl LinksIterator {
-    pub fn new(senders: Rc<[SchedulerShardIndex]>, receivers: Rc<[SchedulerShardIndex]>) -> Self {
-        Self { senders, receivers, current_sender: 0, current_receiver: 0 }
+impl ShardLink {
+    pub fn new(sender: ShardIndex, receiver: ShardIndex) -> Self {
+        Self { sender, receiver }
     }
 }
 
-impl Iterator for LinksIterator {
-    type Item = ShardLink;
+/// Equivalent to BTreeMap<ShardIndex, T>
+/// Accessing a value is done by indexing into an array, which is faster than a lookup in BTreeMap or HashMap.
+/// Should be used only with indexes from the same layout that was given in the constructor!
+pub struct ShardIndexMap<T> {
+    data: Vec<Option<T>>,
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current_sender >= self.senders.len() {
-            return None;
+impl<T> ShardIndexMap<T> {
+    pub fn new(layout: &ShardLayout) -> Self {
+        let num_indexes: usize =
+            layout.num_shards().try_into().expect("num_shards doesn't fit into usize");
+        let mut data = Vec::with_capacity(num_indexes);
+        // T might not implement Clone, so we can't use vec![None; mapping.indexes_len()]
+        for _ in 0..num_indexes {
+            data.push(None);
         }
-        let sender = self.senders[self.current_sender];
-        let receiver = self.receivers[self.current_receiver];
-        self.current_receiver += 1;
-        if self.current_receiver >= self.receivers.len() {
-            self.current_receiver = 0;
-            self.current_sender += 1;
+        Self { data }
+    }
+
+    pub fn get(&self, index: &ShardIndex) -> Option<&T> {
+        self.data[*index].as_ref()
+    }
+
+    pub fn insert(&mut self, index: ShardIndex, value: T) {
+        self.data[index] = Some(value);
+    }
+}
+
+/// Equivalent to BTreeMap<ShardLink, T>
+/// Accessing a value is done by indexing into an array, which is faster than a lookup in BTreeMap or HashMap.
+/// Should be used only with indexes from the same layout that was given in the constructor!
+pub struct ShardLinkMap<T> {
+    data: Vec<Option<T>>,
+    num_indexes: usize,
+}
+
+impl<T> ShardLinkMap<T> {
+    pub fn new(layout: &ShardLayout) -> Self {
+        let num_indexes: usize =
+            layout.num_shards().try_into().expect("Can't convert u64 to usize");
+        let data_len = num_indexes * num_indexes;
+        let mut data = Vec::with_capacity(data_len);
+        for _ in 0..data_len {
+            data.push(None);
         }
-        Some(ShardLink::new(sender, receiver))
+        Self { data, num_indexes }
+    }
+
+    pub fn get(&self, link: &ShardLink) -> Option<&T> {
+        self.data[self.data_index_for_link(link)].as_ref()
+    }
+
+    pub fn insert(&mut self, link: ShardLink, value: T) {
+        let data_index = self.data_index_for_link(&link);
+        self.data[data_index] = Some(value);
+    }
+
+    fn data_index_for_link(&self, link: &ShardLink) -> usize {
+        debug_assert!(
+            link.sender < self.num_indexes,
+            "Sender index out of bounds! num_indexes: {}, link: {:?}",
+            self.num_indexes,
+            link
+        );
+        debug_assert!(
+            link.receiver < self.num_indexes,
+            "Receiver index out of bounds! num_indexes: {}, link: {:?}",
+            self.num_indexes,
+            link
+        );
+        link.sender * self.num_indexes + link.receiver
     }
 }
 
@@ -663,7 +706,7 @@ mod tests {
     /// Run bandwidth scheduler on worst-case scenario that should take as much CPU time as possible.
     /// Measures the time and prints it to stdout.
     fn measure_scheduler_worst_case_performance(num_shards: u64) {
-        let shard_ids: Vec<ShardId> = ShardLayout::multi_shard(num_shards, 0).shard_ids().collect();
+        let shard_layout = ShardLayout::multi_shard(num_shards, 0);
 
         // Standard params
         let params = BandwidthSchedulerParams {
@@ -680,13 +723,9 @@ mod tests {
         let mut link_allowances: Vec<LinkAllowance> = Vec::new();
         let allowance_increase = params.max_shard_bandwidth / num_shards;
         let mut next_allowance = params.max_allowance - allowance_increase;
-        for sender in &shard_ids {
-            for receiver in &shard_ids {
-                link_allowances.push(LinkAllowance {
-                    sender: *sender,
-                    receiver: *receiver,
-                    allowance: next_allowance,
-                });
+        for sender in shard_layout.shard_ids() {
+            for receiver in shard_layout.shard_ids() {
+                link_allowances.push(LinkAllowance { sender, receiver, allowance: next_allowance });
                 next_allowance -= 1;
             }
         }
@@ -694,11 +733,11 @@ mod tests {
             BandwidthSchedulerState { link_allowances, sanity_check_hash: CryptoHash::default() };
 
         // Shards are not congested, scheduler can grant as many requests as possible.
-        let shards_status = shard_ids
-            .iter()
+        let shards_status = shard_layout
+            .shard_ids()
             .map(|shard_id| {
                 (
-                    *shard_id,
+                    shard_id,
                     super::ShardStatus {
                         is_fully_congested: false,
                         last_chunk_missing: false,
@@ -712,11 +751,11 @@ mod tests {
         // Every bandwidth request requests all the values that it can, and there is a bandwidth
         // request between every pair of shards.
         let mut shards_bandwidth_requests: BTreeMap<ShardId, BandwidthRequests> = BTreeMap::new();
-        for sender in &shard_ids {
+        for sender in shard_layout.shard_ids() {
             let mut requests = Vec::new();
-            for receiver in &shard_ids {
+            for receiver in shard_layout.shard_ids() {
                 let mut request = BandwidthRequest {
-                    to_shard: (*receiver).into(),
+                    to_shard: receiver.into(),
                     requested_values_bitmap: BandwidthRequestBitmap::new(),
                 };
                 for i in 0..request.requested_values_bitmap.len() {
@@ -725,13 +764,12 @@ mod tests {
                 requests.push(request);
             }
             shards_bandwidth_requests
-                .insert(*sender, BandwidthRequests::V1(BandwidthRequestsV1 { requests }));
+                .insert(sender, BandwidthRequests::V1(BandwidthRequestsV1 { requests }));
         }
 
         let start_time = std::time::Instant::now();
         BandwidthScheduler::run(
-            &shard_ids,
-            &shard_ids,
+            shard_layout,
             &mut scheduler_state,
             &params,
             &BlockBandwidthRequests { shards_bandwidth_requests },

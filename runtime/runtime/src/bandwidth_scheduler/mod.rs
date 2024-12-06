@@ -13,7 +13,6 @@ use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 use crate::ApplyState;
 
 mod scheduler;
-mod shard_mapping;
 
 pub struct BandwidthSchedulerOutput {
     /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
@@ -79,20 +78,16 @@ pub fn run_bandwidth_scheduler(
 
     // Prepare lists of sender and receiver shards.
     let all_shards: Vec<ShardId> = shard_layout.shard_ids().collect();
-    let sender_shards = &all_shards;
-    let receiver_shards = &all_shards;
 
     // Calculate the current scheduler parameters.
-    let num_shards: u64 = std::cmp::max(sender_shards.len(), receiver_shards.len())
-        .try_into()
-        .expect("Can't convert usize to u64");
-    let params =
-        BandwidthSchedulerParams::new(NonZeroU64::new(num_shards).unwrap(), &apply_state.config);
+    let params = BandwidthSchedulerParams::new(
+        NonZeroU64::new(shard_layout.num_shards()).expect("ShardLayout has zero shards!"),
+        &apply_state.config,
+    );
 
     // Run the bandwidth scheduler algorithm.
     let granted_bandwidth = BandwidthScheduler::run(
-        &sender_shards,
-        &receiver_shards,
+        shard_layout,
         &mut scheduler_state,
         &params,
         &apply_state.bandwidth_requests,
@@ -106,8 +101,7 @@ pub fn run_bandwidth_scheduler(
     // format of the hashed structs would become part of the protocol.
     let mut sanity_check_bytes = Vec::new();
     sanity_check_bytes.extend_from_slice(scheduler_state.sanity_check_hash.as_ref());
-    sanity_check_bytes.extend_from_slice(CryptoHash::hash_borsh(&sender_shards).as_ref());
-    sanity_check_bytes.extend_from_slice(CryptoHash::hash_borsh(&receiver_shards).as_ref());
+    sanity_check_bytes.extend_from_slice(CryptoHash::hash_borsh(&all_shards).as_ref());
     scheduler_state.sanity_check_hash = CryptoHash::hash_bytes(&sanity_check_bytes);
 
     // Save the updated scheduler state to the trie.
