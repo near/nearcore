@@ -364,7 +364,7 @@ fn ultra_slow_test_sync_state_dump() {
                 let _ = std::process::Command::new("find")
                     .arg(dump_dir.path())
                     .arg("-maxdepth")
-                    .arg("3")
+                    .arg("5")
                     .arg("-ls")
                     .status();
                 println!("===========================\n");
