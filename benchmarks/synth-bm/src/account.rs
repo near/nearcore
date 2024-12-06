@@ -127,7 +127,7 @@ pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
         }
         let path = entry.path();
         let file_extension = path.extension();
-        if file_extension == None || file_extension.unwrap() != "json" {
+        if file_extension.is_none() || file_extension.unwrap() != "json" {
             continue;
         }
         let account = Account::from_file(&path)?;
