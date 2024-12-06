@@ -301,15 +301,6 @@ pub(crate) fn get_tip_at_height(hot_store: &Store, height: &BlockHeight) -> io::
     Ok(tip)
 }
 
-/// Reads the cold-head from the Cold DB.
-pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
-    cold_db
-        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
-        .as_deref()
-        .map(Tip::try_from_slice)
-        .transpose()
-}
-
 /// Saves the cold head in the hot DB.
 pub(crate) fn set_cold_head_in_hot_store(hot_store: &Store, tip: &Tip) -> io::Result<()> {
     let mut transaction = DBTransaction::new();
