@@ -5,7 +5,7 @@ use near_primitives::bandwidth_scheduler::{BandwidthSchedulerParams, BandwidthSc
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{EpochInfoProvider, ShardId, StateChangeCause};
+use near_primitives::types::{EpochInfoProvider, ShardId, ShardIndex, StateChangeCause};
 use near_primitives::version::ProtocolFeature;
 use near_store::{get_bandwidth_scheduler_state, set_bandwidth_scheduler_state, TrieUpdate};
 use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
@@ -59,8 +59,9 @@ pub fn run_bandwidth_scheduler(
     let mut shards_status: BTreeMap<ShardId, ShardStatus> = BTreeMap::new();
     for (shard_id, extended_congestion_info) in apply_state.congestion_info.iter() {
         let last_chunk_missing = extended_congestion_info.missed_chunks_count > 0;
-        let is_allowed_sender_shard =
-            *shard_id == ShardId::from(extended_congestion_info.congestion_info.allowed_shard());
+        let allowed_sender_shard_idx: Option<ShardIndex> = shard_layout
+            .get_shard_index(extended_congestion_info.congestion_info.allowed_shard().into())
+            .ok();
 
         let congestion_control = CongestionControl::new(
             apply_state.config.congestion_control_config,
@@ -72,7 +73,7 @@ pub fn run_bandwidth_scheduler(
 
         shards_status.insert(
             *shard_id,
-            ShardStatus { last_chunk_missing, is_allowed_sender_shard, is_fully_congested },
+            ShardStatus { last_chunk_missing, allowed_sender_shard_idx, is_fully_congested },
         );
     }
 

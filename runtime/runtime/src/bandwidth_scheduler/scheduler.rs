@@ -488,10 +488,7 @@ impl BandwidthScheduler {
 
         // Only the "allowed shard" is allowed to send receipts to a fully congested shard.
         if receiver_status.is_fully_congested {
-            let sender_is_allowed_shard =
-                sender_status_opt.map(|status| status.is_allowed_sender_shard).unwrap_or(false);
-
-            if sender_is_allowed_shard {
+            if Some(link.sender) == receiver_status.allowed_sender_shard_idx {
                 return true;
             } else {
                 return false;
@@ -536,8 +533,8 @@ pub struct ShardStatus {
     /// Was this a chunk missing in the current block?
     /// If the last chunk was missing, receipts sent previously were not processed.
     pub last_chunk_missing: bool,
-    /// Is this the chosen shard which is allowed to send receipts to other fully congested shards?
-    pub is_allowed_sender_shard: bool,
+    /// The shard that is allowed to send receipts to this shard when the receiver is fully congested.
+    pub allowed_sender_shard_idx: Option<ShardIndex>,
 }
 
 /// A representation of `BandwidthRequest` used by the bandwidth scheduler.
@@ -701,6 +698,8 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::ShardId;
 
+    use crate::bandwidth_scheduler::scheduler::ShardStatus;
+
     use super::BandwidthScheduler;
 
     /// Run bandwidth scheduler on worst-case scenario that should take as much CPU time as possible.
@@ -738,10 +737,10 @@ mod tests {
             .map(|shard_id| {
                 (
                     shard_id,
-                    super::ShardStatus {
+                    ShardStatus {
                         is_fully_congested: false,
                         last_chunk_missing: false,
-                        is_allowed_sender_shard: false,
+                        allowed_sender_shard_idx: None,
                     },
                 )
             })
