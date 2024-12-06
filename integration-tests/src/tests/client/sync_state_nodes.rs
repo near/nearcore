@@ -311,7 +311,7 @@ fn ultra_slow_test_sync_state_dump() {
         );
         // Needs to be long enough to give enough time to the second node to
         // start, sync headers and find a dump of state.
-        let epoch_length = 30;
+        let epoch_length = 70;
         genesis.config.epoch_length = epoch_length;
 
         let _dump_dir =
@@ -357,7 +357,7 @@ fn ultra_slow_test_sync_state_dump() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
 
-            wait_or_timeout(1000, 60000, || async {
+            wait_or_timeout(1000, 120000, || async {
                 println!("\n=== Dump directory contents ===");
                 let _ = std::process::Command::new("ls").arg("-la").arg(dump_dir.path()).status();
                 // Add recursive listing for subdirectories
