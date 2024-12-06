@@ -2,10 +2,8 @@
 //! Using TestLoopBuilder gives a lot of flexibility, but sometimes you just need some basic blockchain.
 
 use itertools::Itertools;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
-use near_primitives::shard_layout::{ShardLayout};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 

@@ -1,4 +1,3 @@
-
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::transactions::execute_money_transfers;
@@ -6,15 +5,13 @@ use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_client::test_utils::test_loop::ClientQueries;
 use near_client::SetNetworkInfo;
 use near_network::types::{HighestHeightPeerInfo, NetworkInfo, PeerInfo};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
-use near_primitives::shard_layout::{ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;

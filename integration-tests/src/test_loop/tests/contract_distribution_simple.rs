@@ -1,8 +1,6 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
@@ -15,10 +13,10 @@ use crate::test_loop::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
+use crate::test_loop::utils::get_head_height;
 use crate::test_loop::utils::transactions::{
     do_call_contract, do_delete_account, do_deploy_contract, make_account, make_accounts,
 };
-use crate::test_loop::utils::get_head_height;
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;

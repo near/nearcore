@@ -1,9 +1,7 @@
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
@@ -12,7 +10,7 @@ use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 
-use near_primitives::shard_layout::{ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;

@@ -155,10 +155,11 @@ impl TestEpochConfigBuilder {
     pub fn build(self) -> EpochConfig {
         let epoch_length = self.epoch_length.unwrap_or(5);
         let shard_layout = self.shard_layout.unwrap_or_else(ShardLayout::single_shard);
-        let validators_spec = self.validators_spec.unwrap_or(ValidatorsSpec::DesiredRoles {
-            block_and_chunk_producers: vec!["validator0".to_string()],
-            chunk_validators_only: vec![],
-        });
+        let validators_spec =
+            self.validators_spec.unwrap_or_else(|| ValidatorsSpec::DesiredRoles {
+                block_and_chunk_producers: vec!["validator0".to_string()],
+                chunk_validators_only: vec![],
+            });
         let DerivedValidatorSetup {
             validators: _,
             num_block_producer_seats,

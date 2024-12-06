@@ -5,9 +5,7 @@ use near_async::messaging::Handler;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
@@ -15,7 +13,7 @@ use near_client::{
 };
 use near_network::client::BlockHeadersRequest;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::{ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochId, EpochReference, Finality,

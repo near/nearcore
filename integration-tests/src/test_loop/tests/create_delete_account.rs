@@ -1,9 +1,7 @@
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;

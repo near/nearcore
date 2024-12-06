@@ -1,12 +1,9 @@
-
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::{ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 

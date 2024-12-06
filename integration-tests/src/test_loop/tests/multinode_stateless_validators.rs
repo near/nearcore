@@ -3,12 +3,10 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_client::{GetValidatorInfo, ViewClientActorInner};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::shard_layout::{ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, EpochId, EpochReference};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};

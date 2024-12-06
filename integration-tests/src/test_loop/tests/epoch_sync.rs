@@ -1,8 +1,6 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    genesis_epoch_config_store, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
