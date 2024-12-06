@@ -15,6 +15,7 @@ use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives_core::version::ProtocolFeature;
 use std::string::ToString;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,7 +25,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[test]
 fn slow_test_fix_min_stake_ratio() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
+
+    // Take epoch configuration before the protocol upgrade, where minimum
+    // stake ratio was 1/6250.
+    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+    let target_protocol_version = ProtocolFeature::FixMinStakeRatio.protocol_version();
+    let genesis_protocol_version = target_protocol_version - 1;
+
+    // Immediately start voting for the new protocol version
+    let protocol_upgrade_schedule =
+        ProtocolUpgradeVotingSchedule::new_immediate(target_protocol_version);
+
+    let builder = TestLoopBuilder::new().protocol_upgrade_schedule(protocol_upgrade_schedule);
 
     let initial_balance = 1_000_000 * ONE_NEAR;
     let epoch_length = 10;
@@ -56,18 +68,16 @@ fn slow_test_fix_min_stake_ratio() {
         },
     ];
 
-    // Take epoch configuration before the protocol upgrade, where minimum
-    // stake ratio was 1/6250.
-    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let protocol_version = ProtocolFeature::FixMinStakeRatio.protocol_version() - 1;
+    let shard_layout =
+        epoch_config_store.get_config(genesis_protocol_version).as_ref().shard_layout.clone();
     let validators_spec = ValidatorsSpec::raw(validators, 1, 1, 2);
 
     // Create chain with version before FixMinStakeRatio was enabled.
     // Check that the small validator is not included in the validator set.
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
-        .shard_layout(epoch_config_store.get_config(protocol_version).as_ref().shard_layout.clone())
-        .protocol_version(protocol_version)
+        .shard_layout(shard_layout)
+        .protocol_version(genesis_protocol_version)
         .epoch_length(epoch_length)
         .validators_spec(validators_spec)
         // Disable validator rewards.

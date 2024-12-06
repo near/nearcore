@@ -1,3 +1,15 @@
+//! This file implements two data structure `ShardLayout` and `ShardUId`
+//!
+//! ## `get_parent_shard_id` and `get_split_shard_ids`
+//!
+//! `ShardLayout` also includes information needed for resharding. In particular, it encodes
+//! which shards from the previous shard layout split to which shards in the following shard layout.
+//! If shard A in shard layout 0 splits to shard B and C in shard layout 1,
+//! we call shard A the parent shard of shard B and C.
+//! Note that a shard can only have one parent shard. For example, the following case will be prohibited,
+//! a shard C in shard layout 1 contains accounts in both shard A and B in shard layout 0.
+//! Parent/split shard information can be accessed through these two functions.
+
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -7,51 +19,25 @@ use near_schema_checker_lib::ProtocolSchema;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::{fmt, str};
 
-/// This file implements two data structure `ShardLayout` and `ShardUId`
+/// `ShardLayout` has a version number.
 ///
-/// `ShardLayout`
-/// A versioned struct that contains all information needed to assign accounts
-/// to shards. Because of re-sharding, the chain may use different shard layout to
-/// split shards at different times.
-/// Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each epoch
-/// given the epoch protocol version.
-/// In mainnet/testnet, we use two shard layouts since re-sharding has only happened once.
-/// It is stored as part of genesis config, see default_simple_nightshade_shard_layout()
-/// Below is an overview for some important functionalities of ShardLayout interface.
-///
-/// `version`
-/// `ShardLayout` has a version number. The version number should increment as when sharding changes.
-/// This guarantees the version number is unique across different shard layouts, which in turn guarantees
-/// `ShardUId` is different across shards from different shard layouts, as `ShardUId` includes
-/// `version` and `shard_id`
-///
-/// `get_parent_shard_id` and `get_split_shard_ids`
-/// `ShardLayout` also includes information needed for resharding. In particular, it encodes
-/// which shards from the previous shard layout split to which shards in the following shard layout.
-/// If shard A in shard layout 0 splits to shard B and C in shard layout 1,
-/// we call shard A the parent shard of shard B and C.
-/// Note that a shard can only have one parent shard. For example, the following case will be prohibited,
-/// a shard C in shard layout 1 contains accounts in both shard A and B in shard layout 0.
-/// Parent/split shard information can be accessed through these two functions.
-///
-/// `account_id_to_shard_id`
-///  Maps an account to the shard that it belongs to given a shard_layout
-///
-/// `ShardUId`
-/// `ShardUId` is a unique representation for shards from different shard layouts.
-/// Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,
-/// `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.
-/// This is important because we store states indexed by shards in our database, so we need a
-/// way to unique identify shard even when shards change across epochs.
-/// Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in
-/// a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol
-/// level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)
-
+/// The version number should increment as when sharding changes. This guarantees the version
+/// number is unique across different shard layouts, which in turn guarantees `ShardUId` is
+/// different across shards from different shard layouts, as `ShardUId` includes `version` and
+/// `shard_id`
 pub type ShardVersion = u32;
 
+/// A versioned struct that contains all information needed to assign accounts to shards.
+///
+/// Because of re-sharding, the chain may use different shard layout to split shards at different
+/// times. Currently, `ShardLayout` is stored as part of `EpochConfig`, which is generated each
+/// epoch given the epoch protocol version. In mainnet/testnet, we use two shard layouts since
+/// re-sharding has only happened once. It is stored as part of genesis config, see
+/// default_simple_nightshade_shard_layout() Below is an overview for some important
+/// functionalities of ShardLayout interface.
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -269,6 +255,23 @@ impl TryFrom<SerdeShardLayoutV2> for ShardLayoutV2 {
             .map(|(k, v)| Ok((k.parse()?, v)))
             .collect::<Result<_, Self::Error>>()?;
 
+        match (&shards_split_map, &shards_parent_map) {
+            (None, None) => {}
+            (Some(shard_split_map), Some(shards_parent_map)) => {
+                let expected_shards_parent_map =
+                    validate_and_derive_shard_parent_map_v2(&shard_ids, &shard_split_map);
+                if &expected_shards_parent_map != shards_parent_map {
+                    return Err("shards_parent_map does not match the expected value".into());
+                }
+            }
+            _ => {
+                return Err(
+                    "shards_split_map and shards_parent_map must be both present or both absent"
+                        .into(),
+                )
+            }
+        }
+
         Ok(Self {
             boundary_accounts,
             shard_ids,
@@ -327,6 +330,7 @@ impl ShardLayoutV2 {
 pub enum ShardLayoutError {
     InvalidShardIdError { shard_id: ShardId },
     InvalidShardIndexError { shard_index: ShardIndex },
+    NoParentError { shard_id: ShardId },
 }
 
 impl fmt::Display for ShardLayoutError {
@@ -463,19 +467,8 @@ impl ShardLayout {
             });
         };
 
-        let mut shards_parent_map = ShardsParentMapV2::new();
-        for (&parent_shard_id, shard_ids) in shards_split_map.iter() {
-            for &shard_id in shard_ids {
-                let prev = shards_parent_map.insert(shard_id, parent_shard_id);
-                assert!(prev.is_none(), "no shard should appear in the map twice");
-            }
-        }
-
-        assert_eq!(
-            shard_ids.iter().copied().sorted().collect_vec(),
-            shards_parent_map.keys().copied().collect_vec()
-        );
-
+        let shards_parent_map =
+            validate_and_derive_shard_parent_map_v2(&shard_ids, &shards_split_map);
         let shards_split_map = Some(shards_split_map);
         let shards_parent_map = Some(shards_parent_map);
         Self::V2(ShardLayoutV2 {
@@ -623,36 +616,48 @@ impl ShardLayout {
         }
     }
 
-    /// Return the parent shard id for a given shard in the shard layout
-    /// Only calls this function for shard layout that has parent shard layouts
-    /// Returns error if `shard_id` is an invalid shard id in the current layout
-    /// Panics if `self` has no parent shard layout
-    pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
+    /// Return the parent shard id for a given shard in the shard layout.
+    /// Returns an error if `shard_id` is an invalid shard id in the current
+    /// layout. Returns None if the shard layout has no parent shard layout.
+    pub fn try_get_parent_shard_id(
+        &self,
+        shard_id: ShardId,
+    ) -> Result<Option<ShardId>, ShardLayoutError> {
         if !self.shard_ids().any(|id| id == shard_id) {
             return Err(ShardLayoutError::InvalidShardIdError { shard_id });
         }
         let parent_shard_id = match self {
-            Self::V0(_) => panic!("shard layout has no parent shard"),
+            Self::V0(_) => None,
             Self::V1(v1) => match &v1.to_parent_shard_map {
                 // we can safely unwrap here because the construction of to_parent_shard_map guarantees
                 // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
-                    let shard_index = self.get_shard_index(shard_id)?;
-                    *to_parent_shard_map.get(shard_index).unwrap()
+                    let shard_index = self.get_shard_index(shard_id).unwrap();
+                    let parent_shard_id = to_parent_shard_map.get(shard_index).unwrap();
+                    Some(*parent_shard_id)
                 }
-                None => panic!("shard_layout has no parent shard"),
+                None => None,
             },
             Self::V2(v2) => match &v2.shards_parent_map {
+                // we can safely unwrap here because the construction of to_parent_shard_map guarantees
+                // that every shard has a parent shard
                 Some(to_parent_shard_map) => {
-                    let parent_shard_id = to_parent_shard_map.get(&shard_id);
-                    let parent_shard_id = parent_shard_id
-                        .ok_or(ShardLayoutError::InvalidShardIdError { shard_id })?;
-                    *parent_shard_id
+                    let parent_shard_id = to_parent_shard_map.get(&shard_id).unwrap();
+                    Some(*parent_shard_id)
                 }
-                None => panic!("shard_layout has no parent shard"),
+                None => None,
             },
         };
         Ok(parent_shard_id)
+    }
+
+    /// Return the parent shard id for a given shard in the shard layout. Only
+    /// calls this function for shard layout that has parent shard layout.
+    /// Returns an error if `shard_id` is an invalid shard id in the current
+    /// layout or if the shard is has no parent in this shard layout.
+    pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
+        let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
+        parent_shard_id.ok_or(ShardLayoutError::NoParentError { shard_id })
     }
 
     /// Derive new shard layout from an existing one
@@ -779,6 +784,52 @@ impl ShardLayout {
                 .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index }),
         }
     }
+
+    /// Returns all of the shards from the previous shard layout that were
+    /// split into multiple shards in this shard layout.
+    pub fn get_split_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
+        let mut parent_shard_ids = BTreeSet::new();
+        for shard_id in self.shard_ids() {
+            let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
+            let Some(parent_shard_id) = parent_shard_id else {
+                continue;
+            };
+            if parent_shard_id == shard_id {
+                continue;
+            }
+            parent_shard_ids.insert(parent_shard_id);
+        }
+        Ok(parent_shard_ids)
+    }
+}
+
+// Validates the shards_split_map and derives the shards_parent_map from it.
+fn validate_and_derive_shard_parent_map_v2(
+    shard_ids: &Vec<ShardId>,
+    shards_split_map: &ShardsSplitMapV2,
+) -> ShardsParentMapV2 {
+    let mut shards_parent_map = ShardsParentMapV2::new();
+    for (&parent_shard_id, child_shard_ids) in shards_split_map.iter() {
+        for &child_shard_id in child_shard_ids {
+            let prev = shards_parent_map.insert(child_shard_id, parent_shard_id);
+            assert!(prev.is_none(), "no shard should appear in the map twice");
+        }
+        if let &[child_shard_id] = child_shard_ids.as_slice() {
+            // The parent shards with only one child shard are not split and
+            // should keep the same shard id.
+            assert_eq!(parent_shard_id, child_shard_id);
+        } else {
+            // The parent shards with multiple children shards are split.
+            // The parent shard id should not longer be used.
+            assert!(!shard_ids.contains(&parent_shard_id));
+        }
+    }
+
+    assert_eq!(
+        shard_ids.iter().copied().sorted().collect_vec(),
+        shards_parent_map.keys().copied().collect_vec()
+    );
+    shards_parent_map
 }
 
 /// Maps an account to the shard that it belongs to given a shard_layout
@@ -789,7 +840,15 @@ pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayou
     )
 }
 
-/// ShardUId is an unique representation for shards from different shard layout
+/// `ShardUId` is a unique representation for shards from different shard layouts.
+///
+/// Comparing to `ShardId`, which is just an ordinal number ranging from 0 to NUM_SHARDS-1,
+/// `ShardUId` provides a way to unique identify shards when shard layouts may change across epochs.
+/// This is important because we store states indexed by shards in our database, so we need a
+/// way to unique identify shard even when shards change across epochs.
+/// Another difference between `ShardUId` and `ShardId` is that `ShardUId` should only exist in
+/// a node's internal state while `ShardId` can be exposed to outside APIs and used in protocol
+/// level information (for example, `ShardChunkHeader` contains `ShardId` instead of `ShardUId`)
 #[derive(
     BorshSerialize,
     BorshDeserialize,

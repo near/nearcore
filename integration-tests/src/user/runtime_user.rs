@@ -29,7 +29,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -156,12 +156,12 @@ impl RuntimeUser {
     }
 
     fn apply_state(&self) -> ApplyState {
-        // TODO(congestion_control) - Set shard id somehow.
-        let shard_id = ShardId::new(0);
-        // TODO(congestion_control) - Set other shard ids somehow.
-        let all_shard_ids = [0, 1, 2, 3, 4, 5].into_iter().map(ShardId::new).collect_vec();
+        let shard_layout = ShardLayout::single_shard();
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+        let shard_id = *shard_ids.first().unwrap();
+
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
+            shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
         } else {
             Default::default()
         };

@@ -3,6 +3,7 @@ use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::shard_layout::ShardLayout;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -1172,6 +1173,8 @@ pub trait EpochInfoProvider: Send + Sync {
         account_id: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError>;
+
+    fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 }
 
 /// Mode of the trie cache.

@@ -309,7 +309,7 @@ fn ultra_slow_test_sync_state_dump() {
         );
         // Needs to be long enough to give enough time to the second node to
         // start, sync headers and find a dump of state.
-        genesis.config.epoch_length = 30;
+        genesis.config.epoch_length = 70;
 
         let _dump_dir =
             Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
@@ -353,7 +353,7 @@ fn ultra_slow_test_sync_state_dump() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
 
-            wait_or_timeout(1000, 60000, || async {
+            wait_or_timeout(1000, 120000, || async {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();

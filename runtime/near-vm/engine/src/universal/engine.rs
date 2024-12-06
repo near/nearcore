@@ -20,7 +20,8 @@ use near_vm_vm::{
     VMCallerCheckedAnyfunc, VMFuncRef, VMImportType, VMLocalFunction, VMOffsets,
     VMSharedSignatureIndex, VMTrampoline,
 };
-use rkyv::de::deserializers::SharedDeserializeMap;
+use rkyv::tuple::ArchivedTuple3;
+use rkyv::Archived;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
@@ -313,14 +314,14 @@ impl UniversalEngine {
         let import_counts: ImportCounts = unrkyv(&module.import_counts);
         let local_memories = (import_counts.memories as usize..module.memories.len())
             .map(|idx| {
-                let idx = MemoryIndex::new(idx);
+                let idx = Archived::<MemoryIndex>::new(idx);
                 let mty = &module.memories[&idx];
                 (unrkyv(mty), unrkyv(&info.memory_styles[&idx]))
             })
             .collect();
         let local_tables = (import_counts.tables as usize..module.tables.len())
             .map(|idx| {
-                let idx = TableIndex::new(idx);
+                let idx = Archived::<TableIndex>::new(idx);
                 let tty = &module.tables[&idx];
                 (unrkyv(tty), unrkyv(&info.table_styles[&idx]))
             })
@@ -331,14 +332,16 @@ impl UniversalEngine {
             .skip(import_counts.globals as _)
             .enumerate()
             .map(|(idx, (_, t))| {
-                let init = unrkyv(&module.global_initializers[&LocalGlobalIndex::new(idx)]);
-                (*t, init)
+                let init = &module.global_initializers[&Archived::<LocalGlobalIndex>::new(idx)];
+                (unrkyv(t), unrkyv(init))
             })
             .collect();
 
-        let passive_data =
-            rkyv::Deserialize::deserialize(&module.passive_data, &mut SharedDeserializeMap::new())
-                .map_err(|_| CompileError::Validate("could not deserialize passive data".into()))?;
+        let passive_data = rkyv::api::high::deserialize(&module.passive_data).map_err(
+            |e: rkyv::rancor::Error| {
+                CompileError::Validate(format!("could not deserialize passive data: {e:}"))
+            },
+        )?;
         let data_segments = executable.data_initializers.iter();
         let data_segments = data_segments.map(|s| DataInitializer::from(s).into()).collect();
         let element_segments = unrkyv(&module.table_initializers);
@@ -370,7 +373,7 @@ impl UniversalEngine {
                 executable.custom_sections.iter().map(|(_, s)| s.into()),
                 |idx: LocalFunctionIndex| {
                     let func_idx = import_counts.function_index(idx);
-                    let sig_idx = module.functions[&func_idx];
+                    let sig_idx = unrkyv(module.functions.index_by_native(&func_idx));
                     (sig_idx, signatures[sig_idx])
                 },
             )?;
@@ -378,24 +381,28 @@ impl UniversalEngine {
             module
                 .imports
                 .iter()
-                .map(|((module_name, field, idx), entity)| near_vm_vm::VMImport {
+                .map(|(ArchivedTuple3(module_name, field, idx), entity)| near_vm_vm::VMImport {
                     module: String::from(module_name.as_str()),
                     field: String::from(field.as_str()),
-                    import_no: *idx,
+                    import_no: idx.into(),
                     ty: match entity {
-                        ImportIndex::Function(i) => {
-                            let sig_idx = module.functions[i];
+                        Archived::<ImportIndex>::Function(i) => {
+                            let sig_idx = unrkyv(&module.functions[i]);
                             VMImportType::Function {
                                 sig: signatures[sig_idx],
                                 static_trampoline: trampolines[sig_idx],
                             }
                         }
-                        ImportIndex::Table(i) => VMImportType::Table(unrkyv(&module.tables[i])),
-                        ImportIndex::Memory(i) => {
+                        Archived::<ImportIndex>::Table(i) => {
+                            VMImportType::Table(unrkyv(&module.tables[i]))
+                        }
+                        Archived::<ImportIndex>::Memory(i) => {
                             let ty = unrkyv(&module.memories[i]);
                             VMImportType::Memory(ty, unrkyv(&info.memory_styles[i]))
                         }
-                        ImportIndex::Global(i) => VMImportType::Global(unrkyv(&module.globals[i])),
+                        Archived::<ImportIndex>::Global(i) => {
+                            VMImportType::Global(unrkyv(&module.globals[i]))
+                        }
                     },
                 })
                 .collect()
@@ -406,9 +413,9 @@ impl UniversalEngine {
         crate::universal::link_module(
             &functions,
             |func_idx, jt_idx| {
-                let func_idx = rkyv::Archived::<LocalFunctionIndex>::new(func_idx.index());
-                let jt_idx = rkyv::Archived::<JumpTable>::new(jt_idx.index());
-                executable.function_jt_offsets[&func_idx][&jt_idx]
+                let func_idx = Archived::<LocalFunctionIndex>::new(func_idx.index());
+                let jt_idx = Archived::<JumpTable>::new(jt_idx.index());
+                executable.function_jt_offsets[&func_idx][&jt_idx].into()
             },
             function_relocations.map(|(i, r)| (i, r.iter().map(unrkyv))),
             &custom_sections,

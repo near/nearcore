@@ -7,6 +7,7 @@ import datetime
 import pathlib
 import json
 import random
+import shutil
 from rc import pmap
 import re
 import sys
@@ -136,7 +137,7 @@ def hard_reset_cmd(args, traffic_generator, nodes):
     if sys.stdin.readline().strip() != 'yes':
         return
     init_neard_runners(args, traffic_generator, nodes, remove_home_dir=True)
-    _clear_state_parts_if_exists(args, nodes)
+    _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
 
 
 def restart_cmd(args, traffic_generator, nodes):
@@ -236,23 +237,50 @@ def _apply_config_changes(node, state_sync_location):
         do_update_config(node, f'{key}={json.dumps(change)}')
 
 
-def _clear_state_parts_if_exists(args, nodes):
-    """Looks for the state dumper and clears the GCP bucket where it dumped the parts."""
+def _clear_state_parts_if_exists(location, nodes):
     # TODO: Maybe add an argument to set the epoch height from where we want to cleanup.
     # It still works without it because the dumper node will start dumping the current epoch after reset.
 
-    state_dumper_node = nodes.find(lambda n: n.want_state_dump)
+    if location is None:
+        return
+
+    if location.get('Filesystem') is not None:
+        root_dir = location['Filesystem']['root_dir']
+        shutil.rmtree(root_dir)
+        return
+
+    # For GCS-based state sync, looks for the state dumper and clears the GCP
+    # bucket where it dumped the parts.
+    bucket_name = location['GCS']['bucket']
+
+    state_dumper_node = next(filter(lambda n: n.want_state_dump, nodes), None)
     if state_dumper_node is None:
         logger.info('No state dumper node found, skipping state parts cleanup.')
         return
 
     logger.info('State dumper node found, cleaning up state parts.')
-    bucket_name = _get_state_parts_bucket_name(args)
-    state_dumper_node.run_cmd(f'gsutil -m rm -r gs://{bucket_name}/chain_id=\*')
+    state_dumper_node.run_cmd(f'gsutil -m rm -r gs://{bucket_name}/chain_id=\*',
+                              return_on_fail=True)
 
 
 def _get_state_parts_bucket_name(args):
     return f'near-state-dumper-mocknet-{args.chain_id}-{args.start_height}-{args.unique_id}'
+
+
+def _get_state_parts_location(args):
+    if args.local_test:
+        return {
+            "Filesystem": {
+                "root_dir":
+                    str(local_test_node.DEFAULT_LOCAL_MOCKNET_DIR /
+                        'state-parts')
+            }
+        }
+    else:
+        if args.gcs_state_sync:
+            return {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
+        else:
+            return None
 
 
 def new_test_cmd(args, traffic_generator, nodes):
@@ -292,19 +320,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             args.genesis_protocol_version,
             genesis_time=genesis_time), targeted)
 
-    if args.local_test:
-        location = {
-            "Filesystem": {
-                "root_dir":
-                    str(local_test_node.DEFAULT_LOCAL_MOCKNET_DIR /
-                        'state-parts')
-            }
-        }
-    else:
-        if args.gcs_state_sync:
-            location = {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
-        else:
-            location = None
+    location = _get_state_parts_location(args)
     logger.info('Applying default config changes')
     pmap(lambda node: _apply_config_changes(node, location), targeted)
 
@@ -312,7 +328,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
         logger.info('Configuring nodes for stateless protocol')
         pmap(lambda node: _apply_stateless_config(args, node), nodes)
 
-    _clear_state_parts_if_exists(args, nodes)
+    _clear_state_parts_if_exists(location, nodes)
 
 
 def status_cmd(args, traffic_generator, nodes):
@@ -362,7 +378,7 @@ def reset_cmd(args, traffic_generator, nodes):
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
-    _clear_state_parts_if_exists(args, nodes)
+    _clear_state_parts_if_exists(_get_state_parts_location(args), nodes)
 
 
 def make_backup_cmd(args, traffic_generator, nodes):

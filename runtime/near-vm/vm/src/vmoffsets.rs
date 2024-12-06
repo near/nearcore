@@ -134,10 +134,10 @@ impl VMOffsets {
 
     /// Add imports and locals from the provided ModuleInfo.
     pub fn with_archived_module_info(mut self, module: &rkyv::Archived<ModuleInfo>) -> Self {
-        self.num_imported_functions = module.import_counts.functions;
-        self.num_imported_tables = module.import_counts.tables;
-        self.num_imported_memories = module.import_counts.memories;
-        self.num_imported_globals = module.import_counts.globals;
+        self.num_imported_functions = module.import_counts.functions.into();
+        self.num_imported_tables = module.import_counts.tables.into();
+        self.num_imported_memories = module.import_counts.memories.into();
+        self.num_imported_globals = module.import_counts.globals.into();
         self.num_signature_ids = cast_to_u32(module.signatures.len());
         // FIXME = these should most likely be subtracting the corresponding imports!!?
         self.num_local_tables = cast_to_u32(module.tables.len());

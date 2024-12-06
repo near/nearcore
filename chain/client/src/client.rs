@@ -318,7 +318,8 @@ impl Client {
             network_adapter.clone().into_sender(),
             config.state_sync_external_timeout,
             config.state_sync_p2p_timeout,
-            config.state_sync_retry_timeout,
+            config.state_sync_retry_backoff,
+            config.state_sync_external_backoff,
             &config.chain_id,
             &config.state_sync.sync,
             chain_sender_for_state_sync.clone(),
@@ -746,12 +747,10 @@ impl Client {
             *chunk_header.height_included_mut() = height;
             *chunk_headers
                 .get_mut(shard_index)
-                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
-                chunk_header;
+                .ok_or(near_chain_primitives::Error::InvalidShardId(shard_id))? = chunk_header;
             *chunk_endorsements
                 .get_mut(shard_index)
-                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
-                chunk_endorsement;
+                .ok_or(near_chain_primitives::Error::InvalidShardId(shard_id))? = chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
@@ -2378,8 +2377,6 @@ impl Client {
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
-        // TODO(resharding) will_care_about_shard should be called with the
-        // account shard id from the next epoch, in case shard layout changes
         if care_about_shard || will_care_about_shard {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
@@ -2574,7 +2571,8 @@ impl Client {
                             self.network_adapter.clone().into_sender(),
                             self.config.state_sync_external_timeout,
                             self.config.state_sync_p2p_timeout,
-                            self.config.state_sync_retry_timeout,
+                            self.config.state_sync_retry_backoff,
+                            self.config.state_sync_external_backoff,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
                             self.chain_sender_for_state_sync.clone(),
