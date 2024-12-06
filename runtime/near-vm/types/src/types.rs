@@ -15,9 +15,21 @@ use std::sync::Arc;
 
 /// A list of all possible value types in WebAssembly.
 #[derive(
-    Copy, Debug, Clone, Eq, PartialEq, Hash, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive,
+    Copy,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Hash,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    rkyv::Archive,
+    rkyv::Portable,
+    rkyv::bytecheck::CheckBytes,
 )]
-#[archive(as = "Self")]
+#[bytecheck(crate = rkyv::bytecheck)]
+#[rkyv(as = Type)]
+#[repr(u8)]
 pub enum Type {
     /// Signed 32 bit integer.
     I32,
@@ -57,7 +69,6 @@ impl fmt::Display for Type {
 #[derive(
     Copy, Clone, Debug, Eq, PartialEq, Hash, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive,
 )]
-#[archive(as = "Self")]
 /// The WebAssembly V128 type
 pub struct V128(pub(crate) [u8; 16]);
 
@@ -267,7 +278,6 @@ impl<'a> From<&'a ArchivedFunctionType> for FunctionTypeRef<'a> {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive,
 )]
-#[archive(as = "Self")]
 pub enum Mutability {
     /// The global is constant and its value does not change
     Const,
@@ -289,7 +299,6 @@ impl Mutability {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive,
 )]
-#[archive(as = "Self")]
 pub struct GlobalType {
     /// The type of the value stored in the global.
     pub ty: Type,
@@ -332,7 +341,6 @@ impl fmt::Display for GlobalType {
 
 /// Globals are initialized via the `const` operators or by referring to another import.
 #[derive(Debug, Clone, Copy, PartialEq, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
-#[archive(as = "Self")]
 pub enum GlobalInit {
     /// An `i32.const`.
     I32Const(i32),

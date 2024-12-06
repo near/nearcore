@@ -337,6 +337,15 @@ pub(crate) fn set_cold_head_in_cold_store(cold_db: &ColdDB, tip: &Tip) -> io::Re
     Ok(())
 }
 
+/// Reads the cold-head from the Cold DB.
+pub fn get_cold_head(cold_db: &ColdDB) -> io::Result<Option<Tip>> {
+    cold_db
+        .get_raw_bytes(DBCol::BlockMisc, HEAD_KEY)?
+        .as_deref()
+        .map(Tip::try_from_slice)
+        .transpose()
+}
+
 pub enum CopyAllDataToColdStatus {
     EverythingCopied,
     Interrupted,

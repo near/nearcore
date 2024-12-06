@@ -234,24 +234,21 @@ impl ReceiptSinkV2 {
 
         let protocol_version = apply_state.current_protocol_version;
         let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-        let shard_ids = if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-            shard_layout.shard_ids().collect_vec()
-        } else {
-            self.outgoing_limit.keys().copied().collect_vec()
-        };
-
-        let mut parent_shard_ids = BTreeSet::new();
-        for &shard_id in &shard_ids {
-            let parent_shard_id =
-                shard_layout.try_get_parent_shard_id(shard_id).map_err(Into::<EpochError>::into)?;
-            let Some(parent_shard_id) = parent_shard_id else {
-                continue;
+        let (shard_ids, parent_shard_ids) =
+            if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+                (
+                    shard_layout.shard_ids().collect_vec(),
+                    shard_layout.get_parent_shard_ids().map_err(Into::<EpochError>::into)?,
+                )
+            } else {
+                (self.outgoing_limit.keys().copied().collect_vec(), BTreeSet::new())
             };
-            if parent_shard_id == shard_id {
-                continue;
-            }
-            parent_shard_ids.insert(parent_shard_id);
-        }
+
+        // There mustn't be any shard ids in both the parents and the current
+        // shard ids. If this happens the same buffer will be processed twice.
+        debug_assert!(
+            parent_shard_ids.intersection(&shard_ids.clone().into_iter().collect()).count() == 0
+        );
 
         // First forward any receipts that may still be in the outgoing buffers
         // of the parent shards.

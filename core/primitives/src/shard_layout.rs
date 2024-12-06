@@ -7,7 +7,7 @@ use near_schema_checker_lib::ProtocolSchema;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::{fmt, str};
 
 /// This file implements two data structure `ShardLayout` and `ShardUId`
@@ -783,6 +783,23 @@ impl ShardLayout {
                 .copied()
                 .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index }),
         }
+    }
+
+    /// Returns all of the shards from the previous shard layout that were
+    /// split into multiple shards in this shard layout.
+    pub fn get_parent_shard_ids(&self) -> Result<BTreeSet<ShardId>, ShardLayoutError> {
+        let mut parent_shard_ids = BTreeSet::new();
+        for shard_id in self.shard_ids() {
+            let parent_shard_id = self.try_get_parent_shard_id(shard_id)?;
+            let Some(parent_shard_id) = parent_shard_id else {
+                continue;
+            };
+            if parent_shard_id == shard_id {
+                continue;
+            }
+            parent_shard_ids.insert(parent_shard_id);
+        }
+        Ok(parent_shard_ids)
     }
 }
 
