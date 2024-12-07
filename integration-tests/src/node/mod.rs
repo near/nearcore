@@ -7,7 +7,7 @@ pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
-use near_crypto::{InMemorySigner, Signer};
+use near_crypto::Signer;
 use near_jsonrpc_primitives::errors::ServerError;
 use near_primitives::num_rational::Ratio;
 use near_primitives::state_record::StateRecord;
@@ -124,7 +124,7 @@ impl dyn Node {
 fn near_configs_to_node_configs(
     configs: Vec<Config>,
     validator_signers: Vec<ValidatorSigner>,
-    network_signers: Vec<InMemorySigner>,
+    network_signers: Vec<Signer>,
     genesis: Genesis,
 ) -> Vec<NodeConfig> {
     let mut result = vec![];
@@ -133,7 +133,7 @@ fn near_configs_to_node_configs(
             NearConfig::new(
                 configs[i].clone(),
                 genesis.clone(),
-                (&network_signers[i]).into(),
+                network_signers[i].clone().into(),
                 MutableConfigValue::new(
                     Some(Arc::new(validator_signers[i].clone())),
                     "validator_signer",

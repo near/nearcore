@@ -1562,7 +1562,7 @@ mod tests {
             .runtimes(runtimes)
             .build();
 
-        let signer = InMemorySigner::test(&"test0".parse().unwrap());
+        let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
         assert_eq!(env.send_money(0), near_client::ProcessTxResponse::ValidTx);
 
         // It takes 2 blocks to record a transaction on chain and apply the receipts.
@@ -1587,7 +1587,7 @@ mod tests {
         let near_config = NearConfig::new(
             Config::default(),
             genesis,
-            KeyFile::from(&signer),
+            KeyFile::from(signer),
             MutableConfigValue::new(None, "validator_signer"),
         )
         .unwrap();

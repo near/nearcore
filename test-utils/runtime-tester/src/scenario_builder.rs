@@ -115,7 +115,7 @@ impl ScenarioBuilder {
         let signer_id = AccountId::from_str(&id_to_seed(signer_index)).unwrap();
         let receiver_id = AccountId::from_str(&id_to_seed(receiver_index)).unwrap();
 
-        let signer = InMemorySigner::test(&signer_id);
+        let signer = InMemorySigner::test_signer(&signer_id);
 
         let block = {
             let last_id = self.scenario.blocks.len() - 1;

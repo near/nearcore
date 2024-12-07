@@ -768,10 +768,10 @@ pub(crate) fn empty_delegate_action(
         actions: vec![],
         nonce,
         max_block_height: 1000,
-        public_key: signer.public_key.clone(),
+        public_key: signer.public_key(),
     };
-    let signature = SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction)
-        .sign(&signer.into());
+    let signature =
+        SignableMessage::new(&delegate_action, SignableMessageType::DelegateAction).sign(&signer);
     Action::Delegate(Box::new(near_primitives::action::delegate::SignedDelegateAction {
         delegate_action,
         signature,

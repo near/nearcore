@@ -57,8 +57,7 @@ pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
 
 /// Get next available nonce for the account's public key.
 pub fn get_next_nonce(env: &mut TestLoopEnv, account_id: &AccountId) -> u64 {
-    let signer: Signer = create_user_test_signer(&account_id).into();
-    let public_key = signer.public_key();
+    let signer: Signer = create_user_test_signer(&account_id);
     let clients = env
         .datas
         .iter()
@@ -66,7 +65,10 @@ pub fn get_next_nonce(env: &mut TestLoopEnv, account_id: &AccountId) -> u64 {
         .collect_vec();
     let response = clients.runtime_query(
         account_id,
-        QueryRequest::ViewAccessKey { account_id: account_id.clone(), public_key },
+        QueryRequest::ViewAccessKey {
+            account_id: account_id.clone(),
+            public_key: signer.public_key(),
+        },
     );
     let QueryResponseKind::AccessKey(access_key) = response.kind else {
         panic!("Expected AccessKey response");
@@ -124,7 +126,7 @@ pub(crate) fn execute_money_transfers(
                     1,
                     sender.clone(),
                     receiver.clone(),
-                    &create_user_test_signer(&sender).into(),
+                    &create_user_test_signer(&sender),
                     amount,
                     anchor_hash,
                 );
@@ -225,8 +227,8 @@ pub fn create_account(
     let block_hash = get_shared_block_hash(&env.datas, &env.test_loop);
 
     let nonce = get_next_nonce(env, originator);
-    let signer = create_user_test_signer(&originator).into();
-    let new_signer: Signer = create_user_test_signer(&new_account_id).into();
+    let signer = create_user_test_signer(&originator);
+    let new_signer: Signer = create_user_test_signer(&new_account_id);
 
     let tx = SignedTransaction::create_account(
         nonce,
@@ -250,7 +252,7 @@ pub fn delete_account(
     account_id: &AccountId,
     beneficiary_id: &AccountId,
 ) -> CryptoHash {
-    let signer: Signer = create_user_test_signer(&account_id).into();
+    let signer: Signer = create_user_test_signer(&account_id);
     let nonce = get_next_nonce(env, account_id);
     let block_hash = get_shared_block_hash(&env.datas, &env.test_loop);
 
@@ -284,7 +286,7 @@ pub fn deploy_contract(
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, test_loop);
 
-    let signer = create_user_test_signer(&contract_id).into();
+    let signer = create_user_test_signer(&contract_id);
 
     let tx = SignedTransaction::deploy_contract(nonce, contract_id, code, &signer, block_hash);
     let tx_hash = tx.get_hash();
@@ -316,7 +318,7 @@ pub fn call_contract(
         nonce,
         sender_id.clone(),
         contract_id.clone(),
-        &signer.into(),
+        &signer,
         deposit,
         method_name,
         args,

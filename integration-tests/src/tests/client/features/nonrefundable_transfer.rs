@@ -9,7 +9,7 @@
 use near_chain_configs::Genesis;
 use near_chain_configs::NEAR_BASE;
 use near_client::test_utils::TestEnv;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
@@ -77,8 +77,8 @@ fn new_account_id(index: usize) -> AccountId {
 }
 
 /// Default signer (corresponding to the default sender) to use in tests of this module.
-fn signer() -> InMemorySigner {
-    InMemorySigner::test(&sender())
+fn signer() -> Signer {
+    InMemorySigner::test_signer(&sender())
 }
 
 /// Creates a test environment using given protocol version (if some).
@@ -104,10 +104,10 @@ fn fee_helper() -> FeeHelper {
     crate::tests::standard_cases::fee_helper(&node)
 }
 
-fn get_nonce(env: &mut TestEnv, signer: &InMemorySigner) -> u64 {
+fn get_nonce(env: &mut TestEnv, signer: &Signer) -> u64 {
     let request = QueryRequest::ViewAccessKey {
-        account_id: signer.account_id.clone(),
-        public_key: signer.public_key.clone(),
+        account_id: signer.get_account_id(),
+        public_key: signer.public_key(),
     };
     match env.query_view(request).unwrap().kind {
         QueryResponseKind::AccessKey(view) => view.nonce,
@@ -129,16 +129,16 @@ fn get_total_supply(env: &TestEnv) -> Balance {
 fn execute_transaction_from_actions(
     env: &mut TestEnv,
     actions: Vec<Action>,
-    signer: &InMemorySigner,
+    signer: &Signer,
     receiver: AccountId,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let tip = env.clients[0].chain.head().unwrap();
     let nonce = get_nonce(env, signer);
     let tx = SignedTransaction::from_actions(
         nonce + 1,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         receiver,
-        &signer.clone().into(),
+        &signer,
         actions,
         tip.last_block_hash,
         0,
@@ -158,7 +158,7 @@ fn execute_transaction_from_actions(
 /// to the receiver, if the status was ok. No checks are done on an error.
 fn exec_transfers(
     env: &mut TestEnv,
-    signer: InMemorySigner,
+    signer: Signer,
     receiver: AccountId,
     config: TransferConfig,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
@@ -238,7 +238,7 @@ fn exec_transfers(
 
 fn regular_transfer(
     env: &mut TestEnv,
-    signer: InMemorySigner,
+    signer: Signer,
     receiver: AccountId,
     amount: Balance,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
@@ -261,11 +261,11 @@ fn regular_transfer(
 
 fn delete_account(
     env: &mut TestEnv,
-    signer: &InMemorySigner,
+    signer: &Signer,
     beneficiary_id: AccountId,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let actions = vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })];
-    execute_transaction_from_actions(env, actions, &signer, signer.account_id.clone())
+    execute_transaction_from_actions(env, actions, &signer, signer.get_account_id())
 }
 
 /// Can delete account with permanent storage bytes.
@@ -273,7 +273,7 @@ fn delete_account(
 fn deleting_account_with_permanent_storage_bytes() {
     let mut env = setup_env();
     let new_account_id = new_account_id(0);
-    let new_account = InMemorySigner::test(&new_account_id);
+    let new_account = InMemorySigner::test_signer(&new_account_id);
     let regular_amount = 10u128.pow(20);
     let nonrefundable_amount = NEAR_BASE;
     // Create account with permanent storage bytes.
@@ -321,7 +321,7 @@ fn deleting_account_with_permanent_storage_bytes() {
 fn permanent_storage_bytes_cannot_be_transferred() {
     let mut env = setup_env();
     let new_account_id = new_account_id(0);
-    let new_account = InMemorySigner::test(&new_account_id);
+    let new_account = InMemorySigner::test_signer(&new_account_id);
     // The `new_account` is created with permanent storage bytes worth 1 NEAR.
     let create_account_tx_result = exec_transfers(
         &mut env,
@@ -443,7 +443,7 @@ fn insufficient_nonrefundable_transfer_amount() {
 fn storage_staking_and_permanent_storage_bytes_taken_into_account() {
     let mut env = setup_env();
     let new_account_id = new_account_id(0);
-    let new_account = InMemorySigner::test(&new_account_id);
+    let new_account = InMemorySigner::test_signer(&new_account_id);
     let storage_bytes_required = calculate_named_account_storage_usage(TEST_CONTRACT_SIZE) as u128;
     // Just third of the required storage bytes will be covered by permanent storage bytes.
     let permanent_storage_bytes = storage_bytes_required / 3;

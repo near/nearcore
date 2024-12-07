@@ -14,7 +14,7 @@ use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
 use near_client::client_actor::ClientActorInner;
 use near_client::Client;
-use near_crypto::{InMemorySigner, Signer};
+use near_crypto::Signer;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
@@ -386,18 +386,18 @@ impl WorkloadGenerator {
         test_loop: &mut TestLoopV2,
         node_datas: &[TestData],
         concurrency: usize,
-    ) -> BTreeMap<AccountId, Vec<InMemorySigner>> {
+    ) -> BTreeMap<AccountId, Vec<Signer>> {
         tracing::info!(target: "scheduler_test", "Adding access keys...");
 
         // Signers with access keys that were already added to the accounts
-        let mut available_signers: BTreeMap<AccountId, Vec<InMemorySigner>> = self
+        let mut available_signers: BTreeMap<AccountId, Vec<Signer>> = self
             .workload_accounts
             .iter()
             .map(|a| (a.clone(), vec![create_user_test_signer(&a)]))
             .collect();
 
         // Signers with access keys that should be added to the accounts
-        let mut signers_to_add: BTreeMap<AccountId, Vec<InMemorySigner>> = BTreeMap::new();
+        let mut signers_to_add: BTreeMap<AccountId, Vec<Signer>> = BTreeMap::new();
 
         // The goal is to have `concurrency` many access keys, distributed evenly among the workload accounts.
         // There is already one access key per account, so we need to add `concurrency - workload_accounts.len()` more.

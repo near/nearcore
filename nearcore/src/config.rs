@@ -30,7 +30,7 @@ use near_chain_configs::{
     PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
-use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -689,30 +689,30 @@ fn generate_or_load_key(
     filename: &str,
     account_id: Option<AccountId>,
     test_seed: Option<&str>,
-) -> anyhow::Result<Option<InMemorySigner>> {
+) -> anyhow::Result<Option<Signer>> {
     let path = home_dir.join(filename);
     if path.exists() {
         let signer = InMemorySigner::from_file(&path)
             .with_context(|| format!("Failed initializing signer from {}", path.display()))?;
         if let Some(account_id) = account_id {
-            if account_id != signer.account_id {
+            if account_id != signer.get_account_id() {
                 return Err(anyhow!(
                     "‘{}’ contains key for {} but expecting key for {}",
                     path.display(),
-                    signer.account_id,
+                    signer.get_account_id(),
                     account_id
                 ));
             }
         }
-        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.account_id);
+        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.get_account_id());
         Ok(Some(signer))
     } else if let Some(account_id) = account_id {
         let signer = if let Some(seed) = test_seed {
             InMemorySigner::from_seed(account_id, KeyType::ED25519, seed)
         } else {
-            InMemorySigner::from_random(account_id, KeyType::ED25519)
+            InMemorySigner::from_random(account_id, KeyType::ED25519).into()
         };
-        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.account_id);
+        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.get_account_id());
         signer
             .write_to_file(&path)
             .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
@@ -935,7 +935,7 @@ pub fn init_configs(
             let mut records = vec![];
             add_account_with_key(
                 &mut records,
-                signer.account_id.clone(),
+                signer.get_account_id(),
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
@@ -966,7 +966,7 @@ pub fn init_configs(
                 online_max_threshold: Rational32::new(99, 100),
                 online_min_threshold: Rational32::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32, 100),
                 validators: vec![AccountInfo {
-                    account_id: signer.account_id.clone(),
+                    account_id: signer.get_account_id(),
                     public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 }],
@@ -975,7 +975,7 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: signer.account_id,
+                protocol_treasury_account: signer.get_account_id(),
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 shard_layout: shards,
                 min_gas_price: MIN_GAS_PRICE,
@@ -1054,7 +1054,7 @@ pub fn create_localnet_configs_from_seeds(
     num_non_validators_rpc: NumSeats,
     num_non_validators: NumSeats,
     tracked_shards: Vec<ShardId>,
-) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis) {
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<Signer>, Genesis) {
     assert_eq!(
         seeds.len() as u64,
         num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators,
@@ -1144,7 +1144,7 @@ fn create_localnet_config(
     num_shards: NumShards,
     num_validators: NumSeats,
     tracked_shards: &Vec<ShardId>,
-    network_signers: &Vec<InMemorySigner>,
+    network_signers: &Vec<Signer>,
     boot_node_addr: &tcp::ListenerAddr,
     params: LocalnetNodeParams,
 ) -> Config {
@@ -1167,7 +1167,7 @@ fn create_localnet_config(
     config.network.boot_nodes = if params.is_boot {
         "".to_string()
     } else {
-        format!("{}@{}", network_signers[0].public_key, boot_node_addr)
+        format!("{}@{}", network_signers[0].public_key(), boot_node_addr)
     };
     config.network.skip_sync_wait = num_validators == 1;
 
@@ -1213,7 +1213,7 @@ pub fn create_localnet_configs(
     num_non_validators: NumSeats,
     prefix: &str,
     tracked_shards: Vec<ShardId>,
-) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>) {
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<Signer>, Genesis, Vec<Signer>) {
     let num_all_nodes =
         num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators;
     let seeds = (0..num_all_nodes).map(|i| format!("{}{}", prefix, i)).collect::<Vec<_>>();
@@ -1281,7 +1281,7 @@ pub fn init_localnet_configs(
             .write_to_file(&node_dir.join(&config.node_key_file))
             .expect("Error writing key file");
         for key in &shard_keys {
-            key.write_to_file(&node_dir.join(format!("{}_key.json", key.account_id)))
+            key.write_to_file(&node_dir.join(format!("{}_key.json", key.get_account_id())))
                 .expect("Error writing shard file");
         }
 
@@ -1474,12 +1474,10 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     config.consensus.max_block_production_delay =
         Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let (signer, validator_signer) = if seed.is_empty() {
-        let signer =
-            Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));
+        let signer = InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519).into();
         (signer, None)
     } else {
-        let signer =
-            Arc::new(InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed));
+        let signer = InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed);
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
@@ -1861,7 +1859,7 @@ mod tests {
             let key = result.unwrap().unwrap();
             assert!(home_dir.join("key").exists());
             if !account.is_empty() {
-                assert_eq!(account, key.account_id.as_str());
+                assert_eq!(account, key.get_account_id().as_str());
             }
             key
         };
@@ -1883,12 +1881,13 @@ mod tests {
         assert!(key == test_ok("key", "fred", ""));
         test_err("key", "barney", "");
 
-        // test_seed == Some → the same key is generated
+        // test_seed == Some → the same key is generated (same signature is produced)
         let k1 = test_ok("k1", "fred", "foo");
         let k2 = test_ok("k2", "barney", "foo");
         let k3 = test_ok("k3", "fred", "bar");
 
-        assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
+        let data: &[u8] = b"Example data for signature test";
+        assert!(k1.public_key() == k2.public_key() && k1.sign(&data) == k2.sign(&data));
         assert!(k1 != k3);
 
         // file contains invalid JSON -> should return an error

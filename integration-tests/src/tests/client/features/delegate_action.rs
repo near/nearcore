@@ -454,7 +454,7 @@ fn meta_tx_stake() {
     let fee_helper = fee_helper(&node);
 
     let tx_cost = fee_helper.stake_cost();
-    let public_key = create_user_test_signer(&sender).public_key;
+    let public_key = create_user_test_signer(&sender).public_key();
     let actions = vec![Action::Stake(Box::new(StakeAction { public_key, stake: 0 }))];
     check_meta_tx_no_fn_call(&node, actions, tx_cost, 0, sender, relayer, receiver);
 }

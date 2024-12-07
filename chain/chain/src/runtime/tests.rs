@@ -691,7 +691,7 @@ fn test_verify_validator_signature() {
         (0..2).map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap()).collect::<Vec<_>>();
     let env = TestEnv::new(vec![validators.clone()], 2, true);
     let data = [0; 32];
-    let signer = InMemorySigner::test(&validators[0]);
+    let signer = InMemorySigner::test_signer(&validators[0]);
     let signature = signer.sign(&data);
     assert!(env
         .epoch_manager
@@ -1371,9 +1371,9 @@ fn test_delete_account_after_unstake() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test(&id)).collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
-    let staking_transaction1 = stake(1, &signers[1].clone().into(), &block_producers[1], 0);
+    let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 0);
     env.step_default(vec![staking_transaction1]);
     let account = env.view_account(block_producers[1].validator_id());
     assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
@@ -1381,7 +1381,7 @@ fn test_delete_account_after_unstake() {
     for _ in 2..=5 {
         env.step_default(vec![]);
     }
-    let staking_transaction2 = stake(2, &signers[1].clone().into(), &block_producers[1], 1);
+    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 1);
     env.step_default(vec![staking_transaction2]);
     for _ in 7..=13 {
         env.step_default(vec![]);
@@ -1391,11 +1391,11 @@ fn test_delete_account_after_unstake() {
 
     let delete_account_transaction = SignedTransaction::from_actions(
         4,
-        signers[1].account_id.clone(),
-        signers[1].account_id.clone(),
-        &signers[1].clone().into(),
+        signers[1].get_account_id(),
+        signers[1].get_account_id(),
+        &signers[1],
         vec![Action::DeleteAccount(DeleteAccountAction {
-            beneficiary_id: signers[0].account_id.clone(),
+            beneficiary_id: signers[0].get_account_id(),
         })],
         // runtime does not validate block history
         CryptoHash::default(),
@@ -1471,13 +1471,13 @@ fn test_trie_and_flat_state_equality() {
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
-    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test(&id)).collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let transfer_tx = SignedTransaction::from_actions(
         4,
-        signers[0].account_id.clone(),
+        signers[0].get_account_id(),
         validators[1].clone(),
-        &signers[0].clone().into(),
+        &signers[0],
         vec![Action::Transfer(TransferAction { deposit: 10 })],
         // runtime does not validate block history
         CryptoHash::default(),
@@ -1559,10 +1559,7 @@ fn test_genesis_hash() {
 /// Creates a signed transaction between each pair of `signers`,
 /// where transactions outcoming from a single signer differ by nonce.
 /// The transactions are then shuffled and used to fill a transaction pool.
-fn generate_transaction_pool(
-    signers: &Vec<InMemorySigner>,
-    block_hash: CryptoHash,
-) -> TransactionPool {
+fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> TransactionPool {
     const TEST_SEED: RngSeed = [3; 32];
     let mut rng = StdRng::from_seed(TEST_SEED);
     let signer_count = signers.len();
@@ -1572,9 +1569,9 @@ fn generate_transaction_pool(
         for i in 0..signer_count {
             let transaction = SignedTransaction::send_money(
                 round.try_into().unwrap(),
-                signers[i].account_id.clone(),
-                signers[(i + round) % signer_count].account_id.clone(),
-                &signers[i].clone().into(),
+                signers[i].get_account_id(),
+                signers[(i + round) % signer_count].get_account_id(),
+                &signers[i],
                 round.try_into().unwrap(),
                 block_hash,
             );
@@ -1627,7 +1624,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     // Produce a single block, so that `prev_block_hash` is valid.
     env.step_default(vec![]);
 
-    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test(&id)).collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
     (env, chain, transaction_pool)
@@ -1876,7 +1873,7 @@ fn stake(
         nonce,
         sender.validator_id().clone(),
         sender.validator_id().clone(),
-        &*signer,
+        &signer,
         vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
         // runtime does not validate block history
         CryptoHash::default(),

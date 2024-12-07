@@ -288,7 +288,7 @@ pub trait User {
     ) -> Result<FinalExecutionOutcomeView, CommitError> {
         let inner_signer = create_user_test_signer(&signer_id);
         let user_nonce = self
-            .get_access_key(&signer_id, &inner_signer.public_key)
+            .get_access_key(&signer_id, &inner_signer.public_key())
             .expect("failed reading user's nonce for access key")
             .nonce;
         let delegate_action = DelegateAction {
