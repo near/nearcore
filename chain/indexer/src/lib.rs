@@ -112,13 +112,6 @@ impl Indexer {
             nearcore::config::load_config(&indexer_config.home_dir, genesis_validation_mode)
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        assert!(
-            !&near_config.client_config.tracked_shards.is_empty(),
-            "Indexer should track at least one shard. \n\
-            Tip: You may want to update {} with `\"tracked_shards\": [0]`
-            ",
-            indexer_config.home_dir.join("config.json").display()
-        );
         let nearcore::NearNode { client, view_client, .. } =
             nearcore::start_with_config(&indexer_config.home_dir, near_config.clone())
                 .with_context(|| "start_with_config")?;
