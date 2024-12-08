@@ -13,6 +13,7 @@ use near_primitives::{types, views};
 
 use super::errors::FailedToFetchData;
 use super::INDEXER;
+use near_client_primitives::types::GetChunkError;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
@@ -148,12 +149,16 @@ async fn fetch_receipt_by_id(
 async fn fetch_single_chunk(
     client: &Addr<near_client::ViewClientActor>,
     chunk_hash: near_primitives::hash::CryptoHash,
-) -> Result<views::ChunkView, FailedToFetchData> {
+) -> Result<Option<views::ChunkView>, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching chunk by hash: {}", chunk_hash);
-    client
+    match client
         .send(near_client::GetChunk::ChunkHash(chunk_hash.into()).with_span_context())
         .await?
-        .map_err(|err| FailedToFetchData::String(err.to_string()))
+    {
+        Ok(chunk) => Ok(Some(chunk)),
+        Err(GetChunkError::UnknownChunk { .. }) => Ok(None),
+        Err(err) => Err(FailedToFetchData::String(err.to_string())),
+    }
 }
 
 /// Fetches all chunks belonging to given block.
@@ -171,7 +176,9 @@ pub(crate) async fn fetch_block_chunks(
         .collect();
     let mut chunks = Vec::<views::ChunkView>::with_capacity(futures.len());
     while let Some(chunk) = futures.next().await {
-        chunks.push(chunk?);
+        if let Some(chunk) = chunk? {
+            chunks.push(chunk);
+        }
     }
     Ok(chunks)
 }

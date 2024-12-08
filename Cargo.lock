@@ -4365,6 +4365,7 @@ dependencies = [
  "futures",
  "near-chain-configs",
  "near-client",
+ "near-client-primitives",
  "near-config-utils",
  "near-crypto",
  "near-dyn-configs",
