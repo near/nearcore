@@ -125,7 +125,7 @@ impl MemTries {
     }
 
     /// Returns the root node corresponding to the given state root.
-    pub(super) fn get_root(
+    pub fn get_root(
         &self,
         state_root: &CryptoHash,
     ) -> Result<MemTrieNodePtr<HybridArenaMemory>, StorageError> {

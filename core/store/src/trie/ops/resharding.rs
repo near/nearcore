@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::ops::Range;
 
 use itertools::Itertools;
@@ -8,8 +9,8 @@ use near_primitives::types::AccountId;
 use crate::NibbleSlice;
 
 use super::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize,
-    HasValueLength, UpdatedNodeId,
+    GenericNodeOrIndex, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength,
+    UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
 
@@ -33,7 +34,7 @@ enum RetainDecision {
 
 /// By the boundary account and the retain mode, generates the list of ranges
 /// to be retained in trie.
-pub(crate) fn boundary_account_to_intervals(
+fn boundary_account_to_intervals(
     boundary_account: &AccountId,
     retain_mode: RetainMode,
 ) -> Vec<Range<Vec<u8>>> {
@@ -124,7 +125,7 @@ fn get_interval_for_copy_to_one_child(
 }
 
 /// Converts the list of ranges in bytes to the list of ranges in nibbles.
-pub(crate) fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Vec<u8>>> {
+fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Vec<u8>>> {
     intervals
         .iter()
         .map(|range| {
@@ -134,11 +135,10 @@ pub(crate) fn intervals_to_nibbles(intervals: &[Range<Vec<u8>>]) -> Vec<Range<Ve
         .collect_vec()
 }
 
-pub(crate) trait GenericTrieUpdateRetain<'a, N, V>:
-    GenericTrieUpdateSquash<'a, N, V>
+trait GenericTrieUpdateRetainInner<'a, N, V>: GenericTrieUpdateSquash<'a, N, V>
 where
-    N: std::fmt::Debug,
-    V: std::fmt::Debug + HasValueLength,
+    N: Debug,
+    V: Debug + HasValueLength,
 {
     /// Recursive implementation of the algorithm of retaining keys belonging to
     /// any of the ranges given in `intervals` from the trie. All changes are
@@ -245,11 +245,12 @@ where
     }
 }
 
-impl<'a, N, V, T> GenericTrieUpdateRetain<'a, N, V> for T
+// Default impl for all types that implement `GenericTrieUpdateSquash`.
+impl<'a, N, V, T> GenericTrieUpdateRetainInner<'a, N, V> for T
 where
-    N: std::fmt::Debug,
-    V: std::fmt::Debug + HasValueLength,
-    T: GenericTrieUpdate<'a, N, V>,
+    N: Debug,
+    V: Debug + HasValueLength,
+    T: GenericTrieUpdateSquash<'a, N, V>,
 {
 }
 
@@ -284,6 +285,42 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
     } else {
         RetainDecision::DiscardAll
     }
+}
+
+pub(crate) trait GenericTrieUpdateRetain<'a, N, V>:
+    GenericTrieUpdateSquash<'a, N, V>
+where
+    N: Debug,
+    V: Debug + HasValueLength,
+{
+    fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode);
+}
+
+impl<'a, N, V, T> GenericTrieUpdateRetain<'a, N, V> for T
+where
+    N: Debug,
+    V: Debug + HasValueLength,
+    T: GenericTrieUpdateRetainInner<'a, N, V>,
+{
+    fn retain_split_shard(&mut self, boundary_account: &AccountId, retain_mode: RetainMode) {
+        let intervals = boundary_account_to_intervals(boundary_account, retain_mode);
+        let intervals_nibbles = intervals_to_nibbles(&intervals);
+        self.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
+    }
+}
+
+// Expose function that takes custom ranges for testing.
+#[cfg(test)]
+#[allow(private_bounds)]
+pub fn retain_split_shard_custom_ranges<'a, N, V>(
+    update: &mut impl GenericTrieUpdateRetainInner<'a, N, V>,
+    retain_multi_ranges: &Vec<Range<Vec<u8>>>,
+) where
+    N: Debug,
+    V: Debug + HasValueLength,
+{
+    let intervals_nibbles = intervals_to_nibbles(retain_multi_ranges);
+    update.retain_multi_range_recursive(0, vec![], &intervals_nibbles).unwrap();
 }
 
 #[cfg(test)]

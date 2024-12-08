@@ -34,6 +34,7 @@ use ops::insert_delete::GenericTrieUpdateInsertDelete;
 #[cfg(test)]
 use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
 use ops::interface::{GenericTrieValue, UpdatedNodeId};
+use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
@@ -1730,6 +1731,26 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.accounting_cache.borrow().get_trie_nodes_count()
+    }
+
+    /// Splits the trie, separating entries by the boundary account.
+    /// Leaves the left or right part of the trie, depending on the retain mode.
+    ///
+    /// Returns the new root hash of the trie.
+    pub fn retain_split_shard(
+        &self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+    ) -> Result<StateRoot, StorageError> {
+        let mut trie_update = TrieStorageUpdate::new(&self);
+        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
+        trie_update.retain_split_shard(boundary_account, retain_mode);
+        #[cfg(test)]
+        {
+            self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
+        }
+        let result = trie_update.flatten_nodes(&self.root, root_node.0)?;
+        Ok(result.new_root)
     }
 }
 
