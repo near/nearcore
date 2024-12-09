@@ -1,3 +1,4 @@
+use crate::archive::ArchivalStoreOpener;
 use crate::config::ArchivalConfig;
 use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
@@ -173,8 +174,8 @@ pub struct StoreOpener<'a> {
     /// version.
     migrator: Option<&'a dyn StoreMigrator>,
 
-    /// Archival config. This is set to a valid config for archival nodes.
-    archival_config: Option<ArchivalConfig<'a>>,
+    /// Archival config. This is set to a valid config iff archive is true.
+    archival: Option<ArchivalStoreOpener>,
 }
 
 /// Opener for a single RocksDB instance.
@@ -200,27 +201,30 @@ impl<'a> StoreOpener<'a> {
     /// Initialises a new opener with given home directory and store config.
     pub(crate) fn new(
         home_dir: &std::path::Path,
-        store_config: &'a StoreConfig,
+        config: &'a StoreConfig,
         archival_config: Option<ArchivalConfig<'a>>,
     ) -> Self {
-        Self {
-            hot: DBOpener::new(home_dir, store_config, Temperature::Hot),
-            cold: archival_config
-                .as_ref()
-                .map(|config| {
-                    config
-                        .cold_store_config
-                        .map(|config| DBOpener::new(home_dir, config, Temperature::Cold))
-                })
-                .flatten(),
-            archival_config,
-            migrator: None,
-        }
+        let hot = DBOpener::new(home_dir, config, Temperature::Hot);
+        // Initialize cold-store opener and archival-store opener if this is an archival node.
+        let (cold, archival) = if let Some(archival_config) = archival_config {
+            let cold = archival_config
+                .cold_store_config
+                .map(|config| DBOpener::new(home_dir, config, Temperature::Cold));
+            // Use ColdDB (RocksDB) by default if the config is not provided.
+            let archival = Some(ArchivalStoreOpener::new(
+                home_dir.to_path_buf(),
+                archival_config.archival_store_config.cloned().unwrap_or_default(),
+            ));
+            (cold, archival)
+        } else {
+            (None, None)
+        };
+        Self { hot, cold, archival, migrator: None }
     }
 
     /// Returns true is this opener is for an archival node.
     fn is_archive(&self) -> bool {
-        self.archival_config.is_some()
+        self.archival.is_some()
     }
 
     /// Configures the opener with specified [`StoreMigrator`].
@@ -283,20 +287,24 @@ impl<'a> StoreOpener<'a> {
             Snapshot::none()
         };
 
-        let (hot_db, _) = self.hot.open(mode, DB_VERSION)?;
-        let cold_db = self
+        let (hot_rocksdb, _) = self.hot.open(mode, DB_VERSION)?;
+        let cold_rocksdb = self
             .cold
             .as_ref()
             .map(|cold| cold.open(mode, DB_VERSION))
             .transpose()?
             .map(|(db, _)| db);
 
-        let storage = NodeStorage::from_rocksdb(hot_db, cold_db);
+        let hot_storage = Arc::new(hot_rocksdb);
+        let cold_storage =
+            cold_rocksdb.map(|rocksdb| Arc::new(crate::db::ColdDB::new(Arc::new(rocksdb))));
+        let archival_store =
+            self.archival.as_ref().map(|opener| opener.open(cold_storage.clone())).transpose()?;
 
         hot_snapshot.remove()?;
         cold_snapshot.remove()?;
 
-        Ok(storage)
+        Ok(NodeStorage { hot_storage, cold_storage, archival_store })
     }
 
     pub fn create_snapshots(&self, mode: Mode) -> Result<(Snapshot, Snapshot), StoreOpenerError> {
