@@ -29,11 +29,10 @@ use near_store::db::RocksDB;
 use near_store::Mode;
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
-use std::fs::File;
+use std::fs::{read_to_string, File};
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -823,32 +822,33 @@ fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Checks the provided sysctl parameters and prints an error if it is not set to the expected value.
+/// Checks the provided kernel parameter  from /proc/sys
+/// and prints an error if it is not set to the expected value.
 fn check_kernel_param(param_name: &str, expected_value: &str) {
-    let output = Command::new("sysctl").arg("-n").arg(param_name).output();
+    // Convert the dotted param_name into a path under /proc/sys
+    // For example, "net.core.rmem_max" -> "/proc/sys/net/core/rmem_max"
+    let mut path = PathBuf::from("/proc/sys");
+    for part in param_name.split('.') {
+        path.push(part);
+    }
 
-    match output {
-        Ok(o) => {
-            if o.status.success() {
-                let actual = std::str::from_utf8(&o.stdout).unwrap_or_default().trim();
-                let actual_normalized = normalize_whitespace(actual);
-                let expected_normalized = normalize_whitespace(expected_value);
+    match read_to_string(&path) {
+        Ok(contents) => {
+            let actual = contents.trim();
+            let actual_normalized = normalize_whitespace(actual);
+            let expected_normalized = normalize_whitespace(expected_value);
 
-                if actual_normalized != expected_normalized {
-                    error!(
-                        "ERROR: {} is set to {}, expected {}",
-                        param_name, actual_normalized, expected_normalized
-                    );
-                } else {
-                    info!("OK: {} is set to expected value {}", param_name, expected_normalized);
-                }
+            if actual_normalized != expected_normalized {
+                error!(
+                    "ERROR: {} is set to {}, expected {}",
+                    param_name, actual_normalized, expected_normalized
+                );
             } else {
-                let err = std::str::from_utf8(&o.stderr).unwrap_or_default().trim();
-                error!("ERROR: failed to run sysctl for {}: {}", param_name, err);
+                info!("OK: {} is set to expected value {}", param_name, expected_normalized);
             }
         }
         Err(e) => {
-            error!("ERROR: failed to run sysctl for {}: {}", param_name, e);
+            error!("ERROR: failed to read parameter {} from {}: {}", param_name, path.display(), e);
         }
     }
 }
@@ -866,6 +866,7 @@ fn check_kernel_params() {
     check_kernel_param("net.ipv4.tcp_rmem", expected_tcp_rmem);
     check_kernel_param("net.ipv4.tcp_wmem", expected_tcp_wmem);
     check_kernel_param("net.ipv4.tcp_slow_start_after_idle", expected_slow_start);
+    check_kernel_param("net.inet.tcp.sendspace", "131072");
 }
 
 #[cfg(test)]
