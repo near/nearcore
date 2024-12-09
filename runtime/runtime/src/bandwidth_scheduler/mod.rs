@@ -13,6 +13,8 @@ use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 use crate::ApplyState;
 
 mod scheduler;
+#[cfg(test)]
+mod simulator;
 
 pub struct BandwidthSchedulerOutput {
     /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
