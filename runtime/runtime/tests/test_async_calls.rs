@@ -27,9 +27,9 @@ fn test_simple_func_call() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),
@@ -74,9 +74,9 @@ fn test_single_promise_no_callback() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -141,9 +141,9 @@ fn test_single_promise_with_callback() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -226,9 +226,9 @@ fn test_two_promises_no_callbacks() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -321,9 +321,9 @@ fn test_two_promises_with_two_callbacks() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -413,9 +413,9 @@ fn test_single_promise_no_callback_batch() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -486,9 +486,9 @@ fn test_single_promise_with_callback_batch() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -561,9 +561,9 @@ fn test_simple_transfer() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -622,16 +622,16 @@ fn test_create_account_with_transfer_and_full_key() {
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
             "nonce": 0,
         }, "id": 0 }
     ]);
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -665,7 +665,7 @@ fn test_create_account_with_transfer_and_full_key() {
                         assert_eq!(*deposit, 10000000000000000000000000);
                      },
                      a2, Action::AddKey(add_key_action), {
-                        assert_eq!(add_key_action.public_key, signer_new_account.public_key);
+                        assert_eq!(add_key_action.public_key, signer_new_account.public_key());
                         assert_eq!(add_key_action.access_key.nonce, 0);
                         assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FullAccess);
                      }
@@ -696,7 +696,7 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
-            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
             "nonce": 0,
             "allowance": (TESTING_INIT_BALANCE / 2).to_string(),
             "receiver_id": "near_1",
@@ -742,9 +742,9 @@ fn test_account_factory() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -784,7 +784,7 @@ fn test_account_factory() {
                         assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
                      },
                      a2, Action::AddKey(add_key_action), {
-                        assert_eq!(add_key_action.public_key, signer_new_account.public_key);
+                        assert_eq!(add_key_action.public_key, signer_new_account.public_key());
                         assert_eq!(add_key_action.access_key.nonce, 0);
                         assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FunctionCall(FunctionCallPermission {
                             allowance: Some(TESTING_INIT_BALANCE / 2),
@@ -854,7 +854,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
             "nonce": 1,
         }, "id": 0 },
         {"action_deploy_contract": {
@@ -878,7 +878,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_delete_key": {
             "promise_index": 0,
-            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
             "nonce": 0,
         }, "id": 0 },
         {"action_delete_account": {
@@ -889,9 +889,9 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -925,7 +925,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(*deposit, TESTING_INIT_BALANCE / 2);
                      },
                      a2, Action::AddKey(add_key_action), {
-                        assert_eq!(add_key_action.public_key, signer_new_account.public_key);
+                        assert_eq!(add_key_action.public_key, signer_new_account.public_key());
                         assert_eq!(add_key_action.access_key.nonce, 1);
                         assert_eq!(add_key_action.access_key.permission, AccessKeyPermission::FullAccess);
                      },
@@ -937,7 +937,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(function_call_action.deposit, 0);
                      },
                      a5, Action::DeleteKey(delete_key_action), {
-                        assert_eq!(delete_key_action.public_key, signer_new_account.public_key);
+                        assert_eq!(delete_key_action.public_key, signer_new_account.public_key());
                      },
                      a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
                         assert_eq!(beneficiary_id, "near_2");
@@ -985,9 +985,9 @@ fn test_transfer_64len_hex() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -1053,9 +1053,9 @@ fn test_create_transfer_64len_hex_fail() {
 
     let signed_transaction = SignedTransaction::from_actions(
         1,
-        signer_sender.account_id.clone(),
-        signer_receiver.account_id,
-        &signer_sender.into(),
+        signer_sender.get_account_id(),
+        signer_receiver.get_account_id(),
+        &signer_sender,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),

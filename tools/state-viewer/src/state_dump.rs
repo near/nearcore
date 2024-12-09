@@ -738,7 +738,7 @@ mod test {
             1,
             "test1".parse().unwrap(),
             "test0".parse().unwrap(),
-            &signer.into(),
+            &signer,
             1,
             genesis_hash,
         );
