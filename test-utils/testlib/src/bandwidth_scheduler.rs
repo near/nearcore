@@ -74,8 +74,8 @@ impl ReceiptSizeGenerator for RandomReceiptSizeGenerator {
         let weighted_sizes = [
             (SmallReceiptSizeGenerator.generate_receipt_size(rng), 70), // 70% of receipts are small
             (MediumReceiptSizeGenerator.generate_receipt_size(rng), 20), // 20% of receipts are medium
-            (LargeReceiptSizeGenerator.generate_receipt_size(rng), 5),   // 5% of receipts are large
-            (MaxReceiptSizeGenerator.generate_receipt_size(rng), 5), // 5% of receipts are max size
+            (LargeReceiptSizeGenerator.generate_receipt_size(rng), 8),   // 8% of receipts are large
+            (MaxReceiptSizeGenerator.generate_receipt_size(rng), 2), // 2% of receipts are max size
         ];
         weighted_sizes.choose_weighted(rng, |item| item.1).unwrap().0
     }
