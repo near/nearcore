@@ -48,7 +48,7 @@ impl From<FlatStorageError> for StorageError {
 pub type FlatStorageResult<T> = Result<T, FlatStorageError>;
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema, Clone,
 )]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
@@ -89,7 +89,7 @@ impl Into<i64> for &FlatStorageStatus {
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema, Clone,
 )]
 pub struct FlatStorageReadyStatus {
     pub flat_head: BlockInfo,
