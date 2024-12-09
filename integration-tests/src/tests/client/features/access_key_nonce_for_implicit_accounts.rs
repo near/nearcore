@@ -7,7 +7,7 @@ use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
-use near_crypto::{InMemorySigner, KeyType, SecretKey};
+use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -113,7 +113,7 @@ fn test_transaction_hash_collision() {
 /// should fail since the protocol upgrade.
 fn get_status_of_tx_hash_collision_for_near_implicit_account(
     protocol_version: ProtocolVersion,
-    near_implicit_account_signer: InMemorySigner,
+    near_implicit_account_signer: Signer,
 ) -> ProcessTxResponse {
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -125,8 +125,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let mut height = 1;
     let blocks_number = 5;
     let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
-    let near_implicit_account_id = near_implicit_account_signer.account_id.clone();
-    let near_implicit_account_signer = near_implicit_account_signer.into();
+    let near_implicit_account_id = near_implicit_account_signer.get_account_id();
 
     // Send money to NEAR-implicit account, invoking its creation.
     let send_money_tx = SignedTransaction::send_money(
