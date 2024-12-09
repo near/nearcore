@@ -1,7 +1,9 @@
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -75,12 +77,14 @@ fn test_create_delete_account() {
     assert!(tmp.is_empty());
 
     // Build test environment.
-    let (genesis, epoch_config_store) = genesis_epoch_config_store(
-        epoch_length,
-        PROTOCOL_VERSION,
-        ShardLayout::single_shard(),
-        ValidatorsSpec::desired_roles(&producers, &validators),
-        &accounts,
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout: ShardLayout::single_shard(),
+            validators_spec: ValidatorsSpec::desired_roles(&producers, &validators),
+            accounts: &accounts,
+        },
         |genesis_builder| genesis_builder,
         |epoch_config_builder| epoch_config_builder,
     );

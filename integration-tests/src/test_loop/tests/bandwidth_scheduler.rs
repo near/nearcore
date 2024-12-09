@@ -11,7 +11,9 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::client_actor::ClientActorInner;
 use near_client::Client;
 use near_crypto::{InMemorySigner, Signer};
@@ -88,12 +90,14 @@ fn slow_test_bandwidth_scheduler_request_generation() {
     let epoch_length = 10000;
     let validators_spec = ValidatorsSpec::desired_roles(&[node_account.as_str()], &[]);
 
-    let (genesis, epoch_config_store) = genesis_epoch_config_store(
-        epoch_length,
-        PROTOCOL_VERSION,
-        shard_layout,
-        validators_spec,
-        &all_accounts,
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &all_accounts,
+        },
         |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
         |epoch_config_builder| epoch_config_builder,
     );

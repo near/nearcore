@@ -1,6 +1,8 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -27,12 +29,14 @@ fn slow_test_client_with_multi_test_loop() {
     let validators_spec =
         ValidatorsSpec::desired_roles(&clients.iter().map(|t| t.as_str()).collect_vec(), &[]);
 
-    let (genesis, epoch_config_store) = genesis_epoch_config_store(
-        epoch_length,
-        PROTOCOL_VERSION,
-        shard_layout,
-        validators_spec,
-        &accounts,
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
         |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
         |epoch_config_builder| {
             epoch_config_builder.shuffle_shard_assignment_for_chunk_producers(true)

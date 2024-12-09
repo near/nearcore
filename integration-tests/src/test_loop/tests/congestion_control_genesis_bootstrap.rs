@@ -1,6 +1,8 @@
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -32,12 +34,14 @@ fn test_congestion_control_genesis_bootstrap() {
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(&accounts[0..1], &accounts[1..2]);
 
-    let (genesis, epoch_config_store) = genesis_epoch_config_store(
-        epoch_length,
-        PROTOCOL_VERSION,
-        shard_layout,
-        validators_spec,
-        &clients,
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &clients,
+        },
         |genesis_builder| genesis_builder,
         |epoch_config_builder| epoch_config_builder.minimum_validators_per_shard(1),
     );

@@ -60,6 +60,7 @@ pub struct TestGenesisBuilder {
     genesis_time: Option<chrono::DateTime<chrono::Utc>>,
     protocol_version: Option<ProtocolVersion>,
     genesis_height: Option<BlockHeight>,
+    // TODO: remove when epoch length is no longer controlled by genesis
     epoch_length: Option<BlockHeightDelta>,
     min_max_gas_price: Option<(Balance, Balance)>,
     gas_limit: Option<Gas>,
@@ -68,6 +69,7 @@ pub struct TestGenesisBuilder {
     protocol_treasury_account: Option<String>,
     max_inflation_rate: Option<Rational32>,
     user_accounts: Vec<UserAccount>,
+    // TODO: remove when shard layout is no longer controlled by genesis
     shard_layout: Option<ShardLayout>,
 }
 
@@ -153,13 +155,29 @@ impl TestEpochConfigBuilder {
     }
 
     pub fn build(self) -> EpochConfig {
-        let epoch_length = self.epoch_length.unwrap_or(5);
-        let shard_layout = self.shard_layout.unwrap_or_else(ShardLayout::single_shard);
-        let validators_spec =
-            self.validators_spec.unwrap_or_else(|| ValidatorsSpec::DesiredRoles {
+        macro_rules! default_if_not_set {
+            ($param:ident, $default:expr) => {
+                let $param = self.$param.unwrap_or_else(|| {
+                    let default = $default;
+                    tracing::warn!(
+                        "Genesis $param not explicitly set, defaulting to {:?}.",
+                        default
+                    );
+                    default
+                });
+            };
+        }
+
+        default_if_not_set!(epoch_length, 5);
+        default_if_not_set!(shard_layout, ShardLayout::single_shard());
+        default_if_not_set!(
+            validators_spec,
+            ValidatorsSpec::DesiredRoles {
                 block_and_chunk_producers: vec!["validator0".to_string()],
                 chunk_validators_only: vec![],
-            });
+            }
+        );
+
         let DerivedValidatorSetup {
             validators: _,
             num_block_producer_seats,
@@ -177,35 +195,45 @@ impl TestEpochConfigBuilder {
         epoch_config.validator_selection_config.num_chunk_validator_seats =
             num_chunk_validator_seats;
 
-        if let Some(target_validator_mandates_per_shard) = self.target_validator_mandates_per_shard
-        {
-            epoch_config.target_validator_mandates_per_shard = target_validator_mandates_per_shard;
-        }
-        if let Some(block_producer_kickout_threshold) = self.block_producer_kickout_threshold {
-            epoch_config.block_producer_kickout_threshold = block_producer_kickout_threshold;
-        }
-        if let Some(chunk_producer_kickout_threshold) = self.chunk_producer_kickout_threshold {
-            epoch_config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
-        }
-        if let Some(chunk_validator_only_kickout_threshold) =
-            self.chunk_validator_only_kickout_threshold
-        {
-            epoch_config.chunk_validator_only_kickout_threshold =
-                chunk_validator_only_kickout_threshold;
-        }
-        if let Some(minimum_stake_ratio) = self.minimum_stake_ratio {
-            epoch_config.validator_selection_config.minimum_stake_ratio = minimum_stake_ratio;
-        }
-        if let Some(minimum_validators_per_shard) = self.minimum_validators_per_shard {
-            epoch_config.validator_selection_config.minimum_validators_per_shard =
-                minimum_validators_per_shard;
-        }
-        if let Some(shuffle_shard_assignment_for_chunk_producers) =
-            self.shuffle_shard_assignment_for_chunk_producers
-        {
-            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
-                shuffle_shard_assignment_for_chunk_producers;
-        }
+        default_if_not_set!(
+            target_validator_mandates_per_shard,
+            epoch_config.target_validator_mandates_per_shard
+        );
+        default_if_not_set!(
+            block_producer_kickout_threshold,
+            epoch_config.block_producer_kickout_threshold
+        );
+        default_if_not_set!(
+            chunk_producer_kickout_threshold,
+            epoch_config.chunk_producer_kickout_threshold
+        );
+        default_if_not_set!(
+            chunk_validator_only_kickout_threshold,
+            epoch_config.chunk_validator_only_kickout_threshold
+        );
+        default_if_not_set!(
+            minimum_stake_ratio,
+            epoch_config.validator_selection_config.minimum_stake_ratio
+        );
+        default_if_not_set!(
+            minimum_validators_per_shard,
+            epoch_config.validator_selection_config.minimum_validators_per_shard
+        );
+        default_if_not_set!(
+            shuffle_shard_assignment_for_chunk_producers,
+            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers
+        );
+
+        epoch_config.target_validator_mandates_per_shard = target_validator_mandates_per_shard;
+        epoch_config.block_producer_kickout_threshold = block_producer_kickout_threshold;
+        epoch_config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
+        epoch_config.chunk_validator_only_kickout_threshold =
+            chunk_validator_only_kickout_threshold;
+        epoch_config.validator_selection_config.minimum_stake_ratio = minimum_stake_ratio;
+        epoch_config.validator_selection_config.minimum_validators_per_shard =
+            minimum_validators_per_shard;
+        epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+            shuffle_shard_assignment_for_chunk_producers;
         epoch_config
     }
 }
@@ -628,15 +656,29 @@ fn derive_validator_setup(specs: ValidatorsSpec) -> DerivedValidatorSetup {
     }
 }
 
-pub fn genesis_epoch_config_store(
-    epoch_length: BlockHeightDelta,
-    protocol_version: ProtocolVersion,
-    shard_layout: ShardLayout,
-    validators_spec: ValidatorsSpec,
-    accounts: &Vec<AccountId>,
+pub struct GenesisAndEpochConfigParams<'a> {
+    pub epoch_length: BlockHeightDelta,
+    pub protocol_version: ProtocolVersion,
+    pub shard_layout: ShardLayout,
+    pub validators_spec: ValidatorsSpec,
+    pub accounts: &'a Vec<AccountId>,
+}
+
+/// Handy factory for building test genesis and epoch config store. Use it if it is enough to have
+/// one epoch config for your test. Otherwise, just use builders directly.
+pub fn build_genesis_and_epoch_config_store<'a>(
+    params: GenesisAndEpochConfigParams<'a>,
     customize_genesis_builder: impl FnOnce(TestGenesisBuilder) -> TestGenesisBuilder,
     customize_epoch_config_builder: impl FnOnce(TestEpochConfigBuilder) -> TestEpochConfigBuilder,
 ) -> (Genesis, EpochConfigStore) {
+    let GenesisAndEpochConfigParams {
+        epoch_length,
+        protocol_version,
+        shard_layout,
+        validators_spec,
+        accounts,
+    } = params;
+
     let genesis_builder = TestGenesisBuilder::new()
         .genesis_time_from_clock(&FakeClock::default().clock())
         .protocol_version(protocol_version)

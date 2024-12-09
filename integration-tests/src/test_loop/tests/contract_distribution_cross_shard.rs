@@ -1,6 +1,8 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
@@ -90,12 +92,14 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let validators_spec =
         ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
 
-    let (genesis, epoch_config_store) = genesis_epoch_config_store(
-        EPOCH_LENGTH,
-        PROTOCOL_VERSION,
-        shard_layout,
-        validators_spec,
-        &accounts,
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length: EPOCH_LENGTH,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
         |genesis_builder| {
             genesis_builder.genesis_height(GENESIS_HEIGHT).transaction_validity_period(1000)
         },

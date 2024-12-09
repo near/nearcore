@@ -4,7 +4,9 @@ use crate::test_loop::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
@@ -75,12 +77,14 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
     let validators_spec =
         ValidatorsSpec::desired_roles(block_and_chunk_producers, chunk_validators_only);
 
-    let (genesis, epoch_config_store) = genesis_epoch_config_store(
-        epoch_length,
-        PROTOCOL_VERSION,
-        shard_layout,
-        validators_spec,
-        &accounts,
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
         |genesis_builder| genesis_builder,
         |epoch_config_builder| {
             epoch_config_builder

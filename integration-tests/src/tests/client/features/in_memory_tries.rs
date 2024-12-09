@@ -1,7 +1,10 @@
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
-use near_chain_configs::test_genesis::{genesis_epoch_config_store, ValidatorsSpec};
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, TestGenesisBuilder,
+    ValidatorsSpec,
+};
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
@@ -40,17 +43,17 @@ fn slow_test_in_memory_trie_node_consistency() {
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(&["account0", "account1"], &[]);
 
-    let (genesis, _) = genesis_epoch_config_store(
-        epoch_length,
-        PROTOCOL_VERSION,
-        shard_layout,
-        validators_spec,
-        &accounts,
-        |genesis_builder| {
-            genesis_builder.genesis_time_from_clock(&clock.clock()).transaction_validity_period(100)
-        },
-        |epoch_config_builder| epoch_config_builder,
-    );
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&clock.clock())
+        .protocol_version(PROTOCOL_VERSION)
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .gas_prices_free()
+        .gas_limit_one_petagas()
+        .transaction_validity_period(100)
+        .build();
 
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
@@ -430,12 +433,14 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
         &[],
     );
 
-    let (genesis, epoch_config_store) = genesis_epoch_config_store(
-        epoch_length,
-        PROTOCOL_VERSION,
-        shard_layout,
-        validators_spec,
-        &accounts,
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
         |genesis_builder| {
             genesis_builder
                 .genesis_time_from_clock(&clock.clock())

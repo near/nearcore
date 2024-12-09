@@ -544,10 +544,6 @@ impl EpochConfigStore {
         Self { store }
     }
 
-    pub fn add_config(&mut self, protocol_version: ProtocolVersion, config: EpochConfig) {
-        self.store.insert(protocol_version, Arc::new(config));
-    }
-
     /// Returns the EpochConfig for the given protocol version.
     /// This panics if no config is found for the given version, thus the initialization via `for_chain_id` should
     /// only be performed for chains with some configs stored in files.
