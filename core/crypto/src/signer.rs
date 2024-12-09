@@ -113,11 +113,11 @@ impl InMemorySigner {
     #[cfg(feature = "rand")]
     pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Signer {
         let secret_key = SecretKey::from_seed(key_type, seed);
-        Signer::InMemory(Self { account_id, public_key: secret_key.public_key(), secret_key })
+        InMemorySigner::from_secret_key(account_id, secret_key)
     }
 
-    pub fn from_secret_key(account_id: AccountId, secret_key: SecretKey) -> Self {
-        Self { account_id, public_key: secret_key.public_key(), secret_key }
+    pub fn from_secret_key(account_id: AccountId, secret_key: SecretKey) -> Signer {
+        Signer::InMemory(Self { account_id, public_key: secret_key.public_key(), secret_key })
     }
 
     pub fn from_file(path: &Path) -> io::Result<Signer> {
