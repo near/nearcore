@@ -238,7 +238,7 @@ impl ReceiptSinkV2 {
             if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
                 (
                     shard_layout.shard_ids().collect_vec(),
-                    shard_layout.get_parent_shard_ids().map_err(Into::<EpochError>::into)?,
+                    shard_layout.get_split_parent_shard_ids().map_err(Into::<EpochError>::into)?,
                 )
             } else {
                 (self.outgoing_limit.keys().copied().collect_vec(), BTreeSet::new())
