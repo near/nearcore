@@ -16,6 +16,7 @@ use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, Gas, NumShard
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
+use near_store::db::TestStoreFlags;
 use near_store::{get, DBCol, ShardUId, Trie};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -150,6 +151,7 @@ struct TestReshardingParameters {
     /// If non zero, split parent shard for flat state resharding will be delayed by an additional
     /// `BlockHeightDelta` number of blocks. Useful to simulate slower task completion.
     delay_flat_state_resharding: BlockHeightDelta,
+    allow_negative_refcount: bool,
 }
 
 impl TestReshardingParameters {
@@ -254,6 +256,11 @@ impl TestReshardingParameters {
 
     fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
         self.deploy_test_contract.push(account_id);
+        self
+    }
+
+    fn allow_negative_refcount(mut self) -> Self {
+        self.allow_negative_refcount = true;
         self
     }
 
@@ -992,6 +999,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         builder = builder.runtime_config_store(runtime_config_store);
     }
 
+    if params.allow_negative_refcount {
+        builder = builder.test_store_flags(TestStoreFlags { allow_negative_refcount: true });
+    }
+
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
@@ -1169,8 +1180,7 @@ fn test_resharding_v3_shard_shuffling() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParameters::new()
@@ -1180,16 +1190,13 @@ fn test_resharding_v3_delayed_receipts_left_child() {
             vec![account.clone()],
             275 * TGAS,
         ))
-        .add_loop_action(check_receipts_presence_at_resharding_block(
-            account,
-            ReceiptKind::Delayed,
-        ));
+        .add_loop_action(check_receipts_presence_at_resharding_block(account, ReceiptKind::Delayed))
+        .allow_negative_refcount();
     test_resharding_v3_base(params);
 }
 
 #[test]
-// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
@@ -1199,10 +1206,8 @@ fn test_resharding_v3_delayed_receipts_right_child() {
             vec![account.clone()],
             275 * TGAS,
         ))
-        .add_loop_action(check_receipts_presence_at_resharding_block(
-            account,
-            ReceiptKind::Delayed,
-        ));
+        .add_loop_action(check_receipts_presence_at_resharding_block(account, ReceiptKind::Delayed))
+        .allow_negative_refcount();
     test_resharding_v3_base(params);
 }
 
