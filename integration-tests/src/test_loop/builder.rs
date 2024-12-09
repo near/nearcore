@@ -35,8 +35,11 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
+use near_store::db::TestStoreFlags;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{create_test_split_store, create_test_store};
+use near_store::test_utils::{
+    create_test_split_store, create_test_store, create_test_store_with_flags,
+};
 use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -97,6 +100,7 @@ pub(crate) struct TestLoopBuilder {
     load_mem_tries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    test_store_flags: Option<TestStoreFlags>,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -297,6 +301,7 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_mem_tries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
+            test_store_flags: None,
         }
     }
 
@@ -415,6 +420,11 @@ impl TestLoopBuilder {
 
     pub fn load_mem_tries_for_tracked_shards(mut self, load_mem_tries: bool) -> Self {
         self.load_mem_tries_for_tracked_shards = load_mem_tries;
+        self
+    }
+
+    pub(crate) fn test_store_flags(mut self, flags: TestStoreFlags) -> Self {
+        self.test_store_flags = Some(flags);
         self
     }
 
@@ -556,6 +566,9 @@ impl TestLoopBuilder {
             } else if is_archival {
                 let (hot_store, split_store) = create_test_split_store();
                 (hot_store, Some(split_store))
+            } else if let Some(ref flags) = self.test_store_flags {
+                let hot_store = create_test_store_with_flags(flags);
+                (hot_store, None)
             } else {
                 let hot_store = create_test_store();
                 (hot_store, None)

@@ -6,6 +6,11 @@ use std::sync::{Arc, RwLock};
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
+#[derive(Clone, Debug)]
+pub struct TestStoreFlags {
+    pub allow_negative_refcount: bool,
+}
+
 /// An in-memory database intended for tests and IO-agnostic estimations.
 #[derive(Default)]
 pub struct TestDB {
@@ -18,6 +23,9 @@ pub struct TestDB {
     // The TestDB doesn't produce any stats on its own, it's up to the user of
     // this class to set the stats as they need it.
     stats: RwLock<Option<StoreStatistics>>,
+
+    // Flags to change the default behavior, for testing purposes.
+    flags: RwLock<Option<TestStoreFlags>>,
 }
 
 impl TestDB {
@@ -29,6 +37,10 @@ impl TestDB {
 impl TestDB {
     pub fn set_store_statistics(&self, stats: StoreStatistics) {
         *self.stats.write().unwrap() = Some(stats);
+    }
+
+    pub fn set_store_flags(&self, flags: TestStoreFlags) {
+        *self.flags.write().unwrap() = Some(flags);
     }
 }
 
@@ -97,10 +109,18 @@ impl Database for TestDB {
                     if merged.is_empty() {
                         db[col].remove(&key);
                     } else {
-                        debug_assert!(
-                            refcount::decode_value_with_rc(&merged).1 > 0,
-                            "Inserting value with non-positive refcount"
-                        );
+                        if self
+                            .flags
+                            .read()
+                            .unwrap()
+                            .as_ref()
+                            .is_none_or(|f| !f.allow_negative_refcount)
+                        {
+                            debug_assert!(
+                                refcount::decode_value_with_rc(&merged).1 > 0,
+                                "Inserting value with non-positive refcount"
+                            );
+                        }
                         db[col].insert(key, merged);
                     }
                 }
@@ -147,6 +167,7 @@ impl Database for TestDB {
                 }
             }
             copy.stats.write().unwrap().clone_from(&self.stats.read().unwrap());
+            copy.flags.write().unwrap().clone_from(&self.flags.read().unwrap());
         }
         Some(Arc::new(copy))
     }
