@@ -635,6 +635,9 @@ pub fn bootstrap_congestion_info(
     config: &RuntimeConfig,
     shard_id: ShardId,
 ) -> Result<CongestionInfo, StorageError> {
+    tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
+    let start = std::time::Instant::now();
+
     let mut receipt_bytes: u64 = 0;
     let mut delayed_receipts_gas: u128 = 0;
     let mut buffered_receipts_gas: u128 = 0;
@@ -662,6 +665,9 @@ pub fn bootstrap_congestion_info(
             receipt_bytes = receipt_bytes.checked_add(memory).ok_or_else(overflow_storage_err)?;
         }
     }
+
+    let time = start.elapsed();
+    tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
 
     Ok(CongestionInfo::V1(CongestionInfoV1 {
         delayed_receipts_gas: delayed_receipts_gas as u128,

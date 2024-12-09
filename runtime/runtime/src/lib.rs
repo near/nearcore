@@ -2230,13 +2230,8 @@ impl ApplyState {
             return Ok(Some(congestion_info.congestion_info));
         }
 
-        tracing::warn!(target: "runtime", "starting to bootstrap congestion info, this might take a while");
-        let start = std::time::Instant::now();
-        let result = bootstrap_congestion_info(trie, &self.config, self.shard_id);
-        let time = start.elapsed();
-        tracing::warn!(target: "runtime","bootstrapping congestion info done after {time:#.1?}");
-        let computed = result?;
-        Ok(Some(computed))
+        let congestion_info = bootstrap_congestion_info(trie, &self.config, self.shard_id)?;
+        Ok(Some(congestion_info))
     }
 }
 
