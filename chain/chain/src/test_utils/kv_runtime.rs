@@ -28,7 +28,6 @@ use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::ChunkHash;
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -234,9 +233,8 @@ impl MockEpochManager {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self
-            .get_block_header(&prev_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(prev_hash))?;
+        let prev_block_header =
+            self.get_block_header(&prev_hash)?.ok_or(EpochError::MissingBlock(prev_hash))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -304,7 +302,7 @@ impl MockEpochManager {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))? as usize
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))? as usize
             % self.validators_by_valset.len())
     }
 
@@ -582,9 +580,8 @@ impl EpochManagerAdapter for MockEpochManager {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header = self
-            .get_block_header(parent_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(*parent_hash))?;
+        let prev_block_header =
+            self.get_block_header(parent_hash)?.ok_or(EpochError::MissingBlock(*parent_hash))?;
         let prev_prev_hash = *prev_block_header.prev_hash();
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
@@ -694,7 +691,7 @@ impl EpochManagerAdapter for MockEpochManager {
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
-                .ok_or_else(|| EpochError::MissingBlock(candidate_hash))?;
+                .ok_or(EpochError::MissingBlock(candidate_hash))?;
             candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
@@ -887,6 +884,10 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(())
     }
 
+    fn should_validate_signatures(&self) -> bool {
+        false
+    }
+
     fn verify_block_vrf(
         &self,
         _epoch_id: &EpochId,
@@ -924,18 +925,6 @@ impl EpochManagerAdapter for MockEpochManager {
         let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
         let validator_stake = &self.validators[&validator];
         Ok(header.verify_block_producer(validator_stake.public_key()))
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        _chunk_hash: &ChunkHash,
-        _signature: &Signature,
-        _epoch_id: &EpochId,
-        _last_kown_hash: &CryptoHash,
-        _height_created: BlockHeight,
-        _shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        Ok(true)
     }
 
     fn verify_chunk_endorsement_signature(

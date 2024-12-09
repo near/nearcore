@@ -8,7 +8,7 @@ use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
 use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
@@ -141,7 +141,7 @@ fn run_state_sync_with_dumped_parts(
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test(&"test0".parse().unwrap());
     let validator = MutableConfigValue::new(
         Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
         "validator_signer",

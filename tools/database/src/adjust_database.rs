@@ -33,9 +33,8 @@ impl ChangeDbKindCommand {
         let near_config = nearcore::config::load_config(&home_dir, genesis_validation)?;
         let opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_config(),
         );
 
         let storage = opener.open()?;

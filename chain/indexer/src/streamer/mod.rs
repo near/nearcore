@@ -368,12 +368,11 @@ pub(crate) async fn start(
     client: Addr<near_client::ClientActor>,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,
-    archive: bool,
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let indexer_db_path =
-        near_store::NodeStorage::opener(&indexer_config.home_dir, archive, &store_config, None)
+        near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config, None)
             .path()
             .join("indexer");
 

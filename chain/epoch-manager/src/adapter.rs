@@ -9,7 +9,6 @@ use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
@@ -328,6 +327,10 @@ pub trait EpochManagerAdapter: Send + Sync {
         next_epoch_info: EpochInfo,
     ) -> Result<(), EpochError>;
 
+    fn should_validate_signatures(&self) -> bool {
+        true
+    }
+
     fn verify_block_vrf(
         &self,
         epoch_id: &EpochId,
@@ -360,39 +363,6 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Verify header signature.
     fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
-
-    /// Verify chunk header signature.
-    /// return false if the header signature does not match the key for the assigned chunk producer
-    /// for this chunk, or if the chunk producer has been slashed
-    /// return `EpochError::NotAValidator` if cannot find chunk producer info for this chunk
-    /// `header`: chunk header
-    /// `epoch_id`: epoch_id that the chunk header belongs to
-    /// `last_known_hash`: used to determine the list of chunk producers that are slashed
-    fn verify_chunk_header_signature(
-        &self,
-        header: &ShardChunkHeader,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-    ) -> Result<bool, Error> {
-        self.verify_chunk_signature_with_header_parts(
-            &header.chunk_hash(),
-            header.signature(),
-            epoch_id,
-            last_known_hash,
-            header.height_created(),
-            header.shard_id(),
-        )
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        chunk_hash: &ChunkHash,
-        signature: &Signature,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-        height_created: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<bool, Error>;
 
     fn verify_chunk_endorsement_signature(
         &self,
@@ -971,26 +941,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             }
             Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
         }
-    }
-
-    fn verify_chunk_signature_with_header_parts(
-        &self,
-        chunk_hash: &ChunkHash,
-        signature: &Signature,
-        epoch_id: &EpochId,
-        last_known_hash: &CryptoHash,
-        height_created: BlockHeight,
-        shard_id: ShardId,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.read();
-        let key =
-            ChunkProductionKey { epoch_id: *epoch_id, height_created: height_created, shard_id };
-        let chunk_producer = epoch_manager.get_chunk_producer_info(&key)?;
-        let block_info = epoch_manager.get_block_info(last_known_hash)?;
-        if block_info.slashed().contains_key(chunk_producer.account_id()) {
-            return Ok(false);
-        }
-        Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
     }
 
     fn verify_chunk_endorsement_signature(

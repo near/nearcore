@@ -40,6 +40,10 @@ def get_state_sync_configs_pair(tracked_shards=[0]):
             "secs": 0,
             "nanos": 500000000
         },
+        "consensus.state_sync_external_backoff": {
+            "secs": 0,
+            "nanos": 500000000
+        },
         "state_sync": {
             "sync": {
                 "ExternalStorage": {
@@ -67,6 +71,10 @@ def get_state_sync_config_combined():
             "nanos": 500000000
         },
         "consensus.state_sync_p2p_timeout": {
+            "secs": 0,
+            "nanos": 500000000
+        },
+        "consensus.state_sync_external_backoff": {
             "secs": 0,
             "nanos": 500000000
         },

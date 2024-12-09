@@ -28,6 +28,8 @@ use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_received_data_key, parse_account_id_from_trie_key_with_separator,
 };
 use near_primitives::types::AccountId;
+#[cfg(feature = "test_features")]
+use near_primitives::types::BlockHeightDelta;
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
@@ -75,6 +77,11 @@ pub struct FlatStorageResharder {
     pub controller: FlatStorageResharderController,
     /// Configuration for resharding.
     resharding_config: MutableConfigValue<ReshardingConfig>,
+    #[cfg(feature = "test_features")]
+    /// TEST ONLY.
+    /// If non zero, the start of schedulable tasks (such as split parent) will be postponed by
+    /// the specified number of blocks.
+    pub adv_task_delay_by_blocks: BlockHeightDelta,
 }
 
 impl FlatStorageResharder {
@@ -92,7 +99,15 @@ impl FlatStorageResharder {
         resharding_config: MutableConfigValue<ReshardingConfig>,
     ) -> Self {
         let resharding_event = Arc::new(Mutex::new(None));
-        Self { runtime, resharding_event, sender, controller, resharding_config }
+        Self {
+            runtime,
+            resharding_event,
+            sender,
+            controller,
+            resharding_config,
+            #[cfg(feature = "test_features")]
+            adv_task_delay_by_blocks: 0,
+        }
     }
 
     /// Starts a resharding event.
@@ -319,6 +334,14 @@ impl FlatStorageResharder {
                 return FlatStorageReshardingSchedulableTaskResult::Postponed;
             }
         };
+
+        #[cfg(feature = "test_features")]
+        {
+            if self.adv_should_delay_task(&resharding_hash, chain_store) {
+                info!(target: "resharding", "flat storage shard split task has been artificially postponed!");
+                return FlatStorageReshardingSchedulableTaskResult::Postponed;
+            }
+        }
 
         // We know that the resharding block has become final so let's start the real work.
         let task_status = self.split_shard_task_impl();
@@ -599,7 +622,12 @@ impl FlatStorageResharder {
         mut flat_head_block_hash: CryptoHash,
         chain_store: &ChainStore,
     ) -> Result<(usize, Tip), Error> {
-        const CATCH_UP_BLOCKS: u32 = 50;
+        // How many block heights of deltas are applied in a single commit.
+        let catch_up_blocks = self.resharding_config.get().catch_up_blocks;
+        // Delay between every batch.
+        let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
+
+        info!(target: "resharding", ?shard_uid, ?batch_delay, ?catch_up_blocks, "flat storage shard catchup: starting delta apply");
 
         let mut num_batches_done: usize = 0;
 
@@ -612,19 +640,28 @@ impl FlatStorageResharder {
                 batch_id = ?num_batches_done)
             .entered();
             let chain_final_head = chain_store.final_head()?;
+
+            // If we reached the desired new flat head, we can terminate the delta application step.
+            if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
+                return Ok((
+                    num_batches_done,
+                    Tip::from_header(&chain_store.get_block_header(&flat_head_block_hash)?),
+                ));
+            }
+
             let mut merged_changes = FlatStateChanges::default();
             let store = self.runtime.store().flat_store();
             let mut store_update = store.store_update();
 
             // Merge deltas from the next blocks until we reach chain final head.
-            for _ in 0..CATCH_UP_BLOCKS {
+            for _ in 0..catch_up_blocks {
                 let height = chain_store.get_block_height(&flat_head_block_hash)?;
                 debug_assert!(
                     height <= chain_final_head.height,
                     "flat head: {flat_head_block_hash}"
                 );
-                // Stop if we reached chain final head.
-                if flat_head_block_hash == chain_final_head.last_block_hash {
+                // Stop if we reached the desired new flat head.
+                if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
                     break;
                 }
                 flat_head_block_hash = chain_store.get_next_block_hash(&flat_head_block_hash)?;
@@ -649,10 +686,9 @@ impl FlatStorageResharder {
             store_update.commit()?;
             num_batches_done += 1;
 
-            // If we reached chain final head, we can terminate the delta application step.
-            if flat_head_block_hash == chain_final_head.last_block_hash {
-                return Ok((num_batches_done, chain_final_head));
-            }
+            // Sleep between batches in order to throttle resharding and leave some resource for the
+            // regular node operation.
+            std::thread::sleep(batch_delay);
         }
     }
 
@@ -776,6 +812,28 @@ impl FlatStorageResharder {
 
     fn remove_resharding_event(&self) {
         *self.resharding_event.lock().unwrap() = None;
+    }
+
+    #[cfg(feature = "test_features")]
+    /// Returns true if a task should be "artificially" delayed. This behavior is configured through
+    /// `adv_task_delay_by_blocks`.`
+    fn adv_should_delay_task(
+        &self,
+        resharding_hash: &CryptoHash,
+        chain_store: &ChainStore,
+    ) -> bool {
+        let blocks_delay = self.adv_task_delay_by_blocks;
+        if blocks_delay == 0 {
+            return false;
+        }
+        // Unwrap freely since this function is only used in tests.
+        let chain_final_height = chain_store.final_head().unwrap().height;
+        let resharding_height = chain_store.get_block_height(resharding_hash).unwrap();
+        debug!(
+            target = "resharding",
+            resharding_height, chain_final_height, blocks_delay, "checking adversarial task delay"
+        );
+        return resharding_height + blocks_delay > chain_final_height;
     }
 }
 
@@ -932,6 +990,23 @@ fn copy_kv_to_left_child(
     store_update: &mut FlatStoreUpdateAdapter,
 ) {
     store_update.set(split_params.left_child_shard, key, value);
+}
+
+/// Returns `true` if a flat head at `flat_head_block_hash` has reached the necessary height to be
+/// considered in sync with the chain.
+///
+///  Observations:
+/// - as a result of delta application during parent split, if the resharding is extremely fast the
+///   flat head might be already on the last final block.
+/// - the new flat head candidate is the previous block hash of the final head as stated in
+///   `Chain::get_new_flat_storage_head`.
+/// - this method assumes the flat head is never beyond the final chain.
+fn is_flat_head_on_par_with_chain(
+    flat_head_block_hash: &CryptoHash,
+    chain_final_head: &Tip,
+) -> bool {
+    *flat_head_block_hash == chain_final_head.prev_block_hash
+        || *flat_head_block_hash == chain_final_head.last_block_hash
 }
 
 /// Struct to describe, perform and track progress of a flat storage resharding.
@@ -2172,16 +2247,16 @@ mod tests {
 
         // Check shards flat storage status.
         let flat_store = resharder.runtime.store().flat_store();
-        let last_final_block = chain.get_block_by_height(NUM_BLOCKS - 2).unwrap();
+        let prev_last_final_block = chain.get_block_by_height(NUM_BLOCKS - 3).unwrap();
         assert_eq!(flat_store.get_flat_storage_status(parent_shard), Ok(FlatStorageStatus::Empty));
         for child_shard in [left_child_shard, right_child_shard] {
             assert_eq!(
                 flat_store.get_flat_storage_status(child_shard),
                 Ok(FlatStorageStatus::Ready(FlatStorageReadyStatus {
                     flat_head: BlockInfo {
-                        hash: *last_final_block.hash(),
-                        height: last_final_block.header().height(),
-                        prev_hash: *last_final_block.header().prev_hash()
+                        hash: *prev_last_final_block.hash(),
+                        height: prev_last_final_block.header().height(),
+                        prev_hash: *prev_last_final_block.header().prev_hash()
                     }
                 }))
             );
@@ -2193,8 +2268,8 @@ mod tests {
         }
         // Children flat storages should contain the new accounts created through the deltas
         // application.
-        // Flat store will contain only changes from final blocks.
-        for height in 1..NUM_BLOCKS - 1 {
+        // Flat store will only contain changes until the previous final block.
+        for height in 1..NUM_BLOCKS - 2 {
             let new_account_left_child = account!(format!("oo{}", height));
             assert_eq!(
                 flat_store.get(

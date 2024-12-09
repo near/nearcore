@@ -67,8 +67,9 @@ impl Client {
         let shard_id = chunk_header.shard_id();
         let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
 
-        let my_signer =
-            validator_signer.as_ref().ok_or(Error::NotAValidator(format!("send state witness")))?;
+        let my_signer = validator_signer
+            .as_ref()
+            .ok_or_else(|| Error::NotAValidator(format!("send state witness")))?;
         let CreateWitnessResult { state_witness, main_transition_shard_id, contract_updates } =
             self.create_state_witness(
                 my_signer.validator_id().clone(),
@@ -389,7 +390,7 @@ impl Client {
                 let from_chunk_hash = from_block
                     .chunks()
                     .get(from_shard_index)
-                    .ok_or_else(|| Error::InvalidShardId(proof.1.from_shard_id))?
+                    .ok_or(Error::InvalidShardId(proof.1.from_shard_id))?
                     .chunk_hash();
                 let insert_res =
                     source_receipt_proofs.insert(from_chunk_hash.clone(), proof.clone());

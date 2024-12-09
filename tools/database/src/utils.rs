@@ -36,7 +36,7 @@ pub(crate) fn open_state_snapshot(home: &Path, mode: near_store::Mode) -> anyhow
     let path = snapshot_dir.path();
     println!("state snapshot path {path:?}");
 
-    let opener = NodeStorage::opener(&path, false, &store_config, None);
+    let opener = NodeStorage::opener(&path, &store_config, None);
     let storage = opener.open_in_mode(mode)?;
     let store = storage.get_hot_store();
 

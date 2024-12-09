@@ -70,7 +70,6 @@ impl<'c> EstimatorContext<'c> {
             &self.config.state_dump_path,
             workdir.path(),
             self.config.in_memory_db,
-            false,
         );
         // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");
@@ -476,7 +475,7 @@ impl Testbed<'_> {
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
-        let epoch_info_provider = MockEpochInfoProvider::new([].into_iter());
+        let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);
         let exec_result = node_runtime::estimator::apply_action_receipt(
             &mut state_update,

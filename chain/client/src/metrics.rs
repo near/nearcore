@@ -473,7 +473,7 @@ pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_state_sync_header_download_result",
+        "near_state_sync_download_result",
         "Count of number of state sync downloads by type (header, part),
                source (network, external), and result (timeout, error, success)",
         &["shard_id", "type", "source", "result"],
@@ -597,6 +597,16 @@ pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_MEMORY_USED: LazyLock<IntGauge
         try_create_int_gauge_vec(
             "near_orphan_chunk_state_witness_pool_memory_used",
             "Memory in bytes consumed by the OrphanStateWitnessPool (by shard_id)",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static BLOCK_PRODUCER_INSUFFICIENT_ENDORSEMENT_CHUNK_COUNT: LazyLock<CounterVec> =
+    LazyLock::new(|| {
+        try_create_counter_vec(
+            "near_block_producer_insufficient_endorsement_chunk_count",
+            "Number of chunks excluded from the block due to insufficient chunk endorsements",
             &["shard_id"],
         )
         .unwrap()

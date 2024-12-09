@@ -14,6 +14,7 @@ use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
 use config::total_prepaid_send_fees;
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
+use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -23,7 +24,7 @@ use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequ
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, IntegerOverflowError, InvalidTxError, RuntimeError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
     TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
@@ -1504,7 +1505,11 @@ impl Runtime {
             bandwidth_scheduler_output,
         )?;
         // Forward buffered receipts from previous chunks.
-        receipt_sink.forward_from_buffer(&mut processing_state.state_update, apply_state)?;
+        receipt_sink.forward_from_buffer(
+            &mut processing_state.state_update,
+            apply_state,
+            processing_state.epoch_info_provider,
+        )?;
 
         // Step 3: process transactions.
         self.process_transactions(&mut processing_state, &mut receipt_sink)?;
@@ -2057,6 +2062,7 @@ impl Runtime {
     ) -> Result<ApplyResult, RuntimeError> {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
+        let epoch_info_provider = processing_state.epoch_info_provider;
         let mut state_update = processing_state.state_update;
         let delayed_receipts = processing_state.delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
@@ -2077,15 +2083,18 @@ impl Runtime {
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let all_shards = apply_state.congestion_info.all_shards();
+            let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+            let shard_ids = shard_layout.shard_ids().collect_vec();
+            let shard_index = shard_layout
+                .get_shard_index(apply_state.shard_id)
+                .map_err(Into::<EpochError>::into)?
+                .try_into()
+                .expect("Shard Index must fit within u64");
 
-            // TODO(wacban) Using non-contiguous shard id here breaks some
-            // assumptions. The shard index should be used here instead.
-            let congestion_seed =
-                apply_state.block_height.wrapping_add(apply_state.shard_id.into());
+            let congestion_seed = apply_state.block_height.wrapping_add(shard_index);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
-                all_shards.as_slice(),
+                shard_ids.as_slice(),
                 congestion_seed,
             );
         }
@@ -2584,21 +2593,24 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
-        let key = TrieKey::Account { account_id: account_id.clone() };
-        let receiver = get_pure::<Account>(state_update, &key);
-        let Ok(Some(receiver)) = receiver else {
-            // Most likely reason this can happen is because the receipt is for an account that
-            // does not yet exist. This is a routine occurrence as accounts are created by sending
-            // some NEAR to a name that's about to be created.
-            return false;
-        };
+        let receiver = std::cell::LazyCell::new(|| {
+            let key = TrieKey::Account { account_id: account_id.clone() };
+            let receiver = get_pure::<Account>(state_update, &key);
+            let Ok(Some(receiver)) = receiver else {
+                // Most likely reason this can happen is because the receipt is for an account that
+                // does not yet exist. This is a routine occurrence as accounts are created by
+                // sending some NEAR to a name that's about to be created.
+                return None;
+            };
+            Some(receiver)
+        });
 
         // We need to inspect each receipt recursively in case these are data receipts, thus a
         // function.
         fn handle_receipt(
             mgr: &mut ReceiptPreparationPipeline,
             state_update: &TrieUpdate,
-            receiver: &Account,
+            receiver: &std::cell::LazyCell<Option<Account>, impl FnOnce() -> Option<Account>>,
             account_id: &AccountId,
             receipt: &Receipt,
         ) -> bool {

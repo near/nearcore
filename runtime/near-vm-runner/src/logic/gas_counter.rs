@@ -27,12 +27,11 @@ type Result<T> = ::std::result::Result<T, VMLogicError>;
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FastGasCounter {
-    /// The following three fields must be put next to another to make sure
-    /// generated gas counting code can use and adjust them.
-    /// We will share counter to ensure we never miss synchronization.
-    /// This could change and in such a case synchronization required between compiled WASM code
-    /// and the host code.
-
+    // The following three fields must be put next to another to make sure
+    // generated gas counting code can use and adjust them.
+    // We will share counter to ensure we never miss synchronization.
+    // This could change and in such a case synchronization required between compiled WASM code
+    // and the host code.
     /// The amount of gas that was irreversibly used for contract execution.
     pub burnt_gas: u64,
     /// Hard gas limit for execution

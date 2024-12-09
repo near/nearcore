@@ -184,11 +184,11 @@ impl GasCost {
             self.uncertain = rhs.uncertain;
         }
     }
+
     /// JSON representation of the gas cost. This is intended to be used by
     /// other scripts, such as the continuous estimation pipeline. Consumers
     /// should expect more fields to be added. But existing fields should remain
     /// stable.
-
     pub fn to_json(&self) -> serde_json::Value {
         if let Some(qemu) = &self.qemu {
             json!({
