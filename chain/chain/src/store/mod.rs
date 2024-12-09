@@ -2393,6 +2393,20 @@ impl<'a> ChainStoreUpdate<'a> {
                     chunk_hash.as_ref(),
                     partial_chunk,
                 )?;
+
+                // Increase receipt refcounts for all included receipts (this may overlap with the chunk ones,
+                // but it's important because if we don't track all shards, some receipts whose recipients are
+                // in tracked shards come from the partial chunks only).
+                for ReceiptProof(receipts, _) in partial_chunk.prev_outgoing_receipts() {
+                    for receipt in receipts.iter() {
+                        let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
+                        store_update.increment_refcount(
+                            DBCol::Receipts,
+                            receipt.get_hash().as_ref(),
+                            &bytes,
+                        );
+                    }
+                }
             }
         }
 
