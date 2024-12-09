@@ -1284,6 +1284,38 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v2() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
+    let receiver_account: AccountId = "account4".parse().unwrap();
+    let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
+    let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
+    let params = TestReshardingParameters::new()
+        .deploy_test_contract(receiver_account.clone())
+        .add_loop_action(call_burn_gas_contract(
+            vec![account_1_in_stable_shard, account_2_in_stable_shard],
+            vec![receiver_account],
+            5 * TGAS,
+        ));
+    test_resharding_v3_base(params);
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
+    let receiver_account: AccountId = "account0".parse().unwrap();
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let params = TestReshardingParameters::new()
+        .deploy_test_contract(receiver_account.clone())
+        .add_loop_action(call_burn_gas_contract(
+            vec![account_in_left_child, account_in_right_child],
+            vec![receiver_account],
+            5 * TGAS,
+        ));
+    test_resharding_v3_base(params);
+}
+
+#[test]
 fn test_resharding_v3_load_mem_trie_v1() {
     let params = TestReshardingParameters::new()
         .base_shard_layout_version(1)
