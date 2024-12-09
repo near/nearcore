@@ -19,10 +19,12 @@ use near_store::trie::mem::mem_trie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::TrieRecorder;
 use near_store::{DBCol, ShardTries, ShardUId, Store};
+use node_runtime::bootstrap_congestion_info;
 
 pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
     /// Configuration for resharding.
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
     /// A handle that allows the main process to interrupt resharding if needed.
@@ -42,12 +44,19 @@ impl ReshardingManager {
     ) -> Self {
         let resharding_handle = ReshardingHandle::new();
         let flat_storage_resharder = FlatStorageResharder::new(
-            runtime_adapter,
+            runtime_adapter.clone(),
             resharding_sender,
             FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
             resharding_config.clone(),
         );
-        Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
+        Self {
+            store,
+            epoch_manager,
+            runtime_adapter,
+            resharding_config,
+            flat_storage_resharder,
+            resharding_handle,
+        }
     }
 
     /// Trigger resharding if shard layout changes after the given block.
@@ -213,11 +222,24 @@ impl ReshardingManager {
             };
             let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
+            drop(mem_tries);
+
             // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
             // typing. Clarify where it should happen when `State` and
             // `FlatState` update is implemented.
             let mut child_chunk_extra = ChunkExtra::clone(&chunk_extra);
             *child_chunk_extra.state_root_mut() = new_state_root;
+            // TODO(resharding) - Implement proper congestion info for
+            // resharding. The current implementation is very expensive.
+            if let Some(congestion_info) = child_chunk_extra.congestion_info_mut() {
+                let epoch_id = block.header().epoch_id();
+                let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+
+                let trie = tries.get_trie_for_shard(new_shard_uid, new_state_root);
+                let config = self.runtime_adapter.get_runtime_config(protocol_version)?;
+                let new_shard_id = new_shard_uid.shard_id();
+                *congestion_info = bootstrap_congestion_info(&trie, &config, new_shard_id)?;
+            }
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
