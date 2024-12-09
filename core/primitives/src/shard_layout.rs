@@ -770,8 +770,8 @@ impl ShardLayout {
                 Ok(ShardId::new(shard_index as u64))
             }
             Self::V2(v2) => v2
-                .index_to_id_map
-                .get(&shard_index)
+                .shard_ids
+                .get(shard_index)
                 .copied()
                 .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index }),
         }

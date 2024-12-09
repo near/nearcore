@@ -387,6 +387,13 @@ impl Testbed<'_> {
                 .congestion_info
                 .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
         }
+        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(shard_uid.shard_id(), bandwidth_requests)]
+                    .into_iter()
+                    .collect(),
+            };
+        }
 
         let mut total_burnt_gas = 0;
         if !allow_failures {
@@ -405,11 +412,26 @@ impl Testbed<'_> {
     /// Returns the number of blocks required to reach quiescence
     fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
         let mut n = 0;
-        while !self.prev_receipts.is_empty() {
+        while self.has_unprocessed_receipts() {
             self.process_block_impl(&[], allow_failures);
             n += 1;
         }
         n
+    }
+
+    fn has_unprocessed_receipts(&self) -> bool {
+        if !self.prev_receipts.is_empty() {
+            return true;
+        }
+
+        // Check congestion info to see if there are any queued receipts.
+        for (_, extended_congestion_info) in self.apply_state.congestion_info.iter() {
+            if extended_congestion_info.congestion_info.receipt_bytes() > 0 {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Process just the verification of a transaction, without action execution.
