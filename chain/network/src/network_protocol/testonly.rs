@@ -89,7 +89,7 @@ pub fn make_signer<R: Rng>(rng: &mut R) -> Signer {
     InMemorySigner::from_secret_key(make_account_id(rng), make_secret_key(rng))
 }
 
-pub fn make_validator_signer<R: Rng>(rng: &mut R) -> InMemoryValidatorSigner {
+pub fn make_validator_signer<R: Rng>(rng: &mut R) -> ValidatorSigner {
     let account_id = make_account_id(rng);
     let seed = rng.gen::<u64>().to_string();
     InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, &seed)
@@ -106,7 +106,7 @@ pub fn make_peer_info<R: Rng>(rng: &mut R) -> PeerInfo {
 
 pub fn make_announce_account<R: Rng>(rng: &mut R) -> AnnounceAccount {
     let peer_id = make_peer_id(rng);
-    let validator_signer = ValidatorSigner::InMemory(make_validator_signer(rng));
+    let validator_signer = make_validator_signer(rng);
     AnnounceAccount::new(&validator_signer, peer_id, EpochId::default())
 }
 
@@ -167,7 +167,7 @@ pub fn make_challenge<R: Rng>(rng: &mut R) -> Challenge {
             left_block_header: rng.sample_iter(&Standard).take(65).collect(),
             right_block_header: rng.sample_iter(&Standard).take(34).collect(),
         }),
-        &make_validator_signer(rng).into(),
+        &make_validator_signer(rng),
     )
 }
 
@@ -225,7 +225,7 @@ pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
     CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
 }
 
-pub fn make_account_keys(signers: &[InMemoryValidatorSigner]) -> AccountKeys {
+pub fn make_account_keys(signers: &[ValidatorSigner]) -> AccountKeys {
     let mut account_keys = AccountKeys::new();
     for s in signers {
         account_keys.entry(s.validator_id().clone()).or_default().insert(s.public_key());
@@ -237,7 +237,7 @@ pub struct Chain {
     pub genesis_id: GenesisId,
     pub blocks: Vec<Block>,
     pub chunks: HashMap<ChunkHash, ShardChunk>,
-    pub tier1_accounts: Vec<InMemoryValidatorSigner>,
+    pub tier1_accounts: Vec<ValidatorSigner>,
 }
 
 impl Chain {
@@ -248,12 +248,7 @@ impl Chain {
         let signer = make_validator_signer(rng);
         for _ in 1..block_count {
             clock.advance(time::Duration::seconds(15));
-            blocks.push(make_block(
-                clock.clock(),
-                &signer.clone().into(),
-                blocks.last().unwrap(),
-                chunks.make(),
-            ));
+            blocks.push(make_block(clock.clock(), &signer, blocks.last().unwrap(), chunks.make()));
         }
         Chain {
             genesis_id: GenesisId {
@@ -406,9 +401,7 @@ pub fn make_account_data(
 pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
     let signer = make_validator_signer(rng);
     let peer_id = make_peer_id(rng);
-    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id)
-        .sign(&signer.into())
-        .unwrap()
+    make_account_data(rng, 1, clock.now_utc(), signer.public_key(), peer_id).sign(&signer).unwrap()
 }
 
 // Accessors for creating malformed SignedAccountData

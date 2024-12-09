@@ -4,7 +4,7 @@ use crate::network_protocol::SignedAccountData;
 use crate::testonly::{assert_is_superset, make_rng, AsSet as _, Rng};
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::validator_signer::ValidatorSigner;
 use pretty_assertions::assert_eq;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -13,11 +13,11 @@ fn make_account_data(
     rng: &mut Rng,
     clock: &time::Clock,
     version: u64,
-    signer: &InMemoryValidatorSigner,
+    signer: &ValidatorSigner,
 ) -> SignedAccountData {
     let peer_id = data::make_peer_id(rng);
     data::make_account_data(rng, version, clock.now_utc(), signer.public_key(), peer_id)
-        .sign(&signer.clone().into())
+        .sign(&signer)
         .unwrap()
 }
 
@@ -30,7 +30,7 @@ fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
     &v.0
 }
 
-fn make_signers(rng: &mut Rng, n: usize) -> Vec<InMemoryValidatorSigner> {
+fn make_signers(rng: &mut Rng, n: usize) -> Vec<ValidatorSigner> {
     (0..n).map(|_| data::make_validator_signer(rng)).collect()
 }
 

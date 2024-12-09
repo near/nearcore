@@ -143,7 +143,7 @@ fn run_state_sync_with_dumped_parts(
 
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator = MutableConfigValue::new(
-        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
+        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()))),
         "validator_signer",
     );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();

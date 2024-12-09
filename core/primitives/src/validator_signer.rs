@@ -65,12 +65,6 @@ impl From<EmptyValidatorSigner> for ValidatorSigner {
     }
 }
 
-impl From<InMemoryValidatorSigner> for ValidatorSigner {
-    fn from(signer: InMemoryValidatorSigner) -> Self {
-        ValidatorSigner::InMemory(signer)
-    }
-}
-
 /// Test-only signer that "signs" everything with 0s.
 /// Don't use in any production or code that requires signature verification.
 #[derive(smart_default::SmartDefault, Clone, Debug, PartialEq)]
@@ -106,26 +100,29 @@ pub struct InMemoryValidatorSigner {
 
 impl InMemoryValidatorSigner {
     #[cfg(feature = "rand")]
-    pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
+    pub fn from_random(account_id: AccountId, key_type: KeyType) -> ValidatorSigner {
         let signer = Arc::new(InMemorySigner::from_random(account_id.clone(), key_type).into());
-        Self { account_id, signer }
+        ValidatorSigner::InMemory(Self { account_id, signer })
     }
 
     #[cfg(feature = "rand")]
-    pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Self {
+    pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> ValidatorSigner {
         let signer = Arc::new(InMemorySigner::from_seed(account_id.clone(), key_type, seed));
-        Self { account_id, signer }
+        ValidatorSigner::InMemory(Self { account_id, signer })
     }
 
     pub fn public_key(&self) -> PublicKey {
         self.signer.public_key()
     }
 
-    pub fn from_signer(signer: Signer) -> Self {
-        Self { account_id: signer.get_account_id(), signer: Arc::new(signer) }
+    pub fn from_signer(signer: Signer) -> ValidatorSigner {
+        ValidatorSigner::InMemory(Self {
+            account_id: signer.get_account_id(),
+            signer: Arc::new(signer),
+        })
     }
 
-    pub fn from_file(path: &Path) -> std::io::Result<Self> {
+    pub fn from_file(path: &Path) -> std::io::Result<ValidatorSigner> {
         let signer = InMemorySigner::from_file(path)?;
         Ok(Self::from_signer(signer))
     }
