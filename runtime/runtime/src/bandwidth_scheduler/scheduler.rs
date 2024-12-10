@@ -3,11 +3,11 @@
 //! ## Overview of the algorithm
 //!
 //! Every shard sends out some outgoing receipts to other shards at every height. Bandwidth
-//! scheduler is used to limit how many bytes of receipts can be sent from one shard to another.
+//! scheduler is used to limit how many bytes of receipts are sent from one shard to another.
 //! Sending too many receipts could cause overload, the nodes could have too little bandwidth to
 //! transfer all of the receipts in time.
 //!
-//! Bandwidth scheduler makes sure that:
+//! Bandwidth scheduler tries to ensure that:
 //! - Every shard sends out at most `max_shard_bandwidth` bytes of receipts at every height.
 //! - Every shard receives at most `max_shard_bandwidth` bytes of receipts at every height.
 //! - The bandwidth is assigned in a fair way. At full load every link (pair of shards) sends and
@@ -15,24 +15,25 @@
 //! - Bandwidth utilization is high.
 //!
 //! When a shard has some buffered receipts that it wants to send to another shard, it has to create
-//! a bandwidth request and pass it to the scheduler. Bandwidth request contains a list of values
-//! that could be granted for that link. The sender shard hopes that the scheduler will grant the
-//! highest option, which would allow it to send the most receipts, but if the scheduler chooses a
-//! lower value, the sender will send out fewer receipts.
+//! a bandwidth request and pass it to the scheduler. Bandwidth scheduler looks at bandwidth
+//! requests from all shards and decides how much bandwidth to grant on each link (pair of shards).
+//! Every shard runs the same algorithm with the same inputs and calculates the same bandwidth
+//! grants. Then the shards send out receipts, but no more than the granted bandwidth. After that
+//! the shards generate new requests based on buffered receipts and the whole process repeats at the
+//! next height.
 //!
-//! Bandwidth scheduler looks at bandwidth requests from all shards and decides how much bandwidth
-//! to grant on each link. Every shard runs the same algorithm with the same inputs and calculates
-//! the same bandwidth grants. Then the shards send out receipts, but no more than the granted
-//! bandwidth. After that the shards generate new requests based on buffered receipts and the whole
-//! process repeats at the next height.
+//! A bandwidth request contains a list of values that could be granted for that link. The sender
+//! shard hopes that the scheduler will grant the highest option, which would allow it to send the
+//! most receipts, but if the scheduler chooses a lower value, the sender will send out fewer
+//! receipts.
 //!
 //! ## Base bandwidth
 //!
 //! It's not necessary to make a bandwidth request if the shard wants to send less than "base
-//! bandwidth". Base bandwidth is the amount of bandwidth that is always granted on every link,
-//! regardless of the requests. This helps to lower the total number of generated requests, usually
-//! shards don't need to send out more than the base bandwidth. (At the moment of writing there are
-//! 6 shards, and base bandwidth is ~50kB, situation might change in the future).
+//! bandwidth" of receipts. Base bandwidth is the amount of bandwidth that is always granted on
+//! every link, regardless of the requests. This helps to lower the total number of generated
+//! requests, usually shards don't need to send out more than the base bandwidth. (At the moment of
+//! writing there are 6 shards, and base bandwidth is ~50kB, situation might change in the future).
 //!
 //! ## Allowance
 //!
@@ -41,9 +42,9 @@
 //! on every height. When bandwidth is granted on a link, the link's allowance is decreased by the
 //! granted amount. Requests on links with higher allowance have priority over requests on links
 //! with lower allowance. Links that send more than their fair share are deprioritized, which keeps
-//! things fair. It's similar idea to the [Token
-//! Bucket](https://en.wikipedia.org/wiki/Token_bucket). Link allowances are persisted in the state
-//! trie, as they're used to track fairness across multiple heights.
+//! things fair. It's a similar idea to the [Token Bucket](https://en.wikipedia.org/wiki/Token_bucket).
+//! Link allowances are persisted in the state trie, as they're used to track fairness across
+//! multiple heights.
 //!
 //! An intuitive way to think about allowance is that it keeps track how much each link sent
 //! recently and lowers priority of links that recently sent a lot of receipts, which gives other a
@@ -98,37 +99,46 @@
 //!
 //! Bandwidth scheduler handles this using a simple rule - if the last chunk was missing on some
 //! shard, don't send any receipts to this shard, it still hasn't processed the previous ones.
+//! This rule is enough to ensure that a shard doesn't send too much to another shard that has
+//! missing chunks.
 //!
-//! TODO(bandwidth_scheduler) - think/prove/test if this is enough to handle missing chunks. We
-//! actually know if other chunks in the same block are missing, which is pretty powerful. I need to
-//! think more about it. Maybe there was no fatal flaw in the previous design after all? ;-;
+//! The situation is worse when the chunks are missing on the sender shard. Receipts sent during
+//! previous chunk's application are received when the next non-missing chunk on the sender shard
+//! appears. This could be arbitrarily far into the future and in the meantime other shards could
+//! send receipts to the same receiver, and the receiver could receive more receipts than it should.
+//! This is harder to deal with, the current version of bandwidth scheduler doesn't have a mechanism
+//! to prevent that.
 //!
-//! Future improvements: It's a bit wasteful to not send anything when a chunk is missing. We could
-//! track how much a shard already sent to the shard with missing chunks at previous heights, and
-//! allow to send receipts to it, but make sure that their total size doesn't exceed the grant that
-//! was given when the chunk wasn't missing. This would improve bandwidth utilization in scenarios
-//! with many missing chunks.
+//! Future improvements:
+//! a) Add proper handling of missing chunks on sender shard. The scheduler could look at how much
+//!    was granted on other senders which have missing chunks and forbid producing too many receipts
+//!    to a receiver.
+//!
+//! b) It's a bit wasteful to not send anything when a chunk is missing. We could track how much a
+//!    shard already sent to the shard with missing chunks at previous heights, and allow to send
+//!    receipts to it, but make sure that their total size doesn't exceed the grant that was given when
+//!    the chunk wasn't missing. This would improve bandwidth utilization in scenarios with many
+//!    missing chunks.
 //!
 //! ## Resharding
 //!
-//! During resharding the set of active shards changes. For example, before resharding there could
-//! be three shard ids: [2, 4, 6], but during resharding shard 6 could be split into 7 and 8, and
-//! the resulting list of shard ids would be: [2, 4, 7, 8]. From bandwidth scheduler's perspective,
-//! the only moment that's really problematic is the resharding boundary. For one block height the
-//! sender shards will be from the old layout, but receiver shards will be from the new one. Ideally
-//! bandwidth scheduler would handle this gracefully, but for now this is not implemented. The
-//! bandwidth grants will be slightly wrong for one height, but it is not the end of the world. At
-//! the next height the shard will fully switch to the new layout and all the grants will be correct
-//! again.
+//! During resharding the list of existing shards changes. The only moment that is really
+//! problematic for the bandwidth scheduler is the resharding boundary. At the boundary the shards
+//! that send receipts will be from the old layout, while the receiving shards will be from the new
+//! layout. At all other heights senders and receivers are from the same layout, so there are no
+//! problems.
+//! Ideally the bandwidth scheduler would make sure that bandwidth is properly granted when the sets
+//! of senders and receivers are different, but this not implemented for now. The grants will be
+//! slightly wrong (but still within limits) on the resharding boundary. The amount of work needed
+//! to support scheduling at the boundary exceeds the benefits. For now reshardings happen very
+//! rarely, so grants are very rarely wrong, although this might change in the future.
 //!
 //! To properly handle resharding we would have to:
 //! * Use different ShardLayouts for sender shards and receiver shards
 //! * Interpret bandwidth requests using the BandwidthSchedulerParams that they were created with
 //! * Make sure that `BandwidthSchedulerParams` are correct on the resharding boundary
 //!
-//! It's doable, but it's out of scope for the initial version of the scheduler. There was a bit of
-//! an effort to write the code in a future-proof way, so adding full support for resharding
-//! shouldn't be too painful.
+//! It's doable, but it's out of scope for the initial version of the scheduler.
 
 use std::collections::{BTreeMap, VecDeque};
 
