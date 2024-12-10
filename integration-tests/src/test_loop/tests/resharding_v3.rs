@@ -156,6 +156,8 @@ struct TestReshardingParameters {
     delay_flat_state_resharding: BlockHeightDelta,
     /// Make promise yield timeout much shorter than normal.
     short_yield_timeout: bool,
+    // TODO(resharding) Remove this when negative refcounts are properly handled.
+    /// Whether to allow negative refcount being a result of the database update.
     allow_negative_refcount: bool,
 }
 

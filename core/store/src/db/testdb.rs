@@ -6,8 +6,10 @@ use std::sync::{Arc, RwLock};
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
+// Overrides to `TestDB` behavior.
 #[derive(Clone, Debug)]
 pub struct TestStoreFlags {
+    // Ignore negative refcount being a result of a write to the database.
     pub allow_negative_refcount: bool,
 }
 
