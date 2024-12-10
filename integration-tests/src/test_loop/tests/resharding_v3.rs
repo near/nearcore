@@ -654,15 +654,13 @@ fn assert_state_sanity(
             trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
         assert_state_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
 
+        let flat_storage_manager = client.chain.runtime_adapter.get_flat_storage_manager();
         // FlatStorageChunkView::iter_range() used below to retrieve all key-value pairs in Flat
         // Storage only looks at the data committed into the DB. For this reasons comparing Flat
         // Storage and Memtries makes sense only if we can retrieve a view at the same height from
         // both.
-        if let FlatStorageStatus::Ready(status) = client
-            .chain
-            .runtime_adapter
-            .get_flat_storage_manager()
-            .get_flat_storage_status(shard_uid)
+        if let FlatStorageStatus::Ready(status) =
+            flat_storage_manager.get_flat_storage_status(shard_uid)
         {
             if status.flat_head.hash != final_head.prev_block_hash {
                 tracing::warn!(target: "test", "skipping flat storage - memtrie state check");
@@ -673,11 +671,8 @@ fn assert_state_sanity(
         } else {
             continue;
         };
-        let Some(flat_store_chunk_view) = client
-            .chain
-            .runtime_adapter
-            .get_flat_storage_manager()
-            .chunk_view(shard_uid, final_head.last_block_hash)
+        let Some(flat_store_chunk_view) =
+            flat_storage_manager.chunk_view(shard_uid, final_head.last_block_hash)
         else {
             continue;
         };
