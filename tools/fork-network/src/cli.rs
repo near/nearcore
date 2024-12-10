@@ -551,7 +551,7 @@ impl ForkNetworkCommand {
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
-        let mut new_epoch_configs = BTreeMap::<u32, EpochConfig>::new();
+        let mut new_epoch_configs = BTreeMap::new();
         for version in first_version..=PROTOCOL_VERSION {
             let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
             if let Some(num_seats) = num_seats {
@@ -559,15 +559,10 @@ impl ForkNetworkCommand {
                 config.validator_selection_config.num_chunk_producer_seats = *num_seats;
                 config.validator_selection_config.num_chunk_validator_seats = *num_seats;
             }
-            new_epoch_configs.insert(version, config);
+            new_epoch_configs.insert(version, Arc::new(config));
         }
-        let first_config = new_epoch_configs.get(&first_version).unwrap().clone();
-
-        let new_arc_epoch_configs = new_epoch_configs
-            .into_iter()
-            .map(|(version, config)| (version, Arc::new(config)))
-            .collect();
-        let epoch_config_store = EpochConfigStore::test(new_arc_epoch_configs);
+        let first_config = new_epoch_configs.get(&first_version).unwrap().as_ref().clone();
+        let epoch_config_store = EpochConfigStore::test(new_epoch_configs);
 
         epoch_config_store.dump_epoch_configs_between(
             &first_version,
