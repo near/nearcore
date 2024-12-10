@@ -34,6 +34,7 @@ use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStorageError, FlatStorageReadyStatus,
+    FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
     FlatStorageReshardingStatus, FlatStorageStatus, ParentSplitParameters,
 };
 use near_store::{ShardUId, StorageError};
@@ -261,6 +262,14 @@ impl FlatStorageResharder {
             TaskExecutionStatus::NotStarted,
         );
         self.set_resharding_event(event);
+
+        let metrics = FlatStorageReshardingShardSplitMetrics::new(
+            parent_shard,
+            split_params.left_child_shard,
+            split_params.right_child_shard,
+        );
+        metrics.update_shards_status(&self.runtime.get_flat_storage_manager());
+
         info!(target: "resharding", ?parent_shard, ?split_params,"scheduling flat storage shard split");
         let resharder = self.clone();
         // Send a request to schedule the execution of `split_shard_task`, to do the bulk of the
@@ -344,8 +353,17 @@ impl FlatStorageResharder {
         }
 
         // We know that the resharding block has become final so let's start the real work.
-        let task_status = self.split_shard_task_impl();
-        self.split_shard_task_postprocessing(task_status);
+        let (parent_shard, split_params) = self
+            .get_parent_shard_and_split_params()
+            .expect("flat storage resharding event must be Split!");
+        let metrics = FlatStorageReshardingShardSplitMetrics::new(
+            parent_shard,
+            split_params.left_child_shard,
+            split_params.right_child_shard,
+        );
+
+        let task_status = self.split_shard_task_impl(parent_shard, &split_params, &metrics);
+        self.split_shard_task_postprocessing(parent_shard, split_params, &metrics, task_status);
         info!(target: "resharding", ?task_status, "flat storage shard split task finished");
         task_status
     }
@@ -353,7 +371,12 @@ impl FlatStorageResharder {
     /// Performs the bulk of [split_shard_task].
     ///
     /// Returns `true` if the routine completed successfully.
-    fn split_shard_task_impl(&self) -> FlatStorageReshardingSchedulableTaskResult {
+    fn split_shard_task_impl(
+        &self,
+        parent_shard: ShardUId,
+        split_params: &ParentSplitParameters,
+        metrics: &FlatStorageReshardingShardSplitMetrics,
+    ) -> FlatStorageReshardingSchedulableTaskResult {
         self.set_resharding_event_execution_status(TaskExecutionStatus::Started);
 
         // Exit early if the task has already been cancelled.
@@ -364,12 +387,10 @@ impl FlatStorageResharder {
         // Determines after how many bytes worth of key-values the process stops to commit changes
         // and to check cancellation.
         let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
+        metrics.set_split_shard_batch_size(batch_size);
         // Delay between every batch.
         let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
 
-        let (parent_shard, split_params) = self
-            .get_parent_shard_and_split_params()
-            .expect("flat storage resharding event must be Split!");
         info!(target: "resharding", ?parent_shard, ?split_params, ?batch_delay, ?batch_size, "flat storage shard split task: starting key-values copy");
 
         // Prepare the store object for commits and the iterator over parent's flat storage.
@@ -387,6 +408,7 @@ impl FlatStorageResharder {
         };
 
         let mut num_batches_done: usize = 0;
+        metrics.set_split_shard_processed_bytes(0);
         let mut iter_exhausted = false;
 
         loop {
@@ -432,6 +454,8 @@ impl FlatStorageResharder {
             }
 
             num_batches_done += 1;
+            metrics.set_split_shard_processed_batches(num_batches_done);
+            metrics.inc_split_shard_processed_bytes_by(processed_size);
 
             // If `iter`` is exhausted we can exit after the store commit.
             if iter_exhausted {
@@ -457,11 +481,11 @@ impl FlatStorageResharder {
     )]
     fn split_shard_task_postprocessing(
         &self,
+        parent_shard: ShardUId,
+        split_params: ParentSplitParameters,
+        metrics: &FlatStorageReshardingShardSplitMetrics,
         task_status: FlatStorageReshardingSchedulableTaskResult,
     ) {
-        let (parent_shard, split_params) = self
-            .get_parent_shard_and_split_params()
-            .expect("flat storage resharding event must be Split!");
         let ParentSplitParameters {
             left_child_shard,
             right_child_shard,
@@ -524,6 +548,7 @@ impl FlatStorageResharder {
         }
         store_update.commit().unwrap();
         self.remove_resharding_event();
+        metrics.update_shards_status(&self.runtime.get_flat_storage_manager());
     }
 
     /// Returns an iterator over a shard's flat storage at the given block hash. This
@@ -591,14 +616,15 @@ impl FlatStorageResharder {
         chain_store: &ChainStore,
     ) -> FlatStorageReshardingTaskResult {
         info!(target: "resharding", ?shard_uid, ?flat_head_block_hash, "flat storage shard catchup task started");
+        let metrics = FlatStorageReshardingShardCatchUpMetrics::new(&shard_uid);
         // Apply deltas and then create the flat storage.
         let apply_result =
-            self.shard_catchup_apply_deltas(shard_uid, flat_head_block_hash, chain_store);
+            self.shard_catchup_apply_deltas(shard_uid, flat_head_block_hash, chain_store, &metrics);
         let Ok((num_batches_done, flat_head)) = apply_result else {
             error!(target: "resharding", ?shard_uid, err = ?apply_result.unwrap_err(), "flat storage shard catchup delta application failed!");
             return FlatStorageReshardingTaskResult::Failed;
         };
-        match self.shard_catchup_finalize_storage(shard_uid, &flat_head) {
+        match self.shard_catchup_finalize_storage(shard_uid, &flat_head, &metrics) {
             Ok(_) => {
                 let task_status = FlatStorageReshardingTaskResult::Successful { num_batches_done };
                 info!(target: "resharding", ?shard_uid, ?task_status, "flat storage shard catchup task finished");
@@ -621,6 +647,7 @@ impl FlatStorageResharder {
         shard_uid: ShardUId,
         mut flat_head_block_hash: CryptoHash,
         chain_store: &ChainStore,
+        metrics: &FlatStorageReshardingShardCatchUpMetrics,
     ) -> Result<(usize, Tip), Error> {
         // How many block heights of deltas are applied in a single commit.
         let catch_up_blocks = self.resharding_config.get().catch_up_blocks;
@@ -684,7 +711,9 @@ impl FlatStorageResharder {
                 )),
             );
             store_update.commit()?;
+
             num_batches_done += 1;
+            metrics.set_head_height(chain_store.get_block_height(&flat_head_block_hash)?);
 
             // Sleep between batches in order to throttle resharding and leave some resource for the
             // regular node operation.
@@ -704,6 +733,7 @@ impl FlatStorageResharder {
         &self,
         shard_uid: ShardUId,
         flat_head: &Tip,
+        metrics: &FlatStorageReshardingShardCatchUpMetrics,
     ) -> Result<(), Error> {
         // GC deltas from forks which could have appeared on chain during catchup.
         let store = self.runtime.store().flat_store();
@@ -720,17 +750,16 @@ impl FlatStorageResharder {
             }
         }
         // Set the flat storage status to `Ready`.
-        store_update.set_flat_storage_status(
-            shard_uid,
-            FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                flat_head: BlockInfo {
-                    hash: flat_head.last_block_hash,
-                    prev_hash: flat_head.prev_block_hash,
-                    height: flat_head.height,
-                },
-            }),
-        );
+        let flat_storage_status = FlatStorageStatus::Ready(FlatStorageReadyStatus {
+            flat_head: BlockInfo {
+                hash: flat_head.last_block_hash,
+                prev_hash: flat_head.prev_block_hash,
+                height: flat_head.height,
+            },
+        });
+        store_update.set_flat_storage_status(shard_uid, flat_storage_status.clone());
         store_update.commit()?;
+        metrics.set_status(&flat_storage_status);
         info!(target: "resharding", ?shard_uid, %deltas_gc_count, "garbage collected flat storage deltas");
         // Create the flat storage entry for this shard in the manager.
         self.runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
@@ -747,7 +776,7 @@ impl FlatStorageResharder {
         debug_assert!(!current_event.has_started());
         // Clean up the database state.
         match current_event {
-            FlatStorageReshardingEventStatus::SplitShard(parent_shard, split_status, _) => {
+            FlatStorageReshardingEventStatus::SplitShard(parent_shard, split_status, ..) => {
                 let flat_store = self.runtime.store().flat_store();
                 let mut store_update = flat_store.store_update();
                 // Parent go back to Ready state.
@@ -1038,7 +1067,7 @@ impl FlatStorageReshardingEventStatus {
 
     fn resharding_hash(&self) -> CryptoHash {
         match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, split_status, _) => {
+            FlatStorageReshardingEventStatus::SplitShard(_, split_status, ..) => {
                 split_status.resharding_hash
             }
         }
@@ -1400,7 +1429,13 @@ mod tests {
 
         // Immediately cancel the resharding and call the resharding task.
         controller.handle.stop();
-        resharder.split_shard_task_impl();
+        let (parent_shard, split_params) = resharder.get_parent_shard_and_split_params().unwrap();
+        let metrics = FlatStorageReshardingShardSplitMetrics::new(
+            parent_shard,
+            split_params.left_child_shard,
+            split_params.right_child_shard,
+        );
+        resharder.split_shard_task_impl(parent_shard, &split_params, &metrics);
 
         assert!(resharder.resharding_event().is_some());
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_err());

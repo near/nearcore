@@ -488,6 +488,45 @@ pub mod flat_state_metrics {
             .unwrap()
         });
     }
+
+    pub mod resharding {
+        use near_o11y::metrics::{
+            try_create_int_gauge, try_create_int_gauge_vec, IntGauge, IntGaugeVec,
+        };
+        use std::sync::LazyLock;
+
+        pub static STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_resharding_status",
+                "Integer representing status of flat storage resharding",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+        pub static SPLIT_SHARD_PROCESSED_BATCHES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_resharding_split_shard_processed_batches",
+                "Number of processed batches inside the split shard task",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+        pub static SPLIT_SHARD_BATCH_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+            try_create_int_gauge(
+                "near_flat_storage_resharding_split_shard_batch_size",
+                "Size in bytes of every batch inside the split shard task",
+            )
+            .unwrap()
+        });
+        pub static SPLIT_SHARD_PROCESSED_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_resharding_split_shard_processed_bytes",
+                "Total bytes of Flat State that have been split inside the split shard task",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+    }
 }
 
 pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
