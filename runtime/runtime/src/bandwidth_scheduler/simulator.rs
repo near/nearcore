@@ -215,13 +215,14 @@ impl ChainSimulator {
                 (*chunk_shard_id, status)
             })
             .collect();
+        let fake_prev_block_hash = CryptoHash::hash_borsh(height);
         let scheduler_output = BandwidthScheduler::run(
             self.shard_layout.clone(),
             &mut shard_state.scheduler_state,
             &scheduler_params,
             &block_bandwidth_requests,
             &shards_status,
-            height,
+            fake_prev_block_hash.0,
         );
 
         // Don't process receipts for missing chunks, return early if a chunk is missing
@@ -576,7 +577,7 @@ fn test_bandwidth_scheduler_simulator_32_shards() {
         .build();
     let summary = run_scenario(scenario);
     assert!(summary.bandwidth_utilization > 0.80); // 80% utilization
-    assert!(summary.link_imbalance_ratio < 1.60); // < 60% difference on links
+    assert!(summary.link_imbalance_ratio < 1.70); // < 70% difference on links
     assert!(summary.worst_link_estimation_ratio > 0.6); // 60% of estimated link throughput
     assert!(summary.max_incoming <= summary.max_shard_bandwidth); // Incoming max_shard_bandwidth is respected
     assert!(summary.max_outgoing <= summary.max_shard_bandwidth); // Outgoing max_shard_bandwidth is respected

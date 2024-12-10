@@ -202,7 +202,7 @@ impl BandwidthScheduler {
         params: &BandwidthSchedulerParams,
         bandwidth_requests: &BlockBandwidthRequests,
         shards_status: &BTreeMap<ShardId, ShardStatus>,
-        rng_seed: u64,
+        rng_seed: [u8; 32],
     ) -> GrantedBandwidth {
         if shard_layout.num_shards() == 0 {
             // No shards, nothing to grant.
@@ -266,7 +266,7 @@ impl BandwidthScheduler {
             link_allowances,
             granted_bandwidth,
             params: *params,
-            rng: ChaCha20Rng::seed_from_u64(rng_seed),
+            rng: ChaCha20Rng::from_seed(rng_seed),
         };
 
         // Run the core algorithm
@@ -783,7 +783,7 @@ mod tests {
             &params,
             &BlockBandwidthRequests { shards_bandwidth_requests },
             &shards_status,
-            0,
+            [0; 32],
         );
         let elapsed = start_time.elapsed();
         let millis = elapsed.as_secs_f64() * 1000.0;

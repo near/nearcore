@@ -95,7 +95,7 @@ pub fn run_bandwidth_scheduler(
         &params,
         &apply_state.bandwidth_requests,
         &shards_status,
-        apply_state.block_height,
+        apply_state.prev_block_hash.0,
     );
 
     // Hash (some of) the inputs to the scheduler algorithm and save the checksum in the state.
