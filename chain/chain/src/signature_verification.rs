@@ -70,7 +70,7 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
 }
 
-pub fn verify_header_signature_with_epoch_manager(
+pub fn verify_block_header_signature_with_epoch_manager(
     epoch_manager: &dyn EpochManagerAdapter,
     header: &BlockHeader,
 ) -> Result<bool, Error> {
