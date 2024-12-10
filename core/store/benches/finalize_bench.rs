@@ -32,7 +32,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, ShardId};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::DBCol;
 use rand::prelude::SliceRandom;
@@ -86,7 +86,7 @@ fn benchmark_write_partial_encoded_chunk(bench: &mut Bencher) {
     });
 }
 
-fn validator_signer() -> InMemoryValidatorSigner {
+fn validator_signer() -> ValidatorSigner {
     InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
 }
 
@@ -138,7 +138,7 @@ fn create_chunk_header(height: u64, shard_id: ShardId) -> ShardChunkHeader {
         vec![],
         congestion_info,
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
-        &validator_signer().into(),
+        &validator_signer(),
     ))
 }
 
@@ -211,7 +211,7 @@ fn create_encoded_shard_chunk(
         Default::default(),
         congestion_info,
         BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
-        &validator_signer().into(),
+        &validator_signer(),
         &rs,
         100,
     )
