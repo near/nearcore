@@ -1464,11 +1464,21 @@ fn test_archival_gc_common(
         let header = block.header();
         let epoch_id = header.epoch_id();
         let shard_layout = env.clients[0].epoch_manager.get_shard_layout(epoch_id).unwrap();
+        let is_last_block_in_epoch =
+            env.clients[0].epoch_manager.is_next_block_epoch_start(header.hash()).unwrap();
 
         blocks.push(block);
 
         if i <= max_cold_head_height {
-            update_cold_db(storage.cold_db().unwrap(), hot_store, &shard_layout, &i, 1).unwrap();
+            update_cold_db(
+                storage.cold_db().unwrap(),
+                hot_store,
+                &shard_layout,
+                &i,
+                is_last_block_in_epoch,
+                1,
+            )
+            .unwrap();
             update_cold_head(storage.cold_db().unwrap(), &hot_store, &i).unwrap();
         }
     }

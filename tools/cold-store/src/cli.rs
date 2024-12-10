@@ -215,24 +215,26 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
 
     // Here it should be sufficient to just read from hot storage.
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
-    let cold_head_hash = get_ser_from_store::<CryptoHash>(
+    let next_height_block_hash = get_ser_from_store::<CryptoHash>(
         &store.get_hot_store(),
         DBCol::BlockHeight,
-        &cold_head_height.to_le_bytes(),
+        &next_height.to_le_bytes(),
     )
-    .unwrap_or_else(|| panic!("No block hash in hot storage for height {}", cold_head_height));
+    .unwrap_or_else(|| panic!("No block hash in hot storage for height {}", next_height));
 
     // For copying block we need to have shard_layout.
     // For that we need epoch_id.
-    // For that we might use prev_block_hash, and because next_hight = cold_head_height + 1,
-    // we use cold_head_hash.
+    // For that we might use the hash of the block.
+    let epoch_id = &epoch_manager.get_epoch_id(&next_height_block_hash).unwrap();
+    let shard_layout = &epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let is_last_block_in_epoch =
+        epoch_manager.is_next_block_epoch_start(&next_height_block_hash).unwrap();
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
-        &epoch_manager
-            .get_shard_layout(&epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
-            .unwrap(),
+        shard_layout,
         &next_height,
+        is_last_block_in_epoch,
         1,
     )
     .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
