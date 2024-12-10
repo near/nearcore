@@ -376,6 +376,7 @@ impl Client {
             &shard_layout,
             *prev_chunk_original_block.hash(),
             prev_prev_chunk_header.height_included(),
+            false,
         )?;
 
         // Convert to the right format (from [block_hash -> Vec<ReceiptProof>] to [chunk_hash -> ReceiptProof])

@@ -392,6 +392,7 @@ impl ReplayController {
             &shard_layout,
             *block_header.hash(),
             prev_chunk_height_included,
+            true,
         )?;
         let receipts = collect_receipts_from_response(receipt_response);
         Ok(receipts)

@@ -510,6 +510,7 @@ fn validate_source_receipt_proofs(
     // Iterate over blocks between last_chunk_block (inclusive) and last_last_chunk_block (exclusive),
     // from the newest blocks to the oldest.
     for block in receipt_source_blocks {
+        tracing::warn!(target: "stateless_validation", ?target_chunk_shard_id, block_height = block.header().height(), "block");
         // Collect all receipts coming from this block.
         let mut block_receipt_proofs = Vec::new();
 
@@ -525,6 +526,8 @@ fn validate_source_receipt_proofs(
                     chunk.chunk_hash()
                 )));
             };
+            tracing::warn!(target: "stateless_validation", chunk_shard_id = ?chunk.shard_id(), "chunk");
+
             validate_receipt_proof(receipt_proof, chunk, current_target_shard_id)?;
 
             expected_proofs_len += 1;

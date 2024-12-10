@@ -211,6 +211,7 @@ pub trait ChainStoreAccess {
         target_shard_layout: &ShardLayout,
         block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
+        filter_receipts: bool,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let _span =
             tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, ?block_hash, last_chunk_height_included).entered();
@@ -249,27 +250,15 @@ pub trait ChainStoreAccess {
                 current_shard_layout = prev_shard_layout;
             }
 
-            let receipts_proofs = self.get_incoming_receipts(&current_block_hash, current_shard_id);
-            match receipts_proofs {
-                Ok(receipt_proofs) => {
+            let maybe_receipts_proofs =
+                self.get_incoming_receipts(&current_block_hash, current_shard_id);
+            let receipts_proofs = match maybe_receipts_proofs {
+                Ok(receipts_proofs) => {
                     tracing::debug!(
                         target: "chain",
                         "found receipts from block with missing chunks",
                     );
-
-                    // If the shard layout changed we need to filter receipts to
-                    // make sure we only include receipts where receiver belongs
-                    // to the target shard id in the target shard layout.
-                    let filtered_receipt_proofs = filter_incoming_receipts_for_shard(
-                        target_shard_layout,
-                        target_shard_id,
-                        receipt_proofs,
-                    );
-
-                    ret.push(ReceiptProofResponse(
-                        current_block_hash,
-                        filtered_receipt_proofs.into(),
-                    ));
+                    receipts_proofs
                 }
                 Err(err) => {
                     tracing::debug!(
@@ -283,10 +272,24 @@ pub trait ChainStoreAccess {
                     // incoming receipts. It would be nicer to explicitly check
                     // that condition rather than relying on errors when reading
                     // from the db.
-                    ret.push(ReceiptProofResponse(current_block_hash, Arc::new(vec![])));
+                    Arc::new(vec![])
                 }
-            }
+            };
 
+            // If the shard layout changed we need to filter receipts to
+            // make sure we only include receipts where receiver belongs
+            // to the target shard id in the target shard layout.
+            let filtered_receipt_proofs = if filter_receipts {
+                Arc::new(filter_incoming_receipts_for_shard(
+                    &target_shard_layout,
+                    target_shard_id,
+                    receipts_proofs,
+                ))
+            } else {
+                receipts_proofs
+            };
+
+            ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));
             current_block_hash = *prev_hash;
         }
 
