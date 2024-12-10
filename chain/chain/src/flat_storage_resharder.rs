@@ -27,9 +27,9 @@ use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
     parse_account_id_from_received_data_key, parse_account_id_from_trie_key_with_separator,
 };
-use near_primitives::types::AccountId;
 #[cfg(feature = "test_features")]
 use near_primitives::types::BlockHeightDelta;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::{
@@ -183,6 +183,9 @@ impl FlatStorageResharder {
         self.check_new_event_is_allowed()?;
         // Cancel any scheduled, not yet started event.
         self.cancel_scheduled_event();
+
+        let manager = self.runtime.get_flat_storage_manager();
+        manager.split_started();
 
         // Change parent and children shards flat storage status.
         let store = self.runtime.store().flat_store();
@@ -583,17 +586,21 @@ impl FlatStorageResharder {
         &self,
         shard_uid: ShardUId,
         chain_store: &ChainStore,
-    ) -> FlatStorageReshardingTaskResult {
+    ) -> FlatStorageReshardingSchedulableTaskResult {
         info!(target: "resharding", ?shard_uid, "flat storage shard catchup task started");
         // Apply deltas and then create the flat storage.
         let apply_result = self.shard_catchup_apply_deltas(shard_uid, chain_store);
-        let Ok((num_batches_done, flat_head)) = apply_result else {
+        let Ok(res) = apply_result else {
             error!(target: "resharding", ?shard_uid, err = ?apply_result.unwrap_err(), "flat storage shard catchup delta application failed!");
-            return FlatStorageReshardingTaskResult::Failed;
+            return FlatStorageReshardingSchedulableTaskResult::Failed;
+        };
+        let Some((num_batches_done, flat_head)) = res else {
+            return FlatStorageReshardingSchedulableTaskResult::Postponed;
         };
         match self.shard_catchup_finalize_storage(shard_uid, &flat_head) {
             Ok(_) => {
-                let task_status = FlatStorageReshardingTaskResult::Successful { num_batches_done };
+                let task_status =
+                    FlatStorageReshardingSchedulableTaskResult::Successful { num_batches_done };
                 info!(target: "resharding", ?shard_uid, ?task_status, "flat storage shard catchup task finished");
                 // At this point we can trigger the reload of memtries.
                 self.sender.memtrie_reload_sender.send(MemtrieReloadRequest { shard_uid });
@@ -601,9 +608,32 @@ impl FlatStorageResharder {
             }
             Err(err) => {
                 error!(target: "resharding", ?shard_uid, ?err, "flat storage shard catchup finalize failed!");
-                FlatStorageReshardingTaskResult::Failed
+                FlatStorageReshardingSchedulableTaskResult::Failed
             }
         }
+    }
+
+    /// checks whether there's a snapshot in progress, and calls split_done() if we've reached a height close to the
+    /// desired snapshot height (the state snapshot code will apply the other deltas). Returns true if we've already
+    /// applied all deltas up to the desired snapshot height, and should no longer continue to give the state snapshot
+    /// code a chance to finish first.
+    fn coordinate_snapshot(&self, height: BlockHeight, chain_store: &ChainStore) -> bool {
+        let manager = self.runtime.get_flat_storage_manager();
+        let Some(snapshot_hash) = manager.snapshot_wanted() else {
+            manager.split_done();
+            return false;
+        };
+        let Ok(snapshot_header) = chain_store.get_block_header(&snapshot_hash) else {
+            // This probably shouldn't happen, but we'll just proceed if it does, and snapshots probably won't work.
+            tracing::error!(target: "resharding", %snapshot_hash, "Could not find header for snapshot hash. Proceeding with resharding catchup");
+            manager.split_done();
+            return false;
+        };
+        let snapshot_height = snapshot_header.height();
+        if height + 10 >= snapshot_height {
+            manager.split_done();
+        }
+        height >= snapshot_height
     }
 
     /// Applies flat storage deltas in batches on a shard that is in catchup status.
@@ -613,7 +643,7 @@ impl FlatStorageResharder {
         &self,
         shard_uid: ShardUId,
         chain_store: &ChainStore,
-    ) -> Result<(usize, Tip), Error> {
+    ) -> Result<Option<(usize, Tip)>, Error> {
         // How many block heights of deltas are applied in a single commit.
         let catch_up_blocks = self.resharding_config.get().catch_up_blocks;
         // Delay between every batch.
@@ -651,15 +681,20 @@ impl FlatStorageResharder {
 
             // If we reached the desired new flat head, we can terminate the delta application step.
             if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
-                return Ok((
+                // Call split_done() in case this is the first iteration of the loop and the below call to
+                // `coordinate_snapshot()` was never made.
+                let manager = self.runtime.get_flat_storage_manager();
+                manager.split_done();
+                return Ok(Some((
                     num_batches_done,
                     Tip::from_header(&chain_store.get_block_header(&flat_head_block_hash)?),
-                ));
+                )));
             }
 
             let mut merged_changes = FlatStateChanges::default();
             let store = self.runtime.store().flat_store();
             let mut store_update = store.store_update();
+            let mut postpone = false;
 
             // Merge deltas from the next blocks until we reach chain final head.
             for _ in 0..catch_up_blocks {
@@ -670,6 +705,10 @@ impl FlatStorageResharder {
                 );
                 // Stop if we reached the desired new flat head.
                 if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
+                    break;
+                }
+                if self.coordinate_snapshot(height, chain_store) {
+                    postpone = true;
                     break;
                 }
                 flat_head_block_hash = chain_store.get_next_block_hash(&flat_head_block_hash)?;
@@ -694,6 +733,9 @@ impl FlatStorageResharder {
             store_update.commit()?;
             num_batches_done += 1;
 
+            if postpone {
+                return Ok(None);
+            }
             // Sleep between batches in order to throttle resharding and leave some resource for the
             // regular node operation.
             std::thread::sleep(batch_delay);
@@ -1060,13 +1102,6 @@ pub enum TaskExecutionStatus {
     NotStarted,
 }
 
-/// Result of a simple flat storage resharding task.
-#[derive(Clone, Debug, Copy, Eq, PartialEq)]
-pub enum FlatStorageReshardingTaskResult {
-    Successful { num_batches_done: usize },
-    Failed,
-}
-
 /// Result of a schedulable flat storage resharding task. Extends [FlatStorageReshardingTaskResult]
 /// with the option to cancel or postpone the task.
 #[derive(Clone, Debug, Copy, Eq, PartialEq)]
@@ -1220,7 +1255,7 @@ mod tests {
             request.as_ref().unwrap().resharder.split_shard_task(&self.chain_store.lock().unwrap())
         }
 
-        fn call_shard_catchup_tasks(&self) -> Vec<FlatStorageReshardingTaskResult> {
+        fn call_shard_catchup_tasks(&self) -> Vec<FlatStorageReshardingSchedulableTaskResult> {
             self.shard_catchup_requests
                 .lock()
                 .unwrap()
@@ -2242,8 +2277,8 @@ mod tests {
         assert_eq!(
             sender.call_shard_catchup_tasks(),
             vec![
-                FlatStorageReshardingTaskResult::Successful { num_batches_done: 1 },
-                FlatStorageReshardingTaskResult::Successful { num_batches_done: 1 }
+                FlatStorageReshardingSchedulableTaskResult::Successful { num_batches_done: 1 },
+                FlatStorageReshardingSchedulableTaskResult::Successful { num_batches_done: 1 }
             ]
         );
 

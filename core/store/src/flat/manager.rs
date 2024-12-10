@@ -1,5 +1,10 @@
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus, POISONED_LOCK_ERR};
+use crate::flat::{
+    BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
+    POISONED_LOCK_ERR,
+};
+use crate::{DBCol, StoreAdapter};
+use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -30,11 +35,22 @@ pub struct FlatStorageManagerInner {
     /// this epoch can share the same `head` and `tail`, similar for shards for the next epoch,
     /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
     flat_storages: Mutex<HashMap<ShardUId, FlatStorage>>,
+    /// Set to Some() when there's a state snapshot in progress. Used to signal to the resharding flat
+    /// storage catchup code that it shouldn't advance past this block
+    want_snapshot: Mutex<Option<CryptoHash>>,
+    // Set to true when there's a resharding flat storage split in progress. Used to signal to the state snapshot
+    /// code that it can't proceed yet.
+    split_in_progress: Mutex<bool>,
 }
 
 impl FlatStorageManager {
     pub fn new(store: FlatStoreAdapter) -> Self {
-        Self(Arc::new(FlatStorageManagerInner { store, flat_storages: Default::default() }))
+        Self(Arc::new(FlatStorageManagerInner {
+            store,
+            flat_storages: Default::default(),
+            want_snapshot: Default::default(),
+            split_in_progress: Default::default(),
+        }))
     }
 
     /// When a node starts from an empty database, this function must be called to ensure
@@ -79,6 +95,66 @@ impl FlatStorageManager {
             tracing::warn!(target: "store", ?shard_uid, "Creating flat storage for shard that already has flat storage.");
         }
         Ok(())
+    }
+
+    /// Sets the status to `Ready` if it's currently `Resharding(CatchingUp)`
+    fn mark_flat_storage_ready(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+        // Don't use Self::get_flat_storage_status() because there's no need to panic if this fails, since this is used
+        // during state snapshotting where an error isn't critical to node operation.
+        let status = self.0.store.get_flat_storage_status(shard_uid)?;
+        let catchup_flat_head = match status {
+            FlatStorageStatus::Ready(_) => return Ok(()),
+            FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(flat_head)) => {
+                flat_head
+            }
+            _ => {
+                return Err(StorageError::StorageInconsistentState(format!(
+                    "Unexpected flat storage status: {:?}",
+                    &status
+                )))
+            }
+        };
+        let header = self
+            .0
+            .store
+            .store_ref()
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, catchup_flat_head.as_ref())
+            .map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "could not read block header {}: {:?}",
+                    &catchup_flat_head, e
+                ))
+            })?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!(
+                    "block header {} not found",
+                    &catchup_flat_head
+                ))
+            })?;
+        let flat_head = BlockInfo {
+            hash: *header.hash(),
+            prev_hash: *header.prev_hash(),
+            height: header.height(),
+        };
+        let mut store_update = self.0.store.store_update();
+        store_update.set_flat_storage_status(
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
+        );
+        // TODO: Consider adding a StorageError::IO variant?
+        store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
+        Ok(())
+    }
+
+    // If the flat storage status is Resharding(CatchingUp), sets it to Ready(), and then calls create_flat_storage_for_shard()
+    // This is used in creating state snapshots when this might be a flat storage that is in the middle of catchup, and that
+    // should now be considered `Ready` in the state snapshot, even if not in the main DB.
+    pub fn mark_ready_and_create_flat_storage(
+        &self,
+        shard_uid: ShardUId,
+    ) -> Result<(), StorageError> {
+        self.mark_flat_storage_ready(shard_uid)?;
+        self.create_flat_storage_for_shard(shard_uid)
     }
 
     /// Update flat storage for given processed or caught up block, which includes:
@@ -220,12 +296,56 @@ impl FlatStorageManager {
         }
     }
 
-    /// Updates `move_head_enabled` for all shards.
-    pub fn set_flat_state_updates_mode(&self, enabled: bool) {
+    /// Should be called when a flat storage resharding has begun, and should be followed by a call to split_done() when it's finished.
+    pub fn split_started(&self) {
+        let mut split_in_progress = self.0.split_in_progress.lock().expect(POISONED_LOCK_ERR);
+        *split_in_progress = true;
+    }
+
+    /// Should be called when the flat storage is ready to be snapshotted after a resharding split.
+    pub fn split_done(&self) {
+        let mut split_in_progress = self.0.split_in_progress.lock().expect(POISONED_LOCK_ERR);
+        *split_in_progress = false;
+    }
+
+    /// Returns true if there's a flat storage resharding in progress, and a state snapshot can't be taken yet.
+    pub fn splitting_shards(&self) -> bool {
+        let split_in_progress = self.0.split_in_progress.lock().expect(POISONED_LOCK_ERR);
+        *split_in_progress
+    }
+
+    /// Should be called when we want to take a state snapshot. Disallows flat head updates, and signals to any resharding
+    /// flat storage code that it should not advance beyond this hash
+    pub fn want_snapshot(&self, hash: CryptoHash) {
+        {
+            let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+            *want_snapshot = Some(hash);
+        }
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         for flat_storage in flat_storages.values() {
-            flat_storage.set_flat_head_update_mode(enabled);
+            flat_storage.set_flat_head_update_mode(false);
         }
-        tracing::debug!(target: "store", enabled, "Locked/Unlocked flat head updates");
+        tracing::debug!(target: "store", "Locked flat head updates");
+    }
+
+    /// Should be called when we're done taking a state snapshot. Allows flat head updates, and signals to any resharding
+    /// flat storage code that it can advance now.
+    pub fn snapshot_taken(&self) {
+        {
+            let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+            *want_snapshot = None;
+        }
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        for flat_storage in flat_storages.values() {
+            flat_storage.set_flat_head_update_mode(true);
+        }
+        tracing::debug!(target: "store", "Unlocked flat head updates");
+    }
+
+    // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
+    // past the given hash
+    pub fn snapshot_wanted(&self) -> Option<CryptoHash> {
+        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        *want_snapshot
     }
 }

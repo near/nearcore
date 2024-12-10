@@ -1,4 +1,6 @@
-use near_async::messaging::{Actor, CanSend, Handler, Sender};
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
+use near_async::messaging::{Actor, CanSend, Handler, HandlerWithContext, Sender};
+use near_async::time::Duration;
 use near_async::{MultiSend, MultiSenderFrom};
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
@@ -85,8 +87,25 @@ impl StateSnapshotActor {
         }
     }
 
-    pub fn handle_create_snapshot_request(&mut self, msg: CreateSnapshotRequest) {
-        tracing::debug!(target: "state_snapshot", ?msg);
+    pub fn handle_create_snapshot_request(
+        &mut self,
+        msg: CreateSnapshotRequest,
+        ctx: &mut dyn DelayedActionRunner<Self>,
+    ) {
+        tracing::debug!(target: "state_snapshot", prev_block_hash=?&msg.prev_block_hash, "Handle CreateSnapshotRequest");
+
+        // TODO: instead of resending the same message over and over, wait on a Condvar.
+        // This would require making testloop work with Condvars that normally are meant to be woken up by another thread
+        if self.flat_storage_manager.splitting_shards() {
+            ctx.run_later(
+                "ReshardingActor FlatStorageSplitShard",
+                Duration::seconds(1),
+                move |act, ctx| {
+                    act.handle_create_snapshot_request(msg, ctx);
+                },
+            );
+            return;
+        }
 
         let CreateSnapshotRequest { prev_block_hash, epoch_height, shard_indexes_and_uids, block } =
             msg;
@@ -95,7 +114,10 @@ impl StateSnapshotActor {
 
         // Unlocking flat state head can be done asynchronously in state_snapshot_actor.
         // The next flat storage update will bring flat storage to latest head.
-        self.flat_storage_manager.set_flat_state_updates_mode(true);
+        // TODO(resharding): check what happens if two calls to want_snapshot() are made before this point,
+        // which can happen with short epochs if a state snapshot takes longer than the rest of the epoch to complete.
+        // TODO(resharding): this can actually be called sooner, just after the rocksdb checkpoint is made.
+        self.flat_storage_manager.snapshot_taken();
         match res {
             Ok(res_shard_uids) => {
                 let Some(res_shard_uids) = res_shard_uids else {
@@ -124,10 +146,10 @@ impl Handler<DeleteAndMaybeCreateSnapshotRequest> for StateSnapshotActor {
     }
 }
 
-impl Handler<CreateSnapshotRequest> for StateSnapshotActor {
+impl HandlerWithContext<CreateSnapshotRequest> for StateSnapshotActor {
     #[perf]
-    fn handle(&mut self, msg: CreateSnapshotRequest) {
-        self.handle_create_snapshot_request(msg)
+    fn handle(&mut self, msg: CreateSnapshotRequest, ctx: &mut dyn DelayedActionRunner<Self>) {
+        self.handle_create_snapshot_request(msg, ctx)
     }
 }
 
@@ -166,7 +188,8 @@ pub fn get_make_snapshot_callback(
             "make_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
         // We need to stop flat head updates synchronously in the client thread.
         // Async update in state_snapshot_actor and potentially lead to flat head progressing beyond prev_block_hash
-        flat_storage_manager.set_flat_state_updates_mode(false);
+        // This also prevents post-resharding flat storage catchup from advancing past `prev_block_hash`
+        flat_storage_manager.want_snapshot(prev_block_hash);
         let create_snapshot_request =
             CreateSnapshotRequest { prev_block_hash, epoch_height, shard_indexes_and_uids, block };
         sender.send(DeleteAndMaybeCreateSnapshotRequest {
