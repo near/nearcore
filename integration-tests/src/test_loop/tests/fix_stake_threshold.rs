@@ -6,6 +6,7 @@ use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::num_rational::Rational32;
@@ -22,7 +23,7 @@ fn slow_test_fix_validator_stake_threshold() {
     let test_loop_builder = TestLoopBuilder::new();
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
-
+    let initial_balance = 1_000_000 * ONE_NEAR;
     let accounts =
         (0..6).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
@@ -43,20 +44,17 @@ fn slow_test_fix_validator_stake_threshold() {
             amount: 100_000 * ONE_NEAR,
         },
     ];
+    let validators_spec = ValidatorsSpec::raw(validators, 3, 3, 3);
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .protocol_version(protocol_version)
         .genesis_time_from_clock(&test_loop_builder.clock())
         .shard_layout(epoch_config_store.get_config(protocol_version).shard_layout.clone())
         .epoch_length(epoch_length)
-        .validators_raw(validators, 3, 3, 3)
-        .max_inflation_rate(Rational32::new(0, 1));
-    let initial_balance = 1_000_000 * ONE_NEAR;
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, _) = genesis_builder.build();
+        .validators_spec(validators_spec)
+        .max_inflation_rate(Rational32::new(0, 1))
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
 
     let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = test_loop_builder
         .genesis(genesis)
