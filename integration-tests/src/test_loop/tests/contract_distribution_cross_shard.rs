@@ -1,8 +1,12 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -11,10 +15,10 @@ use crate::test_loop::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
+use crate::test_loop::utils::get_head_height;
 use crate::test_loop::utils::transactions::{
     call_contract, check_txs, deploy_contract, make_accounts,
 };
-use crate::test_loop::utils::{get_head_height, ONE_NEAR};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -73,7 +77,6 @@ fn test_contract_distribution_cross_shard() {
 fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let builder = TestLoopBuilder::new();
 
-    let initial_balance = 10000 * ONE_NEAR;
     // All block_and_chunk_producers will be both block and chunk validators.
     let block_and_chunk_producers =
         (0..NUM_BLOCK_AND_CHUNK_PRODUCERS).map(|idx| accounts[idx].as_str()).collect_vec();
@@ -85,23 +88,27 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let clients = accounts.iter().take(NUM_VALIDATORS + NUM_RPC).cloned().collect_vec();
     let rpc_id = accounts[NUM_VALIDATORS].clone();
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .protocol_version_latest()
-        .genesis_height(GENESIS_HEIGHT)
-        .gas_prices_free()
-        .gas_limit_one_petagas()
-        .shard_layout_simple_v1(&["account4"])
-        .transaction_validity_period(1000)
-        .epoch_length(EPOCH_LENGTH)
-        .validators_desired_roles(&block_and_chunk_producers, &chunk_validators_only)
-        .shuffle_shard_assignment_for_chunk_producers(true)
-        .minimum_validators_per_shard(2);
-    for account in accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let shard_layout = ShardLayout::simple_v1(&["account4"]);
+    let validators_spec =
+        ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
+
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length: EPOCH_LENGTH,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
+        |genesis_builder| {
+            genesis_builder.genesis_height(GENESIS_HEIGHT).transaction_validity_period(1000)
+        },
+        |epoch_config_builder| {
+            epoch_config_builder
+                .shuffle_shard_assignment_for_chunk_producers(true)
+                .minimum_validators_per_shard(2)
+        },
+    );
 
     let env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();

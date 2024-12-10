@@ -1,10 +1,14 @@
 use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
@@ -59,7 +63,6 @@ fn test_create_delete_account() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
-    let initial_balance = 1_000_000 * ONE_NEAR;
     let epoch_length = 5;
     let accounts =
         (0..5).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
@@ -74,15 +77,17 @@ fn test_create_delete_account() {
     assert!(tmp.is_empty());
 
     // Build test environment.
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .epoch_length(epoch_length)
-        .validators_desired_roles(&producers, &validators);
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout: ShardLayout::single_shard(),
+            validators_spec: ValidatorsSpec::desired_roles(&producers, &validators),
+            accounts: &accounts,
+        },
+        |genesis_builder| genesis_builder,
+        |epoch_config_builder| epoch_config_builder,
+    );
 
     let mut env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();

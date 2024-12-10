@@ -1,13 +1,18 @@
 use near_async::messaging::{Handler, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
 use near_network::client::{ProcessTxRequest, StateRequestHeader};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountInfo, BlockHeightDelta, Nonce, NumSeats, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
@@ -15,7 +20,8 @@ use crate::test_loop::utils::transactions::get_anchor_hash;
 use crate::test_loop::utils::ONE_NEAR;
 
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 const EPOCH_LENGTH: BlockHeightDelta = 40;
 
@@ -90,35 +96,45 @@ fn setup_initial_blockchain(
     let accounts =
         if generate_shard_accounts { Some(generate_accounts(&boundary_accounts)) } else { None };
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let epoch_length = 10;
+    let shard_layout =
+        ShardLayout::simple_v1(&boundary_accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    let validators_spec = ValidatorsSpec::raw(
+        validators,
+        num_block_producer_seats as NumSeats,
+        num_chunk_producer_seats as NumSeats,
+        0,
+    );
+
+    let mut genesis_builder = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
-        .protocol_version_latest()
+        .protocol_version(PROTOCOL_VERSION)
         .genesis_height(10000)
-        .epoch_length(EPOCH_LENGTH)
-        .gas_prices_free()
-        .gas_limit_one_petagas()
-        .shard_layout_simple_v1(&boundary_accounts.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout.clone())
         .transaction_validity_period(1000)
-        .epoch_length(10)
-        .validators_raw(
-            validators,
-            num_block_producer_seats as NumSeats,
-            num_chunk_producer_seats as NumSeats,
-            0,
-        )
-        // shuffle the shard assignment so that nodes will have to state sync to catch up future tracked shards.
-        // This part is the only reference to state sync at all in this test, since all we check is that the blockchain
-        // progresses for a few epochs, meaning that state sync must have been successful.
-        .shuffle_shard_assignment_for_chunk_producers(true);
+        .validators_spec(validators_spec.clone());
     if let Some(accounts) = accounts.as_ref() {
         for accounts in accounts.iter() {
             for (account, _nonce) in accounts.iter() {
-                genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
+                genesis_builder =
+                    genesis_builder.add_user_account_simple(account.clone(), 10000 * ONE_NEAR);
             }
         }
     }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let genesis = genesis_builder.build();
+
+    let epoch_config = TestEpochConfigBuilder::new()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        // shuffle the shard assignment so that nodes will have to state sync to catch up future tracked shards.
+        // This part is the only reference to state sync at all in this test, since all we check is that the blockchain
+        // progresses for a few epochs, meaning that state sync must have been successful.
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build();
+    let epoch_config_store =
+        EpochConfigStore::test(BTreeMap::from([(PROTOCOL_VERSION, Arc::new(epoch_config))]));
 
     let env = builder
         .genesis(genesis)

@@ -3,7 +3,7 @@ use itertools::Itertools;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
@@ -961,24 +961,21 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         (base_protocol_version + 1, Arc::new(epoch_config)),
     ]));
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
         .shard_layout(base_shard_layout)
         .protocol_version(base_protocol_version)
         .epoch_length(params.epoch_length)
-        .validators_desired_roles(
+        .validators_spec(ValidatorsSpec::desired_roles(
             &params
                 .block_and_chunk_producers
                 .iter()
                 .map(|account_id| account_id.as_str())
                 .collect_vec(),
             &[],
-        );
-    for account in &params.accounts {
-        genesis_builder.add_user_account_simple(account.clone(), params.initial_balance);
-    }
-    let (genesis, _) = genesis_builder.build();
+        ))
+        .add_user_accounts_simple(&params.accounts, params.initial_balance)
+        .build();
 
     if params.track_all_shards {
         builder = builder.track_all_shards();

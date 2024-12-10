@@ -6,6 +6,7 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain::{Block, Error, Provenance};
 use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_crypto::InMemorySigner;
 use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
@@ -49,6 +50,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
 
+    let initial_balance = 1_000_000 * ONE_NEAR;
     let accounts =
         (0..5).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let clients = accounts.iter().cloned().collect_vec();
@@ -58,19 +60,16 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
         amount: 62_500 * ONE_NEAR,
     }];
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .protocol_version(protocol_version)
         .genesis_time_from_clock(&test_loop_builder.clock())
         .shard_layout(epoch_config_store.get_config(protocol_version).shard_layout.clone())
         .epoch_length(epoch_length)
-        .validators_raw(validators, 3, 3, 3)
-        .max_inflation_rate(Rational32::new(0, 1));
-    let initial_balance = 1_000_000 * ONE_NEAR;
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, _) = genesis_builder.build();
+        .validators_spec(ValidatorsSpec::raw(validators, 3, 3, 3))
+        .max_inflation_rate(Rational32::new(0, 1))
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
+
     let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = test_loop_builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
