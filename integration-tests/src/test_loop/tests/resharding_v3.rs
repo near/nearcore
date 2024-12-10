@@ -161,7 +161,7 @@ impl TestReshardingParameters {
     fn with_clients(num_clients: u64) -> Self {
         let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
-        let epoch_length = 6; // 10;
+        let epoch_length = 6;
         let track_all_shards = true;
         let all_chunks_expected = true;
 
@@ -438,6 +438,7 @@ fn check_buffered_receipts_exist_in_memtrie(
 
 fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
     const NUM_TRANSFERS_PER_BLOCK: usize = 20;
+    use rand::seq::SliceRandom;
     use rand::Rng;
 
     let latest_height = Cell::new(0);
@@ -458,9 +459,9 @@ fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
             latest_height.set(tip.height);
 
             let mut rng = rand::thread_rng();
-            for i in 0..NUM_TRANSFERS_PER_BLOCK {
-                let sender = account_ids[rng.gen_range(0..account_ids.len())].clone();
-                let receiver = account_ids[rng.gen_range(0..account_ids.len())].clone();
+            for _ in 0..NUM_TRANSFERS_PER_BLOCK {
+                let sender = account_ids.choose(&mut rng).unwrap().clone();
+                let receiver = account_ids.choose(&mut rng).unwrap().clone();
 
                 let clients = node_datas
                     .iter()
@@ -1229,7 +1230,7 @@ fn test_resharding_v3_shard_shuffling() {
         (ShardUId { shard_id: 0, version: 3 }, -1..2),
         (ShardUId { shard_id: 1, version: 3 }, -3..0),
         (ShardUId { shard_id: 2, version: 3 }, -3..0),
-        (ShardUId { shard_id: 3, version: 3 }, 0..2),
+        (ShardUId { shard_id: 3, version: 3 }, 0..3),
         (ShardUId { shard_id: 4, version: 3 }, 0..1),
     ]);
     let mut params = TestReshardingParameters::new()
