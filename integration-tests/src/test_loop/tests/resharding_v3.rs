@@ -1056,6 +1056,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             }
             trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
             latest_block_height.set(tip.height);
+            println!("Block: {} {:?}", tip.height, block_header.chunk_mask());
             if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
@@ -1161,10 +1162,18 @@ fn test_resharding_v3_double_sign_resharding_block() {
 
 #[test]
 fn test_resharding_v3_shard_shuffling() {
+    let chunk_ranges_to_drop = HashMap::from([
+        (ShardUId { shard_id: 0, version: 3 }, -1..2),
+        (ShardUId { shard_id: 1, version: 3 }, -3..0),
+        (ShardUId { shard_id: 2, version: 3 }, -3..0),
+        (ShardUId { shard_id: 3, version: 3 }, 0..3),
+        (ShardUId { shard_id: 4, version: 3 }, 0..1),
+    ]);
     let params = TestReshardingParameters::new()
         .shuffle_shard_assignment()
         .single_shard_tracking()
-        .chunk_miss_possible();
+        .chunk_miss_possible()
+        .chunk_ranges_to_drop(chunk_ranges_to_drop);
     test_resharding_v3_base(params);
 }
 
