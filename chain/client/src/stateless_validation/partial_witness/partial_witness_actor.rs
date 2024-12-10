@@ -279,7 +279,7 @@ impl PartialWitnessActor {
                     epoch_id,
                     chunk_header.clone(),
                     part_ord,
-                    part.unwrap().to_vec(),
+                    part.unwrap().into_vec(),
                     encoded_length,
                     signer,
                 );

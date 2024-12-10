@@ -117,7 +117,7 @@ impl ChunkStateWitness {
             new_transactions_validation_state,
         );
         let inner_len = borsh::to_vec(&inner).unwrap().len();
-        const WANTED_SIZE: usize = 3 * 1024 * 1024; // 30 MB
+        const WANTED_SIZE: usize = 30 * 1024 * 1024; // 30 MB
         let padding_size = WANTED_SIZE - inner_len;
         let padding = vec![0; padding_size];
         Self { inner, padding }
