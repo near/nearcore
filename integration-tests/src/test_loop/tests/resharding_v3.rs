@@ -5,7 +5,7 @@ use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
-use near_client::{Client, Query, ViewClientActorInner};
+use near_client::{Client, Query};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
-use crate::test_loop::env::TestData;
+use crate::test_loop::env::{TestData, TestLoopEnv};
 use crate::test_loop::utils::transactions::{
     create_account, delete_account, get_shared_block_hash, get_smallest_height_head, run_tx,
     submit_tx,
@@ -464,7 +464,7 @@ fn call_burn_gas_contract(
     signer_ids: Vec<AccountId>,
     receiver_ids: Vec<AccountId>,
     gas_burnt_per_call: Gas,
-    rpc_id: AccountId,
+    _rpc_id: AccountId,
 ) -> LoopActionFn {
     const TX_CHECK_BLOCKS_AFTER_RESHARDING: u64 = 5;
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
@@ -473,6 +473,9 @@ fn call_burn_gas_contract(
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
+    // TODO(reshardingV3) Remove this line, it should work with the provided `rpc_id`.
+    // Maybe it has to use `account0` because we provide `client_actor` for this account.
+    let rpc_id = "account0".parse().unwrap();
 
     Box::new(
         move |node_datas: &[TestData],
@@ -926,17 +929,20 @@ fn get_base_shard_layout(version: u64) -> ShardLayout {
     }
 }
 
-fn assert_account_exist_in_view_client(
-    view_client: &mut ViewClientActorInner,
+fn account_exist_in_view_client(
+    env: &mut TestLoopEnv,
+    node_index: usize,
     account_id: AccountId,
     height: u64,
-) {
+) -> bool {
+    let view_client_handle = env.datas[node_index].view_client_sender.actor_handle();
+    let view_client = env.test_loop.data.get_mut(&view_client_handle);
     let msg = Query::new(
         BlockReference::BlockId(BlockId::Height(height)),
         QueryRequest::ViewAccount { account_id },
     );
     let result = near_async::messaging::Handler::handle(view_client, msg);
-    assert!(result.is_ok());
+    result.is_ok()
 }
 
 /// Base setup to check sanity of Resharding V3.
@@ -1019,6 +1025,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
         builder = builder.runtime_config_store(runtime_config_store);
     }
+    let num_clients = params.clients.len();
 
     let mut env = builder
         .genesis(genesis)
@@ -1119,21 +1126,27 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     );
     let client = &env.test_loop.data.get(&client_handles[0]).client;
     trie_sanity_check.check_epochs(client);
-    let height_soon_after_resharding = latest_block_height.get();
+    let height_after_resharding = latest_block_height.get();
     // Produce some blocks after resharding, then delete `temporary_account`.
     env.test_loop.run_for(Duration::seconds(2));
     delete_account(&mut env, &rpc_id, &temporary_account, &new_boundary_account);
     // Wait for garbage collection to kick in, so that it is tested as well.
     env.test_loop
         .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
-    // After resharding and gc-period, assert the deleted `temporary_account` is still accessible through archival node view client.
-    let archival_view_client_handle = env.datas.last().unwrap().view_client_sender.actor_handle();
-    let archival_view_client = env.test_loop.data.get_mut(&archival_view_client_handle);
-    assert_account_exist_in_view_client(
-        archival_view_client,
+    // After resharding and gc-period, assert the deleted `temporary_account` is still accessible through archival node view client,
+    // and it is not accessible through a regular, RPC node.
+    assert!(account_exist_in_view_client(
+        &mut env,
+        num_clients - 1,
+        temporary_account.clone(),
+        height_after_resharding
+    ));
+    assert!(!account_exist_in_view_client(
+        &mut env,
+        num_clients - 2,
         temporary_account,
-        height_soon_after_resharding,
-    );
+        height_after_resharding
+    ));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
