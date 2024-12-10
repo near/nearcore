@@ -118,8 +118,8 @@ impl FlatStorageReshardingShardSplitMetrics {
         self.split_shard_batch_size.set(batch_size as i64);
     }
 
-    pub fn set_split_shard_processed_bytes(&self, arg: i32) {
-        self.split_shard_processed_bytes.set(0);
+    pub fn set_split_shard_processed_bytes(&self, bytes: usize) {
+        self.split_shard_processed_bytes.set(bytes as i64);
     }
 
     pub fn inc_split_shard_processed_bytes_by(&self, processed_bytes: usize) {
