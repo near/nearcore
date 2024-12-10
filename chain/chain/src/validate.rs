@@ -493,7 +493,7 @@ mod tests {
             nonce,
             account_id,
             "bob".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10,
             CryptoHash::default(),
         )
