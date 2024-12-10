@@ -128,7 +128,7 @@ impl EpochConfig {
         }
     }
 
-    /// Minimal config for testing.
+    /// Mignimal config for testing.
     pub fn minimal() -> Self {
         Self {
             epoch_length: 0,
