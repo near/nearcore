@@ -8,6 +8,7 @@ use crate::flat_storage_resharder::{
 use crate::ChainStore;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::BlockHeight;
 use near_store::Store;
 use time::Duration;
@@ -31,14 +32,7 @@ impl HandlerWithContext<FlatStorageSplitShardRequest> for ReshardingActor {
 
 impl Handler<FlatStorageShardCatchupRequest> for ReshardingActor {
     fn handle(&mut self, msg: FlatStorageShardCatchupRequest) {
-        match msg.resharder.shard_catchup_task(msg.shard_uid, &self.chain_store) {
-            FlatStorageReshardingTaskResult::Successful { .. } => {
-                // All good.
-            }
-            FlatStorageReshardingTaskResult::Failed => {
-                panic!("impossible to recover from a flat storage shard catchup failure!")
-            }
-        }
+        self.handle_flat_storage_catchup(msg.resharder, msg.shard_uid);
     }
 }
 
@@ -80,6 +74,17 @@ impl ReshardingActor {
                         act.handle_flat_storage_split_shard(resharder, ctx);
                     },
                 );
+            }
+        }
+    }
+
+    fn handle_flat_storage_catchup(&self, resharder: FlatStorageResharder, shard_uid: ShardUId) {
+        match resharder.shard_catchup_task(shard_uid, &self.chain_store) {
+            FlatStorageReshardingTaskResult::Successful { .. } => {
+                // All good.
+            }
+            FlatStorageReshardingTaskResult::Failed => {
+                panic!("impossible to recover from a flat storage shard catchup failure!")
             }
         }
     }
