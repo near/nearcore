@@ -315,6 +315,8 @@ impl BlockBandwidthRequests {
     ProtocolSchema,
 )]
 pub struct BandwidthSchedulerState {
+    /// Allowance for every pair of (sender, receiver). Used in the scheduler algorithm.
+    /// Bandwidth scheduler updates the allowances on every run.
     pub link_allowances: Vec<LinkAllowance>,
     /// Sanity check hash to assert that all shards run bandwidth scheduler in the exact same way.
     pub sanity_check_hash: CryptoHash,
@@ -334,9 +336,14 @@ pub struct BandwidthSchedulerState {
     ProtocolSchema,
 )]
 pub struct LinkAllowance {
+    /// Sender shard
     pub sender: ShardId,
+    /// Receiver shard
     pub receiver: ShardId,
-    pub allowance: u64,
+    /// Link allowance, determines priority for granting bandwidth.
+    /// See the bandwidth scheduler module-level comment for a more
+    /// detailed description.
+    pub allowance: Bandwidth,
 }
 
 /// Parameters used in the bandwidth scheduler algorithm.
