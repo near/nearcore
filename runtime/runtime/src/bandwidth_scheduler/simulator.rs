@@ -570,7 +570,7 @@ fn test_bandwidth_scheduler_simulator_small_vs_big() {
 /// The utilization stays high, but fairness drops a bit. Running the simulation for longer
 /// makes the fairness better, but then the test would run forever.
 #[test]
-fn test_bandwidth_scheduler_simulator_32_shards() {
+fn slow_test_bandwidth_scheduler_simulator_32_shards() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(32)
         .default_link_generator(|| Box::new(RandomReceiptSizeGenerator))
