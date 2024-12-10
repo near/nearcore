@@ -11,7 +11,6 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::dec_format;
 use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_schema_checker_lib::ProtocolSchema;
-use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::ops::Bound;
@@ -55,16 +54,133 @@ pub struct EpochConfig {
     pub protocol_upgrade_stake_threshold: Rational32,
     /// Shard layout of this epoch, may change from epoch to epoch
     pub shard_layout: ShardLayout,
-    /// Additional config for validator selection algorithm
-    pub validator_selection_config: ValidatorSelectionConfig,
+    /// Additional configuration parameters for the new validator selection
+    /// algorithm. See <https://github.com/near/NEPs/pull/167> for details.
+    // #[default(100)]
+    pub num_chunk_producer_seats: NumSeats,
+    // #[default(300)]
+    pub num_chunk_validator_seats: NumSeats,
+    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
+    // Use 300 for older protocol versions.
+    // #[default(300)]
+    pub num_chunk_only_producer_seats: NumSeats,
+    // #[default(1)]
+    pub minimum_validators_per_shard: NumSeats,
+    // #[default(Rational32::new(160, 1_000_000))]
+    pub minimum_stake_ratio: Rational32,
+    // #[default(5)]
+    /// Limits the number of shard changes in chunk producer assignments,
+    /// if algorithm is able to choose assignment with better balance of
+    /// number of chunk producers for shards.
+    pub chunk_producer_assignment_changes_limit: NumSeats,
+    // #[default(false)]
+    pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
 impl EpochConfig {
     /// Total number of validator seats in the epoch since protocol version 69.
     pub fn num_validators(&self) -> NumSeats {
         self.num_block_producer_seats
-            .max(self.validator_selection_config.num_chunk_producer_seats)
-            .max(self.validator_selection_config.num_chunk_validator_seats)
+            .max(self.num_chunk_producer_seats)
+            .max(self.num_chunk_validator_seats)
+    }
+}
+
+impl EpochConfig {
+    // Create test-only epoch config.
+    // Not depends on genesis!
+    pub fn genesis_test(
+        num_block_producer_seats: NumSeats,
+        shard_layout: ShardLayout,
+        epoch_length: BlockHeightDelta,
+        block_producer_kickout_threshold: u8,
+        chunk_producer_kickout_threshold: u8,
+        chunk_validator_only_kickout_threshold: u8,
+        protocol_upgrade_stake_threshold: Rational32,
+        fishermen_threshold: Balance,
+    ) -> Self {
+        Self {
+            epoch_length,
+            num_block_producer_seats,
+            num_block_producer_seats_per_shard: vec![
+                num_block_producer_seats;
+                shard_layout.shard_ids().count()
+            ],
+            avg_hidden_validator_seats_per_shard: vec![],
+            target_validator_mandates_per_shard: 68,
+            validator_max_kickout_stake_perc: 100,
+            online_min_threshold: Rational32::new(90, 100),
+            online_max_threshold: Rational32::new(99, 100),
+            minimum_stake_divisor: 10,
+            protocol_upgrade_stake_threshold,
+            block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold,
+            fishermen_threshold,
+            shard_layout,
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+        }
+    }
+
+    /// Mignimal config for testing.
+    pub fn minimal() -> Self {
+        Self {
+            epoch_length: 0,
+            num_block_producer_seats: 0,
+            num_block_producer_seats_per_shard: vec![],
+            avg_hidden_validator_seats_per_shard: vec![],
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 0,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: 0.into(),
+            online_max_threshold: 0.into(),
+            fishermen_threshold: 0,
+            minimum_stake_divisor: 0,
+            protocol_upgrade_stake_threshold: 0.into(),
+            shard_layout: ShardLayout::get_simple_nightshade_layout(),
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+        }
+    }
+
+    pub fn mock(epoch_length: BlockHeightDelta, shard_layout: ShardLayout) -> Self {
+        Self {
+            epoch_length,
+            num_block_producer_seats: 2,
+            num_block_producer_seats_per_shard: vec![1, 1],
+            avg_hidden_validator_seats_per_shard: vec![1, 1],
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            target_validator_mandates_per_shard: 1,
+            validator_max_kickout_stake_perc: 0,
+            online_min_threshold: Rational32::new(1i32, 4i32),
+            online_max_threshold: Rational32::new(3i32, 4i32),
+            fishermen_threshold: 1,
+            minimum_stake_divisor: 1,
+            protocol_upgrade_stake_threshold: Rational32::new(3i32, 4i32),
+            shard_layout,
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+        }
     }
 }
 
@@ -249,7 +365,7 @@ impl AllEpochConfig {
         // the codepaths for state sync more often.
         // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
         // also remove this temporary code and always rely on ShuffleShardAssignments.
-        config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+        config.shuffle_shard_assignment_for_chunk_producers = true;
     }
 
     /// Configures validator-selection related features.
@@ -257,7 +373,7 @@ impl AllEpochConfig {
         // Shuffle shard assignments every epoch, to trigger state sync more
         // frequently to exercise that code path.
         if checked_feature!("stable", ShuffleShardAssignments, protocol_version) {
-            config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+            config.shuffle_shard_assignment_for_chunk_producers = true;
         }
     }
 
@@ -312,7 +428,7 @@ impl AllEpochConfig {
                 config.shard_layout.shard_ids().map(|_| 100).collect();
             config.block_producer_kickout_threshold = 80;
             config.chunk_producer_kickout_threshold = 80;
-            config.validator_selection_config.num_chunk_only_producer_seats = 200;
+            config.num_chunk_only_producer_seats = 200;
         }
 
         // Adjust the number of block and chunk producers for testnet, to make it easier to test the change.
@@ -324,18 +440,18 @@ impl AllEpochConfig {
             config.num_block_producer_seats = 20;
             // Checking feature NoChunkOnlyProducers in stateless validation
             if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-                config.validator_selection_config.num_chunk_producer_seats = 20;
+                config.num_chunk_producer_seats = 20;
             }
             config.num_block_producer_seats_per_shard =
                 shard_ids.map(|_| config.num_block_producer_seats).collect();
             // Decrease the number of chunk producers.
-            config.validator_selection_config.num_chunk_only_producer_seats = 100;
+            config.num_chunk_only_producer_seats = 100;
         }
 
         // Checking feature NoChunkOnlyProducers in stateless validation
         if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
             // Make sure there is no chunk only producer in stateless validation
-            config.validator_selection_config.num_chunk_only_producer_seats = 0;
+            config.num_chunk_only_producer_seats = 0;
         }
     }
 
@@ -347,7 +463,7 @@ impl AllEpochConfig {
 
     fn config_fix_min_stake_ratio(config: &mut EpochConfig, protocol_version: u32) {
         if checked_feature!("stable", FixMinStakeRatio, protocol_version) {
-            config.validator_selection_config.minimum_stake_ratio = Rational32::new(1, 62_500);
+            config.minimum_stake_ratio = Rational32::new(1, 62_500);
         }
     }
 
@@ -373,31 +489,6 @@ impl AllEpochConfig {
             config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
         }
     }
-}
-
-/// Additional configuration parameters for the new validator selection
-/// algorithm.  See <https://github.com/near/NEPs/pull/167> for details.
-#[derive(Debug, Clone, SmartDefault, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ValidatorSelectionConfig {
-    #[default(100)]
-    pub num_chunk_producer_seats: NumSeats,
-    #[default(300)]
-    pub num_chunk_validator_seats: NumSeats,
-    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
-    // Use 300 for older protocol versions.
-    #[default(300)]
-    pub num_chunk_only_producer_seats: NumSeats,
-    #[default(1)]
-    pub minimum_validators_per_shard: NumSeats,
-    #[default(Rational32::new(160, 1_000_000))]
-    pub minimum_stake_ratio: Rational32,
-    #[default(5)]
-    /// Limits the number of shard changes in chunk producer assignments,
-    /// if algorithm is able to choose assignment with better balance of
-    /// number of chunk producers for shards.
-    pub chunk_producer_assignment_changes_limit: NumSeats,
-    #[default(false)]
-    pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, ProtocolSchema)]
