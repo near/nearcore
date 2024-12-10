@@ -411,7 +411,7 @@ mod tests {
     /// A helper for the `broken` test.
     ///
     /// Check that the given JSON string parses, but is not recognized as a valid RPC message.
-
+    ///
     /// Test things that are almost but not entirely JSONRPC are rejected
     ///
     /// The reject is done by returning it as Unmatched.

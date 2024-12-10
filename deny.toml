@@ -47,6 +47,10 @@ skip = [
     # old version used by wasmer et al
     { name = "dynasm", version = "=1.2.3" },
     { name = "dynasmrt", version = "=1.2.3" },
+    { name = "rkyv", version = "^0.7" },
+    { name = "rkyv_derive", version = "^0.7" },
+    { name = "ptr_meta", version = "^0.1" },
+    { name = "ptr_meta_derive", version = "^0.1" },
 
     # wasmer and wasmtime
     { name = "target-lexicon", version = "=0.10.0" },
@@ -69,8 +73,6 @@ skip = [
     { name = "parking_lot_core", version = "=0.7.2" },
     { name = "lock_api", version = "=0.3.4" },
     { name = "digest", version = "=0.8.1" },
-
-    # wasmer 0.18
     { name = "nix", version = "=0.15.0" },
 
     # many crates haven't updated to syn 2.0 yet.

@@ -351,9 +351,8 @@ mod tests {
         end_nonce: u64,
     ) -> Vec<SignedTransaction> {
         let signer_id: AccountId = signer_id.parse().unwrap();
-        let signer = Arc::new(
-            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed).into(),
-        );
+        let signer =
+            Arc::new(InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed));
         (starting_nonce..=end_nonce)
             .map(|i| {
                 SignedTransaction::send_money(
@@ -467,10 +466,11 @@ mod tests {
             .map(|i| {
                 let signer_id = AccountId::try_from(format!("user_{}", i % 5)).unwrap();
                 let signer_seed = format!("user_{}", i % 3);
-                let signer = Arc::new(
-                    InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, &signer_seed)
-                        .into(),
-                );
+                let signer = Arc::new(InMemorySigner::from_seed(
+                    signer_id.clone(),
+                    KeyType::ED25519,
+                    &signer_seed,
+                ));
                 SignedTransaction::send_money(
                     i,
                     signer_id,

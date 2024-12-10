@@ -1,5 +1,5 @@
 use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
-use near_crypto::InMemorySigner;
+use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
@@ -40,18 +40,18 @@ pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
     pub runtime: Runtime,
     pub tries: ShardTries,
-    pub signer: InMemorySigner,
+    pub signer: Signer,
     pub root: CryptoHash,
     pub epoch_info_provider: MockEpochInfoProvider,
 }
 
 impl StandaloneRuntime {
     pub fn account_id(&self) -> AccountId {
-        self.signer.account_id.clone()
+        self.signer.get_account_id()
     }
 
     pub fn new(
-        signer: InMemorySigner,
+        signer: Signer,
         state_records: &[StateRecord],
         tries: ShardTries,
         validators: Vec<AccountInfo>,
@@ -186,7 +186,7 @@ impl RuntimeMailbox {
 pub struct RuntimeGroup {
     pub mailboxes: (Mutex<HashMap<AccountId, RuntimeMailbox>>, Condvar),
     pub state_records: Arc<Vec<StateRecord>>,
-    pub signers: Vec<InMemorySigner>,
+    pub signers: Vec<Signer>,
     pub validators: Vec<AccountInfo>,
 
     /// Account id of the runtime on which the transaction was executed mapped to the transactions.
@@ -211,7 +211,7 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.signers.push(signer.clone());
-            res.mailboxes.0.lock().unwrap().insert(signer.account_id, Default::default());
+            res.mailboxes.0.lock().unwrap().insert(signer.get_account_id(), Default::default());
         }
         res.validators = validators;
         Arc::new(res)
@@ -229,13 +229,13 @@ impl RuntimeGroup {
         account_ids: Vec<AccountId>,
         num_existing_accounts: u64,
         contract_code: &[u8],
-    ) -> (Vec<StateRecord>, Vec<InMemorySigner>, Vec<AccountInfo>) {
+    ) -> (Vec<StateRecord>, Vec<Signer>, Vec<AccountInfo>) {
         let code_hash = hash(contract_code);
         let mut state_records = vec![];
         let mut signers = vec![];
         let mut validators = vec![];
         for (i, account_id) in account_ids.into_iter().enumerate() {
-            let signer = InMemorySigner::test(&account_id);
+            let signer = InMemorySigner::test_signer(&account_id);
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.clone(),
@@ -250,14 +250,14 @@ impl RuntimeGroup {
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.clone(),
+                    public_key: signer.public_key(),
                     access_key: AccessKey::full_access(),
                 });
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
                 validators.push(AccountInfo {
-                    account_id: signer.account_id.clone(),
-                    public_key: signer.public_key.clone(),
+                    account_id: signer.get_account_id(),
+                    public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 });
             }

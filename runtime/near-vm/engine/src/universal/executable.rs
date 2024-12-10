@@ -3,18 +3,16 @@ use near_vm_compiler::{
     CompileModuleInfo, CompiledFunctionFrameInfo, CustomSection, Dwarf, FunctionBody,
     JumpTableOffsets, Relocation, SectionIndex, TrampolinesSection,
 };
-use near_vm_types::entity::PrimaryMap;
+use near_vm_types::entity::{EntityRef as _, PrimaryMap};
 use near_vm_types::{
     ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
     SignatureIndex,
 };
-use rkyv::de::deserializers::SharedDeserializeMap;
-use rkyv::ser::serializers::{
-    AllocScratchError, AllocSerializer, CompositeSerializerError, SharedSerializeMapError,
-};
+use rkyv::tuple::ArchivedTuple3;
+use rkyv::Archived;
 
 const MAGIC_HEADER: [u8; 32] = {
-    let value = *b"\0nearvm-universal\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
+    let value = *b"\0nearvm-universal\xFE\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
     let _length_must_be_multiple_of_16: bool = [true][value.len() % 16];
     value
 };
@@ -64,20 +62,20 @@ impl<'a> UniversalExecutableRef<'a> {
         let mut position_value = [0u8; 8];
         position_value.copy_from_slice(position);
         let (_, data) = archive.split_at(MAGIC_HEADER.len());
+
         Ok(UniversalExecutableRef {
-            archive: rkyv::archived_value::<UniversalExecutable>(
-                data,
-                u64::from_le_bytes(position_value) as usize,
-            ),
+            archive: rkyv::api::high::access_pos(data, u64::from_le_bytes(position_value) as usize)
+                .map_err(|e: rkyv::rancor::Error| {
+                    DeserializeError::CorruptedBinary(e.to_string())
+                })?,
         })
     }
 
     // TODO(0-copy): this should never fail.
     /// Convert this reference to an owned `UniversalExecutable` value.
     pub fn to_owned(self) -> Result<UniversalExecutable, DeserializeError> {
-        let mut deserializer = SharedDeserializeMap::new();
-        rkyv::Deserialize::deserialize(self.archive, &mut deserializer)
-            .map_err(|e| DeserializeError::CorruptedBinary(format!("{:?}", e)))
+        rkyv::api::high::deserialize(self.archive)
+            .map_err(|e: rkyv::rancor::Error| DeserializeError::CorruptedBinary(format!("{:?}", e)))
     }
 }
 
@@ -108,14 +106,7 @@ pub struct UniversalExecutable {
 #[derive(thiserror::Error, Debug)]
 pub enum ExecutableSerializeError {
     #[error("could not serialize the executable data")]
-    Executable(
-        #[source]
-        CompositeSerializerError<
-            std::convert::Infallible,
-            AllocScratchError,
-            SharedSerializeMapError,
-        >,
-    ),
+    Executable(#[source] rkyv::rancor::Error),
 }
 
 impl UniversalExecutable {
@@ -130,16 +121,15 @@ impl UniversalExecutable {
         // RKYV POSITION
         //
         // It is expected that any framing for message length is handled by the caller.
-        let mut serializer = AllocSerializer::<1024>::default();
-        let pos = rkyv::ser::Serializer::serialize_value(&mut serializer, self)
-            .map_err(ExecutableSerializeError::Executable)? as u64;
+        let mut output = Vec::new();
+        output.extend_from_slice(&MAGIC_HEADER);
+        rkyv::api::high::to_bytes_in(self, &mut output)
+            .map_err(ExecutableSerializeError::Executable)?;
+        let pos =
+            rkyv::api::root_position::<Archived<Self>>(output.len() - MAGIC_HEADER.len()) as u64;
         let pos_bytes = pos.to_le_bytes();
-        let data = serializer.into_serializer().into_inner();
-        let mut out = Vec::with_capacity(MAGIC_HEADER.len() + pos_bytes.len() + data.len());
-        out.extend(&MAGIC_HEADER);
-        out.extend(data.as_slice());
-        out.extend(&pos_bytes);
-        Ok(out)
+        output.extend_from_slice(&pos_bytes);
+        Ok(output)
     }
 }
 
@@ -148,20 +138,21 @@ impl<'a> UniversalExecutableRef<'a> {
     ///
     /// Test-only API
     pub fn function_name(&self, index: FunctionIndex) -> Option<&str> {
+        let aidx = Archived::<FunctionIndex>::new(index.index());
         let module = &self.compile_info.module;
         // First, lets see if there's a name by which this function is exported.
         for (name, idx) in module.exports.iter() {
             match idx {
-                &ExportIndex::Function(fi) if fi == index => return Some(&*name),
+                Archived::<ExportIndex>::Function(fi) if fi == &aidx => return Some(&*name),
                 _ => continue,
             }
         }
-        if let Some(r) = module.function_names.get(&index) {
-            return Some(&**r);
+        if let Some(r) = module.function_names.get_key_value(&aidx) {
+            return Some(r.1.as_str());
         }
-        for ((_, field, _), idx) in module.imports.iter() {
+        for (ArchivedTuple3(_, field, _), idx) in module.imports.iter() {
             match idx {
-                &ImportIndex::Function(fi) if fi == index => return Some(&*field),
+                Archived::<ImportIndex>::Function(fi) if fi == &aidx => return Some(&*field),
                 _ => continue,
             }
         }
@@ -172,10 +163,10 @@ impl<'a> UniversalExecutableRef<'a> {
 pub(crate) fn unrkyv<T>(archive: &T::Archived) -> T
 where
     T: rkyv::Archive,
-    T::Archived: rkyv::Deserialize<T, rkyv::Infallible>,
+    T::Archived: rkyv::Deserialize<T, rkyv::rancor::Strategy<(), rkyv::rancor::Panic>>,
 {
-    Result::<_, std::convert::Infallible>::unwrap(rkyv::Deserialize::deserialize(
+    rkyv::rancor::ResultExt::<_, rkyv::rancor::Panic>::always_ok(rkyv::api::deserialize_using(
         archive,
-        &mut rkyv::Infallible,
+        &mut (),
     ))
 }

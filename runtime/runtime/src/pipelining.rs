@@ -111,7 +111,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn submit(
         &mut self,
         receipt: &Receipt,
-        account: &Account,
+        account: &std::cell::LazyCell<Option<Account>, impl FnOnce() -> Option<Account>>,
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();
@@ -133,6 +133,8 @@ impl ReceiptPreparationPipeline {
                     return self.block_accounts.insert(account_id);
                 }
                 Action::FunctionCall(function_call) => {
+                    let Some(account) = &**account else { continue };
+                    let code_hash = account.code_hash();
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
                     let entry = match self.map.entry(key) {
@@ -145,7 +147,6 @@ impl ReceiptPreparationPipeline {
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let storage = self.storage.clone();
                     let protocol_version = self.protocol_version;
-                    let code_hash = account.code_hash();
                     let created = Instant::now();
                     let method_name = function_call.method_name.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);

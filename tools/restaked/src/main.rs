@@ -79,14 +79,15 @@ fn main() {
     let signer = InMemorySigner::from_file(&key_path).unwrap_or_else(|e| {
         panic!("Failed to initialize signer from key file at {:?}: {:#}", key_path, e)
     });
-    let account_id = signer.account_id.clone();
+    let account_id = signer.get_account_id();
     let mut last_stake_amount = stake_amount;
 
     assert_eq!(
-        signer.account_id, key_file.account_id,
+        signer.get_account_id(),
+        key_file.account_id,
         "Only can stake for the same account as given signer key"
     );
-    let signer = Arc::new(signer.into());
+    let signer = Arc::new(signer);
 
     let user = RpcUser::new(rpc_url, account_id.clone(), signer);
     loop {

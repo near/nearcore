@@ -2,7 +2,7 @@ use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{ClientConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::client_actor::ClientActorInner;
@@ -14,9 +14,10 @@ use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
+use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 
 use crate::test_loop::utils::ONE_NEAR;
@@ -44,22 +45,16 @@ fn test_client_with_simple_test_loop() {
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&test_loop.clock())
-        .protocol_version_latest()
+        .protocol_version(PROTOCOL_VERSION)
         .genesis_height(10000)
-        .gas_prices_free()
-        .gas_limit_one_petagas()
-        .shard_layout_simple_v1(&["account3", "account5", "account7"])
+        .shard_layout(ShardLayout::simple_v1(&["account3", "account5", "account7"]))
         .transaction_validity_period(1000)
         .epoch_length(10)
-        .validators_desired_roles(&["account0"], &[])
-        .shuffle_shard_assignment_for_chunk_producers(true);
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, _) = genesis_builder.build();
+        .validators_spec(ValidatorsSpec::desired_roles(&["account0"], &[]))
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
 
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);

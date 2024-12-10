@@ -158,13 +158,13 @@ fn test_wasmer2_artifact_output_stability() {
     ];
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
-        7897366507246831520,
-        4504708181643041916,
-        12437432560773026476,
-        3217201805099435580,
-        17987183739396987305,
-        7265745711428292723,
-        4973318757824608216,
+        17577916829021396775,
+        8041373570933915084,
+        6630926580728989211,
+        4387381945665529622,
+        4511251750786693810,
+        4599571621125708978,
+        18136310787576767811,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {
@@ -238,13 +238,13 @@ fn test_near_vm_artifact_output_stability() {
     let mut got_prepared_hashes = Vec::with_capacity(seeds.len());
     let compiled_hashes = [
         // See the above comment if you want to change this
-        14308529260517090966,
-        13346695179117473012,
-        7039559215467115488,
-        2326827595782652597,
-        2563919585736953738,
-        18320128353038066787,
-        4007078811749074507,
+        17541855811103092909,
+        11151026003357116368,
+        6536268071368571568,
+        3800417228716434560,
+        12640841643239683751,
+        10206902649207070630,
+        14540739231666637305,
     ];
     let mut got_compiled_hashes = Vec::with_capacity(seeds.len());
     for seed in seeds {

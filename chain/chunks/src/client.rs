@@ -232,7 +232,7 @@ mod tests {
                 nonce,
                 signer_id.clone(),
                 receiver_id.clone(),
-                &signer.into(),
+                &signer,
                 deposit,
                 CryptoHash::default(),
             );
