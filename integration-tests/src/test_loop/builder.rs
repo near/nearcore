@@ -100,6 +100,7 @@ pub(crate) struct TestLoopBuilder {
     load_mem_tries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    /// Overrides to test database behavior.
     test_store_flags: Option<TestStoreFlags>,
 }
 

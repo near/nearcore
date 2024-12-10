@@ -151,6 +151,8 @@ struct TestReshardingParameters {
     /// If non zero, split parent shard for flat state resharding will be delayed by an additional
     /// `BlockHeightDelta` number of blocks. Useful to simulate slower task completion.
     delay_flat_state_resharding: BlockHeightDelta,
+    // TODO(resharding) Remove this when negative refcounts are properly handled.
+    /// Whether to allow negative refcount being a result of the database update.
     allow_negative_refcount: bool,
 }
 
