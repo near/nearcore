@@ -1866,7 +1866,7 @@ impl EpochManager {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -1893,7 +1893,7 @@ impl EpochManager {
         // We don't use cache here since this query happens rarely and only for rpc.
         self.store
             .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
-            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
     // Note(#6572): beware, after calling `save_epoch_validator_info`,
@@ -1925,7 +1925,7 @@ impl EpochManager {
         self.blocks_info.get_or_try_put(*hash, |hash| {
             self.store
                 .get_ser(DBCol::BlockInfo, hash.as_ref())?
-                .ok_or_else(|| EpochError::MissingBlock(*hash))
+                .ok_or(EpochError::MissingBlock(*hash))
         })
     }
 
@@ -1955,7 +1955,7 @@ impl EpochManager {
         self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 

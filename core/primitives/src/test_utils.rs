@@ -1075,13 +1075,14 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
 #[cfg(feature = "rand")]
 pub fn create_user_test_signer(
     account_name: &near_primitives_core::account::id::AccountIdRef,
-) -> near_crypto::InMemorySigner {
+) -> near_crypto::Signer {
     let account_id = account_name.to_owned();
     if account_id == near_implicit_test_account() {
         near_crypto::InMemorySigner::from_secret_key(
             account_id,
             near_implicit_test_account_secret(),
         )
+        .into()
     } else {
         near_crypto::InMemorySigner::from_seed(
             account_id,

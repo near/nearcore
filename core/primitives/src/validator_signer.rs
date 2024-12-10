@@ -106,16 +106,14 @@ pub struct InMemoryValidatorSigner {
 
 impl InMemoryValidatorSigner {
     #[cfg(feature = "rand")]
-
     pub fn from_random(account_id: AccountId, key_type: KeyType) -> Self {
         let signer = Arc::new(InMemorySigner::from_random(account_id.clone(), key_type).into());
         Self { account_id, signer }
     }
 
     #[cfg(feature = "rand")]
-
     pub fn from_seed(account_id: AccountId, key_type: KeyType, seed: &str) -> Self {
-        let signer = Arc::new(InMemorySigner::from_seed(account_id.clone(), key_type, seed).into());
+        let signer = Arc::new(InMemorySigner::from_seed(account_id.clone(), key_type, seed));
         Self { account_id, signer }
     }
 
@@ -123,8 +121,8 @@ impl InMemoryValidatorSigner {
         self.signer.public_key()
     }
 
-    pub fn from_signer(signer: InMemorySigner) -> Self {
-        Self { account_id: signer.account_id.clone(), signer: Arc::new(signer.into()) }
+    pub fn from_signer(signer: Signer) -> Self {
+        Self { account_id: signer.get_account_id(), signer: Arc::new(signer) }
     }
 
     pub fn from_file(path: &Path) -> std::io::Result<Self> {

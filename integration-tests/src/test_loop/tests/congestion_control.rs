@@ -4,17 +4,21 @@ use itertools::Itertools;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
+use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
 use crate::test_loop::utils::transactions::{
     call_contract, check_txs, deploy_contract, make_accounts,
 };
-use crate::test_loop::utils::{ONE_NEAR, TGAS};
+use crate::test_loop::utils::TGAS;
 
 const NUM_ACCOUNTS: usize = 100;
 const NUM_PRODUCERS: usize = 2;
@@ -60,7 +64,6 @@ fn test_congestion_control_simple() {
 }
 
 fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
-    let initial_balance = 10000 * ONE_NEAR;
     let clients = accounts.iter().take(NUM_CLIENTS).cloned().collect_vec();
 
     // split the clients into producers, validators, and rpc nodes
@@ -74,26 +77,29 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let validators = validators.iter().map(|account| account.as_str()).collect_vec();
     let [rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
-    let builder = TestLoopBuilder::new();
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .protocol_version_latest()
-        .genesis_height(10000)
-        .gas_prices_free()
-        .gas_limit_one_petagas()
-        .shard_layout_simple_v1(&["account3", "account5", "account7"])
-        .transaction_validity_period(1000)
-        .epoch_length(10)
-        .validators_desired_roles(&producers, &validators)
-        .shuffle_shard_assignment_for_chunk_producers(true);
-    for account in accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let epoch_length = 10;
+    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
 
-    let env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
+        |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
+        |epoch_config_builder| {
+            epoch_config_builder.shuffle_shard_assignment_for_chunk_producers(true)
+        },
+    );
+
+    let env = TestLoopBuilder::new()
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build();
     (env, rpc_id.clone())
 }
 

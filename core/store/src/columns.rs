@@ -162,7 +162,7 @@ pub enum DBCol {
     ///     - PeerComponent: keep information on mapping from the peer to the last component that it belonged to (so that if a new peer shows
     ///         up we know which 'component' to load)
     ///     - ComponentEdges: keep the info about the edges that were connecting these peers that were removed.
-
+    ///
     /// Map each saved peer on disk with its component id (a.k.a. nonce).
     /// - *Rows*: peer_id
     /// - *Column type*:  (nonce) u64
