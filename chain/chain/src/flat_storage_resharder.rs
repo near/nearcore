@@ -154,16 +154,12 @@ impl FlatStorageResharder {
                 self.clean_children_shards(&status)?;
                 self.schedule_split_shard(parent_shard_uid, &status);
             }
-            FlatStorageReshardingStatus::CatchingUp(block_hash) => {
+            FlatStorageReshardingStatus::CatchingUp(_) => {
                 info!(target: "resharding", ?shard_uid, ?status, "resuming flat storage shard catchup");
                 // Send a request to schedule the execution of `shard_catchup_task` for this shard.
-                self.sender.flat_storage_shard_catchup_sender.send(
-                    FlatStorageShardCatchupRequest {
-                        resharder: self.clone(),
-                        shard_uid,
-                        flat_head_block_hash: *block_hash,
-                    },
-                );
+                self.sender
+                    .flat_storage_shard_catchup_sender
+                    .send(FlatStorageShardCatchupRequest { resharder: self.clone(), shard_uid });
             }
         }
         Ok(())
@@ -500,7 +496,6 @@ impl FlatStorageResharder {
                         FlatStorageShardCatchupRequest {
                             resharder: self.clone(),
                             shard_uid: child_shard,
-                            flat_head_block_hash: resharding_hash,
                         },
                     );
                 }
@@ -587,13 +582,11 @@ impl FlatStorageResharder {
     pub fn shard_catchup_task(
         &self,
         shard_uid: ShardUId,
-        flat_head_block_hash: CryptoHash,
         chain_store: &ChainStore,
     ) -> FlatStorageReshardingTaskResult {
-        info!(target: "resharding", ?shard_uid, ?flat_head_block_hash, "flat storage shard catchup task started");
+        info!(target: "resharding", ?shard_uid, "flat storage shard catchup task started");
         // Apply deltas and then create the flat storage.
-        let apply_result =
-            self.shard_catchup_apply_deltas(shard_uid, flat_head_block_hash, chain_store);
+        let apply_result = self.shard_catchup_apply_deltas(shard_uid, chain_store);
         let Ok((num_batches_done, flat_head)) = apply_result else {
             error!(target: "resharding", ?shard_uid, err = ?apply_result.unwrap_err(), "flat storage shard catchup delta application failed!");
             return FlatStorageReshardingTaskResult::Failed;
@@ -619,7 +612,6 @@ impl FlatStorageResharder {
     fn shard_catchup_apply_deltas(
         &self,
         shard_uid: ShardUId,
-        mut flat_head_block_hash: CryptoHash,
         chain_store: &ChainStore,
     ) -> Result<(usize, Tip), Error> {
         // How many block heights of deltas are applied in a single commit.
@@ -630,6 +622,22 @@ impl FlatStorageResharder {
         info!(target: "resharding", ?shard_uid, ?batch_delay, ?catch_up_blocks, "flat storage shard catchup: starting delta apply");
 
         let mut num_batches_done: usize = 0;
+
+        let status = self
+            .runtime
+            .store()
+            .flat_store()
+            .get_flat_storage_status(shard_uid)
+            .map_err(|e| Into::<StorageError>::into(e))?;
+        let FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
+            mut flat_head_block_hash,
+        )) = status
+        else {
+            return Err(Error::Other(format!(
+                "unexpected resharding catchup flat storage status for {}: {:?}",
+                shard_uid, &status
+            )));
+        };
 
         loop {
             let _span = tracing::debug_span!(
@@ -1178,11 +1186,7 @@ mod tests {
 
     impl CanSend<FlatStorageShardCatchupRequest> for SimpleSender {
         fn send(&self, msg: FlatStorageShardCatchupRequest) {
-            msg.resharder.shard_catchup_task(
-                msg.shard_uid,
-                msg.flat_head_block_hash,
-                &self.chain_store.lock().unwrap(),
-            );
+            msg.resharder.shard_catchup_task(msg.shard_uid, &self.chain_store.lock().unwrap());
         }
     }
 
@@ -1222,11 +1226,9 @@ mod tests {
                 .unwrap()
                 .iter()
                 .map(|request| {
-                    request.resharder.shard_catchup_task(
-                        request.shard_uid,
-                        request.flat_head_block_hash,
-                        &self.chain_store.lock().unwrap(),
-                    )
+                    request
+                        .resharder
+                        .shard_catchup_task(request.shard_uid, &self.chain_store.lock().unwrap())
                 })
                 .collect()
         }

@@ -31,11 +31,7 @@ impl HandlerWithContext<FlatStorageSplitShardRequest> for ReshardingActor {
 
 impl Handler<FlatStorageShardCatchupRequest> for ReshardingActor {
     fn handle(&mut self, msg: FlatStorageShardCatchupRequest) {
-        match msg.resharder.shard_catchup_task(
-            msg.shard_uid,
-            msg.flat_head_block_hash,
-            &self.chain_store,
-        ) {
+        match msg.resharder.shard_catchup_task(msg.shard_uid, &self.chain_store) {
             FlatStorageReshardingTaskResult::Successful { .. } => {
                 // All good.
             }
