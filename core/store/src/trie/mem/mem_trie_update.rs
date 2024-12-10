@@ -3,12 +3,14 @@ use std::collections::{BTreeMap, HashMap};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
+use near_primitives::types::AccountId;
 
 use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::trie::ops::interface::{
     GenericNodeOrIndex, GenericTrieNode, GenericTrieNodeWithSize, GenericTrieUpdate,
     GenericTrieValue, GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, UpdatedNodeId,
 };
+use crate::trie::ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap};
 use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
@@ -448,6 +450,21 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             deletions,
             mem_trie_changes: Some(mem_trie_changes),
         }
+    }
+
+    /// Splits the trie, separating entries by the boundary account.
+    /// Leaves the left or right part of the trie, depending on the retain mode.
+    ///
+    /// Returns the changes to be applied to in-memory trie and the proof of
+    /// the split operation. Doesn't modifies trie itself, it's a caller's
+    /// responsibility to apply the changes.
+    pub fn retain_split_shard(
+        mut self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+    ) -> TrieChanges {
+        GenericTrieUpdateRetain::retain_split_shard(&mut self, boundary_account, retain_mode);
+        self.to_trie_changes()
     }
 }
 

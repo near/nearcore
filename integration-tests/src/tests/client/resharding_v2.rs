@@ -651,7 +651,7 @@ fn setup_test_env_with_cross_contract_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer.into(),
+            &signer,
             actions,
             genesis_hash,
             0,
