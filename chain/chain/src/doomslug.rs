@@ -235,6 +235,14 @@ impl DoomslugApprovalsTracker {
     /// `ReadySince` if the block has enough approvals to pass the threshold, and since when it
     ///     does
     fn get_block_production_readiness(&mut self) -> DoomslugBlockProductionReadiness {
+        info!(
+            target: "doomslug",
+            "get_block_production_readiness stats: {} / {} / {} / {}",
+            self.approved_stake_this_epoch,
+            self.total_stake_this_epoch,
+            self.approved_stake_next_epoch,
+            self.total_stake_next_epoch,
+        );
         if (self.approved_stake_this_epoch > self.total_stake_this_epoch * 2 / 3
             && (self.approved_stake_next_epoch > self.total_stake_next_epoch * 2 / 3
                 || self.total_stake_next_epoch == 0))
@@ -647,6 +655,7 @@ impl Doomslug {
             .entry(approval.target_height)
             .or_insert_with(|| DoomslugApprovalsTrackersAtHeight::new(self.clock.clone()))
             .process_approval(approval, stakes, threshold_mode);
+        info!(target: "doomslug", ?ret, "approval message processed for height {}", approval.target_height);
 
         if approval.target_height > self.largest_approval_height.get() {
             self.largest_approval_height.set(approval.target_height);
