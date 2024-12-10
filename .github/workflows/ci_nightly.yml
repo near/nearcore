@@ -39,7 +39,7 @@ jobs:
       # Run the tests:
       - uses: mathiasvr/command-output@34408ea3d0528273faff3d9e201761ae96106cd0
         with:
-          run: just nextest-slow1 ${{ matrix.type }}
+          run: just nextest-slow ${{ matrix.type }}
         id: run_nextest
 
       - name: Notify in Zulip about failures
