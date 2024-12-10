@@ -210,8 +210,8 @@ fn assert_compute_limit_reached(
         let code = near_test_contracts::backwards_compatible_rs_contract().to_vec();
         let actions = vec![Action::DeployContract(DeployContractAction { code })];
 
-        let signer = InMemorySigner::test(&contract_account);
-        let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
+        let signer = InMemorySigner::test_signer(&contract_account);
+        let tx = env.tx_from_actions(actions, &signer, signer.get_account_id());
         env.execute_tx(tx).unwrap().assert_success();
     }
 

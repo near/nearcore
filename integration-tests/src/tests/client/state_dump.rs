@@ -8,7 +8,7 @@ use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
 use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, Signer};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
@@ -141,7 +141,7 @@ fn run_state_sync_with_dumped_parts(
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer = InMemorySigner::test(&"test0".parse().unwrap());
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator = MutableConfigValue::new(
         Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
         "validator_signer",
@@ -183,7 +183,6 @@ fn run_state_sync_with_dumped_parts(
         account_creation_at_epoch_height * epoch_length + 1
     };
 
-    let signer: Signer = signer.into();
     for i in 1..=dump_node_head_height {
         if i == account_creation_at_height {
             let tx = SignedTransaction::create_account(

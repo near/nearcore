@@ -777,8 +777,16 @@ impl EpochManagerAdapter for MockEpochManager {
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<AccountId, EpochError> {
+        self.get_block_producer_info(epoch_id, height).map(|validator| validator.take_account_id())
+    }
+
+    fn get_block_producer_info(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockHeight,
+    ) -> Result<ValidatorStake, EpochError> {
         let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        Ok(validators[(height as usize) % validators.len()].account_id().clone())
+        Ok(validators[(height as usize) % validators.len()].clone())
     }
 
     fn get_chunk_producer_info(
@@ -886,17 +894,6 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn should_validate_signatures(&self) -> bool {
         false
-    }
-
-    fn verify_block_vrf(
-        &self,
-        _epoch_id: &EpochId,
-        _block_height: BlockHeight,
-        _prev_random_value: &CryptoHash,
-        _vrf_value: &near_crypto::vrf::Value,
-        _vrf_proof: &near_crypto::vrf::Proof,
-    ) -> Result<(), Error> {
-        Ok(())
     }
 
     fn verify_validator_signature(

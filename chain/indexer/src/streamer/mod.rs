@@ -100,7 +100,7 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
-    for (shard_index, chunk) in chunks.into_iter().enumerate() {
+    for chunk in chunks.into_iter() {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
@@ -232,7 +232,12 @@ pub async fn build_streamer_message(
         }
 
         chunk_receipts.extend(chunk_non_local_receipts);
-
+        // Find the shard index for the chunk by shard_id
+        let shard_index = protocol_config_view
+            .shard_layout
+            .get_shard_index(header.shard_id)
+            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
+        // Add receipt_execution_outcomes into corresponding indexer shard
         indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_index].chunk = Some(IndexerChunkView {
@@ -250,7 +255,7 @@ pub async fn build_streamer_message(
         let shard_index = protocol_config_view
             .shard_layout
             .get_shard_index(shard_id)
-            .expect("Failed to get shard index");
+            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
         indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
             |outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,
