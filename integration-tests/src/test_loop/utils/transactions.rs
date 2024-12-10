@@ -62,11 +62,11 @@ pub fn get_next_nonce(
     node_datas: &[TestData],
     account_id: &AccountId,
 ) -> u64 {
+    let signer: Signer = create_user_test_signer(&account_id);
     let clients = node_datas
         .iter()
         .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
-    let signer: Signer = create_user_test_signer(&account_id).into();
     let response = clients.runtime_query(
         account_id,
         QueryRequest::ViewAccessKey {

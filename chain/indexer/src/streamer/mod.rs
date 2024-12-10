@@ -252,17 +252,10 @@ pub async fn build_streamer_message(
     // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
     // That might happen before the fix https://github.com/near/nearcore/pull/4228
     for (shard_id, outcomes) in shards_outcomes {
-        let shard_index = protocol_config_view.shard_layout.get_shard_index(shard_id);
-        let Ok(shard_index) = shard_index else {
-            tracing::error!(
-                target: INDEXER,
-                "Failed to get shard index for shard_id: {} {} {}",
-                shard_id,
-                block.header.height,
-                block.header.hash,
-            );
-            continue;
-        };
+        let shard_index = protocol_config_view
+            .shard_layout
+            .get_shard_index(shard_id)
+            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
         indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
             |outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,
