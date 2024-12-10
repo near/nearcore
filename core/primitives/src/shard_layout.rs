@@ -1111,7 +1111,7 @@ mod tests {
         pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
             // none of the epoch config fields matter, we only need the shard layout
             // constructed through [`AllEpochConfig::for_protocol_version()`].
-            let genesis_epoch_config = EpochConfig::zero();
+            let genesis_epoch_config = EpochConfig::minimal();
 
             let genesis_protocol_version = PROTOCOL_VERSION;
             let all_epoch_config = AllEpochConfig::new(
