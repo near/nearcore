@@ -99,7 +99,6 @@ members = [
     "utils/near-cache",
     "utils/near-stable-hasher",
     "utils/stdx",
-    "benchmarks/synth-bm",
 ]
 exclude = ["tracing", "benchmarks"]
 
