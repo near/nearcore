@@ -202,3 +202,58 @@ I don't have specific recommendations here.
 We don't know what exactly it is about neard that leads to it crashing under the profiler as easily
 as it does. I have seen valgrind reporting that we have libraries that are deallocating with a
 wrong size class, so that might be the reason? Do definitely look into this if you have time.
+
+
+## What to profile?
+
+This section provides some ideas on programs you could consider profiling if you are not sure where
+to start.
+
+First and foremost you could go shotgun and profile a full running `neard` node that's operating on
+mainnet or testnet traffic. There are a couple ways to set up such a node: search for
+[my-own-mainnet](https://docs.nearone.org/doc/my-own-mainnettestnet-MZTRLQjXCz) or a forknet based
+tooling.
+
+From there either attach to a running `neard run` process or stop the running one and start a new
+instance under the profiler.
+
+This approach will give you a good overview of the entire system, but at the same time the
+information might be so dense, it might be difficult to derive any signal from the noise. There are
+alternatives that isolate certain components of the runtime:
+
+### `Runtime::apply`
+
+Profiling just the `Runtime::apply` is going to include the work done by transaction runtime and
+the contract runtime only. A smart use of the tools already present in the `neard` binary can
+achieve that today.
+
+First, make sure all deltas in flat storage are applied and written:
+
+```
+neard view-state --readwrite apply-range --shard-id $SHARD_ID --storage flat sequential
+```
+
+You will need to do this for all shards you're interested in profiling. Then pick a block or a
+range of blocks you want to re-apply and set the flat head to the specified height:
+
+```
+neard flat-storage move-flat-head --shard-id 0 --version 0 back --blocks 17
+```
+
+Finally the following commands will apply the block or blocks from the height in various different
+ways. Experiment with the different modes and flags to find the best fit for your task. Don't
+forget to run these commands under the profiler :)
+
+```
+# Apply blocks from current flat head to the highest known block height in sequence
+# using the memtrie storage (note that after this you will need to move the flat head again)
+neard view-state --readwrite apply-range --shard-id 0 --storage memtrie sequential
+# Same but with flat storage
+neard view-state --readwrite apply-range --shard-id 0 --storage flat sequential
+
+# Repeatedly apply a single block at the flat head using the memtrie storage.
+# Will not modify the storage on the disk.
+neard view-state apply-range --shard-id 0 --storage memtrie benchmark
+# Same but with flat storage
+neard view-state apply-range --shard-id 0 --storage flat benchmark
+```

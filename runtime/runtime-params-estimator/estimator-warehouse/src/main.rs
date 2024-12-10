@@ -147,7 +147,7 @@ mod tests {
     ///   it might make sense to put it in a separate CI job.
     /// - QEMU based estimation is skipped - it would be too slow.
     #[test]
-    fn test_full_estimator() -> anyhow::Result<()> {
+    fn ultra_slow_test_full_estimator() -> anyhow::Result<()> {
         let stats_path = Path::new("tmp_db.sqlite");
         let db = Db::open(stats_path)?;
         let config = EstimateConfig {

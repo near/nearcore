@@ -1520,7 +1520,7 @@ mod tests {
     use near_chain::types::RuntimeAdapter;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_client::test_utils::TestEnv;
-    use near_crypto::{InMemorySigner, KeyFile, KeyType};
+    use near_crypto::{InMemorySigner, KeyFile};
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::types::chunk_extra::ChunkExtra;
@@ -1562,7 +1562,7 @@ mod tests {
             .runtimes(runtimes)
             .build();
 
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::test(&"test0".parse().unwrap());
         assert_eq!(env.send_money(0), near_client::ProcessTxResponse::ValidTx);
 
         // It takes 2 blocks to record a transaction on chain and apply the receipts.

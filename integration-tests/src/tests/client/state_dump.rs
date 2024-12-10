@@ -8,7 +8,7 @@ use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
 use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
@@ -141,7 +141,7 @@ fn run_state_sync_with_dumped_parts(
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test(&"test0".parse().unwrap());
     let validator = MutableConfigValue::new(
         Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
         "validator_signer",
@@ -373,37 +373,37 @@ fn run_state_sync_with_dumped_parts(
 /// - the dumping node's head is in new epoch but final block is not;
 /// - the dumping node's head and final block are in same epoch
 #[test]
-fn test_state_sync_with_dumped_parts_2_non_final() {
+fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 2, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_2_final() {
+fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 2, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_3_non_final() {
+fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 3, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_3_final() {
+fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 3, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_4_non_final() {
+fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(false, 4, 5);
 }
 
 #[test]
-fn test_state_sync_with_dumped_parts_4_final() {
+fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
     run_state_sync_with_dumped_parts(true, 4, 5);
 }

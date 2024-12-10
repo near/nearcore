@@ -63,7 +63,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
@@ -895,8 +895,6 @@ pub fn setup_mock_all_validators(
 ) -> (Vec<ActorHandlesForTesting>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
     let validators = vs.all_validators().cloned().collect::<Vec<_>>();
-    let key_pairs = key_pairs;
-
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
     let genesis_time = clock.now_utc();
     let mut ret = vec![];
@@ -1087,6 +1085,7 @@ pub fn setup_client_with_runtime(
         resharding_sender,
         Arc::new(ActixFutureSpawner),
         noop().into_multi_sender(), // state sync ignored for these tests
+        PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

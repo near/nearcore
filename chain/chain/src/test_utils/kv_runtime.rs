@@ -27,7 +27,6 @@ use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
-use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
@@ -234,9 +233,8 @@ impl MockEpochManager {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self
-            .get_block_header(&prev_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(prev_hash))?;
+        let prev_block_header =
+            self.get_block_header(&prev_hash)?.ok_or(EpochError::MissingBlock(prev_hash))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch_approvals_req =
@@ -304,7 +302,7 @@ impl MockEpochManager {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))? as usize
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))? as usize
             % self.validators_by_valset.len())
     }
 
@@ -330,12 +328,12 @@ impl KeyValueRuntime {
         epoch_manager: &MockEpochManager,
         no_gc: bool,
     ) -> Arc<Self> {
-        let num_shards = epoch_manager.shard_ids(&EpochId::default()).unwrap().len() as NumShards;
-        let epoch_length =
-            epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
+        let epoch_id = EpochId::default();
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let epoch_length = epoch_manager.get_epoch_config(&epoch_id).unwrap().epoch_length;
         let tries = TestTriesBuilder::new()
             .with_store(store.clone())
-            .with_shard_layout(0, num_shards)
+            .with_shard_layout(shard_layout.clone())
             .build();
         let mut initial_amounts = HashMap::new();
         for (i, validator_stake) in epoch_manager
@@ -360,7 +358,8 @@ impl KeyValueRuntime {
         let state_size = HashMap::from([(Trie::EMPTY_ROOT, data_len)]);
 
         let mut store_update = store.store_update();
-        let genesis_roots: Vec<CryptoHash> = (0..num_shards).map(|_| Trie::EMPTY_ROOT).collect();
+        let genesis_roots: Vec<CryptoHash> =
+            shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
         store_update.commit().expect("Store failed on genesis intialization");
@@ -369,7 +368,7 @@ impl KeyValueRuntime {
             store,
             tries,
             no_gc,
-            num_shards,
+            num_shards: shard_layout.num_shards(),
             epoch_length,
             headers_cache: RwLock::new(HashMap::new()),
             state: RwLock::new(state),
@@ -403,7 +402,7 @@ impl KeyValueRuntime {
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: NumShards) -> ShardId {
     #[allow(deprecated)]
     let shard_layout = ShardLayout::v0(num_shards, 0);
-    shard_layout::account_id_to_shard_id(account_id, &shard_layout)
+    shard_layout.account_id_to_shard_id(account_id)
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -566,6 +565,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(ShardLayout::v0(self.num_shards, 0))
     }
 
+    fn get_shard_layout_from_protocol_version(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> ShardLayout {
+        self.get_shard_layout(&EpochId::default()).unwrap()
+    }
+
     fn get_shard_config(&self, _epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         panic!("get_shard_config not implemented for KeyValueRuntime");
     }
@@ -574,9 +580,8 @@ impl EpochManagerAdapter for MockEpochManager {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header = self
-            .get_block_header(parent_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(*parent_hash))?;
+        let prev_block_header =
+            self.get_block_header(parent_hash)?.ok_or(EpochError::MissingBlock(*parent_hash))?;
         let prev_prev_hash = *prev_block_header.prev_hash();
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
@@ -686,7 +691,7 @@ impl EpochManagerAdapter for MockEpochManager {
         loop {
             let header = self
                 .get_block_header(&candidate_hash)?
-                .ok_or_else(|| EpochError::MissingBlock(candidate_hash))?;
+                .ok_or(EpochError::MissingBlock(candidate_hash))?;
             candidate_hash = *header.prev_hash();
             if self.is_next_block_epoch_start(&candidate_hash)? {
                 break Ok(self.get_epoch_and_valset(candidate_hash)?.0);
@@ -864,10 +869,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.store.store_update())
     }
 
-    fn get_epoch_minted_amount(&self, _epoch_id: &EpochId) -> Result<Balance, EpochError> {
-        Ok(0)
-    }
-
     fn get_epoch_protocol_version(
         &self,
         _epoch_id: &EpochId,
@@ -889,6 +890,10 @@ impl EpochManagerAdapter for MockEpochManager {
         _next_epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
         Ok(())
+    }
+
+    fn should_validate_signatures(&self) -> bool {
+        false
     }
 
     fn verify_validator_signature(
@@ -936,15 +941,15 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         // This `unwrap` here tests that in all code paths we check that the epoch exists before
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
-        let epoch_valset = self.get_valset_for_epoch(&epoch_id).unwrap();
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let epoch_valset = self.get_valset_for_epoch(epoch_id).unwrap();
+        let shard_layout = self.get_shard_layout(epoch_id)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(epoch_valset, shard_index);
         for validator in chunk_producers {

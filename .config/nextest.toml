@@ -1,24 +1,45 @@
+# By default tests should not take more than 5 seconds to execute and will get killed after 15
+# seconds.
+#
+# If that happens, instead of making the period longer here, change the test name to one of the
+# next test "speed tiers" by using `slow_test_` or `ultra_slow_test` prefix for the test's name.
 [profile.default]
-slow-timeout = { period = "60s", terminate-after = 3, grace-period = "0s" }
+slow-timeout = { period = "5s", terminate-after = 3, grace-period = "1s" }
+default-filter = "not (test(/^(.*::slow_test|slow_test)/) | test(/^(.*::ultra_slow_test|ultra_slow_test)/))"
+final-status-level = "slow"
 
+# Tests that take a longer time to execute. `slow_test*` tests are given 1m30s to execute.
 [[profile.default.overrides]]
-filter = 'test(test_full_estimator)'
-slow-timeout = { period = "10m", terminate-after = 3 }
-retries = 0
-threads-required = 2
+filter = 'test(/^(.*::slow_test|slow_test)/)'
+slow-timeout = { period = "30s", terminate-after = 3, grace-period = "1s" }
+
+# Tests that take longer than the heat death of the universe of time to execute. Consider making
+# the test faster, but if you must `ultra_slow_test*` tests are given 1h to execute. These are
+# generally left for nayduck to execute.
+[[profile.default.overrides]]
+filter = 'test(/^(.*::ultra_slow_test|ultra_slow_test)/)'
+slow-timeout = { period = "30m", terminate-after = 2, grace-period = "1s" }
+
 
 # Unfortunately no support for inheriting profiles yet:
 # https://github.com/nextest-rs/nextest/issues/387
 [profile.ci]
-slow-timeout = { period = "120s", terminate-after = 5 }
+slow-timeout = { period = "5s", terminate-after = 5, grace-period = "1s" }
+default-filter = "not test(/^(.*::ultra_slow_test|ultra_slow_test)/)"
 # Try a few times before failing the whole test suite on a potentially spurious tests.
 # The hope is that people will fix the spurious tests as they encounter them locally...
 retries = { backoff = "fixed", count = 3, delay = "1s" }
 failure-output = "final"
 fail-fast = false
 
+# Tests that take a longer time to execute. `slow_test*` tests are given 1m30s to execute.
 [[profile.ci.overrides]]
-filter = 'test(test_full_estimator)'
-slow-timeout = { period = "10m", terminate-after = 3 }
-retries = 0
-threads-required = 2
+filter = 'test(/^(.*::slow_test|slow_test)/)'
+slow-timeout = { period = "30s", terminate-after = 3, grace-period = "1s" }
+
+# Tests that take longer than the heat death of the universe of time to execute. Consider making
+# the test faster, but if you must `ultra_slow_test*` tests are given 1h to execute. These are
+# generally left for nayduck to execute.
+[[profile.ci.overrides]]
+filter = 'test(/^(.*::ultra_slow_test|ultra_slow_test)/)'
+slow-timeout = { period = "30m", terminate-after = 2, grace-period = "1s" }

@@ -12,7 +12,7 @@ use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -195,6 +195,10 @@ impl TestEnv {
         let mut paused_blocks = self.paused_blocks.lock().unwrap();
         let cell = paused_blocks.remove(block).unwrap();
         let _ = cell.set(());
+    }
+
+    pub fn contains_client(&self, account_id: &AccountId) -> bool {
+        self.account_indices.contains(account_id)
     }
 
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
@@ -399,6 +403,10 @@ impl TestEnv {
                     let processing_done_tracker = ProcessingDoneTracker::new();
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
+                    if !self.contains_client(&account_id) {
+                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        continue;
+                    }
                     let client = self.client(&account_id);
                     let processing_result = client.process_chunk_state_witness(
                         state_witness.clone(),
@@ -434,6 +442,10 @@ impl TestEnv {
                     account_id,
                     endorsement,
                 )) => {
+                    if !self.contains_client(&account_id) {
+                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        return None;
+                    }
                     let processing_result = self
                         .client(&account_id)
                         .chunk_endorsement_tracker
@@ -493,13 +505,12 @@ impl TestEnv {
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
             account_id,
-            &signer.into(),
+            &signer,
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
@@ -749,10 +760,8 @@ impl TestEnv {
         relayer: AccountId,
         receiver_id: AccountId,
     ) -> SignedTransaction {
-        let inner_signer =
-            InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
-        let relayer_signer =
-            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str());
+        let inner_signer = InMemorySigner::test(&sender);
+        let relayer_signer = InMemorySigner::test_signer(&relayer);
         let tip = self.clients[0].chain.head().unwrap();
         let user_nonce = tip.height + 1;
         let relayer_nonce = tip.height + 1;
@@ -773,7 +782,7 @@ impl TestEnv {
             relayer_nonce,
             relayer,
             sender,
-            &relayer_signer.into(),
+            &relayer_signer,
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
             0,
@@ -812,7 +821,7 @@ impl TestEnv {
     /// `InMemorySigner::from_seed` produces a valid signer that has it's key
     /// deployed already.
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
-        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+        let signer = InMemorySigner::test(&account.clone());
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
@@ -875,6 +884,10 @@ pub(crate) struct AccountIndices(pub(crate) HashMap<AccountId, usize>);
 impl AccountIndices {
     pub fn index(&self, account_id: &AccountId) -> usize {
         self.0[account_id]
+    }
+
+    pub fn contains(&self, account_id: &AccountId) -> bool {
+        self.0.contains_key(account_id)
     }
 
     pub fn lookup<'a, T>(&self, container: &'a [T], account_id: &AccountId) -> &'a T {

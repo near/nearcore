@@ -14,20 +14,20 @@ use near_chain_configs::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync_enabled, default_state_sync_external_timeout,
-    default_state_sync_p2p_timeout, default_state_sync_retry_timeout, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
-    ClientConfig, EpochSyncConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, MutableValidatorSigner, ReshardingConfig, StateSyncConfig,
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FAST_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT,
-    MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
-    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-    TRANSACTION_VALIDITY_PERIOD,
+    default_state_sync_enabled, default_state_sync_external_backoff,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
+    ChunkDistributionNetworkConfig, ClientConfig, EpochSyncConfig, GCConfig, Genesis,
+    GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue,
+    MutableValidatorSigner, ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
+    EXPECTED_EPOCH_LENGTH, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
+    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY,
+    MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
@@ -51,7 +51,9 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::StateSnapshotType;
+use near_store::config::{
+    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
+};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -162,9 +164,12 @@ pub struct Consensus {
     #[serde(default = "default_state_sync_p2p_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub state_sync_p2p_timeout: Duration,
-    #[serde(default = "default_state_sync_retry_timeout")]
+    #[serde(default = "default_state_sync_retry_backoff")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub state_sync_retry_timeout: Duration,
+    pub state_sync_retry_backoff: Duration,
+    #[serde(default = "default_state_sync_external_backoff")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub state_sync_external_backoff: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
@@ -207,7 +212,8 @@ impl Default for Consensus {
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
             state_sync_external_timeout: default_state_sync_external_timeout(),
             state_sync_p2p_timeout: default_state_sync_p2p_timeout(),
-            state_sync_retry_timeout: default_state_sync_retry_timeout(),
+            state_sync_retry_backoff: default_state_sync_retry_backoff(),
+            state_sync_external_backoff: default_state_sync_external_backoff(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
             sync_check_period: default_sync_check_period(),
@@ -274,6 +280,8 @@ pub struct Config {
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archival_storage: Option<ArchivalStoreConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -368,6 +376,7 @@ impl Default for Config {
             store: near_store::StoreConfig::default(),
             cold_store: None,
             split_storage: None,
+            archival_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -383,59 +392,6 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
-        }
-    }
-}
-
-fn default_enable_split_storage_view_client() -> bool {
-    false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::seconds(30)
-}
-
-fn default_num_cold_store_read_threads() -> usize {
-    4
-}
-
-fn default_cold_store_loop_sleep_duration() -> Duration {
-    Duration::seconds(1)
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct SplitStorageConfig {
-    #[serde(default = "default_enable_split_storage_view_client")]
-    pub enable_split_storage_view_client: bool,
-
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_cold_store_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_num_cold_store_read_threads")]
-    pub num_cold_store_read_threads: usize,
-}
-
-impl Default for SplitStorageConfig {
-    fn default() -> Self {
-        SplitStorageConfig {
-            enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
-            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
-            num_cold_store_read_threads: default_num_cold_store_read_threads(),
         }
     }
 }
@@ -509,6 +465,16 @@ impl Config {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
     }
+
+    /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
+    pub fn archival_config(&self) -> Option<ArchivalConfig> {
+        ArchivalConfig::new(
+            self.archive,
+            self.archival_storage.as_ref(),
+            self.cold_store.as_ref(),
+            self.split_storage.as_ref(),
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -562,7 +528,8 @@ impl NearConfig {
                     .header_sync_expected_height_per_second,
                 state_sync_external_timeout: config.consensus.state_sync_external_timeout,
                 state_sync_p2p_timeout: config.consensus.state_sync_p2p_timeout,
-                state_sync_retry_timeout: config.consensus.state_sync_retry_timeout,
+                state_sync_retry_backoff: config.consensus.state_sync_retry_backoff,
+                state_sync_external_backoff: config.consensus.state_sync_external_backoff,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: config.log_summary_period,
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -589,8 +556,6 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
-                flat_storage_creation_enabled: false,
-                flat_storage_creation_period: Duration::seconds(1),
                 state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
@@ -1081,7 +1046,6 @@ impl LocalnetNodeParams {
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
 /// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
-
 pub fn create_localnet_configs_from_seeds(
     seeds: Vec<String>,
     num_shards: NumShards,
@@ -1538,7 +1502,6 @@ mod tests {
     use near_async::time::Duration;
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
-    use near_primitives::shard_layout::account_id_to_shard_id;
     use near_primitives::types::{AccountId, NumShards, ShardId};
     use tempfile::tempdir;
 
@@ -1580,19 +1543,19 @@ mod tests {
             panic!("Expected 3 shards, got {:?}", shard_ids);
         };
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("foobar.near").unwrap(), &shard_layout),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("foobar.near").unwrap()),
             s0
         );
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("test0.near").unwrap(), &shard_layout,),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test0.near").unwrap()),
             s0
         );
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("test1.near").unwrap(), &shard_layout,),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test1.near").unwrap()),
             s1
         );
         assert_eq!(
-            account_id_to_shard_id(&AccountId::from_str("test2.near").unwrap(), &shard_layout,),
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test2.near").unwrap()),
             s2
         );
     }

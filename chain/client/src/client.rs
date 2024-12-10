@@ -21,7 +21,6 @@ use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
     VerifyBlockHashAndSignatureResult,
 };
-use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
@@ -70,6 +69,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
@@ -184,8 +184,6 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Resharding sender.
     pub resharding_sender: ReshardingSender,
-    /// Used when it is needed to create flat storage in background for some shards.
-    flat_storage_creator: Option<FlatStorageCreator>,
     /// A map storing the last time a block was requested for state sync.
     pub last_time_sync_block_requested: HashMap<CryptoHash, near_async::time::Utc>,
     /// Helper module for stateless validation functionality like chunk witness production, validation
@@ -200,6 +198,8 @@ pub struct Client {
     pub partial_witness_adapter: PartialWitnessSenderForClient,
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
+    /// Upgrade schedule which determines when the client starts voting for new protocol versions.
+    upgrade_schedule: ProtocolUpgradeVotingSchedule,
 }
 
 impl AsRef<Client> for Client {
@@ -256,6 +256,7 @@ impl Client {
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
         chain_sender_for_state_sync: ChainSenderForStateSync,
+        upgrade_schedule: ProtocolUpgradeVotingSchedule,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -274,20 +275,13 @@ impl Client {
             runtime_adapter.clone(),
             &chain_genesis,
             doomslug_threshold_mode,
-            chain_config.clone(),
+            chain_config,
             snapshot_callbacks,
             async_computation_spawner.clone(),
             validator_signer.clone(),
             resharding_sender.clone(),
         )?;
-        // Create flat storage or initiate migration to flat storage.
-        let flat_storage_creator = FlatStorageCreator::new(
-            epoch_manager.clone(),
-            runtime_adapter.clone(),
-            chain.chain_store(),
-            &chain.resharding_manager.flat_storage_resharder.clone(),
-            chain_config.background_migration_threads,
-        )?;
+        chain.init_flat_storage()?;
         let sharded_tx_pool =
             ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let sync_status = SyncStatus::AwaitingPeers;
@@ -324,7 +318,8 @@ impl Client {
             network_adapter.clone().into_sender(),
             config.state_sync_external_timeout,
             config.state_sync_p2p_timeout,
-            config.state_sync_retry_timeout,
+            config.state_sync_retry_backoff,
+            config.state_sync_external_backoff,
             &config.chain_id,
             &config.state_sync.sync,
             chain_sender_for_state_sync.clone(),
@@ -401,13 +396,13 @@ impl Client {
             ),
             tier1_accounts_cache: None,
             resharding_sender,
-            flat_storage_creator,
             last_time_sync_block_requested: HashMap::new(),
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
             partial_witness_adapter,
             chunk_distribution_network,
+            upgrade_schedule,
         })
     }
 
@@ -752,12 +747,10 @@ impl Client {
             *chunk_header.height_included_mut() = height;
             *chunk_headers
                 .get_mut(shard_index)
-                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
-                chunk_header;
+                .ok_or(near_chain_primitives::Error::InvalidShardId(shard_id))? = chunk_header;
             *chunk_endorsements
                 .get_mut(shard_index)
-                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
-                chunk_endorsement;
+                .ok_or(near_chain_primitives::Error::InvalidShardId(shard_id))? = chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
@@ -765,7 +758,7 @@ impl Client {
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(&prev_hash)?;
 
         let minted_amount = if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            Some(self.epoch_manager.get_epoch_minted_amount(&next_epoch_id)?)
+            Some(self.epoch_manager.get_epoch_info(&next_epoch_id)?.minted_amount())
         } else {
             None
         };
@@ -803,6 +796,8 @@ impl Client {
         let block = Block::produce(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
+            self.upgrade_schedule
+                .protocol_version_to_vote_for(self.clock.now_utc(), next_epoch_protocol_version),
             prev_header,
             height,
             block_ordinal,
@@ -2382,8 +2377,6 @@ impl Client {
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
-        // TODO(resharding) will_care_about_shard should be called with the
-        // account shard id from the next epoch, in case shard layout changes
         if care_about_shard || will_care_about_shard {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
@@ -2578,7 +2571,8 @@ impl Client {
                             self.network_adapter.clone().into_sender(),
                             self.config.state_sync_external_timeout,
                             self.config.state_sync_p2p_timeout,
-                            self.config.state_sync_retry_timeout,
+                            self.config.state_sync_retry_backoff,
+                            self.config.state_sync_external_backoff,
                             &self.config.chain_id,
                             &self.config.state_sync.sync,
                             self.chain_sender_for_state_sync.clone(),
@@ -2662,19 +2656,6 @@ impl Client {
         //            self.challenges.insert(challenge.hash, challenge);
         //        }
         Ok(())
-    }
-
-    /// Check updates from background flat storage creation processes and possibly update
-    /// creation statuses. Returns boolean indicating if all flat storages are created or
-    /// creation is not needed.
-    pub fn run_flat_storage_creation_step(&mut self) -> Result<bool, Error> {
-        let result = match &mut self.flat_storage_creator {
-            Some(flat_storage_creator) => {
-                flat_storage_creator.update_status(self.chain.chain_store())?
-            }
-            None => true,
-        };
-        Ok(result)
     }
 }
 

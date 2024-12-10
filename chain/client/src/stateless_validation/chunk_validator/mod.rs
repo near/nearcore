@@ -95,30 +95,18 @@ impl ChunkValidator {
         let chunk_header = state_witness.chunk_header.clone();
         let network_sender = self.network_sender.clone();
         let epoch_manager = self.epoch_manager.clone();
-        if matches!(
-            pre_validation_result.main_transition_params,
-            chunk_validation::MainTransition::ShardLayoutChange
-        ) {
-            send_chunk_endorsement_to_block_producers(
-                &chunk_header,
-                epoch_manager.as_ref(),
-                signer,
-                &network_sender,
-            );
-            return Ok(());
-        }
 
-        // If we have the chunk extra for the previous block, we can validate the chunk without state witness.
+        // If we have the chunk extra for the previous block, we can validate
+        // the chunk without state witness.
         // This usually happens because we are a chunk producer and
         // therefore have the chunk extra for the previous block saved on disk.
         // We can also skip validating the chunk state witness in this case.
+        // We don't need to switch to parent shard uid, because resharding
+        // creates chunk extra for new shard uid.
+        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let prev_block = chain.get_block(prev_block_hash)?;
-        let last_header = Chain::get_prev_chunk_header(
-            epoch_manager.as_ref(),
-            &prev_block,
-            chunk_header.shard_id(),
-        )?;
-        let shard_uid = epoch_manager.shard_id_to_uid(last_header.shard_id(), &epoch_id)?;
+        let last_header =
+            Chain::get_prev_chunk_header(epoch_manager.as_ref(), &prev_block, shard_id)?;
 
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(

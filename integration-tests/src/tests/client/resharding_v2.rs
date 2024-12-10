@@ -5,7 +5,7 @@ use near_chain::Provenance;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
@@ -643,8 +643,7 @@ fn setup_test_env_with_cross_contract_txs(
 
     let mut init_txs = vec![];
     for account_id in &contract_accounts {
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let actions = vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })];
@@ -782,9 +781,8 @@ fn gen_cross_contract_tx_impl(
     nonce: u64,
     block_hash: &CryptoHash,
 ) -> SignedTransaction {
-    let signer0 = InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, account0.as_ref());
-    let signer_new_account =
-        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
+    let signer0 = InMemorySigner::test_signer(&account0);
+    let signer_new_account = InMemorySigner::test_signer(&new_account);
     let data = serde_json::json!([
         {"create": {
         "account_id": account2.to_string(),
@@ -808,7 +806,7 @@ fn gen_cross_contract_tx_impl(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],
@@ -821,7 +819,7 @@ fn gen_cross_contract_tx_impl(
         nonce,
         account0.clone(),
         account1.clone(),
-        &signer0.into(),
+        &signer0,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -893,16 +891,16 @@ fn test_latest_protocol_missing_chunks(p_missing: f64, rng_seed: u64) {
 // latest protocol
 
 #[test]
-fn test_latest_protocol_missing_chunks_low_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_mid_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_high_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);
 }

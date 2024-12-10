@@ -136,8 +136,8 @@ impl MerkleProofAccess for Store {
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
-        self.get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?.ok_or(
-            Error::Other(format!("Could not find block hash from ordinal {}", block_ordinal)),
+        self.get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?.ok_or_else(
+            || Error::Other(format!("Could not find block hash from ordinal {}", block_ordinal)),
         )
     }
 }

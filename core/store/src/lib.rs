@@ -15,6 +15,7 @@ pub use crate::trie::{
 use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
+use config::ArchivalConfig;
 use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
@@ -36,7 +37,7 @@ use near_primitives::receipt::{
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
+use near_vm_runner::{CompiledContractInfo, ContractRuntimeCache};
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
@@ -46,7 +47,7 @@ use std::{fmt, io};
 use strum;
 
 pub mod adapter;
-pub mod cold_storage;
+pub mod archive;
 mod columns;
 pub mod config;
 pub mod contract;
@@ -126,11 +127,10 @@ impl NodeStorage {
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
-        archive: bool,
-        config: &'a StoreConfig,
-        cold_config: Option<&'a StoreConfig>,
+        store_config: &'a StoreConfig,
+        archival_config: Option<ArchivalConfig<'a>>,
     ) -> StoreOpener<'a> {
-        StoreOpener::new(home_dir, archive, config, cold_config)
+        StoreOpener::new(home_dir, store_config, archival_config)
     }
 
     /// Constructs new object backed by given database.
@@ -161,7 +161,7 @@ impl NodeStorage {
     pub fn test_opener() -> (tempfile::TempDir, StoreOpener<'static>) {
         static CONFIG: LazyLock<StoreConfig> = LazyLock::new(StoreConfig::test_config);
         let dir = tempfile::tempdir().unwrap();
-        let opener = StoreOpener::new(dir.path(), false, &CONFIG, None);
+        let opener = NodeStorage::opener(dir.path(), &CONFIG, None);
         (dir, opener)
     }
 
@@ -1025,10 +1025,6 @@ pub fn get_access_key_raw(
     )
 }
 
-pub fn set_code(state_update: &mut TrieUpdate, account_id: AccountId, code: &ContractCode) {
-    state_update.set(TrieKey::ContractCode { account_id }, code.code().to_vec());
-}
-
 /// Removes account, code and all access keys associated to it.
 pub fn remove_account(
     state_update: &mut TrieUpdate,
@@ -1173,30 +1169,12 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
     }
 }
 
-/// Get the contract WASM code from The State.
-///
-/// Executing all the usual storage access side-effects.
-pub fn get_code(
-    trie: &dyn TrieAccess,
-    account_id: &AccountId,
-    code_hash: Option<CryptoHash>,
-) -> Result<Option<ContractCode>, StorageError> {
-    let key = TrieKey::ContractCode { account_id: account_id.clone() };
-    trie.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, code_hash)))
-}
-
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
     use near_vm_runner::CompiledContractInfo;
 
     use super::{DBCol, NodeStorage, Store};
-
-    #[test]
-    fn test_no_cache_disabled() {
-        #[cfg(feature = "no_cache")]
-        panic!("no cache is enabled");
-    }
 
     fn test_clear_column(store: Store) {
         assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);

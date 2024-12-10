@@ -56,6 +56,7 @@ pub enum FlatStorageStatus {
     /// Flat Storage is empty: either wasn't created yet or was deleted.
     Empty,
     /// Flat Storage is in the process of being created.
+    /// Deprectated: flat storage creation code was removed in #12534
     Creation(FlatStorageCreationStatus),
     /// Flat Storage is ready to be used.
     Ready(FlatStorageReadyStatus),

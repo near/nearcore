@@ -148,12 +148,7 @@ impl TransactionConfig {
             let new_account = scope.new_account(u)?;
 
             let signer = scope.full_access_signer(u, &signer_account)?;
-            let new_public_key = InMemorySigner::from_seed(
-                new_account.id.clone(),
-                KeyType::ED25519,
-                new_account.id.as_ref(),
-            )
-            .public_key;
+            let new_public_key = InMemorySigner::test_signer(&new_account.id).public_key();
             Ok(TransactionConfig {
                 nonce: scope.nonce(),
                 signer_id: signer_account.id,
@@ -581,11 +576,7 @@ impl Scope {
         let possible_signers = self.accounts[account_idx].full_access_keys();
         if possible_signers.is_empty() {
             // this transaction will be invalid
-            Ok(InMemorySigner::from_seed(
-                self.accounts[account_idx].id.clone(),
-                KeyType::ED25519,
-                self.accounts[account_idx].id.as_ref(),
-            ))
+            Ok(InMemorySigner::test(&self.accounts[account_idx].id))
         } else {
             Ok(u.choose(&possible_signers)?.clone())
         }
@@ -601,11 +592,7 @@ impl Scope {
         let possible_signers = self.accounts[account_idx].function_call_keys(receiver_id);
         if possible_signers.is_empty() {
             // this transaction will be invalid
-            Ok(InMemorySigner::from_seed(
-                self.accounts[account_idx].id.clone(),
-                KeyType::ED25519,
-                self.accounts[account_idx].id.as_ref(),
-            ))
+            Ok(InMemorySigner::test(&self.accounts[account_idx].id))
         } else {
             Ok(u.choose(&possible_signers)?.clone())
         }
@@ -630,10 +617,8 @@ impl Account {
         keys.insert(
             0,
             Key {
-                signer: InMemorySigner::from_seed(
-                    AccountId::from_str(id.as_str()).expect("Invalid account_id"),
-                    KeyType::ED25519,
-                    id.as_ref(),
+                signer: InMemorySigner::test(
+                    &AccountId::from_str(id.as_str()).expect("Invalid account_id"),
                 ),
                 access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
             },

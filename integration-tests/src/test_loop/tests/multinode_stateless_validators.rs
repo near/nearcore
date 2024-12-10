@@ -23,7 +23,7 @@ const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 
 #[test]
-fn test_stateless_validators_with_multi_test_loop() {
+fn slow_test_stateless_validators_with_multi_test_loop() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 

@@ -477,7 +477,6 @@ pub struct Currency {
     /// Any additional information related to the currency itself.  For example,
     /// it would be useful to populate this object with the contract address of
     /// an ERC-20 token.
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<CurrenyMetadata>,
 }
@@ -543,6 +542,9 @@ impl Error {
             }
             crate::errors::ErrorKind::NotFound(message) => {
                 Self { code: 404, message: format!("Not Found: {}", message), retriable: false }
+            }
+            crate::errors::ErrorKind::MissingBlock(message) => {
+                Self { code: 422, message: format!("Missing Block: {}", message), retriable: false }
             }
             crate::errors::ErrorKind::WrongNetwork(message) => {
                 Self { code: 403, message: format!("Wrong Network: {}", message), retriable: false }

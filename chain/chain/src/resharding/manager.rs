@@ -261,8 +261,10 @@ impl ReshardingManager {
             .store
             .get_ser(DBCol::ChunkExtra, &key)
             .map_err(|e| Error::DBNotFoundErr(e.to_string()))?;
-        value.ok_or(Error::DBNotFoundErr(
-            format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid).to_string(),
-        ))
+        value.ok_or_else(|| {
+            Error::DBNotFoundErr(
+                format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid).to_string(),
+            )
+        })
     }
 }

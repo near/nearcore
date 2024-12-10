@@ -5,7 +5,7 @@ use actix::{Actor, System};
 use futures::{future, FutureExt, TryFutureExt};
 
 use near_actix_test_utils::run_actix;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
@@ -36,13 +36,12 @@ fn test_send_tx_async() {
 
         actix::spawn(client.block(BlockReference::latest()).then(move |res| {
             let block_hash = res.unwrap().header.hash;
-            let signer =
-                InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+            let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
             let tx = SignedTransaction::send_money(
                 1,
                 signer_account_id.parse().unwrap(),
                 "test2".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 100,
                 block_hash,
             );
@@ -92,12 +91,12 @@ fn test_send_tx_async() {
 fn test_send_tx_commit() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
         let block_hash = client.block(BlockReference::latest()).await.unwrap().header.hash;
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         let tx = SignedTransaction::send_money(
             1,
             "test1".parse().unwrap(),
             "test2".parse().unwrap(),
-            &signer.into(),
+            &signer,
             100,
             block_hash,
         );
@@ -142,12 +141,7 @@ fn test_expired_tx() {
                     if let Some(block_hash) = hash {
                         if let Some(height) = height {
                             if header.height - height >= 2 {
-                                let signer = InMemorySigner::from_seed(
-                                    "test1".parse().unwrap(),
-                                    KeyType::ED25519,
-                                    "test1",
-                                )
-                                .into();
+                                let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
                                 let tx = SignedTransaction::send_money(
                                     1,
                                     "test1".parse().unwrap(),
@@ -191,8 +185,7 @@ fn test_expired_tx() {
 #[test]
 fn test_replay_protection() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer =
-            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         let tx = SignedTransaction::send_money(
             1,
             "test1".parse().unwrap(),
@@ -231,14 +224,14 @@ fn test_tx_status_missing_tx() {
 #[test]
 fn test_check_invalid_tx() {
     test_with_client!(test_utils::NodeType::Validator, client, async move {
-        let signer = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         // invalid base hash
         let request = RpcTransactionStatusRequest {
             transaction_info: TransactionInfo::from_signed_tx(SignedTransaction::send_money(
                 1,
                 "test1".parse().unwrap(),
                 "test2".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 100,
                 hash(&[1]),
             )),

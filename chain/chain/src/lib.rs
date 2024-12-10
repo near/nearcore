@@ -20,7 +20,7 @@ pub mod chain;
 mod chain_update;
 pub mod crypto_hash_timer;
 mod doomslug;
-pub mod flat_storage_creator;
+pub mod flat_storage_init;
 pub mod flat_storage_resharder;
 mod garbage_collection;
 mod lightclient;

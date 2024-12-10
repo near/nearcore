@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 borsh.workspace = true
+itertools.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
 rand.workspace = true
@@ -21,6 +22,7 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+bytesize.workspace = true
 
 near-crypto.workspace = true
 near-o11y.workspace = true
@@ -64,12 +66,6 @@ protocol_feature_relaxed_chunk_validation = [
   "near-primitives-core/protocol_feature_relaxed_chunk_validation",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
-
-no_cache = [
-  "near-vm-runner/no_cache",
-  "near-store/no_cache",
-]
-
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [
   "near-primitives/test_features",

@@ -6,6 +6,7 @@ use crate::challenge::Challenges;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 
+use crate::shard_layout::ShardLayout;
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use crate::transaction::{
@@ -352,6 +353,25 @@ impl SignedTransaction {
             0,
         )
     }
+
+    pub fn add_key(
+        nonce: Nonce,
+        signer_id: AccountId,
+        signer: &Signer,
+        public_key: PublicKey,
+        access_key: AccessKey,
+        block_hash: CryptoHash,
+    ) -> Self {
+        Self::from_actions(
+            nonce,
+            signer_id.clone(),
+            signer_id,
+            signer,
+            vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
+            block_hash,
+            0,
+        )
+    }
 }
 
 impl BlockHeader {
@@ -381,11 +401,12 @@ impl BlockHeader {
     }
 
     pub fn resign(&mut self, signer: &ValidatorSigner) {
-        let (hash, signature) = signer.sign_block_header_parts(
+        let hash = BlockHeader::compute_hash(
             *self.prev_hash(),
             &self.inner_lite_bytes(),
             &self.inner_rest_bytes(),
         );
+        let signature = signer.sign_bytes(hash.as_ref());
         match self {
             BlockHeader::BlockHeaderV1(header) => {
                 let header = Arc::make_mut(header);
@@ -825,6 +846,7 @@ impl TestBlockBuilder {
         Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
             self.prev.header(),
             self.height,
             self.prev.header().block_ordinal() + 1,
@@ -969,14 +991,23 @@ impl Block {
     }
 }
 
-#[derive(Default)]
 pub struct MockEpochInfoProvider {
+    pub shard_layout: ShardLayout,
     pub validators: HashMap<AccountId, Balance>,
 }
 
+impl Default for MockEpochInfoProvider {
+    fn default() -> Self {
+        MockEpochInfoProvider {
+            shard_layout: ShardLayout::single_shard(),
+            validators: HashMap::new(),
+        }
+    }
+}
+
 impl MockEpochInfoProvider {
-    pub fn new(validators: impl Iterator<Item = (AccountId, Balance)>) -> Self {
-        MockEpochInfoProvider { validators: validators.collect() }
+    pub fn new(shard_layout: ShardLayout) -> Self {
+        MockEpochInfoProvider { shard_layout, validators: HashMap::new() }
     }
 }
 
@@ -1008,10 +1039,14 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn account_id_to_shard_id(
         &self,
-        _account_id: &AccountId,
+        account_id: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<ShardId, EpochError> {
-        Ok(ShardId::new(0))
+        Ok(self.shard_layout.account_id_to_shard_id(account_id))
+    }
+
+    fn shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        Ok(self.shard_layout.clone())
     }
 }
 

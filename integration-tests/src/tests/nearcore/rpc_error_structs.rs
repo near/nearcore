@@ -8,7 +8,7 @@ use crate::tests::genesis_helpers::genesis_block;
 use crate::tests::nearcore::node_cluster::NodeCluster;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::GetBlock;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
@@ -21,8 +21,7 @@ use near_primitives::types::BlockId;
 // Queries json-rpc block that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_block_unknown_block_error() {
+fn ultra_slow_test_block_unknown_block_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -81,8 +80,7 @@ fn test_block_unknown_block_error() {
 // (randomish chunk hash, we hope it won't happen in test case)
 // Checks if the struct is expected and contains the proper data
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_chunk_unknown_chunk_error() {
+fn ultra_slow_test_chunk_unknown_chunk_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -151,7 +149,7 @@ fn test_chunk_unknown_chunk_error() {
 // Queries json-rpc EXPERIMENTAL_protocol_config that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
-fn test_protocol_config_unknown_block_error() {
+fn ultra_slow_test_protocol_config_unknown_block_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -214,8 +212,7 @@ fn test_protocol_config_unknown_block_error() {
 // Queries json-rpc gas_price that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_gas_price_unknown_block_error() {
+fn ultra_slow_test_gas_price_unknown_block_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -274,8 +271,7 @@ fn test_gas_price_unknown_block_error() {
 // Queries json-rpc EXPERIMENTAL_receipt that doesn't exists
 // Checks if the struct is expected and contains the proper data
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_receipt_id_unknown_receipt_error() {
+fn ultra_slow_test_receipt_id_unknown_receipt_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -348,8 +344,7 @@ fn test_receipt_id_unknown_receipt_error() {
 /// Checks if the struct is expected and contains the proper data
 #[test]
 #[ignore = "Invalid test setup. broadcast_tx_commit times out because we haven't implemented forwarding logic. Fix and reenable."]
-// #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_tx_invalid_tx_error() {
+fn ultra_slow_test_tx_invalid_tx_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -363,13 +358,12 @@ fn test_tx_invalid_tx_error() {
         let view_client = clients[0].1.clone();
 
         let genesis_hash = *genesis_block(&genesis).hash();
-        let signer =
-            InMemorySigner::from_seed("near.5".parse().unwrap(), KeyType::ED25519, "near.5");
+        let signer = InMemorySigner::test_signer(&"near.5".parse().unwrap());
         let transaction = SignedTransaction::send_money(
             1,
             "near.5".parse().unwrap(),
             "near.2".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10000,
             genesis_hash,
         );
@@ -423,8 +417,7 @@ fn test_tx_invalid_tx_error() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_query_rpc_account_view_unknown_block_must_return_error() {
+fn ultra_slow_test_query_rpc_account_view_unknown_block_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()

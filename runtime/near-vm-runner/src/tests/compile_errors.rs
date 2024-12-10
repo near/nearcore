@@ -138,7 +138,7 @@ fn test_evil_function_index() {
 }
 
 #[test]
-fn test_limit_contract_functions_number() {
+fn slow_test_limit_contract_functions_number() {
     let functions_number_limit: u32 = 10_000;
 
     test_builder().wasm(
