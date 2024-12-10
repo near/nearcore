@@ -64,6 +64,7 @@ pub struct FlatStorageReshardingShardSplitMetrics {
     right_child_status: IntGauge,
     split_shard_processed_batches: IntGauge,
     split_shard_batch_size: IntGauge,
+    split_shard_processed_bytes: IntGauge,
 }
 
 impl FlatStorageReshardingShardSplitMetrics {
@@ -86,6 +87,8 @@ impl FlatStorageReshardingShardSplitMetrics {
             split_shard_processed_batches: resharding::SPLIT_SHARD_PROCESSED_BATCHES
                 .with_label_values(&[&parent_shard_label]),
             split_shard_batch_size: resharding::SPLIT_SHARD_BATCH_SIZE.clone(),
+            split_shard_processed_bytes: resharding::SPLIT_SHARD_PROCESSED_BYTES
+                .with_label_values(&[&parent_shard_label]),
         }
     }
 
@@ -113,6 +116,14 @@ impl FlatStorageReshardingShardSplitMetrics {
 
     pub fn set_split_shard_batch_size(&self, batch_size: usize) {
         self.split_shard_batch_size.set(batch_size as i64);
+    }
+
+    pub fn set_split_shard_processed_bytes(&self, arg: i32) {
+        self.split_shard_processed_bytes.set(0);
+    }
+
+    pub fn inc_split_shard_processed_bytes_by(&self, processed_bytes: usize) {
+        self.split_shard_processed_bytes.add(processed_bytes as i64);
     }
 }
 

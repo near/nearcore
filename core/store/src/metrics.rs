@@ -518,6 +518,14 @@ pub mod flat_state_metrics {
             )
             .unwrap()
         });
+        pub static SPLIT_SHARD_PROCESSED_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_resharding_split_shard_processed_bytes",
+                "Total bytes of Flat State that have been split inside the split shard task",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
     }
 }
 

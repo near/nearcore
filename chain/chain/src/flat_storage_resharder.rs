@@ -408,6 +408,7 @@ impl FlatStorageResharder {
         };
 
         let mut num_batches_done: usize = 0;
+        metrics.set_split_shard_processed_bytes(0);
         let mut iter_exhausted = false;
 
         loop {
@@ -454,6 +455,7 @@ impl FlatStorageResharder {
 
             num_batches_done += 1;
             metrics.set_split_shard_processed_batches(num_batches_done);
+            metrics.inc_split_shard_processed_bytes_by(processed_size);
 
             // If `iter`` is exhausted we can exit after the store commit.
             if iter_exhausted {
