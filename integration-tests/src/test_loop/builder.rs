@@ -166,14 +166,14 @@ fn should_drop_chunk_for_protocol_upgrade(
     let epoch_protocol_version =
         epoch_manager_adapter.get_epoch_protocol_version(&epoch_id).unwrap();
     // Drop condition for the first epoch with new protocol version.
-    if epoch_protocol_version == version_of_protocol_upgrade {
+    if epoch_protocol_version >= version_of_protocol_upgrade {
         let prev_epoch_id =
             epoch_manager_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash).unwrap();
         let prev_epoch_protocol_version =
             epoch_manager_adapter.get_epoch_protocol_version(&prev_epoch_id).unwrap();
         // If this is not the first epoch with new protocol version,
         // all chunks go through.
-        if prev_epoch_protocol_version == version_of_protocol_upgrade {
+        if prev_epoch_protocol_version >= version_of_protocol_upgrade {
             return false;
         }
 
@@ -189,7 +189,7 @@ fn should_drop_chunk_for_protocol_upgrade(
         let epoch_start_height =
             epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
         range.contains(&(height_created as i64 - epoch_start_height as i64))
-    } else if epoch_protocol_version + 1 == version_of_protocol_upgrade {
+    } else if epoch_protocol_version < version_of_protocol_upgrade {
         // Drop condition for the last epoch with old protocol version.
         let maybe_upgrade_height = epoch_manager_adapter
             .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
