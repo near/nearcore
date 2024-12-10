@@ -128,8 +128,8 @@ impl EpochConfig {
         }
     }
 
-    /// A dummy config for testing.
-    pub fn zero() -> Self {
+    /// Minimal config for testing.
+    pub fn minimal() -> Self {
         Self {
             epoch_length: 0,
             num_block_producer_seats: 0,

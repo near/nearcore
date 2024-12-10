@@ -1250,7 +1250,7 @@ mod tests {
         num_chunk_only_producer_seats: Option<NumSeats>,
         minimum_stake_ratio: Option<Ratio<i32>>,
     ) -> EpochConfig {
-        let mut epoch_config = EpochConfig::zero();
+        let mut epoch_config = EpochConfig::minimal();
         epoch_config.epoch_length = 10;
         epoch_config.num_block_producer_seats = num_block_producer_seats;
         epoch_config.num_block_producer_seats_per_shard =
