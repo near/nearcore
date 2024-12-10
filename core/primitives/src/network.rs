@@ -36,7 +36,6 @@ impl PeerId {
 
 impl PeerId {
     #[cfg(feature = "rand")]
-
     pub fn random() -> Self {
         PeerId::new(near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519).public_key())
     }

@@ -1,5 +1,4 @@
 use super::test_vm_config;
-use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::VMContext;
@@ -12,7 +11,9 @@ use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
+#[cfg(feature = "prepare")]
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
+    use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
     let mut tys = Vec::new();
     let mut fns = Vec::new();
     for payload in Parser::default().parse_all(contract.code()) {
@@ -60,6 +61,7 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
     }
 }
 
+#[cfg(feature = "prepare")]
 fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut fake_external = MockedExternal::with_code(code.clone_for_tests());
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
@@ -94,6 +96,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 }
 
 #[test]
+#[cfg(feature = "prepare")]
 fn slow_test_current_vm_does_not_crash_fuzzer() {
     let config = test_vm_config();
     if config.vm_kind.is_available() {
@@ -108,6 +111,7 @@ fn slow_test_current_vm_does_not_crash_fuzzer() {
 
 #[test]
 #[cfg_attr(not(all(feature = "wasmtime_vm", feature = "near_vm", target_arch = "x86_64")), ignore)]
+#[cfg(feature = "prepare")]
 fn slow_test_near_vm_and_wasmtime_agree_fuzzer() {
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.to_bytes(), None);

@@ -30,7 +30,6 @@ pub mod lib {
     }
 }
 
-mod archives;
 mod extern_ref;
 mod features;
 mod indexes;
@@ -66,8 +65,6 @@ pub use types::{
     ExportType, ExternType, FastGasCounter, FunctionType, FunctionTypeRef, GlobalInit, GlobalType,
     Import, InstanceConfig, MemoryType, Mutability, TableType, Type, V128,
 };
-
-pub use archives::ArchivableIndexMap;
 
 /// Version number of this crate.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

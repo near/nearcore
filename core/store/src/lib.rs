@@ -47,7 +47,7 @@ use std::{fmt, io};
 use strum;
 
 pub mod adapter;
-pub mod cold_storage;
+pub mod archive;
 mod columns;
 pub mod config;
 pub mod contract;

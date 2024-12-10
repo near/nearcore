@@ -111,10 +111,13 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
     });
 
     for _ in 1..30 {
-        if let Some(_node_addr) = unsafe { NODE_ADDR.as_ref() } {
-            break;
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(100)); // ensure node have enough time to start
+        unsafe {
+            #![allow(static_mut_refs)]
+            if let Some(_node_addr) = NODE_ADDR.as_ref() {
+                break;
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(100)); // ensure node have enough time to start
+            }
         }
     }
 
@@ -124,14 +127,14 @@ fuzz_target!(|requests: Vec<JsonRpcRequest>| {
             eprintln!("POST DATA: {{method = {}}} {{params = {}}}", method, params);
 
             let client = awc::Client::new();
-            let result_or_error = test_utils::call_method::<serde_json::Value>(
-                &client,
-                unsafe { NODE_ADDR.as_ref().unwrap() },
-                method,
-                params,
-            )
-            .await
-            .unwrap();
+            let addr = unsafe {
+                #[allow(static_mut_refs)]
+                NODE_ADDR.as_ref().unwrap().to_string()
+            };
+            let result_or_error =
+                test_utils::call_method::<serde_json::Value>(&client, &addr, method, params)
+                    .await
+                    .unwrap();
             eprintln!("RESPONSE: {:#?}", result_or_error);
             assert!(result_or_error["error"] != serde_json::json!(null));
         }

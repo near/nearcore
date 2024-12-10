@@ -79,6 +79,11 @@ impl ReshardingEventType {
                         return log_and_error("can't perform two reshardings at the same time!");
                     }
                     // Parent shard is no longer part of this shard layout.
+                    //
+                    // Please note the use of the next shard layout version.
+                    // Technically speaking the current shard layout version
+                    // should be used for the parent. However since
+                    // ShardLayoutV2 the version is frozen so it is ok.
                     let parent_shard = ShardUId::new(next_shard_layout.version(), *parent_id);
                     let left_child_shard =
                         ShardUId::from_shard_id_and_layout(children_ids[0], next_shard_layout);

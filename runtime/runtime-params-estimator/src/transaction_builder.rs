@@ -59,7 +59,7 @@ impl TransactionBuilder {
             nonce as u64,
             sender.clone(),
             receiver,
-            &signer.into(),
+            &signer,
             actions,
             CryptoHash::default(),
             0,

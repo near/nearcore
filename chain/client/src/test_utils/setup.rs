@@ -895,8 +895,6 @@ pub fn setup_mock_all_validators(
 ) -> (Vec<ActorHandlesForTesting>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
     let validators = vs.all_validators().cloned().collect::<Vec<_>>();
-    let key_pairs = key_pairs;
-
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
     let genesis_time = clock.now_utc();
     let mut ret = vec![];

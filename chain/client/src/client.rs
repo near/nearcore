@@ -747,12 +747,10 @@ impl Client {
             *chunk_header.height_included_mut() = height;
             *chunk_headers
                 .get_mut(shard_index)
-                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
-                chunk_header;
+                .ok_or(near_chain_primitives::Error::InvalidShardId(shard_id))? = chunk_header;
             *chunk_endorsements
                 .get_mut(shard_index)
-                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
-                chunk_endorsement;
+                .ok_or(near_chain_primitives::Error::InvalidShardId(shard_id))? = chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
