@@ -5,7 +5,7 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, NumSeats, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::ProtocolFeature;
@@ -635,7 +635,7 @@ mod tests {
         // A simple sanity test. Given fewer proposals than the number of seats,
         // none of which has too little stake, they all get assigned as block and
         // chunk producers.
-        let epoch_config = create_epoch_config(2, 100, None, None, None, None);
+        let epoch_config = create_epoch_config(2, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
         let proposals = create_proposals(&[("test1", 1000), ("test2", 2000), ("test3", 300)]);
@@ -686,7 +686,6 @@ mod tests {
             num_bp_seats,
             Some(num_bp_seats + num_cp_seats),
             Some(num_bp_seats + num_cp_seats),
-            Some(num_cp_seats),
             None,
         );
         let prev_epoch_height = 3;
@@ -780,7 +779,6 @@ mod tests {
             num_bp_seats,
             Some(num_bp_seats + num_cp_seats),
             Some(num_bp_seats + num_cp_seats),
-            Some(num_cp_seats),
             None,
         );
         let prev_epoch_height = 3;
@@ -881,7 +879,7 @@ mod tests {
     #[test]
     fn test_block_producer_sampling() {
         let num_shards = 4;
-        let epoch_config = create_epoch_config(num_shards, 2, Some(2), Some(2), Some(0), None);
+        let epoch_config = create_epoch_config(num_shards, 2, Some(2), Some(2), None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
         let proposals = create_proposals(&[("test1", 1000), ("test2", 2000)]);
@@ -918,7 +916,6 @@ mod tests {
             2 * num_shards,
             Some(2 * num_shards),
             Some(2 * num_shards),
-            Some(0),
             None,
         );
         let prev_epoch_height = 7;
@@ -991,7 +988,6 @@ mod tests {
             2 * num_shards,
             Some(2 * num_shards),
             Some(2 * num_shards),
-            Some(0),
             Some(Ratio::new(1, 10)),
         );
         let prev_epoch_height = 7;
@@ -1069,14 +1065,8 @@ mod tests {
         // (the reason we can't choose them is because the probability of them actually
         // being selected to make a block would be too low since it is done in
         // proportion to stake).
-        let epoch_config = create_epoch_config(
-            1,
-            100,
-            Some(300),
-            Some(300),
-            Some(300),
-            Some(Ratio::new(1i32, 10i32)),
-        );
+        let epoch_config =
+            create_epoch_config(1, 100, Some(300), Some(300), Some(Ratio::new(1i32, 10i32)));
         let prev_epoch_height = 7;
         // test5 and test6 are going to get kicked out for not enough stake.
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test5", "test6"], &[]);
@@ -1170,7 +1160,7 @@ mod tests {
     #[test]
     fn test_validator_assignment_with_kickout() {
         // kicked out validators are not selected
-        let epoch_config = create_epoch_config(1, 100, None, None, None, None);
+        let epoch_config = create_epoch_config(1, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(
             prev_epoch_height,
@@ -1202,7 +1192,7 @@ mod tests {
         // validator balances are updated based on their rewards
         let validators = [("test1", 3000), ("test2", 2000), ("test3", 1000)];
         let rewards: [u128; 3] = [7, 8, 9];
-        let epoch_config = create_epoch_config(1, 100, None, None, None, None);
+        let epoch_config = create_epoch_config(1, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &validators, &[]);
         let rewards_map = validators
@@ -1230,24 +1220,12 @@ mod tests {
         }
     }
 
-    /// Update the fileds of `EpochConfig` with the given value.
-    macro_rules! update_fields {
-        ($epoch_config:ident, $($field:ident),*) => {
-            $(
-                if let Some(value) = $field {
-                    $epoch_config.$field = value;
-                }
-            )*
-        };
-    }
-
     /// Create EpochConfig, only filling in the fields important for validator selection.
     fn create_epoch_config(
         num_shards: u64,
         num_block_producer_seats: u64,
         num_chunk_producer_seats: Option<NumSeats>,
         num_chunk_validator_seats: Option<NumSeats>,
-        num_chunk_only_producer_seats: Option<NumSeats>,
         minimum_stake_ratio: Option<Ratio<i32>>,
     ) -> EpochConfig {
         let mut epoch_config = EpochConfig::minimal();
@@ -1260,13 +1238,15 @@ mod tests {
         epoch_config.validator_max_kickout_stake_perc = 100;
         epoch_config.shard_layout = ShardLayout::multi_shard(num_shards, 0);
 
-        update_fields!(
-            epoch_config,
-            num_chunk_producer_seats,
-            num_chunk_validator_seats,
-            num_chunk_only_producer_seats,
-            minimum_stake_ratio
-        );
+        if let Some(num_chunk_producer_seats) = num_chunk_producer_seats {
+            epoch_config.num_chunk_producer_seats = num_chunk_producer_seats;
+        }
+        if let Some(num_chunk_validator_seats) = num_chunk_validator_seats {
+            epoch_config.num_chunk_validator_seats = num_chunk_validator_seats;
+        }
+        if let Some(minimum_stake_ratio) = minimum_stake_ratio {
+            epoch_config.minimum_stake_ratio = minimum_stake_ratio;
+        }
 
         epoch_config
     }
