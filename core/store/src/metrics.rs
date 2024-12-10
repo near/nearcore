@@ -490,7 +490,9 @@ pub mod flat_state_metrics {
     }
 
     pub mod resharding {
-        use near_o11y::metrics::{try_create_int_gauge_vec, IntGaugeVec};
+        use near_o11y::metrics::{
+            try_create_int_gauge, try_create_int_gauge_vec, IntGauge, IntGaugeVec,
+        };
         use std::sync::LazyLock;
 
         pub static STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
@@ -506,6 +508,13 @@ pub mod flat_state_metrics {
                 "near_flat_storage_resharding_split_shard_processed_batches",
                 "Number of processed batches inside the split shard task",
                 &["shard_uid"],
+            )
+            .unwrap()
+        });
+        pub static SPLIT_SHARD_BATCH_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+            try_create_int_gauge(
+                "near_flat_storage_resharding_split_shard_batch_size",
+                "Size in bytes of every batch inside the split shard task",
             )
             .unwrap()
         });

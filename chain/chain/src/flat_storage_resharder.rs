@@ -387,6 +387,7 @@ impl FlatStorageResharder {
         // Determines after how many bytes worth of key-values the process stops to commit changes
         // and to check cancellation.
         let batch_size = self.resharding_config.get().batch_size.as_u64() as usize;
+        metrics.set_split_shard_batch_size(batch_size);
         // Delay between every batch.
         let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
 
