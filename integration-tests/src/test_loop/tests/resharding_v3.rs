@@ -25,7 +25,7 @@ use std::sync::Arc;
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestData;
 use crate::test_loop::utils::transactions::{
-    do_create_account, do_delete_account, get_shared_block_hash, get_smallest_height_head, run_tx,
+    create_account, delete_account, get_shared_block_hash, get_smallest_height_head, run_tx,
     submit_tx,
 };
 use crate::test_loop::utils::{ONE_NEAR, TGAS};
@@ -134,7 +134,7 @@ struct TestReshardingParameters {
     clients: Vec<AccountId>,
     base_shard_layout_version: u64,
     block_and_chunk_producers: Vec<AccountId>,
-    rpc_ids: Vec<AccountId>,
+    rpc_clients: Vec<AccountId>,
     archival_clients: HashSet<AccountId>,
     initial_balance: u128,
     epoch_length: BlockHeightDelta,
@@ -159,31 +159,31 @@ struct TestReshardingParameters {
 
 impl TestReshardingParameters {
     fn new() -> Self {
-        Self::with_clients(5)
+        Self::with_validators(3)
     }
 
-    fn with_clients(num_clients: usize) -> Self {
-        let num_accounts = 12;
+    fn with_validators(num_validators: u64) -> Self {
+        let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
-        let epoch_length = 8;
+        let epoch_length = 6;
         let track_all_shards = true;
         let all_chunks_expected = true;
 
         // #12195 prevents number of BPs bigger than `epoch_length`.
-        assert!(num_clients > 0 && num_clients <= epoch_length);
+        assert!(num_validators > 0 && num_validators <= epoch_length);
 
         let accounts = (0..num_accounts)
             .map(|i| format!("account{}", i).parse().unwrap())
             .collect::<Vec<AccountId>>();
 
-        // This piece of code creates `num_clients` from `accounts`. First client is at index 0 and
-        // other clients are spaced in the accounts' space as evenly as possible.
-        let clients_per_account = num_clients as f64 / accounts.len() as f64;
-        let mut client_parts = 1.0 - clients_per_account;
-        let clients: Vec<_> = accounts
+        // This piece of code creates `num_validators` from `accounts`. First validator is at index 0 and
+        // other validator are spaced in the accounts' space as evenly as possible.
+        let validators_per_account = num_validators as f64 / num_accounts as f64;
+        let mut client_parts = 1.0 - validators_per_account;
+        let block_and_chunk_producers: Vec<_> = accounts
             .iter()
             .filter(|_| {
-                client_parts += clients_per_account;
+                client_parts += validators_per_account;
                 if client_parts >= 1.0 {
                     client_parts -= 1.0;
                     true
@@ -194,9 +194,19 @@ impl TestReshardingParameters {
             .cloned()
             .collect();
 
-        let block_and_chunk_producers = clients.iter().take(num_clients - 2).cloned().collect_vec();
-        let rpc_ids = vec![clients[num_clients - 2].clone()];
-        let archival_clients = HashSet::from([clients[num_clients - 1].clone()]);
+        let non_validator_accounts: Vec<_> = accounts
+            .iter()
+            .cloned()
+            .filter(|account| !block_and_chunk_producers.contains(account))
+            .collect();
+        assert!(non_validator_accounts.len() >= 2);
+        let rpc_clients = vec![non_validator_accounts[0].clone()];
+        let archival_clients = vec![non_validator_accounts[1].clone()];
+        let clients =
+            vec![block_and_chunk_producers.clone(), rpc_clients.clone(), archival_clients.clone()]
+                .into_iter()
+                .flatten()
+                .collect();
         let load_mem_tries_for_tracked_shards = true;
         let base_shard_layout_version = 2;
 
@@ -205,10 +215,10 @@ impl TestReshardingParameters {
             clients,
             base_shard_layout_version,
             block_and_chunk_producers,
-            archival_clients,
-            rpc_ids,
+            archival_clients: HashSet::from_iter(archival_clients.into_iter()),
+            rpc_clients,
             initial_balance,
-            epoch_length: epoch_length.try_into().unwrap(),
+            epoch_length,
             track_all_shards,
             all_chunks_expected,
             load_mem_tries_for_tracked_shards,
@@ -454,6 +464,7 @@ fn call_burn_gas_contract(
     signer_ids: Vec<AccountId>,
     receiver_ids: Vec<AccountId>,
     gas_burnt_per_call: Gas,
+    rpc_id: AccountId,
 ) -> LoopActionFn {
     const TX_CHECK_BLOCKS_AFTER_RESHARDING: u64 = 5;
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
@@ -462,8 +473,6 @@ fn call_burn_gas_contract(
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
-    // TODO: to be fixed when all shard tracking gets disabled.
-    let rpc_id: AccountId = "account0".parse().unwrap();
 
     Box::new(
         move |node_datas: &[TestData],
@@ -1038,10 +1047,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(5));
     }
 
-    let rpc_id = params.rpc_ids[0].clone();
+    let rpc_id = params.rpc_clients[0].clone();
     let temporary_account =
         format!("{}.{}", new_boundary_account, new_boundary_account).parse().unwrap();
-    do_create_account(&mut env, &rpc_id, &new_boundary_account, &temporary_account, 100 * ONE_NEAR);
+    create_account(&mut env, &rpc_id, &new_boundary_account, &temporary_account, 100 * ONE_NEAR);
 
     let client_handles =
         env.datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
@@ -1116,7 +1125,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let height_soon_after_resharding = latest_block_height.get();
     // Produce some blocks after resharding, then delete `temporary_account`.
     env.test_loop.run_for(Duration::seconds(2));
-    do_delete_account(&mut env, &rpc_id, &temporary_account, &new_boundary_account);
+    delete_account(&mut env, &rpc_id, &temporary_account, &new_boundary_account);
     // Wait for garbage collection to kick in, so that it is tested as well.
     env.test_loop
         .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
@@ -1180,7 +1189,7 @@ fn test_resharding_v3_drop_chunks_all() {
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
-        TestReshardingParameters::with_clients(1)
+        TestReshardingParameters::with_validators(1)
             .add_loop_action(fork_before_resharding_block(false)),
     );
 }
@@ -1193,7 +1202,7 @@ fn test_resharding_v3_resharding_block_in_fork() {
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_double_sign_resharding_block() {
     test_resharding_v3_base(
-        TestReshardingParameters::with_clients(1)
+        TestReshardingParameters::with_validators(1)
             .add_loop_action(fork_before_resharding_block(true)),
     );
 }
@@ -1211,13 +1220,16 @@ fn test_resharding_v3_shard_shuffling() {
 // TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
 #[ignore]
 fn test_resharding_v3_delayed_receipts_left_child() {
+    let params = TestReshardingParameters::new();
     let account: AccountId = "account4".parse().unwrap();
-    let params = TestReshardingParameters::new()
+    let rpc_id = params.rpc_clients[0].clone();
+    let params = params
         .deploy_test_contract(account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account.clone()],
             vec![account.clone()],
             275 * TGAS,
+            rpc_id,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account,
@@ -1230,13 +1242,16 @@ fn test_resharding_v3_delayed_receipts_left_child() {
 // TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
 #[ignore]
 fn test_resharding_v3_delayed_receipts_right_child() {
+    let params = TestReshardingParameters::new();
     let account: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParameters::new()
+    let rpc_id = params.rpc_clients[0].clone();
+    let params = params
         .deploy_test_contract(account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account.clone()],
             vec![account.clone()],
             275 * TGAS,
+            rpc_id,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account,
@@ -1246,11 +1261,13 @@ fn test_resharding_v3_delayed_receipts_right_child() {
 }
 
 fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_version: u64) {
+    let params = TestReshardingParameters::new();
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
-    let params = TestReshardingParameters::new()
+    let rpc_id = params.rpc_clients[0].clone();
+    let params = params
         .base_shard_layout_version(base_shard_layout_version)
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
@@ -1258,6 +1275,7 @@ fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_vers
             vec![account_in_left_child.clone(), account_in_right_child],
             vec![receiver_account],
             10 * TGAS,
+            rpc_id,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account_in_parent,
@@ -1285,11 +1303,13 @@ fn test_resharding_v3_split_parent_buffered_receipts_v2() {
 fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
     base_shard_layout_version: u64,
 ) {
+    let params = TestReshardingParameters::new();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let account_in_stable_shard: AccountId = "account1".parse().unwrap();
+    let rpc_id = params.rpc_clients[0].clone();
 
-    let params = TestReshardingParameters::new()
+    let params = params
         .base_shard_layout_version(base_shard_layout_version)
         .deploy_test_contract(account_in_left_child.clone())
         .deploy_test_contract(account_in_right_child.clone())
@@ -1298,6 +1318,7 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
             vec![account_in_stable_shard.clone()],
             vec![account_in_left_child, account_in_right_child],
             10 * TGAS,
+            rpc_id,
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             account_in_stable_shard.clone(),
@@ -1325,15 +1346,18 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v2() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
+    let params = TestReshardingParameters::new();
     let receiver_account: AccountId = "account4".parse().unwrap();
     let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
     let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
+    let rpc_id = params.rpc_clients[0].clone();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(receiver_account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account_1_in_stable_shard, account_2_in_stable_shard],
             vec![receiver_account],
             5 * TGAS,
+            rpc_id,
         ));
     test_resharding_v3_base(params);
 }
@@ -1341,15 +1365,18 @@ fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
+    let params = TestReshardingParameters::new();
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let rpc_id = params.rpc_clients[0].clone();
     let params = TestReshardingParameters::new()
         .deploy_test_contract(receiver_account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child],
             vec![receiver_account],
             5 * TGAS,
+            rpc_id,
         ));
     test_resharding_v3_base(params);
 }
