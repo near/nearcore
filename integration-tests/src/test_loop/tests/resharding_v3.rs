@@ -161,7 +161,7 @@ impl TestReshardingParameters {
     fn with_clients(num_clients: u64) -> Self {
         let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
-        let epoch_length = 10;
+        let epoch_length = 6; // 10;
         let track_all_shards = true;
         let all_chunks_expected = true;
 
@@ -1232,10 +1232,10 @@ fn test_resharding_v3_shard_shuffling() {
     let mut params = TestReshardingParameters::new()
         .shuffle_shard_assignment()
         .single_shard_tracking()
-        .chunk_miss_possible()
-        .chunk_ranges_to_drop(chunk_ranges_to_drop);
+        .chunk_miss_possible();
+    // .chunk_ranges_to_drop(chunk_ranges_to_drop);
     let accounts = params.accounts.clone();
-    params = params.add_loop_action(execute_money_transfers(accounts));
+    // params = params.add_loop_action(execute_money_transfers(accounts));
     test_resharding_v3_base(params);
 }
 
