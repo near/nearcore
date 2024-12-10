@@ -1633,7 +1633,7 @@ impl ClientActorInner {
     /// Runs itself iff it was not ran as reaction for message with results of
     /// finishing state part job
     fn run_sync_step(&mut self) {
-        let _span = tracing::debug_span!(target: "client", "run_sync_step").entered();
+        let _span = tracing::debug_span!(target: "sync", "run_sync_step").entered();
         let signer = self.client.validator_signer.get();
 
         let currently_syncing = self.client.sync_status.is_syncing();

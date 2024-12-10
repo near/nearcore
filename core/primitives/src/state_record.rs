@@ -103,8 +103,9 @@ impl StateRecord {
                 let receipt = Receipt::try_from_slice(&value)?;
                 Some(StateRecord::DelayedReceipt(Box::new(receipt)))
             }
+            col::BANDWIDTH_SCHEDULER_STATE => None,
             _ => {
-                println!("key[0]: {} is unreachable", key[0]);
+                // println!("key[0]: {} is unreachable", key[0]);
                 None
             }
         })

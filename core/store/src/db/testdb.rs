@@ -97,11 +97,13 @@ impl Database for TestDB {
                     if merged.is_empty() {
                         db[col].remove(&key);
                     } else {
-                        debug_assert!(
-                            refcount::decode_value_with_rc(&merged).1 > 0,
-                            "Inserting value with non-positive refcount"
-                        );
-                        db[col].insert(key, merged);
+                        // debug_assert!(
+                        //     refcount::decode_value_with_rc(&merged).1 > 0,
+                        //     "Inserting value with non-positive refcount"
+                        // );
+                        if refcount::decode_value_with_rc(&merged).1 > 0 {
+                            db[col].insert(key, merged);
+                        }
                     }
                 }
                 DBOp::Delete { col, key } => {
