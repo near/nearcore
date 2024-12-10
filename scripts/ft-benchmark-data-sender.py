@@ -86,7 +86,7 @@ def get_commit() -> tuple[str, datetime]:
 
 def commit_to_db(data: dict) -> None:
     print(data)
-    chdir(os.path.expanduser("~/nearcore/benchmarks/continous/db/tool"))
+    chdir(os.path.expanduser("~/nearcore/benchmarks/continuous/db/tool"))
     with tempfile.NamedTemporaryFile(mode="w", encoding='utf-8') as fp:
         json.dump(data, fp)
         fp.flush()
