@@ -319,6 +319,7 @@ pub struct BandwidthSchedulerState {
     /// Bandwidth scheduler updates the allowances on every run.
     pub link_allowances: Vec<LinkAllowance>,
     /// Sanity check hash to assert that all shards run bandwidth scheduler in the exact same way.
+    /// Hash of previous scheduler state and (some) scheduler inputs.
     pub sanity_check_hash: CryptoHash,
 }
 
