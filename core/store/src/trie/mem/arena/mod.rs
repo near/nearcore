@@ -1,10 +1,12 @@
-use std::fmt::{Debug, Display, Formatter};
-use std::hash::Hash;
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use derive_where::derive_where;
+//! An abstraction of an arena that also allows being implemented differently,
+//! specifically in the case of a multi-threaded arena where each arena instance
+//! behaves like an `STArena` but they share memory chunk allocations.
 
 use super::flexible_data::encoding::BorshFixedSize;
+use borsh::{BorshDeserialize, BorshSerialize};
+use derive_where::derive_where;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 
 mod alloc;
 pub mod concurrent;
@@ -13,10 +15,6 @@ pub mod hybrid;
 mod metrics;
 pub mod single_thread;
 pub use frozen::FrozenArena;
-
-/// An abstraction of an arena that also allows being implemented differently,
-/// specifically in the case of a multi-threaded arena where each arena instance
-/// behaves like an `STArena` but they share memory chunk allocations.
 
 /// An abstraction of a read-only arena.
 pub trait Arena: Sized + 'static {
