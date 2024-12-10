@@ -67,10 +67,12 @@ pub fn get_next_nonce(
         .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
     let signer: Signer = create_user_test_signer(&account_id).into();
-    let public_key = signer.public_key();
     let response = clients.runtime_query(
         account_id,
-        QueryRequest::ViewAccessKey { account_id: account_id.clone(), public_key },
+        QueryRequest::ViewAccessKey {
+            account_id: account_id.clone(),
+            public_key: signer.public_key(),
+        },
     );
     let QueryResponseKind::AccessKey(access_key) = response.kind else {
         panic!("Expected AccessKey response");
@@ -128,7 +130,7 @@ pub(crate) fn execute_money_transfers(
                     1,
                     sender.clone(),
                     receiver.clone(),
-                    &create_user_test_signer(&sender).into(),
+                    &create_user_test_signer(&sender),
                     amount,
                     anchor_hash,
                 );
@@ -288,7 +290,7 @@ pub fn deploy_contract(
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, test_loop);
 
-    let signer = create_user_test_signer(&contract_id).into();
+    let signer = create_user_test_signer(&contract_id);
 
     let tx = SignedTransaction::deploy_contract(nonce, contract_id, code, &signer, block_hash);
     let tx_hash = tx.get_hash();
@@ -320,7 +322,7 @@ pub fn call_contract(
         nonce,
         sender_id.clone(),
         contract_id.clone(),
-        &signer.into(),
+        &signer,
         deposit,
         method_name,
         args,

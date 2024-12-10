@@ -64,14 +64,16 @@ impl<'a, M: ArenaMemory> Crumb<'a, M> {
 }
 
 /// Trie iteration is done using a stack based approach.
+///
 /// There are two stacks that we track while iterating: the trail and the key_nibbles.
 /// The trail is a vector of trie nodes on the path from root node to the node that is
 /// currently being processed together with processing status - the Crumb.
+///
 /// The key_nibbles is a vector of nibbles from the state root node to the node that is
 /// currently being processed.
+///
 /// The trail and the key_nibbles may have different lengths e.g. an extension trie node
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
-
 pub type STMemTrieIterator<'a> = MemTrieIterator<'a, HybridArenaMemory>;
 
 pub struct MemTrieIterator<'a, M: ArenaMemory> {

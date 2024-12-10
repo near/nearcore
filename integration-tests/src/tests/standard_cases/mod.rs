@@ -715,7 +715,7 @@ pub fn test_swap_key(node: impl Node) {
         .swap_key(
             eve_dot_alice_account(),
             node.signer().public_key(),
-            signer2.public_key.clone(),
+            signer2.public_key(),
             AccessKey::full_access(),
         )
         .unwrap();
@@ -727,7 +727,7 @@ pub fn test_swap_key(node: impl Node) {
     assert!(node_user
         .get_access_key(&eve_dot_alice_account(), &node.signer().public_key())
         .is_err());
-    assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key()).is_ok());
 }
 
 pub fn test_add_key(node: impl Node) {

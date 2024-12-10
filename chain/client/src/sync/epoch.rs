@@ -163,7 +163,7 @@ impl EpochSync {
             .ok_or_else(|| Error::Other("Could not find tip".to_string()))?;
         let current_epoch_start_height = store
             .get_ser::<BlockHeight>(DBCol::EpochStart, tip.epoch_id.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(tip.epoch_id))?;
+            .ok_or(Error::EpochOutOfBounds(tip.epoch_id))?;
         let next_next_epoch_id = tip.next_epoch_id;
         // Last block hash of the target epoch is the same as the next next EpochId.
         // That's a general property for Near's epochs.
@@ -211,11 +211,11 @@ impl EpochSync {
         let current_epoch = *last_final_block_header_in_current_epoch.epoch_id();
         let current_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, current_epoch.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(current_epoch))?;
+            .ok_or(Error::EpochOutOfBounds(current_epoch))?;
         let next_epoch = *last_final_block_header_in_current_epoch.next_epoch_id();
         let next_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, next_epoch.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(next_epoch))?;
+            .ok_or(Error::EpochOutOfBounds(next_epoch))?;
 
         let genesis_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, EpochId::default().0.as_bytes())?
@@ -267,7 +267,7 @@ impl EpochSync {
             .epoch_id();
         let prev_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, prev_epoch.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(prev_epoch))?;
+            .ok_or(Error::EpochOutOfBounds(prev_epoch))?;
 
         let last_block_of_prev_epoch = store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, next_epoch.0.as_bytes())?
@@ -899,9 +899,10 @@ impl EpochSync {
             &last_epoch.next_epoch_info,
             &last_epoch.next_next_epoch_info,
         ));
-        let expected_epoch_sync_data_hash = current_epoch_first_block_header
-            .epoch_sync_data_hash()
-            .ok_or(Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string()))?;
+        let expected_epoch_sync_data_hash =
+            current_epoch_first_block_header.epoch_sync_data_hash().ok_or_else(|| {
+                Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string())
+            })?;
         if epoch_sync_data_hash != expected_epoch_sync_data_hash {
             return Err(Error::InvalidEpochSyncProof("invalid epoch_sync_data_hash".to_string()));
         }

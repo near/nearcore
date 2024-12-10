@@ -130,6 +130,7 @@ struct TestReshardingParameters {
     chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
     accounts: Vec<AccountId>,
     clients: Vec<AccountId>,
+    base_shard_layout_version: u64,
     block_and_chunk_producers: Vec<AccountId>,
     initial_balance: u128,
     epoch_length: BlockHeightDelta,
@@ -191,10 +192,12 @@ impl TestReshardingParameters {
 
         let block_and_chunk_producers = clients.clone();
         let load_mem_tries_for_tracked_shards = true;
+        let base_shard_layout_version = 2;
 
         Self {
             accounts,
             clients,
+            base_shard_layout_version,
             block_and_chunk_producers,
             initial_balance,
             epoch_length,
@@ -216,6 +219,11 @@ impl TestReshardingParameters {
     #[allow(unused)]
     fn clients(mut self, clients: Vec<AccountId>) -> Self {
         self.clients = clients;
+        self
+    }
+
+    fn base_shard_layout_version(mut self, base_shard_layout_version: u64) -> Self {
+        self.base_shard_layout_version = base_shard_layout_version;
         self
     }
 
@@ -666,20 +674,14 @@ fn assert_state_sanity(
         .unwrap();
 
     for shard_uid in shard_layout.shard_uids() {
-        // TODO - the condition for checks is duplicated in the
-        // `get_epoch_check` method, refactor this.
-        if !load_mem_tries_for_tracked_shards {
-            // In the old layout do not enforce except for shards pending resharding.
-            if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
-                tracing::debug!(target: "test", ?shard_uid, "skipping shard not pending resharding");
-                continue;
-            }
-
-            // In the new layout do not enforce for shards that were not split.
-            if is_resharded && !shard_was_split(&shard_layout, shard_uid.shard_id()) {
-                tracing::debug!(target: "test", ?shard_uid, "skipping shard not split");
-                continue;
-            }
+        if !should_assert_state_sanity(
+            load_mem_tries_for_tracked_shards,
+            is_resharded,
+            &shards_pending_resharding,
+            &shard_layout,
+            &shard_uid,
+        ) {
+            continue;
         }
 
         if !client_tracking_shard(client, shard_uid.shard_id(), &final_head.prev_block_hash) {
@@ -740,6 +742,31 @@ fn assert_state_sanity(
     checked_shards
 }
 
+fn should_assert_state_sanity(
+    load_mem_tries_for_tracked_shards: bool,
+    is_resharded: bool,
+    shards_pending_resharding: &HashSet<ShardUId>,
+    shard_layout: &ShardLayout,
+    shard_uid: &ShardUId,
+) -> bool {
+    // Always assert if the tracked shards are loaded into memory.
+    if load_mem_tries_for_tracked_shards {
+        return true;
+    }
+
+    // In the old layout do not enforce except for shards pending resharding.
+    if !is_resharded && !shards_pending_resharding.contains(&shard_uid) {
+        return false;
+    }
+
+    // In the new layout do not enforce for shards that were not split.
+    if is_resharded && !shard_was_split(shard_layout, shard_uid.shard_id()) {
+        return false;
+    }
+
+    true
+}
+
 // For each epoch, keep a map from AccountId to a map with keys equal to
 // the set of shards that account tracks in that epoch, and bool values indicating
 // whether the equality of flat storage and memtries has been checked for that shard
@@ -785,47 +812,61 @@ impl TrieSanityCheck {
         let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
         let is_resharded = shard_layout.num_shards() == new_num_shards;
 
-        match self.checks.entry(tip.epoch_id) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                let shard_uids = shard_layout.shard_uids().collect_vec();
-                let mut check = HashMap::new();
-                for account_id in self.accounts.iter() {
-                    let tracked = shard_uids
-                        .iter()
-                        .filter_map(|uid| {
-                            if !is_resharded
-                                && !self.load_mem_tries_for_tracked_shards
-                                && !shards_pending_resharding.contains(uid)
-                            {
-                                return None;
-                            }
-
-                            if is_resharded
-                                && !self.load_mem_tries_for_tracked_shards
-                                && !shard_was_split(&shard_layout, uid.shard_id())
-                            {
-                                return None;
-                            }
-
-                            let cares = client.shard_tracker.care_about_shard(
-                                Some(account_id),
-                                &tip.prev_block_hash,
-                                uid.shard_id(),
-                                false,
-                            );
-                            if cares {
-                                Some((*uid, false))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    check.insert(account_id.clone(), tracked);
-                }
-                e.insert(check)
-            }
+        if self.checks.contains_key(&tip.epoch_id) {
+            return self.checks.get_mut(&tip.epoch_id).unwrap();
         }
+
+        let mut check = HashMap::new();
+        for account_id in self.accounts.iter() {
+            let check_shard_uids = self.get_epoch_check_for_account(
+                client,
+                tip,
+                is_resharded,
+                &shards_pending_resharding,
+                &shard_layout,
+                account_id,
+            );
+            check.insert(account_id.clone(), check_shard_uids);
+        }
+
+        self.checks.insert(tip.epoch_id, check);
+        self.checks.get_mut(&tip.epoch_id).unwrap()
+    }
+
+    // Returns the expected shard uids for the given account.
+    fn get_epoch_check_for_account(
+        &self,
+        client: &Client,
+        tip: &Tip,
+        is_resharded: bool,
+        shards_pending_resharding: &HashSet<ShardUId>,
+        shard_layout: &ShardLayout,
+        account_id: &AccountId,
+    ) -> HashMap<ShardUId, bool> {
+        let mut check_shard_uids = HashMap::new();
+        for shard_uid in shard_layout.shard_uids() {
+            if !should_assert_state_sanity(
+                self.load_mem_tries_for_tracked_shards,
+                is_resharded,
+                shards_pending_resharding,
+                shard_layout,
+                &shard_uid,
+            ) {
+                continue;
+            }
+
+            let cares = client.shard_tracker.care_about_shard(
+                Some(account_id),
+                &tip.prev_block_hash,
+                shard_uid.shard_id(),
+                false,
+            );
+            if !cares {
+                continue;
+            }
+            check_shard_uids.insert(shard_uid, false);
+        }
+        check_shard_uids
     }
 
     // Check trie sanity and keep track of which shards were succesfully fully checked
@@ -897,6 +938,24 @@ impl TrieSanityCheck {
     }
 }
 
+fn get_base_shard_layout(version: u64) -> ShardLayout {
+    let boundary_accounts = vec!["account1".parse().unwrap(), "account3".parse().unwrap()];
+    match version {
+        1 => {
+            let shards_split_map = vec![vec![ShardId::new(0), ShardId::new(1), ShardId::new(2)]];
+            #[allow(deprecated)]
+            ShardLayout::v1(boundary_accounts, Some(shards_split_map), 3)
+        }
+        2 => {
+            let shard_ids = vec![ShardId::new(5), ShardId::new(3), ShardId::new(6)];
+            let shards_split_map = [(ShardId::new(0), shard_ids.clone())].into_iter().collect();
+            let shards_split_map = Some(shards_split_map);
+            ShardLayout::v2(boundary_accounts, shard_ids, shards_split_map)
+        }
+        _ => panic!("Unsupported shard layout version {}", version),
+    }
+}
+
 /// Base setup to check sanity of Resharding V3.
 /// TODO(#11881): add the following scenarios:
 /// - Nodes must not track all shards. State sync must succeed.
@@ -934,19 +993,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         base_epoch_config.chunk_validator_only_kickout_threshold = 0;
     }
 
-    // Set the base shard layout to V1 with non-unique shard ids. This is what
-    // we have on mainnet before the ReshardingV3 release.
-    // TODO(resharding) test both V1->V2 and V2->V2
-    let boundary_accounts = vec!["account1".parse().unwrap(), "account3".parse().unwrap()];
-    let split_map = vec![vec![ShardId::new(0), ShardId::new(1), ShardId::new(2)]];
-    #[allow(deprecated)]
-    let base_shard_layout = ShardLayout::v1(boundary_accounts, Some(split_map), 3);
-
+    let base_shard_layout = get_base_shard_layout(params.base_shard_layout_version);
     base_epoch_config.shard_layout = base_shard_layout.clone();
-    let new_boundary_account = "account6".parse().unwrap();
-    let mut epoch_config = base_epoch_config.clone();
-    let parent_shard_uid = account_id_to_shard_uid(&new_boundary_account, &base_shard_layout);
 
+    let new_boundary_account = "account6".parse().unwrap();
+    let parent_shard_uid = account_id_to_shard_uid(&new_boundary_account, &base_shard_layout);
+    let mut epoch_config = base_epoch_config.clone();
     epoch_config.shard_layout =
         ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account);
     tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
@@ -1225,14 +1277,13 @@ fn test_resharding_v3_delayed_receipts_right_child() {
     test_resharding_v3_base(params);
 }
 
-#[test]
-#[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_split_parent_buffered_receipts() {
+fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_version: u64) {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParameters::new()
+        .base_shard_layout_version(base_shard_layout_version)
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas()
         .add_loop_action(call_burn_gas_contract(
@@ -1253,12 +1304,25 @@ fn test_resharding_v3_split_parent_buffered_receipts() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
+fn test_resharding_v3_split_parent_buffered_receipts_v1() {
+    test_resharding_v3_split_parent_buffered_receipts_base(1);
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn test_resharding_v3_split_parent_buffered_receipts_v2() {
+    test_resharding_v3_split_parent_buffered_receipts_base(2);
+}
+
+fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
+    base_shard_layout_version: u64,
+) {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let account_in_stable_shard: AccountId = "account1".parse().unwrap();
 
     let params = TestReshardingParameters::new()
+        .base_shard_layout_version(base_shard_layout_version)
         .deploy_test_contract(account_in_left_child.clone())
         .deploy_test_contract(account_in_right_child.clone())
         .limit_outgoing_gas()
@@ -1276,6 +1340,18 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard() {
             ReceiptKind::Buffered,
         ));
     test_resharding_v3_base(params);
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v1() {
+    test_resharding_v3_buffered_receipts_towards_splitted_shard_base(1);
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v2() {
+    test_resharding_v3_buffered_receipts_towards_splitted_shard_base(2);
 }
 
 #[test]
@@ -1311,8 +1387,18 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 }
 
 #[test]
-fn test_resharding_v3_load_mem_trie() {
-    let params = TestReshardingParameters::new().load_mem_tries_for_tracked_shards(false);
+fn test_resharding_v3_load_mem_trie_v1() {
+    let params = TestReshardingParameters::new()
+        .base_shard_layout_version(1)
+        .load_mem_tries_for_tracked_shards(false);
+    test_resharding_v3_base(params);
+}
+
+#[test]
+fn test_resharding_v3_load_mem_trie_v2() {
+    let params = TestReshardingParameters::new()
+        .base_shard_layout_version(2)
+        .load_mem_tries_for_tracked_shards(false);
     test_resharding_v3_base(params);
 }
 

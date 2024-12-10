@@ -14,7 +14,9 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
-use crate::signature_verification::verify_chunk_header_signature_with_epoch_manager;
+use crate::signature_verification::{
+    verify_block_vrf, verify_chunk_header_signature_with_epoch_manager,
+};
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
@@ -1342,7 +1344,7 @@ impl Chain {
                 let merkle_paths =
                     Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
                 let merkle_proof =
-                    merkle_paths.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
+                    merkle_paths.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
                 let chunk_proof = ChunkProofs {
                     block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                     merkle_proof: merkle_proof.clone(),
@@ -2284,13 +2286,9 @@ impl Chain {
         // Check the header is valid before we proceed with the full block.
         self.validate_header(header, provenance, challenges)?;
 
-        self.epoch_manager.verify_block_vrf(
-            header.epoch_id(),
-            header.height(),
-            &prev_random_value,
-            block.vrf_value(),
-            block.vrf_proof(),
-        )?;
+        let validator =
+            self.epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
+        verify_block_vrf(validator, &prev_random_value, block.vrf_value(), block.vrf_proof())?;
 
         if header.random_value() != &hash(block.vrf_value().0.as_ref()) {
             return Err(Error::InvalidRandomnessBeaconOutput);
@@ -2582,8 +2580,7 @@ impl Chain {
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = sync_prev_block.hash();
         let chunks = sync_prev_block.chunks();
-        let chunk_header =
-            chunks.get(prev_shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
+        let chunk_header = chunks.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?;
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
@@ -2596,10 +2593,8 @@ impl Chain {
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
         let chunk = self.get_chunk_clone_from_header(chunk_header)?;
-        let chunk_proof = chunk_proofs
-            .get(prev_shard_index)
-            .ok_or_else(|| Error::InvalidShardId(shard_id))?
-            .clone();
+        let chunk_proof =
+            chunk_proofs.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.clone();
         let block_header =
             self.get_block_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
 
@@ -2611,7 +2606,7 @@ impl Chain {
                 let prev_chunk_header = prev_block
                     .chunks()
                     .get(prev_shard_index)
-                    .ok_or_else(|| Error::InvalidShardId(shard_id))?
+                    .ok_or(Error::InvalidShardId(shard_id))?
                     .clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
                     &prev_block
@@ -2626,7 +2621,7 @@ impl Chain {
 
                 let prev_chunk_proof = prev_chunk_proofs
                     .get(prev_shard_index)
-                    .ok_or_else(|| Error::InvalidShardId(shard_id))?
+                    .ok_or(Error::InvalidShardId(shard_id))?
                     .clone();
                 let prev_chunk_height_included = prev_chunk_header.height_included();
 
@@ -2802,7 +2797,7 @@ impl Chain {
         let state_root = prev_block
             .chunks()
             .get(shard_index)
-            .ok_or_else(|| Error::InvalidShardId(shard_id))?
+            .ok_or(Error::InvalidShardId(shard_id))?
             .prev_state_root();
         let prev_hash = *prev_block.hash();
         let prev_prev_hash = *prev_block.header().prev_hash();
@@ -3413,7 +3408,7 @@ impl Chain {
                     None
                 }
             })
-            .unwrap_or_else(|| FinalExecutionStatus::Started)
+            .unwrap_or(FinalExecutionStatus::Started)
     }
 
     /// Collect all the execution outcomes existing at the current moment
@@ -3688,7 +3683,7 @@ impl Chain {
                         let chunk_header = block
                             .chunks()
                             .get(shard_index)
-                            .ok_or_else(|| Error::InvalidShardId(shard_id))?
+                            .ok_or(Error::InvalidShardId(shard_id))?
                             .clone();
                         invalid_chunks.push(chunk_header);
                     }
@@ -4243,7 +4238,7 @@ impl Chain {
             for &shard_id in shard_ids.iter() {
                 let shard_index = shard_layout.get_shard_index(shard_id)?;
                 let chunk_header =
-                    &chunks.get(shard_index).ok_or_else(|| Error::InvalidShardId(shard_id))?;
+                    &chunks.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
                 if chunk_header.height_included() == block.header().height() {
                     return Ok(Some((block_hash, shard_id)));
                 }

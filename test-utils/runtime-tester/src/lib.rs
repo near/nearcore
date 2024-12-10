@@ -36,7 +36,7 @@ fn scenario_smoke_test() {
         let transaction = {
             let signer_id = accounts[h as usize].clone();
             let receiver_id = accounts[(h - 1) as usize].clone();
-            let signer = InMemorySigner::test(&signer_id);
+            let signer = InMemorySigner::test_signer(&signer_id);
 
             TransactionConfig {
                 nonce: h,
