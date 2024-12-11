@@ -290,10 +290,10 @@ impl BandwidthScheduler {
 
     /// Initialize sender and receiver budgets. Every shard can send and receive at most `max_shard_bandwidth`.
     fn init_budgets(&mut self) {
-        for sender in self.iter_shard_indexes() {
+        for sender in self.shard_layout.shard_indexes() {
             self.sender_budget.insert(sender, self.params.max_shard_bandwidth);
         }
-        for receiver in self.iter_shard_indexes() {
+        for receiver in self.shard_layout.shard_indexes() {
             self.receiver_budget.insert(receiver, self.params.max_shard_bandwidth);
         }
     }
@@ -388,12 +388,6 @@ impl BandwidthScheduler {
             }
         }
         GrantedBandwidth { granted }
-    }
-
-    fn iter_shard_indexes(&self) -> impl Iterator<Item = ShardIndex> + 'static {
-        let max_index: usize =
-            self.shard_layout.num_shards().try_into().expect("num_shards doesn't fit into usize!");
-        0..max_index
     }
 
     /// Iterate over all links from senders to receivers without borrowing &self.

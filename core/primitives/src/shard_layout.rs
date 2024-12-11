@@ -739,6 +739,14 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
+    pub fn shard_indexes(&self) -> impl Iterator<Item = ShardIndex> + 'static {
+        let num_shards: usize =
+            self.num_shards().try_into().expect("Number of shards doesn't fit in usize");
+        match self {
+            Self::V0(_) | Self::V1(_) | Self::V2(_) => (0..num_shards).into_iter(),
+        }
+    }
+
     /// Returns an iterator that returns the ShardInfos for every shard in
     /// this shard layout. This method should be preferred over calling
     /// shard_ids().enumerate(). Today the result of shard_ids() is sorted but
