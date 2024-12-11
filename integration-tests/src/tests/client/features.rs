@@ -22,6 +22,7 @@ mod nonrefundable_transfer;
 mod orphan_chunk_state_witness;
 mod restore_receipts_after_fix_apply_chunks;
 mod restrict_tla;
+mod state_witness_bit_flip;
 mod stateless_validation;
 mod storage_proof_size_limit;
 mod wallet_contract;
