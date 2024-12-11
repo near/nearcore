@@ -14,7 +14,7 @@ use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::borsh;
-use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::ShardUId;
@@ -23,7 +23,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
+    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
@@ -36,7 +36,7 @@ use near_store::{
 use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -122,6 +122,9 @@ struct SetValidatorsCmd {
     /// will be used.
     #[arg(long)]
     pub protocol_version: Option<ProtocolVersion>,
+    /// Number of validator seats.
+    #[clap(long)]
+    pub num_seats: Option<NumSeats>,
 }
 
 const FORKED_ROOTS_KEY_PREFIX: &str = "FORK_TOOL_SHARD_ID:";
@@ -211,12 +214,14 @@ impl ForkNetworkCommand {
                 epoch_length,
                 chain_id_suffix,
                 chain_id,
+                num_seats,
             }) => {
                 self.set_validators(
                     genesis_time.unwrap_or_else(chrono::Utc::now),
                     *protocol_version,
                     validators,
                     *epoch_length,
+                    num_seats,
                     chain_id_suffix,
                     chain_id,
                     near_config,
@@ -395,6 +400,7 @@ impl ForkNetworkCommand {
         protocol_version: Option<ProtocolVersion>,
         validators: &Path,
         epoch_length: u64,
+        num_seats: &Option<NumSeats>,
         chain_id_suffix: &str,
         chain_id: &Option<String>,
         near_config: &mut NearConfig,
@@ -421,7 +427,7 @@ impl ForkNetworkCommand {
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
         let storage_mutator =
-            StorageMutator::new(epoch_manager.clone(), &runtime, epoch_id, prev_state_roots)?;
+            StorageMutator::new(epoch_manager, &runtime, epoch_id, prev_state_roots)?;
         let (new_state_roots, new_validator_accounts) =
             self.add_validator_accounts(validators, runtime_config, home_dir, storage_mutator)?;
 
@@ -431,13 +437,12 @@ impl ForkNetworkCommand {
             genesis_time,
             protocol_version,
             epoch_length,
+            num_seats,
             block_height,
             chain_id_suffix,
             chain_id,
-            &epoch_id,
             new_state_roots.clone(),
             new_validator_accounts.clone(),
-            epoch_manager,
             home_dir,
             near_config,
         )?;
@@ -525,6 +530,47 @@ impl ForkNetworkCommand {
         restore_backup_genesis_file(home_dir, &near_config)?;
         tracing::info!("Reset complete");
         return Ok(());
+    }
+
+    /// Creates epoch config overrides since `first_version` and places them
+    /// in `home_dir`.
+    fn override_epoch_configs(
+        &self,
+        first_version: ProtocolVersion,
+        num_seats: &Option<NumSeats>,
+        home_dir: &Path,
+    ) -> anyhow::Result<EpochConfig> {
+        let epoch_config_dir = home_dir.join("epoch_configs");
+        if epoch_config_dir.exists() {
+            std::fs::remove_dir_all(epoch_config_dir.clone())?;
+        }
+        std::fs::create_dir_all(epoch_config_dir.clone()).with_context(|| {
+            anyhow::anyhow!("Failed to create directory {:?}", epoch_config_dir)
+        })?;
+
+        let base_epoch_config_store =
+            EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
+                .expect("Could not load the EpochConfigStore for mainnet.");
+        let mut new_epoch_configs = BTreeMap::new();
+        for version in first_version..=PROTOCOL_VERSION {
+            let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
+            if let Some(num_seats) = num_seats {
+                config.num_block_producer_seats = *num_seats;
+                config.validator_selection_config.num_chunk_producer_seats = *num_seats;
+                config.validator_selection_config.num_chunk_validator_seats = *num_seats;
+            }
+            new_epoch_configs.insert(version, Arc::new(config));
+        }
+        let first_config = new_epoch_configs.get(&first_version).unwrap().as_ref().clone();
+        let epoch_config_store = EpochConfigStore::test(new_epoch_configs);
+
+        epoch_config_store.dump_epoch_configs_between(
+            &first_version,
+            &PROTOCOL_VERSION,
+            epoch_config_dir.to_str().unwrap(),
+        );
+        tracing::info!(target: "near", "Generated epoch configs files in {}", epoch_config_dir.display());
+        Ok(first_config)
     }
 
     fn prepare_shard_state(
@@ -824,13 +870,12 @@ impl ForkNetworkCommand {
         genesis_time: DateTime<Utc>,
         protocol_version: Option<ProtocolVersion>,
         epoch_length: u64,
+        num_seats: &Option<NumSeats>,
         height: BlockHeight,
         chain_id_suffix: &str,
         chain_id: &Option<String>,
-        epoch_id: &EpochId,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
-        epoch_manager: Arc<EpochManagerHandle>,
         home_dir: &Path,
         near_config: &mut NearConfig,
     ) -> anyhow::Result<()> {
@@ -850,18 +895,9 @@ impl ForkNetworkCommand {
         // This is based on the assumption that epoch length is part of genesis config and not epoch config.
         near_config.genesis.config.epoch_length = epoch_length;
 
-        let epoch_config_dir = home_dir.join("epoch_configs");
-        let epoch_config = if epoch_config_dir.exists() {
-            tracing::info!(target: "fork-network", "Loading epoch config from {:?}", epoch_config_dir);
-            EpochConfigStore::for_chain_id(&new_chain_id, Some(epoch_config_dir))
-                .unwrap()
-                .get_config(genesis_protocol_version)
-                .as_ref()
-                .clone()
-        } else {
-            tracing::info!(target: "fork-network", "Loading epoch config from epoch manager");
-            epoch_manager.get_epoch_config(epoch_id)?
-        };
+        let epoch_config =
+            self.override_epoch_configs(genesis_protocol_version, num_seats, home_dir)?;
+
         let original_config = near_config.genesis.config.clone();
 
         let new_config = GenesisConfig {
