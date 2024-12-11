@@ -118,13 +118,13 @@ impl ChunkValidator {
                 &chunk_header,
             ) {
                 Ok(()) => {
-                    send_chunk_endorsement_to_block_producers(
-                        &chunk_header,
-                        epoch_manager.as_ref(),
-                        signer,
-                        &network_sender,
-                    );
-                    return Ok(());
+                    // send_chunk_endorsement_to_block_producers(
+                    //     &chunk_header,
+                    //     epoch_manager.as_ref(),
+                    //     signer,
+                    //     &network_sender,
+                    // );
+                    // return Ok(());
                 }
                 Err(err) => {
                     tracing::error!(
@@ -252,6 +252,13 @@ impl Client {
             self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
         }
 
+        println!(
+            "SIGNER {} | {:?} {} | {}",
+            signer.validator_id(),
+            witness.chunk_header.shard_id(),
+            witness.chunk_header.height_created(),
+            near_primitives::hash::hash(&borsh::to_vec(&witness).unwrap())
+        );
         match self.chain.get_block(witness.chunk_header.prev_block_hash()) {
             Ok(block) => self.process_chunk_state_witness_with_prev_block(
                 witness,

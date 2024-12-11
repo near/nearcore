@@ -40,6 +40,7 @@ pub enum ShardUpdateResult {
     OldChunk(OldChunkResult),
 }
 
+#[derive(Debug)]
 pub struct NewChunkData {
     pub chunk_header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
@@ -75,6 +76,7 @@ pub struct ShardContext {
 }
 
 /// Information about storage used for applying txs and receipts.
+#[derive(Debug)]
 pub struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,

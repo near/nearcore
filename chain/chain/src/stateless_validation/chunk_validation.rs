@@ -40,6 +40,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum MainTransition {
     Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
@@ -64,6 +65,7 @@ impl MainTransition {
     }
 }
 
+#[derive(Debug)]
 pub struct PreValidationOutput {
     pub main_transition_params: MainTransition,
     pub implicit_transition_params: Vec<ImplicitTransitionParams>,
@@ -75,6 +77,7 @@ pub struct ChunkStateWitnessValidationResult {
     pub outgoing_receipts: Vec<Receipt>,
 }
 
+// TODO: key should be a pair (chunk_shard_uid, witness_shard_uid) for shard merging
 pub type MainStateTransitionCache =
     Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
 
@@ -108,6 +111,7 @@ pub fn validate_prepared_transactions(
     )
 }
 
+#[derive(Debug)]
 /// Parameters of implicit state transition, which is not resulted by
 /// application of new chunk.
 pub enum ImplicitTransitionParams {
@@ -607,16 +611,26 @@ pub fn validate_chunk_state_witness(
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
     let span = tracing::debug_span!(target: "client", "validate_chunk_state_witness").entered();
+    let witness_shard_layout = epoch_manager.get_shard_layout(&state_witness.epoch_id)?;
+    let witness_chunk_shard_id = state_witness.chunk_header.shard_id();
+    let witness_chunk_shard_uid =
+        epoch_manager.shard_id_to_uid(witness_chunk_shard_id, &state_witness.epoch_id)?;
     let block_hash = pre_validation_output.main_transition_params.block_hash();
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
-    let shard_uid = epoch_manager
-        .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
+    let shard_id = pre_validation_output.main_transition_params.shard_id();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+    tracing::warn!(
+        target: "stateless_validation",
+        ?shard_uid
+    );
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock().unwrap();
-        shard_cache.get_mut(&shard_uid).and_then(|cache| cache.get(&block_hash).cloned())
+        shard_cache
+            .get_mut(&witness_chunk_shard_uid)
+            .and_then(|cache| cache.get(&block_hash).cloned())
     };
-    let (mut chunk_extra, outgoing_receipts) =
+    let (mut chunk_extra, mut outgoing_receipts) =
         match (pre_validation_output.main_transition_params, cache_result) {
             (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
             (MainTransition::NewChunk(new_chunk_data), None) => {
@@ -634,7 +648,10 @@ pub fn validate_chunk_state_witness(
 
                 (chunk_extra, outgoing_receipts)
             }
-            (_, Some(result)) => (result.chunk_extra, result.outgoing_receipts),
+            (_, Some(result)) => {
+                println!("MMM???");
+                (result.chunk_extra, result.outgoing_receipts)
+            }
         };
     if chunk_extra.state_root() != &state_witness.main_state_transition.post_state_root {
         // This is an early check, it's not for correctness, only for better
@@ -649,14 +666,30 @@ pub fn validate_chunk_state_witness(
 
     // Compute receipt hashes here to avoid copying receipts
     let outgoing_receipts_hashes = {
-        let shard_layout = epoch_manager
-            .get_shard_layout_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
-        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
+        tracing::warn!(
+            target: "stateless_validation",
+            orl = outgoing_receipts.len(),
+            shard_id = ?state_witness.chunk_header.shard_id(),
+            height_created = state_witness.chunk_header.height_created()
+        );
+
+        let chunk_epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+        let chunk_shard_layout = epoch_manager.get_shard_layout(&chunk_epoch_id)?;
+        if chunk_shard_layout != witness_shard_layout {
+            ChainStore::reassign_outgoing_receipts_for_resharding(
+                &mut outgoing_receipts,
+                protocol_version,
+                &witness_shard_layout,
+                state_witness.chunk_header.shard_id(),
+                shard_id,
+            )?;
+        }
+        Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)
     };
     // Save main state transition result to cache.
     {
         let mut shard_cache = main_state_transition_cache.lock().unwrap();
-        let cache = shard_cache.entry(shard_uid).or_insert_with(|| {
+        let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
             LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
         });
         cache.put(

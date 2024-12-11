@@ -162,7 +162,7 @@ impl TestReshardingParameters {
         let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
         let epoch_length = 6;
-        let track_all_shards = true;
+        let track_all_shards = false;
         let all_chunks_expected = true;
 
         // #12195 prevents number of BPs bigger than `epoch_length`.

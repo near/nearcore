@@ -253,6 +253,7 @@ impl ChainGenesis {
     }
 }
 
+#[derive(Debug)]
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
@@ -297,7 +298,7 @@ impl RuntimeStorageConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ApplyChunkBlockContext {
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
