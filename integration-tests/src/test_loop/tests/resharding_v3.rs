@@ -160,18 +160,18 @@ struct TestReshardingParameters {
 
 impl TestReshardingParameters {
     fn new() -> Self {
-        Self::with_clients(3)
+        Self::with_validators(3)
     }
 
-    fn with_clients(num_clients: u64) -> Self {
+    fn with_validators(num_validators: u64) -> Self {
         let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
         let epoch_length = 6;
-        let track_all_shards = false;
+        let track_all_shards = true;
         let all_chunks_expected = true;
 
         // #12195 prevents number of BPs bigger than `epoch_length`.
-        assert!(num_clients > 0 && num_clients <= epoch_length);
+        assert!(num_validators > 0 && num_validators <= epoch_length);
 
         let accounts = (0..num_accounts)
             .map(|i| format!("account{}", i).parse().unwrap())
@@ -179,10 +179,12 @@ impl TestReshardingParameters {
 
         // This piece of code creates `num_clients` from `accounts`. First client is at index 0 and
         // other clients are spaced in the accounts' space as evenly as possible.
-        let clients_per_account = num_clients as f64 / accounts.len() as f64;
+        // let clients_per_account = num_validators as f64 / (accounts.len() - 1) as f64;
+        let clients_per_account = num_validators as f64 / accounts.len() as f64;
         let mut client_parts = 1.0 - clients_per_account;
-        let clients: Vec<_> = accounts
+        let mut clients: Vec<_> = accounts
             .iter()
+            // .skip(1)
             .filter(|_| {
                 client_parts += clients_per_account;
                 if client_parts >= 1.0 {
@@ -193,9 +195,11 @@ impl TestReshardingParameters {
                 }
             })
             .cloned()
-            .collect();
+            .collect_vec();
 
         let block_and_chunk_producers = clients.clone();
+        // clients.push(accounts[0].clone());
+
         let load_mem_tries_for_tracked_shards = true;
         let base_shard_layout_version = 2;
 
@@ -1342,7 +1346,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // println!("State after resharding:");
         print_and_assert_shard_accounts(&clients, &tip);
         check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
-        return epoch_height >= 10;
+        return epoch_height >= 5;
     };
 
     test_loop.run_until(
@@ -1353,7 +1357,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let client = &test_loop.data.get(&client_handles[0]).client;
     trie_sanity_check.check_epochs(client);
     // Wait for garbage collection to kick in, so that it is tested as well.
-    let gc_epochs = 2; // DEFAULT_GC_NUM_EPOCHS_TO_KEEP
+    let gc_epochs = DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
     test_loop.run_for(Duration::seconds((gc_epochs * params.epoch_length) as i64));
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
@@ -1408,7 +1412,7 @@ fn test_resharding_v3_drop_chunks_all() {
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
-        TestReshardingParameters::with_clients(1)
+        TestReshardingParameters::with_validators(1)
             .add_loop_action(fork_before_resharding_block(false)),
     );
 }
@@ -1421,7 +1425,7 @@ fn test_resharding_v3_resharding_block_in_fork() {
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_double_sign_resharding_block() {
     test_resharding_v3_base(
-        TestReshardingParameters::with_clients(1)
+        TestReshardingParameters::with_validators(1)
             .add_loop_action(fork_before_resharding_block(true)),
     );
 }
