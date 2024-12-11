@@ -182,6 +182,9 @@ fn get_state_witness_block_range(
     let initial_shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(&initial_prev_hash)?;
     let initial_shard_id = state_witness.chunk_header.shard_id();
+    // Check that shard id is present in current epoch.
+    // TODO: consider more proper way to validate this.
+    let _ = initial_shard_layout.get_shard_index(initial_shard_id)?;
 
     let mut position = TraversalPosition {
         shard_id: initial_shard_id,
