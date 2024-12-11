@@ -1,4 +1,5 @@
 use std::fs;
+use std::fs::create_dir;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -99,6 +100,10 @@ impl Account {
     }
 
     pub fn write_to_dir(&self, dir: &Path) -> anyhow::Result<()> {
+        if !dir.exists() {
+            create_dir(dir)?;
+        }
+
         let json = serde_json::to_string(self)?;
         let mut file_name = self.id.to_string();
         file_name.push_str(".json");
