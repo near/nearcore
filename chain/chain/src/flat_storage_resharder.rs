@@ -578,6 +578,10 @@ impl FlatStorageResharder {
         shard_uid: ShardUId,
         chain_store: &ChainStore,
     ) -> FlatStorageReshardingTaskResult {
+        // Exit early if the task has already been cancelled.
+        if self.controller.is_cancelled() {
+            return FlatStorageReshardingTaskResult::Cancelled;
+        }
         info!(target: "resharding", ?shard_uid, "flat storage shard catchup task started");
         // Apply deltas and then create the flat storage.
         let apply_result = self.shard_catchup_apply_deltas(shard_uid, chain_store);
