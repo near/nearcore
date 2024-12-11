@@ -8,6 +8,7 @@ pub(crate) mod receipts;
 pub(crate) mod setups;
 pub(crate) mod sharding;
 pub(crate) mod transactions;
+pub(crate) mod trie_sanity;
 pub(crate) mod validators;
 
 pub(crate) const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
