@@ -7,16 +7,10 @@ use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
 // Overrides to `TestDB` behavior.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TestStoreFlags {
     // Ignore negative refcount being a result of a write to the database.
     pub allow_negative_refcount: bool,
-}
-
-impl Default for TestStoreFlags {
-    fn default() -> Self {
-        Self { allow_negative_refcount: false }
-    }
 }
 
 /// An in-memory database intended for tests and IO-agnostic estimations.
