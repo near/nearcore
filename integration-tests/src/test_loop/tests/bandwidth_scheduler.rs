@@ -71,11 +71,11 @@ fn slow_test_bandwidth_scheduler_three_shards_random_receipts() {
         return;
     }
 
-    let scenario1 = TestScenarioBuilder::new()
+    let scenario = TestScenarioBuilder::new()
         .num_shards(3)
         .default_link_generator(|| Box::new(RandomReceiptSizeGenerator))
         .build();
-    let summary = run_bandwidth_scheduler_test(scenario1, 2000);
+    let summary = run_bandwidth_scheduler_test(scenario, 2000);
     assert!(summary.bandwidth_utilization > 0.55); // 55% utilization
     assert!(summary.link_imbalance_ratio < 1.8); // < 80% difference on links
     assert!(summary.worst_link_estimation_ratio > 0.4); // 40% of estimated link throughput
@@ -90,12 +90,12 @@ fn slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks() {
         return;
     }
 
-    let scenario1 = TestScenarioBuilder::new()
+    let scenario = TestScenarioBuilder::new()
         .num_shards(5)
         .default_link_generator(|| Box::new(RandomReceiptSizeGenerator))
         .missing_chunk_probability(0.1)
         .build();
-    let summary = run_bandwidth_scheduler_test(scenario1, 2000);
+    let summary = run_bandwidth_scheduler_test(scenario, 2000);
     assert!(summary.bandwidth_utilization > 0.35); // 35% utilization
     assert!(summary.link_imbalance_ratio < 6.0); // < 500% difference on links
     assert!(summary.worst_link_estimation_ratio > 0.1); // 10% of estimated link throughput
