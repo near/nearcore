@@ -1133,7 +1133,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let base_protocol_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
     let mut base_epoch_config =
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
-    base_epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+    base_epoch_config.shuffle_shard_assignment_for_chunk_producers =
         params.shuffle_shard_assignment_for_chunk_producers;
     if !params.chunk_ranges_to_drop.is_empty() {
         base_epoch_config.block_producer_kickout_threshold = 0;

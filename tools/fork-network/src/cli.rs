@@ -556,8 +556,8 @@ impl ForkNetworkCommand {
             let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
             if let Some(num_seats) = num_seats {
                 config.num_block_producer_seats = *num_seats;
-                config.validator_selection_config.num_chunk_producer_seats = *num_seats;
-                config.validator_selection_config.num_chunk_validator_seats = *num_seats;
+                config.num_chunk_producer_seats = *num_seats;
+                config.num_chunk_validator_seats = *num_seats;
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
@@ -919,15 +919,10 @@ impl ForkNetworkCommand {
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             shard_layout: epoch_config.shard_layout.clone(),
-            num_chunk_only_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_only_producer_seats,
-            minimum_validators_per_shard: epoch_config
-                .validator_selection_config
-                .minimum_validators_per_shard,
-            minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
+            minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
-                .validator_selection_config
                 .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
             protocol_version: genesis_protocol_version,
@@ -943,14 +938,9 @@ impl ForkNetworkCommand {
             total_supply: original_config.total_supply,
             transaction_validity_period: original_config.transaction_validity_period,
             use_production_config: original_config.use_production_config,
-            num_chunk_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_producer_seats,
-            num_chunk_validator_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_validator_seats,
+            num_chunk_producer_seats: epoch_config.num_chunk_producer_seats,
+            num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
             chunk_producer_assignment_changes_limit: epoch_config
-                .validator_selection_config
                 .chunk_producer_assignment_changes_limit,
         };
 
