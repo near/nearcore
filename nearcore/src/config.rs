@@ -37,8 +37,6 @@ use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
 use near_network::tcp;
 use near_o11y::log_config::LogConfig;
-use near_primitives::chains::MAINNET;
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
@@ -48,7 +46,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{from_timestamp, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::{
@@ -792,7 +790,6 @@ pub fn init_configs(
     download_config_url: Option<&str>,
     boot_nodes: Option<&str>,
     max_gas_burnt_view: Option<Gas>,
-    dump_epoch_config: Option<ProtocolVersion>,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(dir).with_context(|| anyhow!("Failed to create directory {:?}", dir))?;
 
@@ -985,20 +982,6 @@ pub fn init_configs(
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
-    }
-
-    if let Some(first_version) = dump_epoch_config {
-        let epoch_config_dir = dir.join("epoch_configs");
-        fs::create_dir_all(epoch_config_dir.clone())
-            .with_context(|| anyhow!("Failed to create directory {:?}", epoch_config_dir))?;
-        EpochConfigStore::for_chain_id(MAINNET, None)
-            .expect("Could not load the EpochConfigStore for mainnet.")
-            .dump_epoch_configs_between(
-                &first_version,
-                &PROTOCOL_VERSION,
-                epoch_config_dir.to_str().unwrap(),
-            );
-        info!(target: "near", "Generated epoch configs files in {}", epoch_config_dir.display());
     }
 
     Ok(())
@@ -1526,7 +1509,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .unwrap();
         let genesis = Genesis::from_file(
@@ -1584,7 +1566,6 @@ mod tests {
             None,
             None,
             None,
-            None,
         )
         .unwrap();
 
@@ -1612,7 +1593,6 @@ mod tests {
             false,
             None,
             false,
-            None,
             None,
             None,
             None,
