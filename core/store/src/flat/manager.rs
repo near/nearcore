@@ -36,11 +36,8 @@ pub struct FlatStorageManagerInner {
     /// but such overhead is negligible comparing the delta sizes, so we think it's ok.
     flat_storages: Mutex<HashMap<ShardUId, FlatStorage>>,
     /// Set to Some() when there's a state snapshot in progress. Used to signal to the resharding flat
-    /// storage catchup code that it shouldn't advance past this block
-    want_snapshot: Mutex<Option<CryptoHash>>,
-    // Set to true when there's a resharding flat storage split in progress. Used to signal to the state snapshot
-    /// code that it can't proceed yet.
-    split_in_progress: Mutex<bool>,
+    /// storage catchup code that it shouldn't advance past this block height
+    want_snapshot: Mutex<Option<BlockHeight>>,
 }
 
 impl FlatStorageManager {
@@ -49,7 +46,6 @@ impl FlatStorageManager {
             store,
             flat_storages: Default::default(),
             want_snapshot: Default::default(),
-            split_in_progress: Default::default(),
         }))
     }
 
@@ -97,6 +93,28 @@ impl FlatStorageManager {
         Ok(())
     }
 
+    fn read_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, StorageError> {
+        let header = self
+            .0
+            .store
+            .store_ref()
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_ref())
+            .map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "could not read block header {}: {:?}",
+                    hash, e
+                ))
+            })?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!("block header {} not found", hash))
+            })?;
+        Ok(BlockInfo {
+            hash: *header.hash(),
+            prev_hash: *header.prev_hash(),
+            height: header.height(),
+        })
+    }
+
     /// Sets the status to `Ready` if it's currently `Resharding(CatchingUp)`
     fn mark_flat_storage_ready(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         // Don't use Self::get_flat_storage_status() because there's no need to panic if this fails, since this is used
@@ -114,28 +132,7 @@ impl FlatStorageManager {
                 )))
             }
         };
-        let header = self
-            .0
-            .store
-            .store_ref()
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, catchup_flat_head.as_ref())
-            .map_err(|e| {
-                StorageError::StorageInconsistentState(format!(
-                    "could not read block header {}: {:?}",
-                    &catchup_flat_head, e
-                ))
-            })?
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!(
-                    "block header {} not found",
-                    &catchup_flat_head
-                ))
-            })?;
-        let flat_head = BlockInfo {
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
-            height: header.height(),
-        };
+        let flat_head = self.read_block_info(&catchup_flat_head)?;
         let mut store_update = self.0.store.store_update();
         store_update.set_flat_storage_status(
             shard_uid,
@@ -296,30 +293,40 @@ impl FlatStorageManager {
         }
     }
 
-    /// Should be called when a flat storage resharding has begun, and should be followed by a call to split_done() when it's finished.
-    pub fn split_started(&self) {
-        let mut split_in_progress = self.0.split_in_progress.lock().expect(POISONED_LOCK_ERR);
-        *split_in_progress = true;
-    }
-
-    /// Should be called when the flat storage is ready to be snapshotted after a resharding split.
-    pub fn split_done(&self) {
-        let mut split_in_progress = self.0.split_in_progress.lock().expect(POISONED_LOCK_ERR);
-        *split_in_progress = false;
-    }
-
-    /// Returns true if there's a flat storage resharding in progress, and a state snapshot can't be taken yet.
-    pub fn splitting_shards(&self) -> bool {
-        let split_in_progress = self.0.split_in_progress.lock().expect(POISONED_LOCK_ERR);
-        *split_in_progress
+    /// Returns None if there's no resharding flat storage split in progress
+    /// If there is, returns Some(None) if there's at least one child shard that hasn't been split and had its
+    /// status set to `CatchingUp`. If they've all been split already and are in the catchup phase,
+    /// returns the lowest height among all shards that resharding catchup has advanced to.
+    pub fn resharding_catchup_height_reached(
+        &self,
+        shard_uids: impl Iterator<Item = ShardUId>,
+    ) -> Result<Option<Option<BlockHeight>>, StorageError> {
+        let mut ret = None;
+        for shard_uid in shard_uids {
+            match self.0.store.get_flat_storage_status(shard_uid)? {
+                FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
+                    catchup_flat_head,
+                )) => {
+                    let flat_head = self.read_block_info(&catchup_flat_head)?;
+                    if let Some(Some(min_height)) = ret {
+                        ret = Some(Some(std::cmp::min(min_height, flat_head.height)));
+                    } else {
+                        ret = Some(Some(flat_head.height));
+                    }
+                }
+                FlatStorageStatus::Resharding(_) => return Ok(Some(None)),
+                _ => {}
+            };
+        }
+        Ok(ret)
     }
 
     /// Should be called when we want to take a state snapshot. Disallows flat head updates, and signals to any resharding
     /// flat storage code that it should not advance beyond this hash
-    pub fn want_snapshot(&self, hash: CryptoHash) {
+    pub fn want_snapshot(&self, min_chunk_prev_height: BlockHeight) {
         {
             let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
-            *want_snapshot = Some(hash);
+            *want_snapshot = Some(min_chunk_prev_height);
         }
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         for flat_storage in flat_storages.values() {
@@ -344,7 +351,7 @@ impl FlatStorageManager {
 
     // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
     // past the given hash
-    pub fn snapshot_wanted(&self) -> Option<CryptoHash> {
+    pub fn snapshot_wanted(&self) -> Option<BlockHeight> {
         let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
         *want_snapshot
     }

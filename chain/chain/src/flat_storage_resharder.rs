@@ -184,9 +184,6 @@ impl FlatStorageResharder {
         // Cancel any scheduled, not yet started event.
         self.cancel_scheduled_event();
 
-        let manager = self.runtime.get_flat_storage_manager();
-        manager.split_started();
-
         // Change parent and children shards flat storage status.
         let store = self.runtime.store().flat_store();
         let mut store_update = store.store_update();
@@ -606,27 +603,15 @@ impl FlatStorageResharder {
         }
     }
 
-    /// checks whether there's a snapshot in progress, and calls split_done() if we've reached a height close to the
-    /// desired snapshot height (the state snapshot code will apply the other deltas). Returns true if we've already
-    /// applied all deltas up to the desired snapshot height, and should no longer continue to give the state snapshot
+    /// checks whether there's a snapshot in progress. Returns true if we've already applied all deltas up
+    /// to the desired snapshot height, and should no longer continue to give the state snapshot
     /// code a chance to finish first.
-    fn coordinate_snapshot(&self, height: BlockHeight, chain_store: &ChainStore) -> bool {
+    fn coordinate_snapshot(&self, height: BlockHeight) -> bool {
         let manager = self.runtime.get_flat_storage_manager();
-        let Some(snapshot_hash) = manager.snapshot_wanted() else {
-            manager.split_done();
+        let Some(min_chunk_prev_height) = manager.snapshot_wanted() else {
             return false;
         };
-        let Ok(snapshot_header) = chain_store.get_block_header(&snapshot_hash) else {
-            // This probably shouldn't happen, but we'll just proceed if it does, and snapshots probably won't work.
-            tracing::error!(target: "resharding", %snapshot_hash, "Could not find header for snapshot hash. Proceeding with resharding catchup");
-            manager.split_done();
-            return false;
-        };
-        let snapshot_height = snapshot_header.height();
-        if height + 10 >= snapshot_height {
-            manager.split_done();
-        }
-        height >= snapshot_height
+        height >= min_chunk_prev_height
     }
 
     /// Applies flat storage deltas in batches on a shard that is in catchup status.
@@ -674,10 +659,6 @@ impl FlatStorageResharder {
 
             // If we reached the desired new flat head, we can terminate the delta application step.
             if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
-                // Call split_done() in case this is the first iteration of the loop and the below call to
-                // `coordinate_snapshot()` was never made.
-                let manager = self.runtime.get_flat_storage_manager();
-                manager.split_done();
                 return Ok(Some((
                     num_batches_done,
                     Tip::from_header(&chain_store.get_block_header(&flat_head_block_hash)?),
@@ -700,7 +681,7 @@ impl FlatStorageResharder {
                 if is_flat_head_on_par_with_chain(&flat_head_block_hash, &chain_final_head) {
                     break;
                 }
-                if self.coordinate_snapshot(height, chain_store) {
+                if self.coordinate_snapshot(height) {
                     postpone = true;
                     break;
                 }
