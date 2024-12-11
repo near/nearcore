@@ -1648,6 +1648,9 @@ pub unsafe fn generate_large_receipt() {
     }
 }
 
+/// Produces a function_call receipt to another account with the given method
+/// and arguments of the given size. Used to send large receipts between shards.
+/// Attaches only 1 Gas to the receipt to minimize congestion.
 #[unsafe(no_mangle)]
 pub unsafe fn do_function_call_with_args_of_size() {
     input(0);
