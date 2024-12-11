@@ -255,6 +255,7 @@ pub(super) enum NeardSubCommand {
     ReplayArchive(ReplayArchiveCommand),
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone)]
 enum FirstProtocolVersion {
     Since(ProtocolVersion),
@@ -320,10 +321,6 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Dump epoch config from the given protocol version onwards.
-    /// Can be a number or the word "latest".
-    #[clap(long)]
-    dump_epoch_config: Option<FirstProtocolVersion>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -381,11 +378,6 @@ impl InitCmd {
             None
         };
 
-        let dump_epoch_config = self.dump_epoch_config.map(|first| match first {
-            FirstProtocolVersion::Since(version) => version,
-            FirstProtocolVersion::Latest => near_primitives::version::PROTOCOL_VERSION,
-        });
-
         nearcore::init_configs(
             home_dir,
             self.chain_id,
@@ -401,7 +393,6 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-            dump_epoch_config,
         )
         .context("Failed to initialize configs")
     }

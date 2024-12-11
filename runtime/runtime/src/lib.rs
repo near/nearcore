@@ -336,6 +336,7 @@ impl Runtime {
                     signed_transaction,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                 );
                 let receipt = Receipt::V0(ReceiptV0 {
                     predecessor_id: transaction.signer_id().clone(),
@@ -645,6 +646,7 @@ impl Runtime {
                 receipt.receipt_id(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
                 action_index,
             );
             let mut new_result = self.apply_action(
@@ -865,6 +867,7 @@ impl Runtime {
                     receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                     receipt_index,
                 );
 
@@ -897,6 +900,7 @@ impl Runtime {
                     receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                     receipt_index as usize,
                 ))
             }
@@ -2083,18 +2087,27 @@ impl Runtime {
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-            let shard_ids = shard_layout.shard_ids().collect_vec();
-            let shard_index = shard_layout
-                .get_shard_index(apply_state.shard_id)
-                .map_err(Into::<EpochError>::into)?
-                .try_into()
-                .expect("Shard Index must fit within u64");
+            let protocol_version = apply_state.current_protocol_version;
 
-            let congestion_seed = apply_state.block_height.wrapping_add(shard_index);
+            let (all_shards, shard_seed) =
+                if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+                    let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+                    let shard_ids = shard_layout.shard_ids().collect_vec();
+                    let shard_index = shard_layout
+                        .get_shard_index(apply_state.shard_id)
+                        .map_err(Into::<EpochError>::into)?
+                        .try_into()
+                        .expect("Shard Index must fit within u64");
+
+                    (shard_ids, shard_index)
+                } else {
+                    (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
+                };
+
+            let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
-                shard_ids.as_slice(),
+                &all_shards,
                 congestion_seed,
             );
         }
@@ -2379,6 +2392,7 @@ fn resolve_promise_yield_timeouts(
                 &queue_entry.data_id,
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
                 new_receipt_index,
             );
             new_receipt_index += 1;
