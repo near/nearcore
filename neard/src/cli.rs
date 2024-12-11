@@ -854,6 +854,10 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
 }
 
 /// Checks if the system has the expected values for the sysctl parameters.
+#[cfg(not(target_os = "linux"))]
+fn check_kernel_params() {}
+
+#[cfg(target_os = "linux")]
 fn check_kernel_params() {
     let expected_rmem_max = "8388608";
     let expected_wmem_max = "8388608";
