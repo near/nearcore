@@ -2083,18 +2083,27 @@ impl Runtime {
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
             delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
-            let shard_ids = shard_layout.shard_ids().collect_vec();
-            let shard_index = shard_layout
-                .get_shard_index(apply_state.shard_id)
-                .map_err(Into::<EpochError>::into)?
-                .try_into()
-                .expect("Shard Index must fit within u64");
+            let protocol_version = apply_state.current_protocol_version;
 
-            let congestion_seed = apply_state.block_height.wrapping_add(shard_index);
+            let (all_shards, shard_seed) =
+                if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
+                    let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
+                    let shard_ids = shard_layout.shard_ids().collect_vec();
+                    let shard_index = shard_layout
+                        .get_shard_index(apply_state.shard_id)
+                        .map_err(Into::<EpochError>::into)?
+                        .try_into()
+                        .expect("Shard Index must fit within u64");
+
+                    (shard_ids, shard_index)
+                } else {
+                    (apply_state.congestion_info.all_shards(), apply_state.shard_id.into())
+                };
+
+            let congestion_seed = apply_state.block_height.wrapping_add(shard_seed);
             congestion_info.finalize_allowed_shard(
                 apply_state.shard_id,
-                shard_ids.as_slice(),
+                &all_shards,
                 congestion_seed,
             );
         }
@@ -2593,21 +2602,24 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
-        let key = TrieKey::Account { account_id: account_id.clone() };
-        let receiver = get_pure::<Account>(state_update, &key);
-        let Ok(Some(receiver)) = receiver else {
-            // Most likely reason this can happen is because the receipt is for an account that
-            // does not yet exist. This is a routine occurrence as accounts are created by sending
-            // some NEAR to a name that's about to be created.
-            return false;
-        };
+        let receiver = std::cell::LazyCell::new(|| {
+            let key = TrieKey::Account { account_id: account_id.clone() };
+            let receiver = get_pure::<Account>(state_update, &key);
+            let Ok(Some(receiver)) = receiver else {
+                // Most likely reason this can happen is because the receipt is for an account that
+                // does not yet exist. This is a routine occurrence as accounts are created by
+                // sending some NEAR to a name that's about to be created.
+                return None;
+            };
+            Some(receiver)
+        });
 
         // We need to inspect each receipt recursively in case these are data receipts, thus a
         // function.
         fn handle_receipt(
             mgr: &mut ReceiptPreparationPipeline,
             state_update: &TrieUpdate,
-            receiver: &Account,
+            receiver: &std::cell::LazyCell<Option<Account>, impl FnOnce() -> Option<Account>>,
             account_id: &AccountId,
             receipt: &Receipt,
         ) -> bool {

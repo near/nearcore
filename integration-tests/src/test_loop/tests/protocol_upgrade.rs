@@ -2,7 +2,9 @@ use aurora_engine_types::BTreeSet;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
@@ -57,22 +59,24 @@ pub(crate) fn test_protocol_upgrade(
 
     let producers = producers.iter().map(|account| account.as_str()).collect_vec();
     let validators = validators.iter().map(|account| account.as_str()).collect_vec();
+    let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
     let [_rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
     let builder = TestLoopBuilder::new();
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .protocol_version(old_protocol)
         .genesis_time_from_clock(&builder.clock())
         .genesis_height(10000)
         .shard_layout(shard_layout.clone())
         .epoch_length(epoch_length)
-        .validators_desired_roles(&producers, &validators);
-    for account in accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, genesis_epoch_config_store) = genesis_builder.build();
-    let genesis_epoch_info = genesis_epoch_config_store.get_config(old_protocol);
+        .validators_spec(validators_spec.clone())
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
+    let genesis_epoch_info = TestEpochConfigBuilder::new()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout.clone())
+        .validators_spec(validators_spec)
+        .build();
 
     let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let mut old_epoch_config: EpochConfig =

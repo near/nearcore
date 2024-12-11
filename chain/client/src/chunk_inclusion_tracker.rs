@@ -233,6 +233,11 @@ impl ChunkInclusionTracker {
                     (stats.total_validators_count.saturating_sub(stats.endorsed_validators_count))
                         as f64,
                 );
+            if !stats.is_endorsed {
+                metrics::BLOCK_PRODUCER_INSUFFICIENT_ENDORSEMENT_CHUNK_COUNT
+                    .with_label_values(label_values)
+                    .inc();
+            }
         }
     }
 }
