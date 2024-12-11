@@ -581,27 +581,19 @@ fn get_memtrie_for_shard(
     memtrie
 }
 
-// TODO: fix FlatStorageChunkView::iter_range() and remove the warn_only argument, just panicking in all cases
 fn assert_state_equal(
     values1: &HashSet<(Vec<u8>, Vec<u8>)>,
     values2: &HashSet<(Vec<u8>, Vec<u8>)>,
     shard_uid: ShardUId,
     cmp_msg: &str,
-    warn_only: bool,
 ) {
     let diff = values1.symmetric_difference(values2);
     let mut has_diff = false;
     for (key, value) in diff {
         has_diff = true;
-        tracing::warn!(target: "test", ?shard_uid, key=?key, ?value, "Difference in state between {}!", cmp_msg);
+        tracing::error!(target: "test", ?shard_uid, key=?key, ?value, "Difference in state between {}!", cmp_msg);
     }
-    if has_diff {
-        if warn_only {
-            tracing::warn!("{} state mismatch!", cmp_msg)
-        } else {
-            panic!("{} state mismatch!", cmp_msg);
-        }
-    }
+    assert!(!has_diff, "{} state mismatch!", cmp_msg);
 }
 
 fn shard_was_split(shard_layout: &ShardLayout, shard_id: ShardId) -> bool {
@@ -672,7 +664,7 @@ fn assert_state_sanity(
         assert!(!trie.has_memtries());
         let trie_state =
             trie.lock_for_iter().iter().unwrap().collect::<Result<HashSet<_>, _>>().unwrap();
-        assert_state_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie", false);
+        assert_state_equal(&memtrie_state, &trie_state, shard_uid, "memtrie and trie");
 
         let Some(flat_store_chunk_view) = client
             .chain
@@ -701,13 +693,7 @@ fn assert_state_sanity(
             .collect::<Result<HashSet<_>, _>>()
             .unwrap();
 
-        assert_state_equal(
-            &memtrie_state,
-            &flat_store_state,
-            shard_uid,
-            "memtrie and flat store",
-            true,
-        );
+        assert_state_equal(&memtrie_state, &flat_store_state, shard_uid, "memtrie and flat store");
         checked_shards.push(shard_uid);
     }
     checked_shards
