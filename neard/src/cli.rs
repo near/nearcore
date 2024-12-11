@@ -842,7 +842,7 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
 
             if actual_normalized != expected_normalized {
                 error!(
-                    "ERROR: {} is set to {}, expected {}",
+                    "ERROR: {} is set to {}, expected {}. Please run `scripts/set_kernel_params.sh`.",
                     param_name, actual_normalized, expected_normalized
                 );
             } else {
