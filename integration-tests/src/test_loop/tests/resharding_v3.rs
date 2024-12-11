@@ -1,4 +1,3 @@
-use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
@@ -9,123 +8,39 @@ use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, Gas, NumShards, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
-use near_store::db::refcount::decode_value_with_rc;
-use near_store::{get, DBCol, ShardUId, Trie};
+use near_store::ShardUId;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::transactions::{
-    get_shared_block_hash, get_smallest_height_head, run_tx, submit_tx,
+use crate::test_loop::utils::receipts::{
+    check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block,
+    ReceiptKind,
 };
-use crate::test_loop::utils::{ONE_NEAR, TGAS};
+use crate::test_loop::utils::sharding::{
+    check_state_shard_uid_mapping_after_resharding, client_tracking_shard, get_memtrie_for_shard,
+    next_block_has_new_shard_layout, print_and_assert_shard_accounts, shard_was_split,
+};
+use crate::test_loop::utils::transactions::{
+    get_shared_block_hash, get_smallest_height_head, run_tx, store_and_submit_tx,
+};
+use crate::test_loop::utils::{LoopActionFn, ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
 use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
-use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
-use near_primitives::receipt::{
-    BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices,
-};
 use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::trie_key::TrieKey;
 use near_primitives::views::FinalExecutionStatus;
 use near_store::flat::FlatStorageStatus;
 use std::cell::Cell;
 use std::u64;
-
-fn client_tracking_shard(client: &Client, shard_id: ShardId, parent_hash: &CryptoHash) -> bool {
-    let signer = client.validator_signer.get();
-    let account_id = signer.as_ref().map(|s| s.validator_id());
-    client.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, true)
-}
-
-fn get_client_tracking_shard<'a>(
-    clients: &'a [&Client],
-    tip: &Tip,
-    shard_id: ShardId,
-) -> &'a Client {
-    for client in clients {
-        if client_tracking_shard(client, shard_id, &tip.prev_block_hash) {
-            return client;
-        }
-    }
-    panic!(
-        "get_client_tracking_shard() could not find client tracking shard {} at {} #{}",
-        shard_id, &tip.last_block_hash, tip.height
-    );
-}
-
-fn print_and_assert_shard_accounts(clients: &[&Client], tip: &Tip) {
-    let epoch_config = clients[0].epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
-    for shard_uid in epoch_config.shard_layout.shard_uids() {
-        let client = get_client_tracking_shard(clients, tip, shard_uid.shard_id());
-        let chunk_extra = client.chain.get_chunk_extra(&tip.prev_block_hash, &shard_uid).unwrap();
-        let trie = client
-            .runtime_adapter
-            .get_trie_for_shard(
-                shard_uid.shard_id(),
-                &tip.prev_block_hash,
-                *chunk_extra.state_root(),
-                false,
-            )
-            .unwrap();
-        let mut shard_accounts = vec![];
-        for item in trie.lock_for_iter().iter().unwrap() {
-            let (key, value) = item.unwrap();
-            let state_record = StateRecord::from_raw_key_value(key, value);
-            if let Some(StateRecord::Account { account_id, .. }) = state_record {
-                shard_accounts.push(account_id.to_string());
-            }
-        }
-        println!("accounts for shard {}: {:?}", shard_uid, shard_accounts);
-        assert!(!shard_accounts.is_empty());
-    }
-}
-
-/// Asserts that all parent shard State is accessible via parent and children shards.
-fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_uid: ShardUId) {
-    let tip = client.chain.head().unwrap();
-    let epoch_id = tip.epoch_id;
-    let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
-    let children_shard_uids =
-        epoch_config.shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
-    assert_eq!(children_shard_uids.len(), 2);
-
-    let store = client.chain.chain_store.store().trie_store();
-    for kv in store.store().iter_raw_bytes(DBCol::State) {
-        let (key, value) = kv.unwrap();
-        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-        // Just after resharding, no State data must be keyed using children ShardUIds.
-        assert!(!children_shard_uids.contains(&shard_uid));
-        if shard_uid != parent_shard_uid {
-            continue;
-        }
-        let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
-        let (value, _) = decode_value_with_rc(&value);
-        let parent_value = store.get(parent_shard_uid, &node_hash);
-        // Parent shard data must still be accessible using parent ShardUId.
-        assert_eq!(&parent_value.unwrap()[..], value.unwrap());
-        // All parent shard data is available via both children shards.
-        for child_shard_uid in &children_shard_uids {
-            let child_value = store.get(*child_shard_uid, &node_hash);
-            assert_eq!(&child_value.unwrap()[..], value.unwrap());
-        }
-    }
-}
-
-/// Signature of functions callable from inside the inner loop of the resharding suite of tests.
-type LoopActionFn =
-    Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>;
 
 #[derive(Default)]
 struct TestReshardingParameters {
@@ -325,146 +240,6 @@ fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
             }
         },
     )
-}
-
-enum ReceiptKind {
-    Delayed,
-    Buffered,
-    PromiseYield,
-}
-
-/// Checks that the shards containing `accounts` have a non empty set of receipts
-/// of type `kind` at the resharding block.
-fn check_receipts_presence_at_resharding_block(
-    accounts: Vec<AccountId>,
-    kind: ReceiptKind,
-) -> LoopActionFn {
-    Box::new(
-        move |_: &[TestData],
-              test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = test_loop_data.get_mut(&client_handle);
-            let tip = client_actor.client.chain.head().unwrap();
-
-            if !next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
-                return;
-            }
-
-            accounts.iter().for_each(|account| {
-                check_receipts_at_block(client_actor, &account, &kind, tip.clone())
-            });
-        },
-    )
-}
-
-/// Checks that the shards containing `accounts` have a non empty set of receipts
-/// of type `kind` at the block after the resharding block.
-fn check_receipts_presence_after_resharding_block(
-    accounts: Vec<AccountId>,
-    kind: ReceiptKind,
-) -> LoopActionFn {
-    Box::new(
-        move |_: &[TestData],
-              test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = test_loop_data.get_mut(&client_handle);
-            let tip = client_actor.client.chain.head().unwrap();
-
-            if !this_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
-                return;
-            }
-
-            accounts.iter().for_each(|account| {
-                check_receipts_at_block(client_actor, &account, &kind, tip.clone())
-            });
-        },
-    )
-}
-
-fn check_receipts_at_block(
-    client_actor: &mut ClientActorInner,
-    account: &AccountId,
-    kind: &ReceiptKind,
-    tip: Tip,
-) {
-    let epoch_manager = &client_actor.client.epoch_manager;
-    let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let shard_id = epoch_manager.account_id_to_shard_id(&account, &tip.epoch_id).unwrap();
-    let shard_uid = &ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-    let congestion_info = &client_actor
-        .client
-        .chain
-        .chain_store()
-        .get_chunk_extra(&tip.last_block_hash, shard_uid)
-        .unwrap()
-        .congestion_info()
-        .unwrap();
-
-    let num_shards = shard_layout.shard_ids().count();
-    let has_delayed = congestion_info.delayed_receipts_gas() != 0;
-    let has_buffered = congestion_info.buffered_receipts_gas() != 0;
-    tracing::info!(target: "test", height=tip.height, num_shards, ?shard_id, has_delayed, has_buffered, "checking receipts");
-
-    match kind {
-        ReceiptKind::Delayed => {
-            assert!(has_delayed);
-            check_delayed_receipts_exist_in_memtrie(
-                &client_actor.client,
-                &shard_uid,
-                &tip.prev_block_hash,
-            );
-        }
-        ReceiptKind::Buffered => {
-            assert!(has_buffered);
-            check_buffered_receipts_exist_in_memtrie(
-                &client_actor.client,
-                &shard_uid,
-                &tip.prev_block_hash,
-            );
-        }
-        ReceiptKind::PromiseYield => check_promise_yield_receipts_exist_in_memtrie(
-            &client_actor.client,
-            &shard_uid,
-            &tip.prev_block_hash,
-        ),
-    }
-}
-
-/// Asserts that a non zero amount of delayed receipts exist in MemTrie for the given shard.
-fn check_delayed_receipts_exist_in_memtrie(
-    client: &Client,
-    shard_uid: &ShardUId,
-    prev_block_hash: &CryptoHash,
-) {
-    let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
-    let indices: DelayedReceiptIndices =
-        get(&memtrie, &TrieKey::DelayedReceiptIndices).unwrap().unwrap();
-    assert_ne!(indices.len(), 0);
-}
-
-/// Asserts that a non zero amount of buffered receipts exist in MemTrie for the given shard.
-fn check_buffered_receipts_exist_in_memtrie(
-    client: &Client,
-    shard_uid: &ShardUId,
-    prev_block_hash: &CryptoHash,
-) {
-    let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
-    let indices: BufferedReceiptIndices =
-        get(&memtrie, &TrieKey::BufferedReceiptIndices).unwrap().unwrap();
-    // There should be at least one buffered receipt going to some other shard. It's not very precise but good enough.
-    assert_ne!(indices.shard_buffers.values().fold(0, |acc, buffer| acc + buffer.len()), 0);
-}
-
-/// Asserts that a non zero amount of promise yield receipts exist in MemTrie for the given shard.
-fn check_promise_yield_receipts_exist_in_memtrie(
-    client: &Client,
-    shard_uid: &ShardUId,
-    prev_block_hash: &CryptoHash,
-) {
-    let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
-    let indices: PromiseYieldIndices =
-        get(&memtrie, &TrieKey::PromiseYieldIndices).unwrap().unwrap();
-    assert_ne!(indices.len(), 0);
 }
 
 /// Returns a loop action that invokes a costly method from a contract
@@ -689,75 +464,6 @@ fn call_promise_yield(
     )
 }
 
-/// Stores a transaction hash into `txs` and submits the transaction.
-fn store_and_submit_tx(
-    node_datas: &[TestData],
-    rpc_id: &AccountId,
-    txs: &Cell<Vec<(CryptoHash, u64)>>,
-    signer_id: &AccountId,
-    receiver_id: &AccountId,
-    height: u64,
-    tx: SignedTransaction,
-) {
-    let mut txs_vec = txs.take();
-    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
-    txs_vec.push((tx.get_hash(), height));
-    txs.set(txs_vec);
-    submit_tx(&node_datas, &rpc_id, tx);
-}
-
-// We want to understand if the most recent block is a resharding block. To do
-// this check if the latest block is an epoch start and compare the two epochs'
-// shard layouts.
-fn next_block_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, tip: &Tip) -> bool {
-    if !epoch_manager.is_next_block_epoch_start(&tip.last_block_hash).unwrap() {
-        return false;
-    }
-
-    let this_epoch_id = tip.epoch_id;
-    let next_epoch_id = epoch_manager.get_next_epoch_id(&tip.last_block_hash).unwrap();
-
-    let this_shard_layout = epoch_manager.get_shard_layout(&this_epoch_id).unwrap();
-    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
-
-    this_shard_layout != next_shard_layout
-}
-
-// We want to understand if the most recent block is the first block with the
-// new shard layout. This is also the block immediately after the resharding
-// block. To do this check if the latest block is an epoch start and compare the
-// two epochs' shard layouts.
-fn this_block_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, tip: &Tip) -> bool {
-    if !epoch_manager.is_next_block_epoch_start(&tip.prev_block_hash).unwrap() {
-        return false;
-    }
-
-    let prev_epoch_id = epoch_manager.get_epoch_id(&tip.prev_block_hash).unwrap();
-    let this_epoch_id = epoch_manager.get_epoch_id(&tip.last_block_hash).unwrap();
-
-    let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id).unwrap();
-    let this_shard_layout = epoch_manager.get_shard_layout(&this_epoch_id).unwrap();
-
-    this_shard_layout != prev_shard_layout
-}
-
-fn get_memtrie_for_shard(
-    client: &Client,
-    shard_uid: &ShardUId,
-    prev_block_hash: &CryptoHash,
-) -> Trie {
-    let state_root =
-        *client.chain.get_chunk_extra(prev_block_hash, shard_uid).unwrap().state_root();
-
-    // Here memtries will be used as long as client has memtries enabled.
-    let memtrie = client
-        .runtime_adapter
-        .get_trie_for_shard(shard_uid.shard_id(), prev_block_hash, state_root, false)
-        .unwrap();
-    assert!(memtrie.has_memtries());
-    memtrie
-}
-
 fn assert_state_equal(
     values1: &HashSet<(Vec<u8>, Vec<u8>)>,
     values2: &HashSet<(Vec<u8>, Vec<u8>)>,
@@ -771,13 +477,6 @@ fn assert_state_equal(
         tracing::error!(target: "test", ?shard_uid, key=?key, ?value, "Difference in state between {}!", cmp_msg);
     }
     assert!(!has_diff, "{} state mismatch!", cmp_msg);
-}
-
-fn shard_was_split(shard_layout: &ShardLayout, shard_id: ShardId) -> bool {
-    let Ok(parent) = shard_layout.get_parent_shard_id(shard_id) else {
-        return false;
-    };
-    parent != shard_id
 }
 
 /// Asserts that for each child shard, MemTrie, FlatState and DiskTrie all
