@@ -818,12 +818,14 @@ impl ValidateConfigCommand {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Checks the provided kernel parameter  from /proc/sys
 /// and prints an error if it is not set to the expected value.
+#[cfg(target_os = "linux")]
 fn check_kernel_param(param_name: &str, expected_value: &str) {
     // Convert the dotted param_name into a path under /proc/sys
     // For example, "net.core.rmem_max" -> "/proc/sys/net/core/rmem_max"
