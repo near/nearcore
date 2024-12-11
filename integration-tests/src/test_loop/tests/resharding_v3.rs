@@ -757,6 +757,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
+
+            tracing::info!(target: "test", epoch_id=?tip.epoch_id, height=?tip.height, "new block");
         }
 
         // Return true if we passed an epoch with increased number of shards.
