@@ -16,7 +16,6 @@ use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, Gas, NumShard
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
-use near_store::db::TestStoreFlags;
 use near_store::{get, DBCol, ShardUId, Trie};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;

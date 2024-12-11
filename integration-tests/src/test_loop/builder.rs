@@ -38,7 +38,7 @@ use near_store::config::StateSnapshotType;
 use near_store::db::TestStoreFlags;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{
-    create_test_split_store, create_test_store, create_test_store_with_flags,
+    create_test_split_store, create_test_store_with_flags,
 };
 use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
