@@ -598,8 +598,8 @@ fn test_bandwidth_scheduler_simulator_missing_chunks() {
 
     // Incoming max_shard_bandwidth is not respected! When a chunk is missing, the receipts that
     // were sent previously will arrive later and they can mix with other incoming receipts, and the
-    // receiver can receive more than max_shard_bandwidth of receipts :/ TODO(bandwidth_scheduler) -
-    // fix
+    // receiver can receive more than max_shard_bandwidth of receipts :/
+    // TODO(bandwidth_scheduler) - prevent shard from having too many incoming receipts
     assert!(summary.max_incoming > summary.max_shard_bandwidth);
 
     // Outgoing max_shard_bandwidth is respected
