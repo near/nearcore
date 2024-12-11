@@ -16,9 +16,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+#[cfg(test)]
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fmt, str};
 
@@ -343,6 +342,7 @@ impl std::error::Error for ShardLayoutError {}
 
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
+    #[cfg(test)]
     pub fn single_shard() -> Self {
         Self::multi_shard(1, 0)
     }
@@ -351,6 +351,7 @@ impl ShardLayout {
     /// version and default boundary accounts. It should be used for tests only.
     /// The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
+    #[cfg(test)]
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
@@ -365,6 +366,7 @@ impl ShardLayout {
     /// version and provided boundary accounts. It should be used for tests
     /// only. The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
+    #[cfg(test)]
     pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
         let num_shards = (boundary_accounts.len() + 1) as u64;
 
@@ -393,6 +395,7 @@ impl ShardLayout {
 
     /// Test-only helper to create a simple multi-shard ShardLayout with the provided boundaries.
     /// The shard ids are deterministic but arbitrary in order to test the non-contiguous ShardIds.
+    #[cfg(test)]
     pub fn simple_v1(boundary_accounts: &[&str]) -> ShardLayout {
         // TODO these test methods should go into a different namespace
         let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
@@ -437,6 +440,7 @@ impl ShardLayout {
     }
 
     /// Return a V2 Shardlayout
+    #[cfg(test)]
     pub fn v2(
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,
@@ -536,6 +540,7 @@ impl ShardLayout {
     /// TODO(resharding) Determine the shard layout for v4.
     /// This layout is provisional, the actual shard layout should be determined
     /// based on the fresh data before the resharding.
+    #[cfg(test)]
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
         let v3 = Self::get_simple_nightshade_layout_v3();
         ShardLayout::derive_shard_layout(&v3, "game.hot.tg-0".parse().unwrap())
@@ -661,6 +666,7 @@ impl ShardLayout {
     }
 
     /// Derive new shard layout from an existing one
+    #[cfg(test)]
     pub fn derive_shard_layout(
         base_shard_layout: &ShardLayout,
         new_boundary_account: AccountId,
@@ -873,6 +879,7 @@ impl ShardUId {
 
     /// Returns the only shard uid in the ShardLayout::single_shard layout.
     /// It is not suitable for use with any other shard layout.
+    #[cfg(test)]
     pub fn single_shard() -> Self {
         ShardLayout::single_shard().shard_uids().next().unwrap()
     }
