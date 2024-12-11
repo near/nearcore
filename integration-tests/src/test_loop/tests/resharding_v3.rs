@@ -1186,6 +1186,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         builder = builder.track_all_shards();
     }
 
+    if params.allow_negative_refcount {
+        builder = builder.allow_negative_refcount();
+    }
+
     if params.limit_outgoing_gas || params.short_yield_timeout {
         let mut runtime_config = RuntimeConfig::test();
         if params.limit_outgoing_gas {
@@ -1201,10 +1205,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
         let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
         builder = builder.runtime_config_store(runtime_config_store);
-    }
-
-    if params.allow_negative_refcount {
-        builder = builder.test_store_flags(TestStoreFlags { allow_negative_refcount: true });
     }
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder

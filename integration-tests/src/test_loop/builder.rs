@@ -101,7 +101,7 @@ pub(crate) struct TestLoopBuilder {
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Overrides to test database behavior.
-    test_store_flags: Option<TestStoreFlags>,
+    test_store_flags: TestStoreFlags,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -302,7 +302,7 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_mem_tries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
-            test_store_flags: None,
+            test_store_flags: Default::default(),
         }
     }
 
@@ -424,8 +424,8 @@ impl TestLoopBuilder {
         self
     }
 
-    pub(crate) fn test_store_flags(mut self, flags: TestStoreFlags) -> Self {
-        self.test_store_flags = Some(flags);
+    pub(crate) fn allow_negative_refcount(mut self) -> Self {
+        self.test_store_flags.allow_negative_refcount = true;
         self
     }
 
@@ -567,11 +567,8 @@ impl TestLoopBuilder {
             } else if is_archival {
                 let (hot_store, split_store) = create_test_split_store();
                 (hot_store, Some(split_store))
-            } else if let Some(ref flags) = self.test_store_flags {
-                let hot_store = create_test_store_with_flags(flags);
-                (hot_store, None)
             } else {
-                let hot_store = create_test_store();
+                let hot_store = create_test_store_with_flags(&self.test_store_flags);
                 (hot_store, None)
             };
         initialize_genesis_state(store.clone(), &genesis, None);

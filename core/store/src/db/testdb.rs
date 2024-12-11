@@ -13,6 +13,12 @@ pub struct TestStoreFlags {
     pub allow_negative_refcount: bool,
 }
 
+impl Default for TestStoreFlags {
+    fn default() -> Self {
+        Self { allow_negative_refcount: false }
+    }
+}
+
 /// An in-memory database intended for tests and IO-agnostic estimations.
 #[derive(Default)]
 pub struct TestDB {
@@ -27,22 +33,24 @@ pub struct TestDB {
     stats: RwLock<Option<StoreStatistics>>,
 
     // Flags to change the default behavior, for testing purposes.
-    flags: RwLock<Option<TestStoreFlags>>,
+    flags: TestStoreFlags,
 }
 
 impl TestDB {
     pub fn new() -> Arc<TestDB> {
         Arc::new(Self::default())
     }
+
+    pub fn new_with_flags(flags: TestStoreFlags) -> Arc<TestDB> {
+        let mut this = Self::default();
+        this.flags = flags;
+        Arc::new(this)
+    }
 }
 
 impl TestDB {
     pub fn set_store_statistics(&self, stats: StoreStatistics) {
         *self.stats.write().unwrap() = Some(stats);
-    }
-
-    pub fn set_store_flags(&self, flags: TestStoreFlags) {
-        *self.flags.write().unwrap() = Some(flags);
     }
 }
 
@@ -111,13 +119,7 @@ impl Database for TestDB {
                     if merged.is_empty() {
                         db[col].remove(&key);
                     } else {
-                        if self
-                            .flags
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .is_none_or(|f| !f.allow_negative_refcount)
-                        {
+                        if !self.flags.allow_negative_refcount {
                             debug_assert!(
                                 refcount::decode_value_with_rc(&merged).1 > 0,
                                 "Inserting value with non-positive refcount"
@@ -159,7 +161,7 @@ impl Database for TestDB {
     }
 
     fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
-        let copy = Self::default();
+        let mut copy = Self::default();
         {
             let mut db = copy.db.write().unwrap();
             for (col, map) in self.db.read().unwrap().iter() {
@@ -169,7 +171,7 @@ impl Database for TestDB {
                 }
             }
             copy.stats.write().unwrap().clone_from(&self.stats.read().unwrap());
-            copy.flags.write().unwrap().clone_from(&self.flags.read().unwrap());
+            copy.flags = self.flags.clone();
         }
         Some(Arc::new(copy))
     }

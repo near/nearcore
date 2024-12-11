@@ -70,9 +70,7 @@ pub fn create_test_store() -> Store {
 
 /// Creates an in-memory database with overrides to the default behavior.
 pub fn create_test_store_with_flags(flags: &TestStoreFlags) -> Store {
-    let test_db = TestDB::new();
-    test_db.set_store_flags(flags.clone());
-    let store = Store::new(test_db);
+    let store = Store::new(TestDB::new_with_flags(flags.clone()));
     store.set_db_version(DB_VERSION).unwrap();
     store.set_db_kind(DbKind::RPC).unwrap();
     store
