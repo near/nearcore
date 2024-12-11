@@ -391,6 +391,14 @@ impl ShardLayout {
         })
     }
 
+    /// Test-only helper to create a simple multi-shard ShardLayout with the provided boundaries.
+    /// The shard ids are deterministic but arbitrary in order to test the non-contiguous ShardIds.
+    pub fn simple_v1(boundary_accounts: &[&str]) -> ShardLayout {
+        // TODO these test methods should go into a different namespace
+        let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
+        Self::multi_shard_custom(boundary_accounts, 1)
+    }
+
     /// Return a V0 Shardlayout
     #[deprecated(note = "Use multi_shard() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
@@ -1064,7 +1072,7 @@ impl ShardInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
+    use crate::epoch_manager::{AllEpochConfig, EpochConfig};
     use crate::shard_layout::{
         new_shard_ids_vec, new_shards_split_map, ShardLayout, ShardLayoutV1, ShardUId,
     };
@@ -1103,24 +1111,7 @@ mod tests {
         pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
             // none of the epoch config fields matter, we only need the shard layout
             // constructed through [`AllEpochConfig::for_protocol_version()`].
-            let genesis_epoch_config = EpochConfig {
-                epoch_length: 0,
-                num_block_producer_seats: 0,
-                num_block_producer_seats_per_shard: vec![],
-                avg_hidden_validator_seats_per_shard: vec![],
-                block_producer_kickout_threshold: 0,
-                chunk_producer_kickout_threshold: 0,
-                chunk_validator_only_kickout_threshold: 0,
-                target_validator_mandates_per_shard: 0,
-                validator_max_kickout_stake_perc: 0,
-                online_min_threshold: 0.into(),
-                online_max_threshold: 0.into(),
-                fishermen_threshold: 0,
-                minimum_stake_divisor: 0,
-                protocol_upgrade_stake_threshold: 0.into(),
-                shard_layout: ShardLayout::get_simple_nightshade_layout(),
-                validator_selection_config: ValidatorSelectionConfig::default(),
-            };
+            let genesis_epoch_config = EpochConfig::minimal();
 
             let genesis_protocol_version = PROTOCOL_VERSION;
             let all_epoch_config = AllEpochConfig::new(
