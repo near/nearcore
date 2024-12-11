@@ -8,8 +8,7 @@ init_localnet:
 run_localnet:
     ./{{neard}} --home {{near_localnet_home}} run
 
-# Deposit should cover at least 10 transfers of 1.
-csa:
+create_sub_accounts:
     RUST_LOG=info \
     cargo run --release -- create-sub-accounts \
         --rpc-url {{rpc_url}} \
@@ -22,7 +21,7 @@ csa:
         --interval-duration-micros 800 \
         --user-data-dir user-data
 
-bmnt:
+benchmark_native_transfers:
     RUST_LOG=info \
     cargo run --release -- benchmark-native-transfers \
         --rpc-url {{rpc_url}} \
