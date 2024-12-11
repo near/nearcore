@@ -209,7 +209,7 @@ impl ChainSimulator {
                 let status = ShardStatus {
                     is_fully_congested: false,
                     last_chunk_missing: is_missing,
-                    allowed_sender_shard_idx: None,
+                    allowed_sender_shard_index: None,
                 };
 
                 (*chunk_shard_id, status)
@@ -312,8 +312,8 @@ impl ChainSimulator {
                 total_to_shard += ByteSize::b(receipt.size);
             }
 
-            let to_shard_idx = self.shard_layout.get_shard_index(*to_shard_id).unwrap();
-            stats.size_of_outgoing_receipts_to_shard.insert(to_shard_idx, total_to_shard);
+            let to_shard_index = self.shard_layout.get_shard_index(*to_shard_id).unwrap();
+            stats.size_of_outgoing_receipts_to_shard.insert(to_shard_index, total_to_shard);
             stats.total_outgoing_receipts_size += total_to_shard;
         }
 
@@ -343,8 +343,8 @@ impl ChainSimulator {
             stats.first_five_big_buffered_sizes.insert(receiver_idx, first5_big);
         }
 
-        let shard_idx = self.shard_layout.get_shard_index(shard_id).unwrap();
-        self.chunk_stats.insert((height, shard_idx), stats);
+        let shard_index = self.shard_layout.get_shard_index(shard_id).unwrap();
+        self.chunk_stats.insert((height, shard_index), stats);
 
         // Save the application result and new shard state
         let post_state_hash = CryptoHash::hash_borsh(&shard_state);

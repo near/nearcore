@@ -498,7 +498,7 @@ impl BandwidthScheduler {
 
         // Only the "allowed shard" is allowed to send receipts to a fully congested shard.
         if receiver_status.is_fully_congested {
-            if Some(link.sender) == receiver_status.allowed_sender_shard_idx {
+            if Some(link.sender) == receiver_status.allowed_sender_shard_index {
                 return true;
             } else {
                 return false;
@@ -544,7 +544,7 @@ pub struct ShardStatus {
     /// If the last chunk was missing, receipts sent previously were not processed.
     pub last_chunk_missing: bool,
     /// The shard that is allowed to send receipts to this shard when the receiver is fully congested.
-    pub allowed_sender_shard_idx: Option<ShardIndex>,
+    pub allowed_sender_shard_index: Option<ShardIndex>,
 }
 
 /// A representation of `BandwidthRequest` used by the bandwidth scheduler.
@@ -750,7 +750,7 @@ mod tests {
                     ShardStatus {
                         is_fully_congested: false,
                         last_chunk_missing: false,
-                        allowed_sender_shard_idx: None,
+                        allowed_sender_shard_index: None,
                     },
                 )
             })

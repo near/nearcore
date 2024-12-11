@@ -287,12 +287,12 @@ fn analyze_workload_blocks(
                 continue;
             };
             let shard_id = new_chunk.shard_id();
-            let shard_idx = cur_shard_layout.get_shard_index(shard_id).unwrap();
+            let shard_index = cur_shard_layout.get_shard_index(shard_id).unwrap();
             let shard_uid = ShardUId::new(cur_shard_layout.version(), shard_id);
-            let prev_shard_idx =
+            let prev_shard_index =
                 epoch_manager.get_prev_shard_id(block.header().prev_hash(), shard_id).unwrap().1;
             let prev_height_included =
-                prev_block.chunks().get(prev_shard_idx).unwrap().height_included();
+                prev_block.chunks().get(prev_shard_index).unwrap().height_included();
 
             // pre-state trie
             let store = client.chain.chain_store().store();
@@ -342,13 +342,13 @@ fn analyze_workload_blocks(
 
                 cur_chunk_stats.total_outgoing_receipts_size += receipt_size;
 
-                let receiver_shard_idx = cur_shard_layout
+                let receiver_shard_index = cur_shard_layout
                     .get_shard_index(cur_shard_layout.account_id_to_shard_id(receipt.receiver_id()))
                     .unwrap();
 
                 *cur_chunk_stats
                     .size_of_outgoing_receipts_to_shard
-                    .entry(receiver_shard_idx)
+                    .entry(receiver_shard_index)
                     .or_insert(ByteSize::b(0)) += receipt_size;
             }
 
@@ -360,7 +360,7 @@ fn analyze_workload_blocks(
             // Look into the outgoing buffers
             let mut outgoing_buffers = ShardsOutgoingReceiptBuffer::load(&trie).unwrap();
             for target_shard_id in outgoing_buffers.shards() {
-                let target_shard_idx = cur_shard_layout.get_shard_index(target_shard_id).unwrap();
+                let target_shard_index = cur_shard_layout.get_shard_index(target_shard_id).unwrap();
 
                 // Read sizes of receipts stored in the outgoing buffer to the target shard
                 let buffered_receipt_sizes: Vec<ByteSize> = outgoing_buffers
@@ -382,14 +382,14 @@ fn analyze_workload_blocks(
                 }
                 cur_chunk_stats
                     .size_of_buffered_receipts_to_shard
-                    .insert(target_shard_idx, total_size);
+                    .insert(target_shard_index, total_size);
 
                 let first_five_sizes: Vec<ByteSize> =
                     buffered_receipt_sizes.iter().copied().take(5).collect();
                 if !first_five_sizes.is_empty() {
                     cur_chunk_stats
                         .first_five_buffered_sizes
-                        .insert(target_shard_idx, first_five_sizes);
+                        .insert(target_shard_index, first_five_sizes);
                 }
                 let first_five_big_sizes: Vec<ByteSize> = buffered_receipt_sizes
                     .iter()
@@ -400,7 +400,7 @@ fn analyze_workload_blocks(
                 if !first_five_big_sizes.is_empty() {
                     cur_chunk_stats
                         .first_five_big_buffered_sizes
-                        .insert(target_shard_idx, first_five_big_sizes);
+                        .insert(target_shard_index, first_five_big_sizes);
                 }
 
                 // Fetch the bandwidth request generated based on this outgoing buffer
@@ -440,7 +440,7 @@ fn analyze_workload_blocks(
             // Save stats about this chunk
             bandwidth_stats
                 .chunk_stats
-                .insert((block.header().height(), shard_idx), cur_chunk_stats);
+                .insert((block.header().height(), shard_index), cur_chunk_stats);
         }
 
         block = prev_block;

@@ -61,7 +61,7 @@ pub fn run_bandwidth_scheduler(
     let mut shards_status: BTreeMap<ShardId, ShardStatus> = BTreeMap::new();
     for (shard_id, extended_congestion_info) in apply_state.congestion_info.iter() {
         let last_chunk_missing = extended_congestion_info.missed_chunks_count > 0;
-        let allowed_sender_shard_idx: Option<ShardIndex> = shard_layout
+        let allowed_sender_shard_index: Option<ShardIndex> = shard_layout
             .get_shard_index(extended_congestion_info.congestion_info.allowed_shard().into())
             .ok();
 
@@ -75,7 +75,7 @@ pub fn run_bandwidth_scheduler(
 
         shards_status.insert(
             *shard_id,
-            ShardStatus { last_chunk_missing, allowed_sender_shard_idx, is_fully_congested },
+            ShardStatus { last_chunk_missing, allowed_sender_shard_index, is_fully_congested },
         );
     }
 
