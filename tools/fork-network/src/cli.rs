@@ -556,8 +556,8 @@ impl ForkNetworkCommand {
             let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
             if let Some(num_seats) = num_seats {
                 config.num_block_producer_seats = *num_seats;
-                config.validator_selection_config.num_chunk_producer_seats = *num_seats;
-                config.validator_selection_config.num_chunk_validator_seats = *num_seats;
+                config.num_chunk_producer_seats = *num_seats;
+                config.num_chunk_validator_seats = *num_seats;
             }
             new_epoch_configs.insert(version, Arc::new(config));
         }
