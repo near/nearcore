@@ -336,6 +336,7 @@ impl Runtime {
                     signed_transaction,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                 );
                 let receipt = Receipt::V0(ReceiptV0 {
                     predecessor_id: transaction.signer_id().clone(),
@@ -645,6 +646,7 @@ impl Runtime {
                 receipt.receipt_id(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
                 action_index,
             );
             let mut new_result = self.apply_action(
@@ -865,6 +867,7 @@ impl Runtime {
                     receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                     receipt_index,
                 );
 
@@ -897,6 +900,7 @@ impl Runtime {
                     receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                     receipt_index as usize,
                 ))
             }
@@ -2388,6 +2392,7 @@ fn resolve_promise_yield_timeouts(
                 &queue_entry.data_id,
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
                 new_receipt_index,
             );
             new_receipt_index += 1;
