@@ -534,7 +534,7 @@ enum TryGrantBandwidthError {
 pub struct ShardStatus {
     /// Is this shard fully congested? If yes, only the allowed sender shard can send receipts to it.
     pub is_fully_congested: bool,
-    /// Was this a chunk missing in the current block?
+    /// Was the last chunk on this shard missing?
     /// If the last chunk was missing, receipts sent previously were not processed.
     pub last_chunk_missing: bool,
     /// The shard that is allowed to send receipts to this shard when the receiver is fully congested.
