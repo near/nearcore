@@ -211,6 +211,7 @@ pub trait ChainStoreAccess {
         target_shard_layout: &ShardLayout,
         block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
+        filter_receipts: bool,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let _span =
             tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, ?block_hash, last_chunk_height_included).entered();
@@ -249,27 +250,15 @@ pub trait ChainStoreAccess {
                 current_shard_layout = prev_shard_layout;
             }
 
-            let receipts_proofs = self.get_incoming_receipts(&current_block_hash, current_shard_id);
-            match receipts_proofs {
-                Ok(receipt_proofs) => {
+            let maybe_receipts_proofs =
+                self.get_incoming_receipts(&current_block_hash, current_shard_id);
+            let receipts_proofs = match maybe_receipts_proofs {
+                Ok(receipts_proofs) => {
                     tracing::debug!(
                         target: "chain",
                         "found receipts from block with missing chunks",
                     );
-
-                    // If the shard layout changed we need to filter receipts to
-                    // make sure we only include receipts where receiver belongs
-                    // to the target shard id in the target shard layout.
-                    let filtered_receipt_proofs = filter_incoming_receipts_for_shard(
-                        target_shard_layout,
-                        target_shard_id,
-                        receipt_proofs,
-                    );
-
-                    ret.push(ReceiptProofResponse(
-                        current_block_hash,
-                        filtered_receipt_proofs.into(),
-                    ));
+                    receipts_proofs
                 }
                 Err(err) => {
                     tracing::debug!(
@@ -283,10 +272,24 @@ pub trait ChainStoreAccess {
                     // incoming receipts. It would be nicer to explicitly check
                     // that condition rather than relying on errors when reading
                     // from the db.
-                    ret.push(ReceiptProofResponse(current_block_hash, Arc::new(vec![])));
+                    Arc::new(vec![])
                 }
-            }
+            };
 
+            // If the shard layout changed we need to filter receipts to
+            // make sure we only include receipts where receiver belongs
+            // to the target shard id in the target shard layout.
+            let filtered_receipt_proofs = if filter_receipts {
+                Arc::new(filter_incoming_receipts_for_shard(
+                    &target_shard_layout,
+                    target_shard_id,
+                    receipts_proofs,
+                ))
+            } else {
+                receipts_proofs
+            };
+
+            ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));
             current_block_hash = *prev_hash;
         }
 
@@ -364,7 +367,7 @@ pub trait ChainStoreAccess {
 /// Given a vector of receipts return only the receipts that should be assigned
 /// to the target shard id in the target shard layout. Used when collecting the
 /// incoming receipts and the shard layout changed.
-fn filter_incoming_receipts_for_shard(
+pub fn filter_incoming_receipts_for_shard(
     target_shard_layout: &ShardLayout,
     target_shard_id: ShardId,
     receipt_proofs: Arc<Vec<ReceiptProof>>,
@@ -578,14 +581,14 @@ impl ChainStore {
     }
 
     /// TODO validate if this logic works for Resharding V3.
-    fn reassign_outgoing_receipts_for_resharding(
+    pub fn reassign_outgoing_receipts_for_resharding(
         receipts: &mut Vec<Receipt>,
         protocol_version: ProtocolVersion,
         shard_layout: &ShardLayout,
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        tracing::trace!(target: "resharding", ?protocol_version, ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+        tracing::trace!(target: "resharding", ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {

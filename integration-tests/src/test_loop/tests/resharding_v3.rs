@@ -17,13 +17,18 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::{get, DBCol, ShardUId, Trie};
+use rand::seq::SliceRandom;
+use rand::Rng;
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::u64;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
 use crate::test_loop::utils::transactions::{
-    get_shared_block_hash, get_smallest_height_head, run_tx, submit_tx,
+    get_anchor_hash, get_next_nonce, get_shared_block_hash, get_smallest_height_head, run_tx,
+    submit_tx,
 };
 use crate::test_loop::utils::{ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
@@ -40,8 +45,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::views::FinalExecutionStatus;
 use near_store::flat::FlatStorageStatus;
-use std::cell::Cell;
-use std::u64;
 
 fn client_tracking_shard(client: &Client, shard_id: ShardId, parent_hash: &CryptoHash) -> bool {
     let signer = client.validator_signer.get();
@@ -465,6 +468,55 @@ fn check_promise_yield_receipts_exist_in_memtrie(
     let indices: PromiseYieldIndices =
         get(&memtrie, &TrieKey::PromiseYieldIndices).unwrap().unwrap();
     assert_ne!(indices.len(), 0);
+}
+
+fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
+    const NUM_TRANSFERS_PER_BLOCK: usize = 20;
+
+    let latest_height = Cell::new(0);
+    // TODO: to be fixed when all shard tracking gets disabled.
+    let rpc_id: AccountId = "account0".parse().unwrap();
+
+    Box::new(
+        move |node_datas: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_handle: TestLoopDataHandle<ClientActorInner>| {
+            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            let mut rng = rand::thread_rng();
+            for _ in 0..NUM_TRANSFERS_PER_BLOCK {
+                let sender = account_ids.choose(&mut rng).unwrap().clone();
+                let receiver = account_ids.choose(&mut rng).unwrap().clone();
+
+                let clients = node_datas
+                    .iter()
+                    .map(|test_data| {
+                        &test_loop_data.get(&test_data.client_sender.actor_handle()).client
+                    })
+                    .collect_vec();
+
+                let anchor_hash = get_anchor_hash(&clients);
+                let nonce = get_next_nonce(&test_loop_data, &node_datas, &sender);
+                let amount = ONE_NEAR * rng.gen_range(1..=10);
+                let tx = SignedTransaction::send_money(
+                    nonce,
+                    sender.clone(),
+                    receiver.clone(),
+                    &create_user_test_signer(&sender).into(),
+                    amount,
+                    anchor_hash,
+                );
+                submit_tx(&node_datas, &rpc_id, tx);
+            }
+        },
+    )
 }
 
 /// Returns a loop action that invokes a costly method from a contract
@@ -1367,6 +1419,26 @@ fn test_resharding_v3_shard_shuffling() {
         .shuffle_shard_assignment()
         .single_shard_tracking()
         .chunk_miss_possible();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+fn test_resharding_v3_shard_shuffling_intense() {
+    let chunk_ranges_to_drop = HashMap::from([
+        (ShardUId { shard_id: 0, version: 3 }, -1..2),
+        (ShardUId { shard_id: 1, version: 3 }, -3..0),
+        (ShardUId { shard_id: 2, version: 3 }, -3..0),
+        (ShardUId { shard_id: 3, version: 3 }, 0..3),
+        (ShardUId { shard_id: 4, version: 3 }, 0..1),
+    ]);
+    let mut params = TestReshardingParameters::new()
+        .base_shard_layout_version(1)
+        .shuffle_shard_assignment()
+        .single_shard_tracking()
+        .chunk_miss_possible()
+        .chunk_ranges_to_drop(chunk_ranges_to_drop);
+    let accounts = params.accounts.clone();
+    params = params.add_loop_action(execute_money_transfers(accounts));
     test_resharding_v3_base(params);
 }
 

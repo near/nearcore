@@ -79,6 +79,7 @@ fn get_incoming_receipts(
         &shard_layout,
         *prev_hash,
         prev_height_included,
+        true,
     )?);
     Ok(collect_receipts_from_response(&responses))
 }

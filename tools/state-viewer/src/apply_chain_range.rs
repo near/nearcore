@@ -152,6 +152,7 @@ fn apply_block_from_range(
                 &shard_layout,
                 block_hash,
                 prev_block.chunks()[shard_index].height_included(),
+                true,
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
