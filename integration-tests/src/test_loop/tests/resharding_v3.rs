@@ -142,11 +142,6 @@ struct TestReshardingParameters {
     // catching up by the end of the epoch, and then misses a chunk. This can be fixed by using a longer
     // epoch length, but it's good to also check what happens with shorter ones.
     all_chunks_expected: bool,
-    /// When there's a resharding task delay and single-shard tracking, the delay might be pushed out
-    /// even further because the resharding task might have to wait for the state snapshot to be made
-    /// before it can proceed, which might mean that flat storage won't be ready for the child shard for a whole epoch.
-    /// This is fine and shouldn't be representative of what happens in practice
-    ready_flat_storage_expected_mid_epoch: bool,
     /// Optionally deploy the test contract
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     deploy_test_contract: Vec<AccountId>,
@@ -168,7 +163,6 @@ impl TestReshardingParameters {
         let epoch_length = 6;
         let track_all_shards = true;
         let all_chunks_expected = true;
-        let ready_flat_storage_expected_mid_epoch = true;
 
         // #12195 prevents number of BPs bigger than `epoch_length`.
         assert!(num_clients > 0 && num_clients <= epoch_length);
@@ -208,7 +202,6 @@ impl TestReshardingParameters {
             epoch_length,
             track_all_shards,
             all_chunks_expected,
-            ready_flat_storage_expected_mid_epoch,
             load_mem_tries_for_tracked_shards,
             ..Default::default()
         }
@@ -280,7 +273,11 @@ impl TestReshardingParameters {
     #[allow(unused)]
     fn delay_flat_state_resharding(mut self, num_blocks: BlockHeightDelta) -> Self {
         self.delay_flat_state_resharding = num_blocks;
-        self.ready_flat_storage_expected_mid_epoch = false;
+        // When there's a resharding task delay and single-shard tracking, the delay might be pushed out
+        // even further because the resharding task might have to wait for the state snapshot to be made
+        // before it can proceed, which might mean that flat storage won't be ready for the child shard for a whole epoch.
+        // So we extend the epoch length a bit in this case.
+        self.epoch_length += num_blocks + 1;
         self
     }
 }
@@ -880,7 +877,7 @@ impl TrieSanityCheck {
 
     /// Look through all the epochs before the current one (because the current one will be early into the epoch,
     /// and we won't have checked it yet) and make sure that for all accounts, all expected shards were checked at least once
-    fn check_epochs(&self, client: &Client, ready_flat_storage_expected_mid_epoch: bool) {
+    fn check_epochs(&self, client: &Client) {
         let tip = client.chain.head().unwrap();
         let mut block_info = client.epoch_manager.get_block_info(&tip.last_block_hash).unwrap();
 
@@ -897,25 +894,11 @@ impl TrieSanityCheck {
             });
             for (account_id, checked_shards) in check.iter() {
                 for (shard_uid, checked) in checked_shards.iter() {
-                    if !checked {
-                        let shard_layout =
-                            client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-                        if !ready_flat_storage_expected_mid_epoch
-                            && shard_was_split(&shard_layout, shard_uid.shard_id())
-                        {
-                            tracing::warn!(
-                                "No trie comparison checks made for account {} epoch {} shard {}",
-                                account_id,
-                                &epoch_id.0,
-                                shard_uid
-                            );
-                        } else {
-                            panic!(
-                                "No trie comparison checks made for account {} epoch {} shard {}",
-                                account_id, &epoch_id.0, shard_uid
-                            );
-                        }
-                    }
+                    assert!(
+                        checked,
+                        "No trie comparison checks made for account {} epoch {} shard {}",
+                        account_id, &epoch_id.0, shard_uid
+                    );
                 }
             }
 
@@ -1117,7 +1100,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         Duration::seconds((7 * params.epoch_length) as i64),
     );
     let client = &test_loop.data.get(&client_handles[0]).client;
-    trie_sanity_check.check_epochs(client, params.ready_flat_storage_expected_mid_epoch);
+    trie_sanity_check.check_epochs(client);
     // Wait for garbage collection to kick in, so that it is tested as well.
     test_loop
         .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
@@ -1371,7 +1354,8 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and change the ignore condition
+// TODO(resharding): fix the fact that this test fails if the epoch length is set to 10,
+// giving MissingTrieNode errors in the obtain state part code
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParameters::new()
