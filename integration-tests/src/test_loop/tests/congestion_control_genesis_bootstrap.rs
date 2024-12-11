@@ -1,14 +1,16 @@
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::ONE_NEAR;
 
 const NUM_SHARDS: usize = 4;
 
@@ -25,23 +27,25 @@ fn test_congestion_control_genesis_bootstrap() {
 
     let builder = TestLoopBuilder::new();
 
-    let initial_balance = 10000 * ONE_NEAR;
     let accounts = ["test0", "test1"];
     let clients: Vec<AccountId> = accounts.iter().map(|account| account.parse().unwrap()).collect();
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .protocol_version_latest()
-        .shard_layout_simple_v1(&["account3", "account5", "account7"])
-        .validators_desired_roles(&accounts[0..1], &accounts[1..2])
-        .minimum_validators_per_shard(1);
+    let epoch_length = 100;
+    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let validators_spec = ValidatorsSpec::desired_roles(&accounts[0..1], &accounts[1..2]);
 
-    for i in 0..clients.len() {
-        genesis_builder.add_user_account_simple(clients[i].clone(), initial_balance);
-    }
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &clients,
+        },
+        |genesis_builder| genesis_builder,
+        |epoch_config_builder| epoch_config_builder.minimum_validators_per_shard(1),
+    );
 
-    let (genesis, epoch_config_store) = genesis_builder.build();
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)

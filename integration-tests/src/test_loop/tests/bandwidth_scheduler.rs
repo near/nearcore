@@ -11,7 +11,9 @@ use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::client_actor::ClientActorInner;
 use near_client::Client;
 use near_crypto::Signer;
@@ -44,7 +46,7 @@ use testlib::bandwidth_scheduler::get_random_receipt_size_for_test;
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
 use crate::test_loop::utils::transactions::{run_txs_parallel, TransactionRunner};
-use crate::test_loop::utils::{ONE_NEAR, TGAS};
+use crate::test_loop::utils::TGAS;
 
 /// 1 node, 3 shards
 /// Lots of transactions which generate congestion and buffered cross-shard receipts.
@@ -85,24 +87,22 @@ fn slow_test_bandwidth_scheduler_request_generation() {
     all_accounts.extend(workload_accounts.clone());
     all_accounts.push(node_account.clone());
 
-    let builder = TestLoopBuilder::new();
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .protocol_version_latest()
-        .genesis_height(10000)
-        .gas_limit_one_petagas()
-        .shard_layout(shard_layout)
-        .transaction_validity_period(1000)
-        .epoch_length(10000)
-        .validators_desired_roles(&[node_account.as_str()], &[]);
-    for account in all_accounts {
-        genesis_builder.add_user_account_simple(account.clone(), 100_000_0000 * ONE_NEAR);
-    }
+    let epoch_length = 10000;
+    let validators_spec = ValidatorsSpec::desired_roles(&[node_account.as_str()], &[]);
 
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &all_accounts,
+        },
+        |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
+        |epoch_config_builder| epoch_config_builder,
+    );
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])

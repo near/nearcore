@@ -1,13 +1,16 @@
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::validators::get_epoch_all_validators;
-use crate::test_loop::utils::ONE_NEAR;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_VERSION;
 
 const NUM_ACCOUNTS: usize = 8;
 const NUM_PRODUCER_ACCOUNTS: usize = 6;
@@ -34,7 +37,6 @@ impl TestCase {
 
 fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCase) {
     init_test_logger();
-    let initial_balance = 10000 * ONE_NEAR;
     let epoch_length = 10;
     let clients = accounts.iter().cloned().collect_vec();
     let accounts_str = accounts.iter().map(|a| a.as_str()).collect_vec();
@@ -71,20 +73,26 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
             None
         };
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .shard_layout_simple_v1(&["account2", "account4", "account6"])
-        .epoch_length(epoch_length)
-        // Select 6 block&chunk producers and 2 chunk validators.
-        .validators_desired_roles(block_and_chunk_producers, chunk_validators_only)
-        // Set up config to kick out only chunk validators for low performance.
-        .kickouts_for_chunk_validators_only()
-        .target_validator_mandates_per_shard(num_validator_mandates_per_shard);
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let shard_layout = ShardLayout::simple_v1(&["account2", "account4", "account6"]);
+    let validators_spec =
+        ValidatorsSpec::desired_roles(block_and_chunk_producers, chunk_validators_only);
+
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
+        |genesis_builder| genesis_builder,
+        |epoch_config_builder| {
+            epoch_config_builder
+                // Set up config to kick out only chunk validators for low performance.
+                .kickouts_for_chunk_validators_only()
+                .target_validator_mandates_per_shard(num_validator_mandates_per_shard)
+        },
+    );
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();

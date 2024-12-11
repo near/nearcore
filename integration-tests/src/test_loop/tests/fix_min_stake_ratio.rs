@@ -6,7 +6,7 @@ use itertools::Itertools;
 use near_async::messaging::SendAsync;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
@@ -70,22 +70,20 @@ fn slow_test_fix_min_stake_ratio() {
 
     let shard_layout =
         epoch_config_store.get_config(genesis_protocol_version).as_ref().shard_layout.clone();
+    let validators_spec = ValidatorsSpec::raw(validators, 1, 1, 2);
 
     // Create chain with version before FixMinStakeRatio was enabled.
     // Check that the small validator is not included in the validator set.
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
         .shard_layout(shard_layout)
         .protocol_version(genesis_protocol_version)
         .epoch_length(epoch_length)
-        .validators_raw(validators, 1, 1, 2)
+        .validators_spec(validators_spec)
         // Disable validator rewards.
-        .max_inflation_rate(Rational32::new(0, 1));
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, _) = genesis_builder.build();
+        .max_inflation_rate(Rational32::new(0, 1))
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();

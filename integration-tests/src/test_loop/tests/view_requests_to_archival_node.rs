@@ -5,7 +5,9 @@ use near_async::messaging::Handler;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
@@ -28,7 +30,6 @@ use near_primitives::views::{
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
 use crate::test_loop::utils::transactions::execute_money_transfers;
-use crate::test_loop::utils::ONE_NEAR;
 
 const NUM_VALIDATORS: usize = 2;
 const NUM_ACCOUNTS: usize = 20;
@@ -49,7 +50,6 @@ fn slow_test_view_requests_to_archival_node() {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
-    let initial_balance = 10000 * ONE_NEAR;
     let accounts = (0..NUM_ACCOUNTS)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
@@ -64,19 +64,18 @@ fn slow_test_view_requests_to_archival_node() {
     let archival_clients: HashSet<AccountId> =
         vec![all_clients[NUM_VALIDATORS].clone()].into_iter().collect();
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .genesis_height(GENESIS_HEIGHT)
-        .gas_limit_one_petagas()
-        .shard_layout_simple_v1(&["account3", "account5", "account7"])
-        .epoch_length(EPOCH_LENGTH)
-        .validators_desired_roles(&validators, &[]);
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
-    let shard_layout = genesis.config.shard_layout.clone();
+    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length: EPOCH_LENGTH,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout: shard_layout.clone(),
+            validators_spec: ValidatorsSpec::desired_roles(&validators, &[]),
+            accounts: &accounts,
+        },
+        |genesis_builder| genesis_builder.genesis_height(GENESIS_HEIGHT),
+        |epoch_config_builder| epoch_config_builder,
+    );
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
