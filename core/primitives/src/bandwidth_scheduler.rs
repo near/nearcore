@@ -313,7 +313,7 @@ pub struct BandwidthSchedulerState {
     pub sanity_check_hash: CryptoHash,
 }
 
-/// Allowance for every (sender, receiver) pair of shards.
+/// Allowance for a (sender, receiver) pair of shards.
 /// Used in bandwidth scheduler.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct LinkAllowance {
