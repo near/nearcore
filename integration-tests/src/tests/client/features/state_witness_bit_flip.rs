@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use borsh::BorshDeserialize;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -15,6 +14,7 @@ use near_primitives::stateless_validation::state_witness::{
 };
 use near_primitives::types::AccountId;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use std::collections::HashSet;
 
 struct WitnessBitFlipTestEnv {
     env: TestEnv,
@@ -44,6 +44,7 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
         let block_producer = env.get_block_producer_at_offset(&tip, 1);
         tracing::info!(target: "test", "Producing block at height: {height} by {block_producer}");
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
+        tracing::info!(target: "test", "QQP Block Hash: {:?}", block.chunks()[0].chunk_hash());
         tracing::info!(target: "test", "Block produced at height {} has chunk {:?}", height, block.chunks()[0].chunk_hash());
 
         // The first block after genesis doesn't have any chunks, but all other blocks should have a new chunk inside.
@@ -85,7 +86,7 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
     let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let block_producer = env.get_block_producer_at_offset(&tip, 1);
-    let block_chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, shard_id);
+    let block_chunk_producer = env.get_chunk_producer_at_offset(&tip, 2, shard_id);
 
     // The excluded validator shouldn't produce any blocks or chunks in the next two blocks.
     // There's 4 validators and at most 3 aren't a good candidate, so there's always at least
@@ -99,6 +100,31 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
     let clients_without_excluded =
         (0..env.clients.len()).filter(|idx| *idx != excluded_validator_idx);
 
+    // env.process_partial_encoded_chunks();
+    // for client_idx in 0..env.clients.len() {
+    //     env.process_shards_manager_responses_and_finish_processing_blocks(client_idx);
+    // }
+    // env.propagate_chunk_state_witnesses_and_endorsements(false);
+
+    tracing::info!(target:"test", "Producing block at height {}", tip.height + 1);
+    let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
+    assert_eq!(
+        block.chunks()[0].height_created(),
+        block.header().height(),
+        "There should be no missing chunks."
+    );
+    for client_idx in clients_without_excluded {
+        let blocks_processed = env.clients[client_idx]
+            .process_block_test(block.clone().into(), Provenance::NONE)
+            .unwrap();
+        assert_eq!(blocks_processed, vec![*block.hash()]);
+    }
+    // env.propagate_chunk_endorsements(false);
+    env.process_partial_encoded_chunks();
+    for client_idx in 0..env.clients.len() {
+        env.process_shards_manager_responses(client_idx);
+    }
+
     // At this point chunk producer for the chunk belonging to block2 produces
     // the chunk and sends out a witness for it. Let's intercept the witness
     // and process it on all validators except for `excluded_validator`.
@@ -107,7 +133,9 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
     let mut witness_opt = None;
     let partial_witness_adapter =
         env.partial_witness_adapters[env.get_client_index(&block_chunk_producer)].clone();
+    tracing::info!("QQP 1");
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
+        tracing::info!("QQP 2");
         let DistributeStateWitnessRequest { state_witness, .. } = request;
         let raw_witness_size = borsh_size(&state_witness);
         let key = state_witness.chunk_production_key();
@@ -140,22 +168,8 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
 
     env.propagate_chunk_endorsements(false);
 
-    tracing::info!(target:"test", "Producing block2 at height {}", tip.height + 2);
-    let block = env.client(&block_producer).produce_block(tip.height + 2).unwrap().unwrap();
-    assert_eq!(
-        block.chunks()[0].height_created(),
-        block.header().height(),
-        "There should be no missing chunks."
-    );
     let witness = witness_opt.unwrap();
     assert_eq!(witness.chunk_header.chunk_hash(), block.chunks()[0].chunk_hash());
-
-    for client_idx in clients_without_excluded {
-        let blocks_processed = env.clients[client_idx]
-            .process_block_test(block.clone().into(), Provenance::NONE)
-            .unwrap();
-        assert_eq!(blocks_processed, vec![*block.hash()]);
-    }
 
     env.process_partial_encoded_chunks();
     for client_idx in 0..env.clients.len() {
@@ -176,15 +190,34 @@ fn test_corrupted_witness() {
         witness,
         excluded_validator,
         excluded_validator_idx,
-        ..
     } = setup_witness_bit_flip_test();
 
-    // `excluded_validator` receives a corrupted witness for chunk belonging to `block`.
-    let witness_size = borsh_size(&witness);
-    let client = env.client(&excluded_validator);
-    client
-        .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
-        .unwrap();
+    // `excluded_validator` receives a corrupted witness for chunk belonging to the previous block.
+    // let witness_size = borsh_size(&witness);
+    // let client = env.client(&excluded_validator);
+    // client
+    //     .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
+    //     .unwrap();
+
+    let witness_bytes = borsh::to_vec(&witness).unwrap();
+    let mut corrupted_bit_idx = 0;
+    loop {
+        let mut witness_bytes = witness_bytes.clone();
+        let res = bit_flip(&mut witness_bytes, corrupted_bit_idx);
+        if let Err(err) = &res {
+            if err.to_string() == "End" {
+                // `corrupted_bit_idx` is out of bounds for correct block length. Should stop iteration.
+                break;
+            } else {
+                panic!("Unexpected error: {}", err);
+            }
+        }
+
+        let res = check_state_witness(witness_bytes, &mut env, excluded_validator.clone());
+        res.unwrap();
+
+        corrupted_bit_idx += 1;
+    }
 
     // let block_processed = env
     //     .client(&excluded_validator)
@@ -212,4 +245,39 @@ fn _modify_witness_header_inner(
 
 fn borsh_size(witness: &ChunkStateWitness) -> ChunkStateWitnessSize {
     borsh::to_vec(&witness).unwrap().len()
+}
+
+const STATE_WITNESS_NOT_PARSED_MSG: &str = "Corrupt state witness didn't parse";
+
+fn check_state_witness(
+    bytes: Vec<u8>,
+    env: &mut TestEnv,
+    excluded_validator: AccountId,
+) -> Result<anyhow::Error, anyhow::Error> {
+    if let Ok(witness) = ChunkStateWitness::try_from_slice(bytes.as_slice()) {
+        // `excluded_validator` receives a corrupted witness for a chunk belonging to the previous block.
+        let witness_size = bytes.len();
+        let client = env.client(&excluded_validator);
+        // expect an error
+        client
+            .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
+            .unwrap_err();
+        return Ok(anyhow::anyhow!("Good"));
+    } else {
+        return Ok(anyhow::anyhow!(STATE_WITNESS_NOT_PARSED_MSG));
+    }
+}
+
+fn bit_flip(bytes: &mut Vec<u8>, corrupted_bit_idx: usize) -> anyhow::Result<()> {
+    if corrupted_bit_idx >= bytes.len() * 8 {
+        return Err(anyhow::anyhow!("End"));
+    }
+
+    // get indices
+    let byte_idx = corrupted_bit_idx / 8;
+    let bit_idx = corrupted_bit_idx % 8;
+
+    // flip
+    bytes[byte_idx] ^= 1 << bit_idx;
+    Ok(())
 }
