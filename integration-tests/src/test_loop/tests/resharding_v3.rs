@@ -278,6 +278,11 @@ impl TestReshardingParameters {
     #[allow(unused)]
     fn delay_flat_state_resharding(mut self, num_blocks: BlockHeightDelta) -> Self {
         self.delay_flat_state_resharding = num_blocks;
+        // When there's a resharding task delay and single-shard tracking, the delay might be pushed out
+        // even further because the resharding task might have to wait for the state snapshot to be made
+        // before it can proceed, which might mean that flat storage won't be ready for the child shard for a whole epoch.
+        // So we extend the epoch length a bit in this case.
+        self.epoch_length += num_blocks + 1;
         self
     }
 
@@ -1540,9 +1545,9 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and change the ignore condition
-// #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+// TODO(resharding): fix the fact that this test fails if the epoch length is set to 10,
+// giving MissingTrieNode errors in the obtain state part code
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParameters::new()
         .shuffle_shard_assignment()

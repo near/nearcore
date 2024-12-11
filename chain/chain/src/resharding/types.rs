@@ -1,6 +1,5 @@
 use crate::flat_storage_resharder::FlatStorageResharder;
 use near_async::messaging::Sender;
-use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
 
 /// Represents a request to start the split of a parent shard flat storage into two children flat
@@ -17,7 +16,6 @@ pub struct FlatStorageSplitShardRequest {
 pub struct FlatStorageShardCatchupRequest {
     pub resharder: FlatStorageResharder,
     pub shard_uid: ShardUId,
-    pub flat_head_block_hash: CryptoHash,
 }
 
 /// Represents a request to reload a Mem Trie for a shard after its Flat Storage resharding is
