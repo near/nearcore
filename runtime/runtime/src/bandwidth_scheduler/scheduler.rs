@@ -219,7 +219,7 @@ impl BandwidthScheduler {
                     let link = ShardLink::new(sender_index, receiver_index);
                     link_allowances.insert(link, link_allowance.allowance);
                 }
-                _ => {} // The allowance was for a shard that is not in the current set of shards.
+                _ => {} // The allowance was for a shard that is not in the current set of shards. // TODO(bandwidth_scheduler) - add a warning?
             }
         }
 
@@ -245,6 +245,7 @@ impl BandwidthScheduler {
                 // Convert request to the internal representation. It might turn out that the
                 // request isn't applicable (e.g. shard ids from other layout, too little bandwidth
                 // requested), in which case the function returns `None` and the request is ignored.
+                // TODO(bandwidth_scheduler) - add a warning?
                 if let Some(request) = SchedulerBandwidthRequest::new(
                     *sender_shard,
                     bandwidth_request,
