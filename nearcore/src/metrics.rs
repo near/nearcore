@@ -155,6 +155,13 @@ fn get_postponed_receipt_count_for_shard(
     block: &Block,
     store: &Store,
 ) -> Result<i64, anyhow::Error> {
+    if !shard_layout.shard_ids().any(|i| i == shard_id) {
+        let block_height = block.header().height();
+        let block_hash = *block.hash();
+        return Err(anyhow::anyhow!(
+            "!!! Shard {shard_id} is not in the shard layout {block_height} {block_hash}"
+        ));
+    }
     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
     let chunk_extra = chain_store.get_chunk_extra(block.hash(), &shard_uid)?;
     let state_root = chunk_extra.state_root();
