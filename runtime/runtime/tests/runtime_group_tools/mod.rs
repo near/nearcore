@@ -141,7 +141,7 @@ impl StandaloneRuntime {
         &mut self,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
+    ) -> ProcessBlockOutcome {
         // TODO - the shard id is correct but the shard version is hardcoded. It
         // would be better to store the shard layout in self and read the uid
         // from there.
@@ -166,7 +166,27 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
-        (apply_result.outgoing_receipts, apply_result.outcomes)
+        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(shard_id, bandwidth_requests)].into_iter().collect(),
+            }
+        }
+
+        let mut has_queued_receipts = false;
+        if let Some(congestion_info) = apply_result.congestion_info {
+            has_queued_receipts = congestion_info.receipt_bytes() > 0;
+
+            self.apply_state.congestion_info.insert(
+                shard_id,
+                ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
+            );
+        }
+
+        ProcessBlockOutcome {
+            outgoing_receipts: apply_result.outgoing_receipts,
+            execution_outcomes: apply_result.outcomes,
+            has_queued_receipts,
+        }
     }
 }
 
@@ -180,6 +200,12 @@ impl RuntimeMailbox {
     pub fn is_empty(&self) -> bool {
         self.incoming_receipts.is_empty() && self.incoming_transactions.is_empty()
     }
+}
+
+pub struct ProcessBlockOutcome {
+    outgoing_receipts: Vec<Receipt>,
+    execution_outcomes: Vec<ExecutionOutcomeWithId>,
+    has_queued_receipts: bool,
 }
 
 #[derive(Default)]
@@ -336,15 +362,26 @@ impl RuntimeGroup {
                     .or_insert_with(Vec::new)
                     .extend(mailbox.incoming_transactions.clone());
 
-                let (new_receipts, transaction_results) = runtime
+                let ProcessBlockOutcome {
+                    mut outgoing_receipts,
+                    mut execution_outcomes,
+                    mut has_queued_receipts,
+                } = runtime
                     .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
+                while has_queued_receipts {
+                    let process_outcome = runtime.process_block(&[], &[]);
+                    outgoing_receipts.extend(process_outcome.outgoing_receipts);
+                    execution_outcomes.extend(process_outcome.execution_outcomes);
+                    has_queued_receipts = process_outcome.has_queued_receipts;
+                }
+
                 mailbox.incoming_receipts.clear();
                 mailbox.incoming_transactions.clear();
-                group.transaction_logs.lock().unwrap().extend(transaction_results);
-                for new_receipt in new_receipts {
+                group.transaction_logs.lock().unwrap().extend(execution_outcomes);
+                for outgoing_receipts in outgoing_receipts {
                     let locked_other_mailbox =
-                        mailboxes.get_mut(new_receipt.receiver_id()).unwrap();
-                    locked_other_mailbox.incoming_receipts.push(new_receipt);
+                        mailboxes.get_mut(outgoing_receipts.receiver_id()).unwrap();
+                    locked_other_mailbox.incoming_receipts.push(outgoing_receipts);
                 }
                 group.mailboxes.1.notify_all();
             }
