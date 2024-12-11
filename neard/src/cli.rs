@@ -866,7 +866,6 @@ fn check_kernel_params() {
     check_kernel_param("net.ipv4.tcp_rmem", expected_tcp_rmem);
     check_kernel_param("net.ipv4.tcp_wmem", expected_tcp_wmem);
     check_kernel_param("net.ipv4.tcp_slow_start_after_idle", expected_slow_start);
-    check_kernel_param("net.inet.tcp.sendspace", "131072");
 }
 
 #[cfg(test)]
