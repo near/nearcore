@@ -188,7 +188,10 @@ impl CacheEntry {
                     "Received invalid partial witness part ord"
                 );
             }
-            InsertPartResult::Decoded(decode_result) => {
+            InsertPartResult::Decoded(decode_result, decoding_time) => {
+                metrics::PARTIAL_WITNESS_DECODE_TIME
+                    .with_label_values(&[&self.shard_id.to_string()])
+                    .observe(decoding_time);
                 self.witness_parts =
                     WitnessPartsState::Decoded { decode_result, decoded_at: Instant::now() };
                 metrics::DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT

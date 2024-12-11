@@ -187,7 +187,7 @@ pub enum InsertPartResult<T> {
     Accepted,
     PartAlreadyAvailable,
     InvalidPartOrd,
-    Decoded(std::io::Result<T>),
+    Decoded(std::io::Result<T>, f64),
 }
 
 impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
@@ -239,7 +239,10 @@ impl<T: ReedSolomonEncoderDeserialize> ReedSolomonPartsTracker<T> {
         self.parts[part_ord] = Some(part);
 
         if self.has_enough_parts() {
-            InsertPartResult::Decoded(self.encoder.decode(&mut self.parts, self.encoded_length))
+            let decode_start = std::time::Instant::now();
+            let decoded = self.encoder.decode(&mut self.parts, self.encoded_length);
+            let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
+            InsertPartResult::Decoded(decoded, decode_elapsed_seconds)
         } else {
             InsertPartResult::Accepted
         }

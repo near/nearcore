@@ -66,7 +66,7 @@ impl CacheEntry {
                 );
                 None
             }
-            InsertPartResult::Decoded(decode_result) => Some(decode_result),
+            InsertPartResult::Decoded(decode_result, _) => Some(decode_result),
         }
     }
 }
