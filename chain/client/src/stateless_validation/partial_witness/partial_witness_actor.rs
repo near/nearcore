@@ -598,7 +598,7 @@ impl PartialWitnessActor {
 
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
-    /// which will receive the state witness for the new chunk.  
+    /// which will receive the state witness for the new chunk.
     fn send_contract_accesses_to_chunk_validators(
         &self,
         key: ChunkProductionKey,
@@ -798,4 +798,48 @@ fn contracts_cache_contains_contract(
 ) -> bool {
     let cache_key = get_contract_cache_key(contract_hash.0, &runtime_config.wasm_config);
     cache.memory_cache().contains(cache_key) || cache.has(&cache_key).is_ok_and(|has| has)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use borsh::BorshDeserialize;
+    use near_primitives::hash::CryptoHash;
+
+    const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
+    const STATE_WITNESS_NOT_PARSED_MSG: &str = "Corrupt state witness didn't parse";
+
+    fn check_state_witness(bytes: Vec<u8>) -> Result<anyhow::Error, anyhow::Error> {
+        if let Ok(mut corrupted) = ChunkStateWitness::try_from_slice(bytes.as_slice()) {
+            // corrupted.
+            return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
+        } else {
+            return Ok(anyhow::anyhow!(STATE_WITNESS_NOT_PARSED_MSG));
+        }
+    }
+
+    fn bit_flip(
+        mut bytes: Vec<u8>,
+        corrupted_bit_idx: usize,
+    ) -> Result<anyhow::Error, anyhow::Error> {
+        if corrupted_bit_idx >= bytes.len() * 8 {
+            return Ok(anyhow::anyhow!("End"));
+        }
+
+        // get indices
+        let byte_idx = corrupted_bit_idx / 8;
+        let bit_idx = corrupted_bit_idx % 8;
+
+        // flip
+        bytes[byte_idx] ^= 1 << bit_idx;
+
+        check_state_witness(bytes)
+    }
+
+    #[test]
+    fn chunk_state_witness_bit_flip() {
+        let state_witness = ChunkStateWitness::new_dummy(0, ShardId::new(0), CryptoHash::default());
+        let state_witness_bytes = borsh::to_vec(&state_witness).unwrap();
+        let _ = state_witness_bytes;
+    }
 }
