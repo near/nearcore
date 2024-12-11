@@ -29,7 +29,7 @@ use near_store::db::RocksDB;
 use near_store::Mode;
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
-use std::fs::{read_to_string, File};
+use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -834,7 +834,7 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
         path.push(part);
     }
 
-    match read_to_string(&path) {
+    match std::fs::read_to_string(&path) {
         Ok(contents) => {
             let actual = contents.trim();
             let actual_normalized = normalize_whitespace(actual);
