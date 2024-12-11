@@ -345,7 +345,7 @@ impl BandwidthScheduler {
                     continue;
                 };
                 match self.try_grant_bandwidth(&request.link, bandwidth_increase) {
-                    Ok(()) => {
+                    TryGrantOutcome::Granted => {
                         // Granting bandwidth succeeded. Decrease the allowance and put the request back into the queue.
                         // The rest of requested bandwidth increases will be processed when the request is taken out
                         // of the priority queue again.
@@ -356,7 +356,7 @@ impl BandwidthScheduler {
                                 .push(request);
                         }
                     }
-                    Err(_) => {
+                    TryGrantOutcome::NotGranted => {
                         // Can't grant the next bandwidth increase for this request.
                         // Discard the request, there's nothing more we can do to fulfill it.
                         continue;
@@ -430,16 +430,12 @@ impl BandwidthScheduler {
     }
 
     /// Try to grant some bandwidth on the link.
-    /// On success returns Ok(())
-    /// If granting more bandwidth is not possible because of some restrictions, returns an error.
-    fn try_grant_bandwidth(
-        &mut self,
-        link: &ShardLink,
-        bandwidth: Bandwidth,
-    ) -> Result<(), TryGrantBandwidthError> {
+    /// On success returns TryGrantOutcome::Granted
+    /// If granting more bandwidth is not possible because of some restrictions, returns TryGrantOutcome::NotGranted.
+    fn try_grant_bandwidth(&mut self, link: &ShardLink, bandwidth: Bandwidth) -> TryGrantOutcome {
         if !self.is_link_allowed(link) {
             // Not allowed to send anything on this link. Receiver is too congested or had a missing chunk.
-            return Err(TryGrantBandwidthError::LinkNotAllowed);
+            return TryGrantOutcome::NotGranted;
         }
 
         let sender_budget = self.sender_budget.get(&link.sender).copied().unwrap_or(0);
@@ -447,7 +443,7 @@ impl BandwidthScheduler {
 
         if sender_budget < bandwidth || receiver_budget < bandwidth {
             // Sender or receiver can't send this much as they would go over the per-shard budget.
-            return Err(TryGrantBandwidthError::NotEnoughBudget);
+            return TryGrantOutcome::NotGranted;
         }
 
         // Ok, grant the bandwidth
@@ -461,7 +457,7 @@ impl BandwidthScheduler {
             Bandwidth::MAX
         });
         self.granted_bandwidth.insert(*link, new_granted);
-        Ok(())
+        TryGrantOutcome::Granted
     }
 
     /// Decide if it's allowed to send receipts on the link, based on shard statuses.
@@ -522,9 +518,9 @@ impl BandwidthScheduler {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum TryGrantBandwidthError {
-    NotEnoughBudget,
-    LinkNotAllowed,
+enum TryGrantOutcome {
+    Granted,
+    NotGranted,
 }
 
 /// Shard status which helps decide whether it's ok to send receipts to a shard.
