@@ -588,7 +588,7 @@ impl ChainStore {
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        tracing::trace!(target: "resharding", ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
+        tracing::trace!(target: "resharding", ?protocol_version, ?shard_id, ?receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
         // Same reassignment of outgoing receipts works for simple nightshade v3
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
