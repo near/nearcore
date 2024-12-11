@@ -242,6 +242,9 @@ impl BandwidthScheduler {
             };
 
             for bandwidth_request in requests {
+                // Convert request to the internal representation. It might turn out that the
+                // request isn't applicable (e.g. shard ids from other layout, too little bandwidth
+                // requested), in which case the function returns `None` and the request is ignored.
                 if let Some(request) = SchedulerBandwidthRequest::new(
                     *sender_shard,
                     bandwidth_request,
