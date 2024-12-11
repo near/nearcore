@@ -81,9 +81,7 @@ impl CongestionControl {
     pub fn outgoing_gas_limit(&self, sender_shard: ShardId) -> Gas {
         let congestion = self.congestion_level();
 
-        // note: using float equality is okay here because
-        // `clamped_f64_fraction` clamps to exactly 1.0.
-        if congestion == 1.0 {
+        if Self::is_fully_congested(congestion) {
             // Red traffic light: reduce to minimum speed
             if sender_shard == ShardId::from(self.info.allowed_shard()) {
                 self.config.allowed_shard_outgoing_gas
@@ -93,6 +91,13 @@ impl CongestionControl {
         } else {
             mix(self.config.max_outgoing_gas, self.config.min_outgoing_gas, congestion)
         }
+    }
+
+    pub fn is_fully_congested(congestion_level: f64) -> bool {
+        // note: using float equality is okay here because
+        // `clamped_f64_fraction` clamps to exactly 1.0.
+        debug_assert!(congestion_level <= 1.0);
+        congestion_level == 1.0
     }
 
     /// How much data another shard can send to us in the next block.

@@ -10,6 +10,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::MaybeNew;
+use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
@@ -115,12 +116,13 @@ pub(crate) fn apply_chunk(
         None => prev_height + 1,
     };
 
-    // Try to recover bandwidth requests from the previous chunk extras.
+    // Try to recover bandwidth requests and congestion info from the previous chunk extras.
     // Normally they would be taken from the block that contains the applied chunk,
     // but it's not available here.
-    // The chunk can be applied with the wrong bandwidth requests, but the bandwidth scheduler state
-    // will end up different from what it would normally be.
+    // The chunk can still be applied with the wrong bandwidth requests and congestion info,
+    // but the resulting state root might end up being different.
     let mut shards_bandwidth_requests = BTreeMap::new();
+    let mut shards_congestion_info = BTreeMap::new();
     for prev_chunk in prev_block.chunks().iter() {
         let shard_id = match prev_chunk {
             MaybeNew::New(new_chunk) => new_chunk.shard_id(),
@@ -134,8 +136,18 @@ pub(crate) fn apply_chunk(
         if let Some(bandwidth_requests) = chunk_extra.bandwidth_requests() {
             shards_bandwidth_requests.insert(shard_id, bandwidth_requests.clone());
         }
+        if let Some(congestion_info) = chunk_extra.congestion_info() {
+            shards_congestion_info.insert(
+                shard_id,
+                near_primitives::congestion_info::ExtendedCongestionInfo {
+                    congestion_info: congestion_info,
+                    missed_chunks_count: 0, // Assume no missing chunks in this block
+                },
+            );
+        }
     }
     let block_bandwidth_requests = BlockBandwidthRequests { shards_bandwidth_requests };
+    let block_congestion_info = BlockCongestionInfo::new(shards_congestion_info);
 
     let prev_timestamp = prev_block.header().raw_timestamp();
     let gas_price = prev_block.header().next_gas_price();
@@ -186,7 +198,7 @@ pub(crate) fn apply_chunk(
                 ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
-                congestion_info: prev_block.block_congestion_info(),
+                congestion_info: block_congestion_info,
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
