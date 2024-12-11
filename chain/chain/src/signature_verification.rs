@@ -2,6 +2,7 @@ use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::{
+    block::BlockHeader,
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     stateless_validation::ChunkProductionKey,
@@ -67,4 +68,13 @@ pub fn verify_chunk_header_signature_with_epoch_manager_and_parts(
         return Ok(false);
     }
     Ok(signature.verify(chunk_hash.as_ref(), chunk_producer.public_key()))
+}
+
+pub fn verify_block_header_signature_with_epoch_manager(
+    epoch_manager: &dyn EpochManagerAdapter,
+    header: &BlockHeader,
+) -> Result<bool, Error> {
+    let block_producer =
+        epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
+    Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
 }

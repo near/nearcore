@@ -18,7 +18,10 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
-use crate::signature_verification::verify_chunk_header_signature_with_epoch_manager;
+use crate::signature_verification::{
+    verify_block_header_signature_with_epoch_manager,
+    verify_chunk_header_signature_with_epoch_manager,
+};
 use crate::types::RuntimeAdapter;
 use crate::{byzantine_assert, Chain};
 use crate::{ChainStore, Error};
@@ -284,7 +287,7 @@ fn validate_header_authorship(
     epoch_manager: &dyn EpochManagerAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
-    if epoch_manager.verify_header_signature(block_header)? {
+    if verify_block_header_signature_with_epoch_manager(epoch_manager, block_header)? {
         Ok(())
     } else {
         Err(Error::InvalidChallenge)

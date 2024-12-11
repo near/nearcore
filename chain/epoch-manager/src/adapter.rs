@@ -2,7 +2,6 @@ use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::Tip;
-use near_primitives::block_header::BlockHeader;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
@@ -359,9 +358,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         data: &[u8],
         signature: &Signature,
     ) -> Result<bool, Error>;
-
-    /// Verify header signature.
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error>;
 
     fn verify_chunk_endorsement_signature(
         &self,
@@ -907,25 +903,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
                 Ok(signature.verify(data, fisherman.public_key()))
             }
             other => other,
-        }
-    }
-
-    /// Returns true if the header signature is signed by the assigned block producer and the block
-    /// producer is not slashed
-    /// This function requires that the previous block of `header` has been processed.
-    /// If not, it returns EpochError::MissingBlock.
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let epoch_manager = self.read();
-        let block_producer =
-            epoch_manager.get_block_producer_info(header.epoch_id(), header.height())?;
-        match epoch_manager.get_block_info(header.prev_hash()) {
-            Ok(block_info) => {
-                if block_info.slashed().contains_key(block_producer.account_id()) {
-                    return Ok(false);
-                }
-                Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
-            }
-            Err(_) => return Err(EpochError::MissingBlock(*header.prev_hash()).into()),
         }
     }
 
