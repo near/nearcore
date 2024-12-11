@@ -14,7 +14,7 @@ The main drawbacks of synthetic benchmarks are:
 - Drawing conclusions is limited as real world traffic is not homogenous.
 - Calibrating traffic generation parameters can be cumbersome.
 
-The tooling for synthetic benchmarks is available in [`benchmarks/bm-synth`](~/benchmarks/bm-synth).
+The tooling for synthetic benchmarks is available in [`benchmarks/bm-synth`](../../../benchmarks/bm-synth).
 
 ## Common parameters
 
@@ -36,7 +36,7 @@ Before an RPC request is sent, the tooling awaits capacity to send into a buffer
 
 ## Workflows
 
-The tooling's [`justfile`](~/benchmarks/synth-bm/justfile) contains recipes for the most relevant workflows.
+The tooling's [`justfile`](../../../benchmarks/synth-bm/justfile) contains recipes for the most relevant workflows.
 
 ### Create sub accounts
 

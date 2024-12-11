@@ -1,6 +1,6 @@
 # About
 
-This crate provides tooling for benchmarking synthetic workloads. It is based on [`near-jsonrpc-client`](https://crates.io/crates/near-jsonrpc-client) and having the Rust toolchain installed should be sufficient to get you started. Documentation is available [here](~/docs/practices/workflows/benchmarking_synthetic_workloads.md).
+This crate provides tooling for benchmarking synthetic workloads. It is based on [`near-jsonrpc-client`](https://crates.io/crates/near-jsonrpc-client) and having the Rust toolchain installed should be sufficient to get you started. Documentation is available [here](../../docs/practices/workflows/benchmarking_synthetic_workloads.md).
 
 # Roadmap
 
