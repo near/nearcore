@@ -237,7 +237,7 @@ pub fn get_make_snapshot_callback(
             ?shard_indexes_and_uids,
             "make_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
             // We need to stop flat head updates synchronously in the client thread.
-            // Async update in state_snapshot_actor and potentially lead to flat head progressing beyond prev_block_hash
+            // Async update in state_snapshot_actor can potentially lead to flat head progressing beyond prev_block_hash
             // This also prevents post-resharding flat storage catchup from advancing past `prev_block_hash`
             flat_storage_manager.want_snapshot(min_chunk_prev_height);
             let create_snapshot_request = CreateSnapshotRequest {
