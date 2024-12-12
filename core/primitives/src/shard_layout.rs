@@ -539,7 +539,7 @@ impl ShardLayout {
     /// TODO(resharding) Determine the shard layout for v4.
     /// This layout is provisional, the actual shard layout should be determined
     /// based on the fresh data before the resharding.
-    #[cfg(feature = "test_utils")]
+    #[cfg(test)]
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
         let v3 = Self::get_simple_nightshade_layout_v3();
         ShardLayout::derive_shard_layout(&v3, "game.hot.tg-0".parse().unwrap())
