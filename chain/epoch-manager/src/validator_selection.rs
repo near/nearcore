@@ -50,14 +50,14 @@ fn select_validators_from_proposals(
 ) -> ValidatorRoles {
     let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
     let min_stake_ratio = {
-        let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
+        let rational = epoch_config.minimum_stake_ratio;
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
     };
 
     let chunk_producer_proposals = order_proposals(proposals.values().cloned());
     let (chunk_producers, _, cp_stake_threshold) = select_chunk_producers(
         chunk_producer_proposals,
-        epoch_config.validator_selection_config.num_chunk_producer_seats as usize,
+        epoch_config.num_chunk_producer_seats as usize,
         min_stake_ratio,
         shard_ids.len() as NumShards,
         protocol_version,
@@ -74,7 +74,7 @@ fn select_validators_from_proposals(
     let chunk_validator_proposals = order_proposals(proposals.values().cloned());
     let (chunk_validators, _, cv_stake_threshold) = select_validators(
         chunk_validator_proposals,
-        epoch_config.validator_selection_config.num_chunk_validator_seats as usize,
+        epoch_config.num_chunk_validator_seats as usize,
         min_stake_ratio,
         protocol_version,
     );
@@ -135,8 +135,7 @@ fn get_chunk_producers_assignment(
 
     // Assign chunk producers to shards.
     let num_chunk_producers = chunk_producers.len();
-    let minimum_validators_per_shard =
-        epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
+    let minimum_validators_per_shard = epoch_config.minimum_validators_per_shard as usize;
     let prev_chunk_producers_assignment = if use_stable_shard_assignment {
         let mut assignment = vec![];
         for validator_ids in prev_epoch_info.chunk_producers_settlement().iter() {
@@ -156,7 +155,7 @@ fn get_chunk_producers_assignment(
         chunk_producers.clone(),
         shard_ids.len() as NumShards,
         minimum_validators_per_shard,
-        epoch_config.validator_selection_config.chunk_producer_assignment_changes_limit as usize,
+        epoch_config.chunk_producer_assignment_changes_limit as usize,
         rng_seed,
         prev_chunk_producers_assignment,
     )
@@ -262,7 +261,7 @@ pub fn proposals_to_epoch_info(
         )?
     };
 
-    if epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers {
+    if epoch_config.shuffle_shard_assignment_for_chunk_producers {
         chunk_producers_settlement.shuffle(&mut EpochInfo::shard_assignment_rng(&rng_seed));
     }
 
@@ -462,7 +461,7 @@ mod old_validator_selection {
     ) -> ValidatorRoles {
         let max_bp_selected = epoch_config.num_block_producer_seats as usize;
         let min_stake_ratio = {
-            let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
+            let rational = epoch_config.minimum_stake_ratio;
             Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
         };
 
@@ -476,9 +475,8 @@ mod old_validator_selection {
         let (chunk_producer_proposals, chunk_producers, cp_stake_threshold) =
             if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
                 let chunk_producer_proposals = order_proposals(proposals.into_values());
-                let max_cp_selected = max_bp_selected
-                    + (epoch_config.validator_selection_config.num_chunk_only_producer_seats
-                        as usize);
+                let max_cp_selected =
+                    max_bp_selected + (epoch_config.num_chunk_only_producer_seats as usize);
                 let num_shards = epoch_config.shard_layout.shard_ids().count() as NumShards;
                 let (chunk_producers, not_chunk_producers, cp_stake_threshold) =
                     select_chunk_producers(
@@ -523,8 +521,7 @@ mod old_validator_selection {
         }
 
         let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
-        let minimum_validators_per_shard =
-            epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
+        let minimum_validators_per_shard = epoch_config.minimum_validators_per_shard as usize;
         let shard_assignment = shard_assignment::old_validator_selection::assign_shards(
             chunk_producers,
             shard_ids.len() as NumShards,
@@ -627,9 +624,9 @@ mod tests {
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::id::AccountIdRef;
     use near_primitives::epoch_info::{EpochInfo, EpochInfoV3};
-    use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
+    use near_primitives::types::NumSeats;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -638,7 +635,7 @@ mod tests {
         // A simple sanity test. Given fewer proposals than the number of seats,
         // none of which has too little stake, they all get assigned as block and
         // chunk producers.
-        let epoch_config = create_epoch_config(2, 100, Default::default());
+        let epoch_config = create_epoch_config(2, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
         let proposals = create_proposals(&[("test1", 1000), ("test2", 2000), ("test3", 300)]);
@@ -687,12 +684,9 @@ mod tests {
         let epoch_config = create_epoch_config(
             2,
             num_bp_seats,
-            ValidatorSelectionConfig {
-                num_chunk_producer_seats: num_bp_seats + num_cp_seats,
-                num_chunk_validator_seats: num_bp_seats + num_cp_seats,
-                num_chunk_only_producer_seats: num_cp_seats,
-                ..Default::default()
-            },
+            Some(num_bp_seats + num_cp_seats),
+            Some(num_bp_seats + num_cp_seats),
+            None,
         );
         let prev_epoch_height = 3;
         let test1_stake = 1000;
@@ -783,12 +777,9 @@ mod tests {
         let mut epoch_config = create_epoch_config(
             6,
             num_bp_seats,
-            ValidatorSelectionConfig {
-                num_chunk_producer_seats: num_bp_seats + num_cp_seats,
-                num_chunk_validator_seats: num_bp_seats + num_cp_seats,
-                num_chunk_only_producer_seats: num_cp_seats,
-                ..Default::default()
-            },
+            Some(num_bp_seats + num_cp_seats),
+            Some(num_bp_seats + num_cp_seats),
+            None,
         );
         let prev_epoch_height = 3;
         let prev_epoch_info = create_prev_epoch_info::<&str>(prev_epoch_height, &[], &[]);
@@ -828,7 +819,7 @@ mod tests {
         )
         .unwrap();
 
-        epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+        epoch_config.shuffle_shard_assignment_for_chunk_producers = true;
         let epoch_info_with_shuffling = proposals_to_epoch_info(
             &epoch_config,
             [1; 32],
@@ -888,16 +879,7 @@ mod tests {
     #[test]
     fn test_block_producer_sampling() {
         let num_shards = 4;
-        let epoch_config = create_epoch_config(
-            num_shards,
-            2,
-            ValidatorSelectionConfig {
-                num_chunk_producer_seats: 2,
-                num_chunk_validator_seats: 2,
-                num_chunk_only_producer_seats: 0,
-                ..Default::default()
-            },
-        );
+        let epoch_config = create_epoch_config(num_shards, 2, Some(2), Some(2), None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
         let proposals = create_proposals(&[("test1", 1000), ("test2", 2000)]);
@@ -932,12 +914,9 @@ mod tests {
         let epoch_config = create_epoch_config(
             num_shards,
             2 * num_shards,
-            ValidatorSelectionConfig {
-                num_chunk_producer_seats: 2 * num_shards,
-                num_chunk_validator_seats: 2 * num_shards,
-                num_chunk_only_producer_seats: 0,
-                ..Default::default()
-            },
+            Some(2 * num_shards),
+            Some(2 * num_shards),
+            None,
         );
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
@@ -1007,14 +986,9 @@ mod tests {
         let epoch_config = create_epoch_config(
             num_shards,
             2 * num_shards,
-            ValidatorSelectionConfig {
-                num_chunk_producer_seats: 2 * num_shards,
-                num_chunk_validator_seats: 2 * num_shards,
-                num_chunk_only_producer_seats: 0,
-                // for example purposes, we choose a higher ratio than in production
-                minimum_stake_ratio: Ratio::new(1, 10),
-                ..Default::default()
-            },
+            Some(2 * num_shards),
+            Some(2 * num_shards),
+            Some(Ratio::new(1, 10)),
         );
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
@@ -1091,18 +1065,8 @@ mod tests {
         // (the reason we can't choose them is because the probability of them actually
         // being selected to make a block would be too low since it is done in
         // proportion to stake).
-        let epoch_config = create_epoch_config(
-            1,
-            100,
-            ValidatorSelectionConfig {
-                num_chunk_producer_seats: 300,
-                num_chunk_validator_seats: 300,
-                num_chunk_only_producer_seats: 300,
-                // for example purposes, we choose a higher ratio than in production
-                minimum_stake_ratio: Ratio::new(1, 10),
-                ..Default::default()
-            },
-        );
+        let epoch_config =
+            create_epoch_config(1, 100, Some(300), Some(300), Some(Ratio::new(1i32, 10i32)));
         let prev_epoch_height = 7;
         // test5 and test6 are going to get kicked out for not enough stake.
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test5", "test6"], &[]);
@@ -1196,7 +1160,7 @@ mod tests {
     #[test]
     fn test_validator_assignment_with_kickout() {
         // kicked out validators are not selected
-        let epoch_config = create_epoch_config(1, 100, Default::default());
+        let epoch_config = create_epoch_config(1, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(
             prev_epoch_height,
@@ -1228,7 +1192,7 @@ mod tests {
         // validator balances are updated based on their rewards
         let validators = [("test1", 3000), ("test2", 2000), ("test3", 1000)];
         let rewards: [u128; 3] = [7, 8, 9];
-        let epoch_config = create_epoch_config(1, 100, Default::default());
+        let epoch_config = create_epoch_config(1, 100, None, None, None);
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &validators, &[]);
         let rewards_map = validators
@@ -1260,26 +1224,31 @@ mod tests {
     fn create_epoch_config(
         num_shards: u64,
         num_block_producer_seats: u64,
-        validator_selection_config: ValidatorSelectionConfig,
+        num_chunk_producer_seats: Option<NumSeats>,
+        num_chunk_validator_seats: Option<NumSeats>,
+        minimum_stake_ratio: Option<Ratio<i32>>,
     ) -> EpochConfig {
-        EpochConfig {
-            epoch_length: 10,
-            num_block_producer_seats,
-            num_block_producer_seats_per_shard: vec![num_block_producer_seats; num_shards as usize],
-            avg_hidden_validator_seats_per_shard: vec![0; num_shards as usize],
-            block_producer_kickout_threshold: 0,
-            chunk_producer_kickout_threshold: 0,
-            chunk_validator_only_kickout_threshold: 0,
-            target_validator_mandates_per_shard: 68,
-            validator_max_kickout_stake_perc: 100,
-            online_min_threshold: 0.into(),
-            online_max_threshold: 0.into(),
-            fishermen_threshold: 0,
-            minimum_stake_divisor: 0,
-            protocol_upgrade_stake_threshold: 0.into(),
-            shard_layout: ShardLayout::multi_shard(num_shards, 0),
-            validator_selection_config,
+        let mut epoch_config = EpochConfig::minimal();
+        epoch_config.epoch_length = 10;
+        epoch_config.num_block_producer_seats = num_block_producer_seats;
+        epoch_config.num_block_producer_seats_per_shard =
+            vec![num_block_producer_seats; num_shards as usize];
+        epoch_config.avg_hidden_validator_seats_per_shard = vec![0; num_shards as usize];
+        epoch_config.target_validator_mandates_per_shard = 68;
+        epoch_config.validator_max_kickout_stake_perc = 100;
+        epoch_config.shard_layout = ShardLayout::multi_shard(num_shards, 0);
+
+        if let Some(num_chunk_producer_seats) = num_chunk_producer_seats {
+            epoch_config.num_chunk_producer_seats = num_chunk_producer_seats;
         }
+        if let Some(num_chunk_validator_seats) = num_chunk_validator_seats {
+            epoch_config.num_chunk_validator_seats = num_chunk_validator_seats;
+        }
+        if let Some(minimum_stake_ratio) = minimum_stake_ratio {
+            epoch_config.minimum_stake_ratio = minimum_stake_ratio;
+        }
+
+        epoch_config
     }
 
     fn create_prev_epoch_info<T: IntoValidatorStake + Copy>(

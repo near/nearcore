@@ -115,7 +115,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
-                    prev_block.block_congestion_info(),
+                    block.block_congestion_info(),
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
@@ -993,7 +993,7 @@ pub(crate) fn print_epoch_analysis(
             // chain/epoch-manager/src/validator_selection.rs:227:13.
             // Probably has something to do with extreme case where all
             // proposals are selected.
-            next_next_epoch_config.validator_selection_config.num_chunk_validator_seats = 100;
+            next_next_epoch_config.num_chunk_validator_seats = 100;
         }
     }
 

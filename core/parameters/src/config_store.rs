@@ -94,7 +94,7 @@ impl RuntimeConfigStore {
         }
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff :ParameterTableDiff= diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            let diff :ParameterTableDiff = diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
             params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
             #[cfg(not(feature = "calimero_zero_storage"))]
             store.insert(

@@ -191,6 +191,8 @@ pub enum ProtocolFeature {
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
+    /// Use the block height instead of the block hash to calculate the receipt ID.
+    BlockHeightForReceiptId,
 }
 
 impl ProtocolFeature {
@@ -272,6 +274,7 @@ impl ProtocolFeature {
             ProtocolFeature::RelaxedChunkValidation => 146,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
             ProtocolFeature::BandwidthScheduler => 148,
+            ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -285,7 +288,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 148;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
