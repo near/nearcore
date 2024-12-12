@@ -36,7 +36,7 @@ near-wallet-contract.workspace = true
 
 [features]
 default = []
-estimator = ["near-primitives/sample_shard_layout"]
+estimator = ["near-primitives/test_utils"]
 nightly = [
   "near-chain-configs/nightly",
   "near-o11y/nightly",

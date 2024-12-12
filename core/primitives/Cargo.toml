@@ -52,11 +52,10 @@ near-schema-checker-lib.workspace = true
 [features]
 sandbox = []
 test_features = []
-test_utils = ["sample_shard_layout"]
+test_utils = ["rand"]
 solomon = ["reed-solomon-erasure"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
 clock = ["near-time/clock", "near-time/serde"]
-sample_shard_layout = ["rand"]
 protocol_feature_fix_contract_loading_cost = [
   "near-primitives-core/protocol_feature_fix_contract_loading_cost",
 ]
@@ -93,7 +92,7 @@ protocol_schema = [
 
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }
-near-primitives = { path = ".", features = ["clock", "solomon", "rand", "sample_shard_layout"] }
+near-primitives = { path = ".", features = ["clock", "solomon", "rand", "test_utils"] }
 assert_matches.workspace = true
 bencher.workspace = true
 bolero.workspace = true
