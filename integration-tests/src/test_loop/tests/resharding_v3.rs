@@ -3,32 +3,26 @@ use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
-use near_client::{Client, Query};
+use near_client::Query;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::state_record::StateRecord;
 use near_primitives::types::{
-    AccountId, BlockHeightDelta, BlockId, BlockReference, EpochId, Gas, NumShards, ShardId,
+    AccountId, BlockHeightDelta, BlockId, BlockReference, Gas, ShardId,
 };
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::ShardUId;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
+use crate::test_loop::utils::sharding::{next_block_has_new_shard_layout, print_and_assert_shard_accounts};
 use crate::test_loop::utils::transactions::{
-    create_account, delete_account, get_shared_block_hash, get_smallest_height_head, run_tx,
+    create_account, delete_account, get_shared_block_hash, get_smallest_height_head, run_tx, store_and_submit_tx,
 };
 use crate::test_loop::utils::receipts::{
-    check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block,
-};
-use crate::test_loop::utils::sharding::{
-};
-use crate::test_loop::utils::transactions::{
-    get_shared_block_hash, get_smallest_height_head, run_tx, store_and_submit_tx,
+    check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block, ReceiptKind,
 };
 use crate::test_loop::utils::trie_sanity::{
     check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
@@ -40,9 +34,7 @@ use near_crypto::Signer;
 use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::trie_key::TrieKey;
 use near_primitives::views::{FinalExecutionStatus, QueryRequest};
-use near_primitives::views::FinalExecutionStatus;
 use std::cell::Cell;
 use std::u64;
 
@@ -227,6 +219,8 @@ impl TestReshardingParameters {
 #[cfg(feature = "test_features")]
 fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
+
+    use crate::test_loop::utils::sharding::next_block_has_new_shard_layout;
 
     let done = Cell::new(false);
     Box::new(
