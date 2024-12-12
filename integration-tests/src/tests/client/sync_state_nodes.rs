@@ -443,7 +443,7 @@ fn ultra_slow_test_sync_state_dump() {
 
 #[test]
 // Test that state sync behaves well when the chunks are absent at the end of the epoch.
-fn slow_test_dump_epoch_missing_chunk_in_last_block() {
+fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
         let epoch_length = 10;
