@@ -400,14 +400,7 @@ fn apply_receipt_in_chunk(
     id: &CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    if chain_store.get_receipt(id)?.is_none() {
-        // TODO: handle local/delayed receipts
-        return Err(anyhow!("receipt with ID {} not known. Is it a local or delayed receipt?", id));
-    }
-
-    println!(
-        "Receipt is known but doesn't seem to have been applied. Searching in chunks that haven't been applied..."
-    );
+    println!("Receipt is not indexed; searching in chunks that haven't been applied...");
 
     let head = chain_store.head()?.height;
     let protocol_version = chain_store.head_header()?.latest_protocol_version();
