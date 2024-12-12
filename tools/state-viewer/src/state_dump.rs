@@ -374,10 +374,10 @@ mod test {
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             MutableConfigValue::new(
-                Some(Arc::new(
-                    InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
-                        .into(),
-                )),
+                Some(Arc::new(InMemoryValidatorSigner::from_random(
+                    "test".parse().unwrap(),
+                    KeyType::ED25519,
+                ))),
                 "validator_signer",
             ),
         )
@@ -763,10 +763,10 @@ mod test {
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             MutableConfigValue::new(
-                Some(Arc::new(
-                    InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
-                        .into(),
-                )),
+                Some(Arc::new(InMemoryValidatorSigner::from_random(
+                    "test".parse().unwrap(),
+                    KeyType::ED25519,
+                ))),
                 "validator_signer",
             ),
         )
@@ -839,10 +839,10 @@ mod test {
                 secret_key: SecretKey::from_random(KeyType::ED25519),
             },
             MutableConfigValue::new(
-                Some(Arc::new(
-                    InMemoryValidatorSigner::from_random("test".parse().unwrap(), KeyType::ED25519)
-                        .into(),
-                )),
+                Some(Arc::new(InMemoryValidatorSigner::from_random(
+                    "test".parse().unwrap(),
+                    KeyType::ED25519,
+                ))),
                 "validator_signer",
             ),
         )

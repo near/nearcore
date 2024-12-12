@@ -35,8 +35,9 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
+use near_store::db::TestDBFlags;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{create_test_split_store, create_test_store};
+use near_store::test_utils::{create_test_split_store, create_test_store_with_flags};
 use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -97,6 +98,8 @@ pub(crate) struct TestLoopBuilder {
     load_mem_tries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    /// Overrides to test database behavior.
+    test_store_flags: TestDBFlags,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -166,14 +169,14 @@ fn should_drop_chunk_for_protocol_upgrade(
     let epoch_protocol_version =
         epoch_manager_adapter.get_epoch_protocol_version(&epoch_id).unwrap();
     // Drop condition for the first epoch with new protocol version.
-    if epoch_protocol_version == version_of_protocol_upgrade {
+    if epoch_protocol_version >= version_of_protocol_upgrade {
         let prev_epoch_id =
             epoch_manager_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash).unwrap();
         let prev_epoch_protocol_version =
             epoch_manager_adapter.get_epoch_protocol_version(&prev_epoch_id).unwrap();
         // If this is not the first epoch with new protocol version,
         // all chunks go through.
-        if prev_epoch_protocol_version == version_of_protocol_upgrade {
+        if prev_epoch_protocol_version >= version_of_protocol_upgrade {
             return false;
         }
 
@@ -189,7 +192,7 @@ fn should_drop_chunk_for_protocol_upgrade(
         let epoch_start_height =
             epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
         range.contains(&(height_created as i64 - epoch_start_height as i64))
-    } else if epoch_protocol_version + 1 == version_of_protocol_upgrade {
+    } else if epoch_protocol_version < version_of_protocol_upgrade {
         // Drop condition for the last epoch with old protocol version.
         let maybe_upgrade_height = epoch_manager_adapter
             .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
@@ -297,6 +300,7 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_mem_tries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
+            test_store_flags: Default::default(),
         }
     }
 
@@ -415,6 +419,11 @@ impl TestLoopBuilder {
 
     pub fn load_mem_tries_for_tracked_shards(mut self, load_mem_tries: bool) -> Self {
         self.load_mem_tries_for_tracked_shards = load_mem_tries;
+        self
+    }
+
+    pub(crate) fn allow_negative_refcount(mut self) -> Self {
+        self.test_store_flags.allow_negative_refcount = true;
         self
     }
 
@@ -557,7 +566,7 @@ impl TestLoopBuilder {
                 let (hot_store, split_store) = create_test_split_store();
                 (hot_store, Some(split_store))
             } else {
-                let hot_store = create_test_store();
+                let hot_store = create_test_store_with_flags(&self.test_store_flags);
                 (hot_store, None)
             };
         initialize_genesis_state(store.clone(), &genesis, None);

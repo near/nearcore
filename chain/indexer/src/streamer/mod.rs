@@ -26,6 +26,7 @@ use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 
 mod errors;
 mod fetchers;
@@ -74,9 +75,10 @@ fn test_problematic_blocks_hash() {
 pub async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
+    shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = fetch_block_chunks(&client, &block).await?;
+    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
@@ -200,6 +202,7 @@ pub async fn build_streamer_message(
                         &runtime_config,
                         block.clone(),
                         execution_outcome.id,
+                        shard_tracker,
                     )
                     .await?
                 }
@@ -276,6 +279,7 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: CryptoHash,
+    shard_tracker: &ShardTracker,
 ) -> Result<views::ReceiptView, FailedToFetchData> {
     let mut prev_block_tried = 0u16;
     let mut prev_block_hash = block.header.prev_hash;
@@ -299,9 +303,14 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
 
         prev_block_hash = prev_block.header.prev_hash;
 
-        if let Some(receipt) =
-            find_local_receipt_by_id_in_block(&client, &runtime_config, prev_block, receipt_id)
-                .await?
+        if let Some(receipt) = find_local_receipt_by_id_in_block(
+            &client,
+            &runtime_config,
+            prev_block,
+            receipt_id,
+            shard_tracker,
+        )
+        .await?
         {
             tracing::debug!(
                 target: INDEXER,
@@ -324,8 +333,9 @@ async fn find_local_receipt_by_id_in_block(
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
+    shard_tracker: &ShardTracker,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = fetch_block_chunks(&client, &block).await?;
+    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
@@ -371,6 +381,7 @@ async fn find_local_receipt_by_id_in_block(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
+    shard_tracker: ShardTracker,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,
     blocks_sink: mpsc::Sender<StreamerMessage>,
@@ -437,7 +448,7 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block).await;
+                let response = build_streamer_message(&view_client, block, &shard_tracker).await;
 
                 match response {
                     Ok(streamer_message) => {
