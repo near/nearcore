@@ -78,8 +78,14 @@ impl FlatStorageManager {
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard");
+        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        let disable_updates = want_snapshot.is_some();
+
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
+        if disable_updates {
+            flat_storage.set_flat_head_update_mode(false);
+        }
         let original_value = flat_storages.insert(shard_uid, flat_storage);
         if original_value.is_some() {
             // Generally speaking this shouldn't happen. It may only happen when

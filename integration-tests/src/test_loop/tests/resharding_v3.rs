@@ -1546,7 +1546,7 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 
 #[test]
 // TODO(resharding): fix the fact that this test fails if the epoch length is set to 10,
-// giving MissingTrieNode errors in the obtain state part code
+// because set_state_finalize() sets flat storage state to ready before child catchup is done
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParameters::new()
