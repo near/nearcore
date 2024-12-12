@@ -1,16 +1,19 @@
 use super::sharding::shard_was_split;
 use crate::test_loop::utils::sharding::{client_tracking_shard, get_memtrie_for_shard};
+use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain::ChainStoreAccess;
 use near_client::Client;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{AccountId, EpochId, NumShards};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
+use near_store::db::refcount::decode_value_with_rc;
 use near_store::flat::FlatStorageStatus;
-use near_store::ShardUId;
+use near_store::{DBCol, ShardUId};
 use std::collections::{HashMap, HashSet};
 
 // For each epoch, keep a map from AccountId to a map with keys equal to
@@ -332,4 +335,35 @@ fn should_assert_state_sanity(
     }
 
     true
+}
+
+/// Asserts that all parent shard State is accessible via parent and children shards.
+pub fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_uid: ShardUId) {
+    let tip = client.chain.head().unwrap();
+    let epoch_id = tip.epoch_id;
+    let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+    let children_shard_uids =
+        epoch_config.shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
+    assert_eq!(children_shard_uids.len(), 2);
+
+    let store = client.chain.chain_store.store().trie_store();
+    for kv in store.store().iter_raw_bytes(DBCol::State) {
+        let (key, value) = kv.unwrap();
+        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
+        // Just after resharding, no State data must be keyed using children ShardUIds.
+        assert!(!children_shard_uids.contains(&shard_uid));
+        if shard_uid != parent_shard_uid {
+            continue;
+        }
+        let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
+        let (value, _) = decode_value_with_rc(&value);
+        let parent_value = store.get(parent_shard_uid, &node_hash);
+        // Parent shard data must still be accessible using parent ShardUId.
+        assert_eq!(&parent_value.unwrap()[..], value.unwrap());
+        // All parent shard data is available via both children shards.
+        for child_shard_uid in &children_shard_uids {
+            let child_value = store.get(*child_shard_uid, &node_hash);
+            assert_eq!(&child_value.unwrap()[..], value.unwrap());
+        }
+    }
 }
