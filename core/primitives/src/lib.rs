@@ -39,6 +39,7 @@ pub mod state_record;
 pub mod state_sync;
 pub mod stateless_validation;
 pub mod telemetry;
+#[cfg(feature = "test_utils")]
 pub mod test_utils;
 pub mod transaction;
 pub mod trie_key;

@@ -89,10 +89,8 @@ pub(crate) fn test_protocol_upgrade(
         config.epoch_length = epoch_length;
         config.shard_layout = shard_layout.clone();
         config.num_block_producer_seats = genesis_epoch_info.num_block_producer_seats;
-        config.validator_selection_config.num_chunk_producer_seats =
-            genesis_epoch_info.validator_selection_config.num_chunk_producer_seats;
-        config.validator_selection_config.num_chunk_validator_seats =
-            genesis_epoch_info.validator_selection_config.num_chunk_validator_seats;
+        config.num_chunk_producer_seats = genesis_epoch_info.num_chunk_producer_seats;
+        config.num_chunk_validator_seats = genesis_epoch_info.num_chunk_validator_seats;
 
         if !missing_chunk_ranges.is_empty() {
             config.block_producer_kickout_threshold = 0;

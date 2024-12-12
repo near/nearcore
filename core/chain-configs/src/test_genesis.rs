@@ -195,9 +195,8 @@ impl TestEpochConfigBuilder {
         epoch_config.block_producer_kickout_threshold = 0;
         epoch_config.chunk_producer_kickout_threshold = 0;
         epoch_config.chunk_validator_only_kickout_threshold = 0;
-        epoch_config.validator_selection_config.num_chunk_producer_seats = num_chunk_producer_seats;
-        epoch_config.validator_selection_config.num_chunk_validator_seats =
-            num_chunk_validator_seats;
+        epoch_config.num_chunk_producer_seats = num_chunk_producer_seats;
+        epoch_config.num_chunk_validator_seats = num_chunk_validator_seats;
 
         if let Some(target_validator_mandates_per_shard) = self.target_validator_mandates_per_shard
         {
@@ -236,31 +235,30 @@ impl TestEpochConfigBuilder {
             );
         }
         if let Some(minimum_stake_ratio) = self.minimum_stake_ratio {
-            epoch_config.validator_selection_config.minimum_stake_ratio = minimum_stake_ratio;
+            epoch_config.minimum_stake_ratio = minimum_stake_ratio;
         } else {
             tracing::warn!(
                 "Epoch config minimum_stake_ratio not explicitly set, defaulting to {:?}.",
-                epoch_config.validator_selection_config.minimum_stake_ratio
+                epoch_config.minimum_stake_ratio
             );
         }
         if let Some(minimum_validators_per_shard) = self.minimum_validators_per_shard {
-            epoch_config.validator_selection_config.minimum_validators_per_shard =
-                minimum_validators_per_shard;
+            epoch_config.minimum_validators_per_shard = minimum_validators_per_shard;
         } else {
             tracing::warn!(
                 "Epoch config minimum_validators_per_shard not explicitly set, defaulting to {:?}.",
-                epoch_config.validator_selection_config.minimum_validators_per_shard
+                epoch_config.minimum_validators_per_shard
             );
         }
         if let Some(shuffle_shard_assignment_for_chunk_producers) =
             self.shuffle_shard_assignment_for_chunk_producers
         {
-            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+            epoch_config.shuffle_shard_assignment_for_chunk_producers =
                 shuffle_shard_assignment_for_chunk_producers;
         } else {
             tracing::warn!(
                 "Epoch config shuffle_shard_assignment_for_chunk_producers not explicitly set, defaulting to {:?}.",
-                epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers
+                epoch_config.shuffle_shard_assignment_for_chunk_producers
             );
         }
 
