@@ -532,19 +532,22 @@ fn test_apply_delayed_receipts_local_tx() {
                 PROTOCOL_VERSION,
                 &local_transactions[0],
                 &apply_state.prev_block_hash,
-                &apply_state.block_hash
+                &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 0
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[1],
                 &apply_state.prev_block_hash,
-                &apply_state.block_hash
+                &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 1
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[2],
                 &apply_state.prev_block_hash,
-                &apply_state.block_hash
+                &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 2
         ],
         "STEP #1 failed",
@@ -578,12 +581,14 @@ fn test_apply_delayed_receipts_local_tx() {
                 &local_transactions[4],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 4
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[3],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 3
             *receipts[0].receipt_id(),        // receipt #0
         ],
@@ -621,18 +626,21 @@ fn test_apply_delayed_receipts_local_tx() {
                 &local_transactions[5],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 5
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[6],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 6
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[7],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 7
         ],
         "STEP #3 failed",
@@ -667,6 +675,7 @@ fn test_apply_delayed_receipts_local_tx() {
                 &local_transactions[8],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 8
         ],
         "STEP #4 failed",
