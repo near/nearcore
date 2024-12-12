@@ -962,8 +962,6 @@ fn test_resharding_v3_yield_resume() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and unignore this test.
-#[ignore]
 fn test_resharding_v3_yield_timeout() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -983,6 +981,7 @@ fn test_resharding_v3_yield_timeout() {
         .add_loop_action(check_receipts_presence_after_resharding_block(
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
-        ));
+        ))
+        .allow_negative_refcount();
     test_resharding_v3_base(params);
 }
