@@ -601,7 +601,7 @@ impl<'a> ChainUpdate<'a> {
             outcome_proofs,
         );
         // Saving all incoming receipts.
-        for receipt_proof_response in incoming_receipts_proofs {
+        for receipt_proof_response in receipt_proof_response {
             self.chain_store_update.save_incoming_receipt(
                 &receipt_proof_response.0,
                 shard_id,
