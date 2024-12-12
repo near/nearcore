@@ -374,7 +374,18 @@ impl BandwidthScheduler {
     /// remaining unused bandwidth that could be granted on the links. This function distributes the
     /// remaining bandwidth over all the links in a fair manner to improve bandwidth utilization.
     fn distribute_remaining_bandwidth(&mut self) {
-        // TODO(bandwidth_scheduler) - will be added in a future PR
+        let remaining_bandwidth_grants =
+            super::distribute_remaining::distribute_remaining_bandwidth(
+                &self.sender_budget,
+                &self.receiver_budget,
+                |sender, receiver| self.is_link_allowed(&ShardLink::new(sender, receiver)),
+                &self.shard_layout,
+            );
+        for link in self.iter_links() {
+            if let Some(remaining_grant) = remaining_bandwidth_grants.get(&link) {
+                self.grant_more_bandwidth(&link, *remaining_grant);
+            }
+        }
     }
 
     /// Convert granted bandwidth from internal representation to the representation returned by scheduler.
@@ -454,14 +465,19 @@ impl BandwidthScheduler {
         self.sender_budget.insert(link.sender, sender_budget - bandwidth);
         self.receiver_budget.insert(link.receiver, receiver_budget - bandwidth);
         self.decrease_allowance(link, bandwidth);
+        self.grant_more_bandwidth(link, bandwidth);
 
+        TryGrantOutcome::Granted
+    }
+
+    /// Add new granted bandwidth to the link. Doesn't adjust allowance or budgets.
+    fn grant_more_bandwidth(&mut self, link: &ShardLink, bandwidth: Bandwidth) {
         let current_granted = self.granted_bandwidth.get(link).copied().unwrap_or(0);
         let new_granted = current_granted.checked_add(bandwidth).unwrap_or_else(|| {
             tracing::warn!(target: "runtime", "Granting bandwidth on link {:?} would overflow, this is unexpected. Granting max bandwidth instead", link);
             Bandwidth::MAX
         });
         self.granted_bandwidth.insert(*link, new_granted);
-        TryGrantOutcome::Granted
     }
 
     /// Decide if it's allowed to send receipts on the link, based on shard statuses.
@@ -639,6 +655,10 @@ impl<T> ShardIndexMap<T> {
         self.data[*index].as_ref()
     }
 
+    pub fn get_mut(&mut self, index: &ShardIndex) -> Option<&mut T> {
+        self.data[*index].as_mut()
+    }
+
     pub fn insert(&mut self, index: ShardIndex, value: T) {
         self.data[index] = Some(value);
     }
@@ -671,6 +691,11 @@ impl<T> ShardLinkMap<T> {
     pub fn insert(&mut self, link: ShardLink, value: T) {
         let data_index = self.data_index_for_link(&link);
         self.data[data_index] = Some(value);
+    }
+
+    #[cfg(test)]
+    pub fn num_indexes(&self) -> usize {
+        self.num_indexes
     }
 
     fn data_index_for_link(&self, link: &ShardLink) -> usize {
