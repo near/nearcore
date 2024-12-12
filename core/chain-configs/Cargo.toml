@@ -28,7 +28,7 @@ near-time.workspace = true
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
-near-primitives = { workspace = true, features = ["test_utils"] }
+near-primitives.workspace = true
 near-config-utils.workspace = true
 
 [features]

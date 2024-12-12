@@ -342,9 +342,9 @@ impl std::error::Error for ShardLayoutError {}
 
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
-    #[cfg(feature = "test_utils")]
     pub fn single_shard() -> Self {
-        Self::multi_shard(1, 0)
+        let shard_ids = vec![ShardId::new(0)];
+        Self::v2(vec![], shard_ids, None)
     }
 
     /// Creates a multi-shard ShardLayout using the most recent ShardLayout
