@@ -45,7 +45,7 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_nonrefundable_transfer_nep491",
 ]
-test_genesis = ["near-primitives/rand"]
+test_genesis = ["near-primitives/rand", "near-primitives/test_utils"]
 test_utils = ["near-primitives/rand"]
 default = []
 metrics = ["near-o11y", "near-time/clock"]

@@ -2610,6 +2610,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     Some(scheduled_receipt_offset.saturating_add(1))
 }
 
+#[cfg(feature = "estimator")]
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
