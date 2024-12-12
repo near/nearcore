@@ -6,6 +6,7 @@ use super::types::ReshardingSender;
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
 use crate::types::RuntimeAdapter;
 use crate::ChainStoreUpdate;
+use itertools::Itertools;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -239,6 +240,22 @@ impl ReshardingManager {
                 let config = self.runtime_adapter.get_runtime_config(protocol_version)?;
                 let new_shard_id = new_shard_uid.shard_id();
                 *congestion_info = bootstrap_congestion_info(&trie, &config, new_shard_id)?;
+
+                // Please note the usage of the child shard layout here.
+                let next_epoch_id = self.epoch_manager.get_next_epoch_id(block_hash)?;
+                let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
+                let all_shards = next_shard_layout.shard_ids().collect_vec();
+                let own_shard = new_shard_uid.shard_id();
+                let own_shard_index = next_shard_layout
+                    .get_shard_index(own_shard)?
+                    .try_into()
+                    .expect("ShardIndex must fit in u64");
+
+                // Use simplified congestion seed. The proper one should be
+                // block height + shard index, however the block heigh is not
+                // easily available in all required places.
+                let congestion_seed = own_shard_index;
+                congestion_info.finalize_allowed_shard(own_shard, &all_shards, congestion_seed);
             }
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
