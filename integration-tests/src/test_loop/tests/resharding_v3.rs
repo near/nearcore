@@ -162,6 +162,7 @@ impl TestReshardingParameters {
         Self::with_validators(3)
     }
 
+    // TODO(resharding) Test chunk validators, and maybe more RPC / archival nodes.
     fn with_validators(num_validators: u64) -> Self {
         let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
@@ -473,7 +474,7 @@ fn call_burn_gas_contract(
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
-    // TODO(reshardingV3) Remove this line, it should work with the provided `rpc_id`.
+    // TODO(resharding) Remove this line, it should work with the provided `rpc_id`.
     // Maybe it has to use `account0` because we provide `client_actor` for this account.
     let rpc_id = "account0".parse().unwrap();
 
@@ -937,10 +938,9 @@ fn account_exist_in_view_client(
 ) -> bool {
     let view_client_handle = env.datas[node_index].view_client_sender.actor_handle();
     let view_client = env.test_loop.data.get_mut(&view_client_handle);
-    let msg = Query::new(
-        BlockReference::BlockId(BlockId::Height(height)),
-        QueryRequest::ViewAccount { account_id },
-    );
+    let block_reference = BlockReference::BlockId(BlockId::Height(height));
+    let request = QueryRequest::ViewAccount { account_id };
+    let msg = Query::new(block_reference, request);
     let result = near_async::messaging::Handler::handle(view_client, msg);
     result.is_ok()
 }
@@ -1051,6 +1051,11 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(5));
     }
 
+    // Create an account that is:
+    // 1) subaccount of a future resharding boundary account
+    // 2) temporary, because we will remove it after resharding
+    // For that two reasons combined, it can catch some bugs that normally would not occur,
+    // and we can test removing something from state and see if it is kept on archival node.
     let rpc_id = params.rpc_clients[0].clone();
     let temporary_account =
         format!("{}.{}", new_boundary_account, new_boundary_account).parse().unwrap();
@@ -1361,7 +1366,7 @@ fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
     let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
     let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
     let rpc_id = params.rpc_clients[0].clone();
-    let params = TestReshardingParameters::new()
+    let params = params
         .deploy_test_contract(receiver_account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account_1_in_stable_shard, account_2_in_stable_shard],
@@ -1380,7 +1385,7 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let rpc_id = params.rpc_clients[0].clone();
-    let params = TestReshardingParameters::new()
+    let params = params
         .deploy_test_contract(receiver_account.clone())
         .add_loop_action(call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child],

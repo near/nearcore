@@ -197,7 +197,7 @@ fn copy_state_from_store(
         total_keys += trie_changes.insertions().len();
         let mapped_shard_uid_key = get_shard_uid_mapping(hot_store, shard_uid).to_bytes();
         for op in trie_changes.insertions() {
-            // TODO(reshardingV3) Test it properly. Currently this path is not triggered in testloop.
+            // TODO(resharding) Test it properly. Currently this path is not triggered in testloop.
             let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
             let value = op.payload().to_vec();
 
@@ -350,7 +350,7 @@ pub fn copy_all_data_to_cold(
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
-                // TODO(reshardingV3) Should do mapping here?
+                // TODO(resharding) Should do mapping here?
                 let (key, value) = result?;
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }

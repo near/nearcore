@@ -124,10 +124,11 @@ fn cold_store_copy(
         }
         // Here it should be sufficient to just read from hot storage.
         // Because BlockHeight is never garbage collectable and is not even copied to cold.
-        match hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &next_height.to_le_bytes())? {
-            Some(next_height_block_hash) => break next_height_block_hash,
-            None => next_height = next_height + 1,
+        let next_height_block_hash = hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &next_height.to_le_bytes())?;
+        if let Some(next_height_block_hash) = next_height_block_hash {
+            break next_height_block_hash;
         }
+        next_height = next_height + 1;
     };
     // The next block hash exists in hot store so we can use it to get epoch id.
     let epoch_id = epoch_manager.get_epoch_id(&next_height_block_hash)?;

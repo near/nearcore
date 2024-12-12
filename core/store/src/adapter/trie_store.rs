@@ -178,7 +178,7 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
 pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardUId {
     store
         .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
-        .expect("get_shard_uid_mapping() failed")
+        .expect(&format!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid))
         .unwrap_or(child_shard_uid)
 }
 
