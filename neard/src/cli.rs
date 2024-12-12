@@ -855,10 +855,10 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
     }
 }
 
-/// Checks if the system has the expected values for the sysctl parameters for optimal networking performance.
 #[cfg(not(target_os = "linux"))]
 fn check_kernel_params() {}
 
+/// Checks if the system has the expected values for the sysctl parameters for optimal networking performance.
 #[cfg(target_os = "linux")]
 fn check_kernel_params() {
     let expected_rmem_max = "8388608";
