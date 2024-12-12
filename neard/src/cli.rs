@@ -855,7 +855,7 @@ fn check_kernel_param(param_name: &str, expected_value: &str) {
     }
 }
 
-/// Checks if the system has the expected values for the sysctl parameters.
+/// Checks if the system has the expected values for the sysctl parameters for optimal networking performance.
 #[cfg(not(target_os = "linux"))]
 fn check_kernel_params() {}
 
