@@ -13,6 +13,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
