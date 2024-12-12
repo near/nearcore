@@ -846,6 +846,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
         store_update.delete(DBCol::IncomingReceipts, &key);
+        store_update.delete_all(DBCol::Receipts);
         self.chain_store().incoming_receipts.pop(&key);
         self.merge(store_update);
     }
