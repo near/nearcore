@@ -16,6 +16,7 @@ use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
 use crate::{metrics, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use near_primitives::sharding::ReceiptProof;
 
 #[derive(Clone)]
 pub enum GCMode {
@@ -433,9 +434,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 for transaction in chunk.transactions() {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
-                for receipt in chunk.prev_outgoing_receipts() {
-                    self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
-                }
 
                 // 2. Delete chunk_hash-indexed data
                 let chunk_hash = chunk_hash.as_bytes();
@@ -599,7 +597,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
-            self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
+            self.gc_incoming_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
@@ -700,7 +698,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // delete Receipts
             self.gc_outgoing_receipts(&block_hash, shard_id);
-            self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
+            self.gc_incoming_receipts(&block_hash, shard_id);
 
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
 
@@ -766,9 +764,6 @@ impl<'a> ChainStoreUpdate<'a> {
             for transaction in chunk.transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
-            for receipt in chunk.prev_outgoing_receipts() {
-                self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
-            }
 
             // 2. Delete chunk_hash-indexed data
             let chunk_hash = chunk_hash.as_bytes();
@@ -833,6 +828,25 @@ impl<'a> ChainStoreUpdate<'a> {
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
         self.chain_store().outgoing_receipts.pop(&key);
+        self.merge(store_update);
+    }
+
+    fn gc_incoming_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
+        let mut store_update = self.store().store_update();
+        let key = get_block_shard_id(block_hash, shard_id);
+        if let Ok(incoming_receipts) =
+            self.store().get_ser::<Vec<ReceiptProof>>(DBCol::IncomingReceipts, &key)
+        {
+            if let Some(incoming_receipts) = incoming_receipts {
+                for receipts in incoming_receipts {
+                    for receipt in receipts.0 {
+                        self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                    }
+                }
+            }
+        }
+        store_update.delete(DBCol::IncomingReceipts, &key);
+        self.chain_store().incoming_receipts.pop(&key);
         self.merge(store_update);
     }
 
