@@ -996,7 +996,6 @@ pub struct MockEpochInfoProvider {
     pub validators: HashMap<AccountId, Balance>,
 }
 
-#[cfg(test)]
 impl Default for MockEpochInfoProvider {
     fn default() -> Self {
         MockEpochInfoProvider {

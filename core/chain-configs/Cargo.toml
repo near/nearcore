@@ -28,7 +28,7 @@ near-time.workspace = true
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
 near-parameters.workspace = true
-near-primitives.workspace = true
+near-primitives = { workspace = true, features = ["sample_shard_layout"] }
 near-config-utils.workspace = true
 
 [features]
@@ -45,7 +45,7 @@ nightly = [
   "nightly_protocol",
   "protocol_feature_nonrefundable_transfer_nep491",
 ]
-test_genesis = ["near-primitives/rand"]
+test_genesis = ["near-primitives/rand", "near-primitives/test_utils"]
 test_utils = ["near-primitives/rand"]
 default = []
 metrics = ["near-o11y", "near-time/clock"]
