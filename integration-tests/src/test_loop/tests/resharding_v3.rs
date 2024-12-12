@@ -75,6 +75,9 @@ struct TestReshardingParameters {
     delay_flat_state_resharding: BlockHeightDelta,
     /// Make promise yield timeout much shorter than normal.
     short_yield_timeout: bool,
+    // TODO(resharding) Remove this when negative refcounts are properly handled.
+    /// Whether to allow negative refcount being a result of the database update.
+    allow_negative_refcount: bool,
 }
 
 impl TestReshardingParametersBuilder {
@@ -133,6 +136,7 @@ impl TestReshardingParametersBuilder {
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
+            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(false),
         }
     }
 
@@ -500,6 +504,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         builder = builder.track_all_shards();
     }
 
+    if params.allow_negative_refcount {
+        builder = builder.allow_negative_refcount();
+    }
+
     if params.limit_outgoing_gas || params.short_yield_timeout {
         let mut runtime_config = RuntimeConfig::test();
         if params.limit_outgoing_gas {
@@ -707,8 +715,7 @@ fn test_resharding_v3_shard_shuffling() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -722,13 +729,13 @@ fn test_resharding_v3_delayed_receipts_left_child() {
             vec![account],
             ReceiptKind::Delayed,
         ))
+        .allow_negative_refcount(true)
         .build();
     test_resharding_v3_base(params);
 }
 
 #[test]
-// TODO(resharding): fix nearcore and replace the line below with #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -742,6 +749,7 @@ fn test_resharding_v3_delayed_receipts_right_child() {
             vec![account],
             ReceiptKind::Delayed,
         ))
+        .allow_negative_refcount(true)
         .build();
     test_resharding_v3_base(params);
 }
