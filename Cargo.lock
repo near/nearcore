@@ -5567,6 +5567,7 @@ dependencies = [
  "num-bigint 0.3.3",
  "num-traits",
  "rand",
+ "rand_chacha",
  "rayon",
  "serde_json",
  "sha2 0.10.6",
@@ -7993,6 +7994,7 @@ dependencies = [
 name = "testlib"
 version = "0.0.0"
 dependencies = [
+ "bytesize",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -8001,6 +8003,7 @@ dependencies = [
  "near-test-contracts",
  "node-runtime",
  "rand",
+ "rand_chacha",
 ]
 
 [[package]]

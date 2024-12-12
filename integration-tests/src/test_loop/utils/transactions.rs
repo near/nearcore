@@ -26,6 +26,7 @@ use std::task::Poll;
 
 use super::{ONE_NEAR, TGAS};
 use near_async::futures::FutureSpawnerExt;
+use std::cell::Cell;
 
 /// See `execute_money_transfers`. Debug is implemented so .unwrap() can print
 /// the error.
@@ -657,4 +658,21 @@ enum TxProcessingResult {
     Ok,
     Congested(InvalidTxError),
     Invalid(InvalidTxError),
+}
+
+/// Stores a transaction hash into a vector of `(transaction, block_height)` and then submits the transaction.
+pub fn store_and_submit_tx(
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    txs: &Cell<Vec<(CryptoHash, u64)>>,
+    signer_id: &AccountId,
+    receiver_id: &AccountId,
+    height: u64,
+    tx: SignedTransaction,
+) {
+    let mut txs_vec = txs.take();
+    tracing::debug!(target: "test", height, tx_hash=?tx.get_hash(), ?signer_id, ?receiver_id, "submitting transaction");
+    txs_vec.push((tx.get_hash(), height));
+    txs.set(txs_vec);
+    submit_tx(&node_datas, &rpc_id, tx);
 }

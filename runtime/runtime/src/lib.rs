@@ -1472,8 +1472,11 @@ impl Runtime {
         );
 
         // Bandwidth scheduler should be run for every chunk, including the missing ones.
-        let bandwidth_scheduler_output =
-            run_bandwidth_scheduler(apply_state, &mut processing_state.state_update)?;
+        let bandwidth_scheduler_output = run_bandwidth_scheduler(
+            apply_state,
+            &mut processing_state.state_update,
+            epoch_info_provider,
+        )?;
 
         // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk
@@ -2679,6 +2682,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     Some(scheduled_receipt_offset.saturating_add(1))
 }
 
+#[cfg(feature = "estimator")]
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
