@@ -173,12 +173,14 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     }
 }
 
-/// Get the `ShardUId` mapping for child_shard_uid.
+/// Get the `ShardUId` mapping for child_shard_uid. If the mapping does not exist, map the shard to itself.
 /// Used by Resharding V3 for State mapping.
 pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardUId {
     store
         .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
-        .expect(&format!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid))
+        .unwrap_or_else(|_| {
+            panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
+        })
         .unwrap_or(child_shard_uid)
 }
 

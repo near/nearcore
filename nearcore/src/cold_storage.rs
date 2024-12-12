@@ -124,7 +124,8 @@ fn cold_store_copy(
         }
         // Here it should be sufficient to just read from hot storage.
         // Because BlockHeight is never garbage collectable and is not even copied to cold.
-        let next_height_block_hash = hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &next_height.to_le_bytes())?;
+        let next_height_block_hash =
+            hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &next_height.to_le_bytes())?;
         if let Some(next_height_block_hash) = next_height_block_hash {
             break next_height_block_hash;
         }

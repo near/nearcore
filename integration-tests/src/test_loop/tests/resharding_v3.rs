@@ -7,9 +7,7 @@ use near_client::Query;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::types::{
-    AccountId, BlockHeightDelta, BlockId, BlockReference, Gas, ShardId,
-};
+use near_primitives::types::{AccountId, BlockHeightDelta, BlockId, BlockReference, Gas, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::ShardUId;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -17,12 +15,16 @@ use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::sharding::{next_block_has_new_shard_layout, print_and_assert_shard_accounts};
-use crate::test_loop::utils::transactions::{
-    create_account, delete_account, get_shared_block_hash, get_smallest_height_head, run_tx, store_and_submit_tx,
-};
 use crate::test_loop::utils::receipts::{
-    check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block, ReceiptKind,
+    check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block,
+    ReceiptKind,
+};
+use crate::test_loop::utils::sharding::{
+    next_block_has_new_shard_layout, print_and_assert_shard_accounts,
+};
+use crate::test_loop::utils::transactions::{
+    create_account, delete_account, get_shared_block_hash, get_smallest_height_head, run_tx,
+    store_and_submit_tx,
 };
 use crate::test_loop::utils::trie_sanity::{
     check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
@@ -219,8 +221,6 @@ impl TestReshardingParameters {
 #[cfg(feature = "test_features")]
 fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
-
-    use crate::test_loop::utils::sharding::next_block_has_new_shard_layout;
 
     let done = Cell::new(false);
     Box::new(
@@ -944,14 +944,14 @@ fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
     let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
     let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
     let rpc_id = params.rpc_clients[0].clone();
-    let params = params
-        .deploy_test_contract(receiver_account.clone())
-        .add_loop_action(call_burn_gas_contract(
+    let params = params.deploy_test_contract(receiver_account.clone()).add_loop_action(
+        call_burn_gas_contract(
             vec![account_1_in_stable_shard, account_2_in_stable_shard],
             vec![receiver_account],
             5 * TGAS,
             rpc_id,
-        ));
+        ),
+    );
     test_resharding_v3_base(params);
 }
 
@@ -963,14 +963,14 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let rpc_id = params.rpc_clients[0].clone();
-    let params = params
-        .deploy_test_contract(receiver_account.clone())
-        .add_loop_action(call_burn_gas_contract(
+    let params = params.deploy_test_contract(receiver_account.clone()).add_loop_action(
+        call_burn_gas_contract(
             vec![account_in_left_child, account_in_right_child],
             vec![receiver_account],
             5 * TGAS,
             rpc_id,
-        ));
+        ),
+    );
     test_resharding_v3_base(params);
 }
 
