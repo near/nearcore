@@ -35,7 +35,7 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::db::TestStoreFlags;
+use near_store::db::TestDBFlags;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store_with_flags};
 use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
@@ -99,7 +99,7 @@ pub(crate) struct TestLoopBuilder {
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Overrides to test database behavior.
-    test_store_flags: TestStoreFlags,
+    test_store_flags: TestDBFlags,
 }
 
 /// Checks whether chunk is validated by the given account.

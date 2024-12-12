@@ -1,5 +1,5 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
-use crate::db::{TestDB, TestStoreFlags};
+use crate::db::{TestDB, TestDBFlags};
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{
@@ -69,7 +69,7 @@ pub fn create_test_store() -> Store {
 }
 
 /// Creates an in-memory database with overrides to the default behavior.
-pub fn create_test_store_with_flags(flags: &TestStoreFlags) -> Store {
+pub fn create_test_store_with_flags(flags: &TestDBFlags) -> Store {
     let store = Store::new(TestDB::new_with_flags(flags.clone()));
     store.set_db_version(DB_VERSION).unwrap();
     store.set_db_kind(DbKind::RPC).unwrap();

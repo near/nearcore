@@ -8,7 +8,7 @@ use crate::{DBCol, StoreStatistics};
 
 // Overrides to `TestDB` behavior.
 #[derive(Clone, Debug, Default)]
-pub struct TestStoreFlags {
+pub struct TestDBFlags {
     // Ignore negative refcount being a result of a write to the database.
     pub allow_negative_refcount: bool,
 }
@@ -27,7 +27,7 @@ pub struct TestDB {
     stats: RwLock<Option<StoreStatistics>>,
 
     // Flags to change the default behavior, for testing purposes.
-    flags: TestStoreFlags,
+    flags: TestDBFlags,
 }
 
 impl TestDB {
@@ -35,7 +35,7 @@ impl TestDB {
         Arc::new(Self::default())
     }
 
-    pub fn new_with_flags(flags: TestStoreFlags) -> Arc<TestDB> {
+    pub fn new_with_flags(flags: TestDBFlags) -> Arc<TestDB> {
         let mut this = Self::default();
         this.flags = flags;
         Arc::new(this)
