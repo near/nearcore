@@ -210,8 +210,10 @@ impl Client {
             }
 
             let current_epoch_id = *header.epoch_id();
-            let current_shard_id =
-                self.epoch_manager.get_prev_shard_id(&current_block_hash, next_shard_id)?.0;
+            let current_shard_id = self
+                .epoch_manager
+                .get_prev_shard_id_from_prev_hash(&current_block_hash, next_shard_id)?
+                .1;
             if current_shard_id != next_shard_id {
                 // If shard id changes, we need to get implicit state
                 // transition from current shard id to the next shard id.

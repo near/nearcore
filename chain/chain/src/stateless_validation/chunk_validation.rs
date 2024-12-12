@@ -208,10 +208,8 @@ fn get_state_witness_block_range(
         )? {
             implicit_transition_params.push(transition);
         }
-        let (prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id(prev_hash, position.shard_id)?;
-        let prev_shard_layout =
-            epoch_manager.get_shard_layout(&epoch_manager.get_epoch_id(prev_hash)?)?;
+        let (prev_shard_layout, prev_shard_id, prev_shard_index) =
+            epoch_manager.get_prev_shard_id_from_prev_hash(prev_hash, position.shard_id)?;
 
         let new_chunk_seen = block_has_new_chunk(&position.prev_block, prev_shard_index)?;
         let new_chunks_seen_update =
@@ -536,8 +534,9 @@ fn validate_source_receipt_proofs(
             receipts_to_apply.extend(proof.0.iter().cloned());
         }
 
-        current_target_shard_id =
-            epoch_manager.get_prev_shard_id(block.header().prev_hash(), current_target_shard_id)?.0;
+        current_target_shard_id = epoch_manager
+            .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), current_target_shard_id)?
+            .1;
     }
 
     // Check that there are no extraneous proofs in source_receipt_proofs.

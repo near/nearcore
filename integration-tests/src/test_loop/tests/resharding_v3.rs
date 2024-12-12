@@ -168,7 +168,7 @@ impl TestReshardingParameters {
     fn with_clients(num_clients: u64) -> Self {
         let num_accounts = 8;
         let initial_balance = 1_000_000 * ONE_NEAR;
-        let epoch_length = 6;
+        let epoch_length = 8;
         let track_all_shards = true;
         let all_chunks_expected = true;
 
