@@ -343,8 +343,16 @@ impl std::error::Error for ShardLayoutError {}
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
     pub fn single_shard() -> Self {
-        let shard_ids = vec![ShardId::new(0)];
-        Self::v2(vec![], shard_ids, None)
+        let shard_id = ShardId::new(0);
+        Self::V2(ShardLayoutV2 {
+            boundary_accounts: vec![],
+            shard_ids: vec![shard_id],
+            id_to_index_map: [(shard_id, 0)].into(),
+            index_to_id_map: [(0, shard_id)].into(),
+            shards_split_map: None,
+            shards_parent_map: None,
+            version: 0,
+        })
     }
 
     /// Creates a multi-shard ShardLayout using the most recent ShardLayout
