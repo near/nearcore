@@ -19,13 +19,14 @@ use crate::test_loop::utils::receipts::{
     ReceiptKind,
 };
 use crate::test_loop::utils::sharding::{
-    check_state_shard_uid_mapping_after_resharding, next_block_has_new_shard_layout,
-    print_and_assert_shard_accounts,
+    next_block_has_new_shard_layout, print_and_assert_shard_accounts,
 };
 use crate::test_loop::utils::transactions::{
     get_shared_block_hash, get_smallest_height_head, run_tx, store_and_submit_tx,
 };
-use crate::test_loop::utils::trie_sanity::TrieSanityCheck;
+use crate::test_loop::utils::trie_sanity::{
+    check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
+};
 use crate::test_loop::utils::{LoopActionFn, ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
 use near_client::client_actor::ClientActorInner;
