@@ -228,9 +228,6 @@ impl ReshardingManager {
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
             drop(mem_tries);
 
-            // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
-            // typing. Clarify where it should happen when `State` and
-            // `FlatState` update is implemented.
             let child_chunk_extra = self.get_child_chunk_extra(
                 block,
                 &tries,
@@ -282,6 +279,9 @@ impl ReshardingManager {
         parent_shard_uid: ShardUId,
         retain_mode: RetainMode,
     ) -> Result<ChunkExtra, Error> {
+        // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
+        // typing. Clarify where it should happen when `State` and
+        // `FlatState` update is implemented.
         let mut child_chunk_extra = ChunkExtra::clone(parent_chunk_extra);
         *child_chunk_extra.state_root_mut() = new_state_root;
 
@@ -343,15 +343,12 @@ impl ReshardingManager {
         for shard_id in shard_layout.shard_ids() {
             let receipt_groups = ReceiptGroupsQueue::load(&trie, shard_id)?;
             let Some(receipt_groups) = receipt_groups else {
-                tracing::info!(target: "boom", ?shard_id, "no receipt group found!");
                 continue;
             };
 
             let bytes = receipt_groups.total_size();
             let gas = receipt_groups.total_gas();
             let gas = gas.try_into().expect("ReceiptGroup gas must fit in u64");
-
-            tracing::info!(target: "boom", ?shard_id, ?bytes, ?gas, "new receipt group found!");
 
             smart_congestion_info
                 .remove_buffered_receipt_gas(gas)

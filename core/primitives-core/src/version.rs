@@ -348,3 +348,18 @@ macro_rules! checked_feature {
         }
     }};
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ProtocolFeature;
+
+    #[test]
+    fn test_resharding_dependencies() {
+        let state_sync = ProtocolFeature::CurrentEpochStateSync.protocol_version();
+        let bandwidth_scheduler = ProtocolFeature::BandwidthScheduler.protocol_version();
+        let resharding_v3 = ProtocolFeature::SimpleNightshadeV4.protocol_version();
+
+        assert!(state_sync < resharding_v3);
+        assert!(bandwidth_scheduler < resharding_v3);
+    }
+}
