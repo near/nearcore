@@ -13,6 +13,7 @@ use near_primitives::{types, views};
 
 use super::errors::FailedToFetchData;
 use super::INDEXER;
+use near_epoch_manager::shard_tracker::ShardTracker;
 
 pub(crate) async fn fetch_status(
     client: &Addr<near_client::ClientActor>,
@@ -161,12 +162,16 @@ async fn fetch_single_chunk(
 pub(crate) async fn fetch_block_chunks(
     client: &Addr<near_client::ViewClientActor>,
     block: &views::BlockView,
+    shard_tracker: &ShardTracker,
 ) -> Result<Vec<views::ChunkView>, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching chunks for block #{}", block.header.height);
     let mut futures: futures::stream::FuturesUnordered<_> = block
         .chunks
         .iter()
-        .filter(|chunk| chunk.height_included == block.header.height)
+        .filter(|chunk| {
+            shard_tracker.care_about_shard(None, &block.header.prev_hash, chunk.shard_id, false)
+                && chunk.height_included == block.header.height
+        })
         .map(|chunk| fetch_single_chunk(&client, chunk.chunk_hash))
         .collect();
     let mut chunks = Vec::<views::ChunkView>::with_capacity(futures.len());
