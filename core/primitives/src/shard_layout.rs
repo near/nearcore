@@ -582,7 +582,7 @@ impl ShardLayout {
         )
     }
 
-    /// Maps an account to the shard that it belongs to given a shard layout
+    /// Maps an account to the shard_id that it belongs to given a shard_layout
     /// For V0, maps according to hash of account id
     /// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -596,6 +596,11 @@ impl ShardLayout {
             ShardLayout::V1(v1) => v1.account_id_to_shard_id(account_id),
             ShardLayout::V2(v2) => v2.account_id_to_shard_id(account_id),
         }
+    }
+
+    /// Maps an account to the shard_uid that it belongs to given a shard_layout
+    pub fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId {
+        ShardUId::from_shard_id_and_layout(self.account_id_to_shard_id(account_id), self)
     }
 
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
@@ -850,14 +855,6 @@ fn validate_and_derive_shard_parent_map_v2(
         shards_parent_map.keys().copied().collect_vec()
     );
     shards_parent_map
-}
-
-/// Maps an account to the shard that it belongs to given a shard_layout
-pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardUId {
-    ShardUId::from_shard_id_and_layout(
-        shard_layout.account_id_to_shard_id(account_id),
-        shard_layout,
-    )
 }
 
 /// `ShardUId` is a unique representation for shards from different shard layouts.
