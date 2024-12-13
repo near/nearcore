@@ -1277,19 +1277,19 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         println!("State after resharding:");
         print_and_assert_shard_accounts(&clients, &tip);
         check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
-        return true;
+        return epoch_height >= 10;
     };
 
     test_loop.run_until(
         success_condition,
-        // Give enough time to produce ~7 epochs.
-        Duration::seconds((7 * params.epoch_length) as i64),
+        // Give enough time to produce ~20 epochs.
+        Duration::seconds((20 * params.epoch_length) as i64),
     );
     let client = &test_loop.data.get(&client_handles[0]).client;
     trie_sanity_check.check_epochs(client);
     // Wait for garbage collection to kick in, so that it is tested as well.
-    test_loop
-        .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
+    let gc_epochs = 2; // DEFAULT_GC_NUM_EPOCHS_TO_KEEP
+    test_loop.run_for(Duration::seconds((gc_epochs * params.epoch_length) as i64));
 
     TestLoopEnv { test_loop, datas: node_datas, tempdir }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
