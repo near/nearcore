@@ -50,7 +50,7 @@ near-store.workspace = true
 near-test-contracts.workspace = true
 near-vm-runner = { workspace = true, features = [ "near_vm", "prepare" ] }
 nearcore.workspace = true
-node-runtime.workspace = true
+node-runtime = { workspace = true, features = ["estimator"] }
 
 [dev-dependencies]
 insta.workspace = true

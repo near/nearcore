@@ -56,22 +56,19 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
         return Ok(());
     }
 
-    let mut done = true;
-    for (num_new_chunks, new_chunk) in num_new_chunks.iter_mut().zip(header.chunk_mask().iter()) {
-        // Only need to reach 2, so don't bother adding more than that
-        if *new_chunk && *num_new_chunks < 2 {
-            *num_new_chunks += 1;
-        }
-        if *num_new_chunks < 2 {
-            done = false;
-        }
-    }
+    let done = num_new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
     if done {
         // TODO(current_epoch_state_sync): this will not be correct if this block doesn't end up finalized on the main chain.
         // We should fix it by setting the sync hash when it's finalized, which requires making changes to how we take state snapshots.
         store_update.set_ser(DBCol::StateSyncHashes, header.epoch_id().as_ref(), header.hash())?;
         store_update.delete_all(DBCol::StateSyncNewChunks);
         return Ok(());
+    }
+    for (num_new_chunks, new_chunk) in num_new_chunks.iter_mut().zip(header.chunk_mask().iter()) {
+        // Only need to reach 2, so don't bother adding more than that
+        if *new_chunk && *num_new_chunks < 2 {
+            *num_new_chunks += 1;
+        }
     }
 
     store_update.set_ser(DBCol::StateSyncNewChunks, header.hash().as_ref(), &num_new_chunks)?;
@@ -115,7 +112,6 @@ fn remove_old_blocks<T: ChainStoreAccess>(
         Err(Error::DBNotFoundErr(_)) => return Ok(()),
         Err(e) => return Err(e),
     };
-
     for block_hash in iter_state_sync_new_chunks_keys(chain_store.store()) {
         let block_hash = block_hash?;
         let old_header = chain_store.get_block_header(&block_hash)?;

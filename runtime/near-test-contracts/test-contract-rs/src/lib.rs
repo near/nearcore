@@ -1648,6 +1648,9 @@ pub unsafe fn generate_large_receipt() {
     }
 }
 
+/// Produces a function_call receipt to another account with the given method
+/// and arguments of the given size. Used to send large receipts between shards.
+/// Attaches only 1 Gas to the receipt to minimize congestion.
 #[unsafe(no_mangle)]
 pub unsafe fn do_function_call_with_args_of_size() {
     input(0);
@@ -1659,8 +1662,8 @@ pub unsafe fn do_function_call_with_args_of_size() {
     let args_size = input_args["args_size"].as_u64().unwrap();
     let args = vec![0u8; args_size as usize];
     let amount = 0u128;
-    let gas_fixed = 0;
-    let gas_weight = 1;
+    let gas_fixed = 1; // Attach only 1 Gas to the receipt to keep congestion low
+    let gas_weight = 0;
     let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
     promise_batch_action_function_call_weight(
         promise_idx,
