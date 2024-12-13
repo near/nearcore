@@ -6,7 +6,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
@@ -152,6 +152,7 @@ fn apply_block_from_range(
                 &shard_layout,
                 block_hash,
                 prev_block.chunks()[shard_index].height_included(),
+                ReceiptFilter::TargetShard,
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);

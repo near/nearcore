@@ -63,6 +63,18 @@ pub use merkle_proof::MerkleProofAccess;
 const CACHE_SIZE: usize = 1;
 const CHUNK_CACHE_SIZE: usize = 1;
 
+/// Filter receipts mode for incoming receipts collection.
+pub enum ReceiptFilter {
+    /// Leave receipts unchanged. Needed for receipt proof generation, because
+    /// even if we filter some receipts out, they still must be proven based on
+    /// the original incoming receipts set.
+    All,
+    /// Leave only receipts which receiver id belongs to the target shard.
+    /// Is non-trivial when shard layout changes and receipt was sent before
+    /// the change, so that target shard must be recomputed.
+    TargetShard,
+}
+
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
 pub trait ChainStoreAccess {
     /// Returns underlying chain store
@@ -201,9 +213,11 @@ pub trait ChainStoreAccess {
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
 
     /// Collect incoming receipts for shard `shard_id` from
-    /// the block at height `last_chunk_height_included` (non-inclusive) to the block `block_hash` (inclusive)
-    /// This is because the chunks for the shard are empty for the blocks in between,
-    /// so the receipts from these blocks are propagated
+    /// the block at height `last_chunk_height_included` (non-inclusive) to the
+    /// block `block_hash` (inclusive), leaving only receipts based on the
+    /// `receipts_filter`.
+    /// This is needed because for every empty chunk for the blocks in between,
+    /// receipts from other shards from these blocks still must be propagated.
     fn get_incoming_receipts_for_shard(
         &self,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -211,6 +225,7 @@ pub trait ChainStoreAccess {
         target_shard_layout: &ShardLayout,
         block_hash: CryptoHash,
         last_chunk_height_included: BlockHeight,
+        receipts_filter: ReceiptFilter,
     ) -> Result<Vec<ReceiptProofResponse>, Error> {
         let _span =
             tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, ?block_hash, last_chunk_height_included).entered();
@@ -249,27 +264,15 @@ pub trait ChainStoreAccess {
                 current_shard_layout = prev_shard_layout;
             }
 
-            let receipts_proofs = self.get_incoming_receipts(&current_block_hash, current_shard_id);
-            match receipts_proofs {
-                Ok(receipt_proofs) => {
+            let maybe_receipts_proofs =
+                self.get_incoming_receipts(&current_block_hash, current_shard_id);
+            let receipts_proofs = match maybe_receipts_proofs {
+                Ok(receipts_proofs) => {
                     tracing::debug!(
                         target: "chain",
                         "found receipts from block with missing chunks",
                     );
-
-                    // If the shard layout changed we need to filter receipts to
-                    // make sure we only include receipts where receiver belongs
-                    // to the target shard id in the target shard layout.
-                    let filtered_receipt_proofs = filter_incoming_receipts_for_shard(
-                        target_shard_layout,
-                        target_shard_id,
-                        receipt_proofs,
-                    );
-
-                    ret.push(ReceiptProofResponse(
-                        current_block_hash,
-                        filtered_receipt_proofs.into(),
-                    ));
+                    receipts_proofs
                 }
                 Err(err) => {
                     tracing::debug!(
@@ -283,10 +286,20 @@ pub trait ChainStoreAccess {
                     // incoming receipts. It would be nicer to explicitly check
                     // that condition rather than relying on errors when reading
                     // from the db.
-                    ret.push(ReceiptProofResponse(current_block_hash, Arc::new(vec![])));
+                    Arc::new(vec![])
                 }
-            }
+            };
 
+            let filtered_receipt_proofs = match receipts_filter {
+                ReceiptFilter::All => receipts_proofs,
+                ReceiptFilter::TargetShard => Arc::new(filter_incoming_receipts_for_shard(
+                    &target_shard_layout,
+                    target_shard_id,
+                    receipts_proofs,
+                )),
+            };
+
+            ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));
             current_block_hash = *prev_hash;
         }
 
@@ -364,7 +377,7 @@ pub trait ChainStoreAccess {
 /// Given a vector of receipts return only the receipts that should be assigned
 /// to the target shard id in the target shard layout. Used when collecting the
 /// incoming receipts and the shard layout changed.
-fn filter_incoming_receipts_for_shard(
+pub fn filter_incoming_receipts_for_shard(
     target_shard_layout: &ShardLayout,
     target_shard_id: ShardId,
     receipt_proofs: Arc<Vec<ReceiptProof>>,
@@ -383,8 +396,6 @@ fn filter_incoming_receipts_for_shard(
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "excluding receipt");
             }
         }
-        // TODO(resharding) adjust the shard proof accordingly
-        // currently this only matters for state sync
         let receipt_proof = ReceiptProof(filtered_receipts, shard_proof);
         filtered_receipt_proofs.push(receipt_proof);
     }
@@ -577,8 +588,7 @@ impl ChainStore {
         }
     }
 
-    /// TODO validate if this logic works for Resharding V3.
-    fn reassign_outgoing_receipts_for_resharding(
+    pub fn reassign_outgoing_receipts_for_resharding(
         receipts: &mut Vec<Receipt>,
         protocol_version: ProtocolVersion,
         shard_layout: &ShardLayout,

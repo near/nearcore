@@ -616,17 +616,17 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(prev_shard_ids)
     }
 
-    fn get_prev_shard_id(
+    fn get_prev_shard_id_from_prev_hash(
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardId, ShardIndex), Error> {
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         // This is not correct if there was a resharding event in between
         // the previous and current block.
         let prev_shard_id = shard_id;
         let prev_shard_index = shard_layout.get_shard_index(prev_shard_id)?;
-        Ok((prev_shard_id, prev_shard_index))
+        Ok((shard_layout, prev_shard_id, prev_shard_index))
     }
 
     fn get_shard_layout_from_prev_block(

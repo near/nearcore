@@ -152,11 +152,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// If there was no resharding, it just returns the `shard_id` as is, without any validation.
     ///
     /// TODO(wacban) - rename to reflect the new return type
-    fn get_prev_shard_id(
+    fn get_prev_shard_id_from_prev_hash(
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardId, ShardIndex), Error>;
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error>;
 
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
@@ -641,11 +641,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
-    fn get_prev_shard_id(
+    fn get_prev_shard_id_from_prev_hash(
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardId, ShardIndex), Error> {
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
         let is_resharding_boundary =
@@ -654,10 +654,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         if is_resharding_boundary {
             let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
             let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
-            Ok((parent_shard_id, parent_shard_index))
+            Ok((prev_shard_layout, parent_shard_id, parent_shard_index))
         } else {
             let shard_index = shard_layout.get_shard_index(shard_id)?;
-            Ok((shard_id, shard_index))
+            Ok((shard_layout, shard_id, shard_index))
         }
     }
 
