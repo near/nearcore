@@ -426,7 +426,7 @@ impl ForkNetworkCommand {
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
         let storage_mutator =
-            StorageMutator::new(epoch_manager.clone(), &runtime, epoch_id, prev_state_roots)?;
+            StorageMutator::new(epoch_manager, &runtime, epoch_id, prev_state_roots)?;
         let (new_state_roots, new_validator_accounts) =
             self.add_validator_accounts(validators, runtime_config, home_dir, storage_mutator)?;
 
@@ -440,10 +440,8 @@ impl ForkNetworkCommand {
             block_height,
             chain_id_suffix,
             chain_id,
-            &epoch_id,
             new_state_roots.clone(),
             new_validator_accounts.clone(),
-            epoch_manager,
             home_dir,
             near_config,
         )?;
@@ -533,6 +531,8 @@ impl ForkNetworkCommand {
         return Ok(());
     }
 
+    /// Creates epoch config overrides since `first_version` and places them
+    /// in `home_dir`.
     fn override_epoch_configs(
         &self,
         first_version: ProtocolVersion,
@@ -551,7 +551,8 @@ impl ForkNetworkCommand {
         let base_epoch_config_store =
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
-        let mut new_epoch_configs = BTreeMap::<u32, EpochConfig>::new();
+
+        let mut new_epoch_configs = BTreeMap::new();
         for version in first_version..=PROTOCOL_VERSION {
             let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
             if let Some(num_seats) = num_seats {
@@ -562,21 +563,17 @@ impl ForkNetworkCommand {
             config.block_producer_kickout_threshold = 0;
             config.chunk_producer_kickout_threshold = 0;
             config.chunk_validator_only_kickout_threshold = 0;
-            new_epoch_configs.insert(version, config);
+            if version == PROTOCOL_VERSION {
+                config.shard_layout = ShardLayout::derive_shard_layout(
+                    &config.shard_layout,
+                    new_boundary_account.clone(),
+                );
+            }
+            new_epoch_configs.insert(version, Arc::new(config));
         }
-        let first_config = new_epoch_configs.get(&first_version).unwrap().clone();
-        let latest_config = new_epoch_configs.get_mut(&PROTOCOL_VERSION).unwrap();
-        latest_config.shard_layout = ShardLayout::derive_shard_layout(
-            &latest_config.shard_layout,
-            new_boundary_account.clone(),
-        );
+        let first_config = new_epoch_configs.get(&first_version).unwrap().as_ref().clone();
 
-        let new_arc_epoch_configs = new_epoch_configs
-            .into_iter()
-            .map(|(version, config)| (version, Arc::new(config)))
-            .collect();
-        let epoch_config_store = EpochConfigStore::test(new_arc_epoch_configs);
-
+        let epoch_config_store = EpochConfigStore::test(new_epoch_configs);
         epoch_config_store.dump_epoch_configs_between(
             &first_version,
             &PROTOCOL_VERSION,
@@ -887,10 +884,8 @@ impl ForkNetworkCommand {
         height: BlockHeight,
         chain_id_suffix: &str,
         chain_id: &Option<String>,
-        epoch_id: &EpochId,
         new_state_roots: Vec<StateRoot>,
         new_validator_accounts: Vec<AccountInfo>,
-        epoch_manager: Arc<EpochManagerHandle>,
         home_dir: &Path,
         near_config: &mut NearConfig,
     ) -> anyhow::Result<()> {
@@ -939,15 +934,10 @@ impl ForkNetworkCommand {
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
             shard_layout: epoch_config.shard_layout.clone(),
-            num_chunk_only_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_only_producer_seats,
-            minimum_validators_per_shard: epoch_config
-                .validator_selection_config
-                .minimum_validators_per_shard,
-            minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
+            minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
-                .validator_selection_config
                 .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
             protocol_version: genesis_protocol_version,
@@ -963,14 +953,9 @@ impl ForkNetworkCommand {
             total_supply: original_config.total_supply,
             transaction_validity_period: original_config.transaction_validity_period,
             use_production_config: original_config.use_production_config,
-            num_chunk_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_producer_seats,
-            num_chunk_validator_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_validator_seats,
+            num_chunk_producer_seats: epoch_config.num_chunk_producer_seats,
+            num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
             chunk_producer_assignment_changes_limit: epoch_config
-                .validator_selection_config
                 .chunk_producer_assignment_changes_limit,
         };
 

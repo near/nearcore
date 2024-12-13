@@ -905,8 +905,8 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let (prev_shard_id, prev_shard_index) =
-            self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        let (_, prev_shard_id, prev_shard_index) =
+            self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
         let last_chunk_header =
             prev_block.chunks().get(prev_shard_index).cloned().ok_or_else(|| {
                 Error::ChunkProducer(format!(

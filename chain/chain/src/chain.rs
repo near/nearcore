@@ -15,14 +15,17 @@ use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::signature_verification::{
-    verify_block_vrf, verify_chunk_header_signature_with_epoch_manager,
+    verify_block_header_signature_with_epoch_manager, verify_block_vrf,
+    verify_chunk_header_signature_with_epoch_manager,
 };
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess};
+use crate::store::{
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
+};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
     StorageDataSource,
@@ -956,7 +959,7 @@ impl Chain {
         }
 
         // Check the signature.
-        if !self.epoch_manager.verify_header_signature(header)? {
+        if !verify_block_header_signature_with_epoch_manager(self.epoch_manager.as_ref(), header)? {
             return Err(Error::InvalidSignature);
         }
 
@@ -1180,7 +1183,10 @@ impl Chain {
 
         // Verify the signature. Since the signature is signed on the hash of block header, this check
         // makes sure the block header content is not tampered
-        if !self.epoch_manager.verify_header_signature(block.header())? {
+        if !verify_block_header_signature_with_epoch_manager(
+            self.epoch_manager.as_ref(),
+            block.header(),
+        )? {
             tracing::error!("wrong signature");
             return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
         }
@@ -2572,7 +2578,7 @@ impl Chain {
         // block of an epoch, or the first block where there have been two new chunks in the epoch
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
 
-        let shard_layout = self.epoch_manager.get_shard_layout(&sync_block_epoch_id)?;
+        let shard_layout = self.epoch_manager.get_shard_layout(sync_block_epoch_id)?;
         let prev_epoch_id = sync_prev_block.header().epoch_id();
         let prev_shard_layout = self.epoch_manager.get_shard_layout(&prev_epoch_id)?;
         let prev_shard_index = prev_shard_layout.get_shard_index(shard_id)?;
@@ -2647,6 +2653,7 @@ impl Chain {
             &shard_layout,
             sync_hash,
             prev_chunk_height_included,
+            ReceiptFilter::All,
         )?;
 
         // Collecting proofs for incoming receipts.
@@ -3792,6 +3799,7 @@ impl Chain {
                     &shard_layout,
                     *prev_hash,
                     prev_chunk_height_included,
+                    ReceiptFilter::TargetShard,
                 )?;
                 let old_receipts = collect_receipts_from_response(old_receipts);
                 let receipts = [new_receipts, old_receipts].concat();
@@ -4392,8 +4400,8 @@ impl Chain {
         prev_block: &Block,
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
-        let (prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        let (_, prev_shard_id, prev_shard_index) =
+            epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
         Ok(prev_block
             .chunks()
             .get(prev_shard_index)

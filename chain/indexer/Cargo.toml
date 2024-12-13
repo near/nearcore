@@ -25,8 +25,9 @@ nearcore.workspace = true
 near-client.workspace = true
 near-chain-configs.workspace = true
 near-config-utils.workspace = true
-near-dyn-configs.workspace = true
 near-crypto.workspace = true
+near-dyn-configs.workspace = true
+near-epoch-manager.workspace = true
 near-indexer-primitives.workspace = true
 near-o11y.workspace = true
 near-parameters.workspace = true
@@ -39,6 +40,7 @@ nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-client/nightly_protocol",
   "near-dyn-configs/nightly_protocol",
+  "near-epoch-manager/nightly_protocol",
   "near-indexer-primitives/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-parameters/nightly_protocol",
@@ -52,6 +54,7 @@ nightly = [
   "near-chain-configs/nightly",
   "near-client/nightly",
   "near-dyn-configs/nightly",
+  "near-epoch-manager/nightly",
   "near-indexer-primitives/nightly",
   "near-o11y/nightly",
   "near-parameters/nightly",

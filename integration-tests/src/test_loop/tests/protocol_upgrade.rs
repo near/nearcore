@@ -2,14 +2,15 @@ use aurora_engine_types::BTreeSet;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
+};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::ShardUId;
 use near_vm_runner::logic::ProtocolVersion;
 
 use std::cell::{Cell, RefCell};
@@ -27,7 +28,7 @@ use crate::test_loop::utils::ONE_NEAR;
 pub(crate) fn test_protocol_upgrade(
     old_protocol: ProtocolVersion,
     new_protocol: ProtocolVersion,
-    missing_chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
+    chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
 ) {
     init_test_logger();
 
@@ -57,22 +58,24 @@ pub(crate) fn test_protocol_upgrade(
 
     let producers = producers.iter().map(|account| account.as_str()).collect_vec();
     let validators = validators.iter().map(|account| account.as_str()).collect_vec();
+    let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
     let [_rpc_id] = rpcs else { panic!("Expected exactly one rpc node") };
 
     let builder = TestLoopBuilder::new();
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .protocol_version(old_protocol)
         .genesis_time_from_clock(&builder.clock())
         .genesis_height(10000)
         .shard_layout(shard_layout.clone())
         .epoch_length(epoch_length)
-        .validators_desired_roles(&producers, &validators);
-    for account in accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, genesis_epoch_config_store) = genesis_builder.build();
-    let genesis_epoch_info = genesis_epoch_config_store.get_config(old_protocol);
+        .validators_spec(validators_spec.clone())
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
+    let genesis_epoch_info = TestEpochConfigBuilder::new()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout.clone())
+        .validators_spec(validators_spec)
+        .build();
 
     let mainnet_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let mut old_epoch_config: EpochConfig =
@@ -85,12 +88,10 @@ pub(crate) fn test_protocol_upgrade(
         config.epoch_length = epoch_length;
         config.shard_layout = shard_layout.clone();
         config.num_block_producer_seats = genesis_epoch_info.num_block_producer_seats;
-        config.validator_selection_config.num_chunk_producer_seats =
-            genesis_epoch_info.validator_selection_config.num_chunk_producer_seats;
-        config.validator_selection_config.num_chunk_validator_seats =
-            genesis_epoch_info.validator_selection_config.num_chunk_validator_seats;
+        config.num_chunk_producer_seats = genesis_epoch_info.num_chunk_producer_seats;
+        config.num_chunk_validator_seats = genesis_epoch_info.num_chunk_validator_seats;
 
-        if !missing_chunk_ranges.is_empty() {
+        if !chunk_ranges_to_drop.is_empty() {
             config.block_producer_kickout_threshold = 0;
             config.chunk_producer_kickout_threshold = 0;
             config.chunk_validator_only_kickout_threshold = 0;
@@ -107,21 +108,11 @@ pub(crate) fn test_protocol_upgrade(
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    // Translate shard ids to shard uids
-    let chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>> = missing_chunk_ranges
-        .iter()
-        .map(|(&shard_index, range)| {
-            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let shard_uid = ShardUId::new(shard_layout.version(), shard_id);
-            (shard_uid, range.clone())
-        })
-        .collect();
-
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
-        .drop_protocol_upgrade_chunks(new_protocol, chunk_ranges_to_drop)
+        .drop_protocol_upgrade_chunks(new_protocol, chunk_ranges_to_drop.clone())
         .clients(clients)
         .build();
 
@@ -189,7 +180,7 @@ pub(crate) fn test_protocol_upgrade(
     // Validate that the correct chunks were missing
     let upgraded_epoch_start = first_new_protocol_height.get().unwrap();
     let mut expected_missing_chunks = BTreeMap::new();
-    for (shard_index, missing_range) in &missing_chunk_ranges {
+    for (shard_index, missing_range) in &chunk_ranges_to_drop {
         let shard_id = shard_layout.get_shard_id(*shard_index).unwrap();
         let missing_heights: Vec<BlockHeight> = missing_range
             .clone()

@@ -9,6 +9,7 @@ pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
 pub use store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo, MerkleProofAccess,
+    ReceiptFilter,
 };
 pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, LatestKnown, Provenance};
