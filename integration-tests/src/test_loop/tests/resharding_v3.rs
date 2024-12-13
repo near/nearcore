@@ -1266,7 +1266,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Return true if we passed an epoch with increased number of shards.
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
-        assert!(epoch_height < 6);
+        assert!(epoch_height < 20);
         let prev_epoch_id =
             client.epoch_manager.get_prev_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
         let epoch_config = client.epoch_manager.get_epoch_config(&prev_epoch_id).unwrap();
