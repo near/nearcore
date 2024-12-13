@@ -268,12 +268,18 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            // CurrentEpochStateSync must be enabled before ReshardingV3! When
+            // releasing this feature please make sure to schedule separate
+            // protocol upgrades for those features!
             ProtocolFeature::CurrentEpochStateSync => 144,
-            ProtocolFeature::SimpleNightshadeV4 => 145,
+            // BandwidthScheduler must be enabled before ReshardingV3! When
+            // releasing this feature please make sure to schedule separate
+            // protocol upgrades for those features!
+            ProtocolFeature::BandwidthScheduler => 145,
+            ProtocolFeature::SimpleNightshadeV4 => 146,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
-            ProtocolFeature::RelaxedChunkValidation => 146,
-            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
-            ProtocolFeature::BandwidthScheduler => 148,
+            ProtocolFeature::RelaxedChunkValidation => 147,
+            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.
         }
