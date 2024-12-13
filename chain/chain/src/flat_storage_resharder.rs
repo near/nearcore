@@ -61,8 +61,7 @@ use std::iter;
 ///   [FlatStorageResharderController].
 ///     - In the case of event `Split` the state of flat storage will go back to what it was
 ///       previously.
-///     - Children shard catchup is a consequence of splitting a shard, not a resharding event on
-///       its own. As such, it can't be manually cancelled.
+///     - Children shard catchup can be cancelled and will resume from the point where it left.
 /// - Resilience to chain forks.
 ///     - Resharding events will perform changes on the state only after their resharding block
 ///       becomes final.  
@@ -652,6 +651,7 @@ impl FlatStorageResharder {
         };
 
         loop {
+            // TODO:(resharding): check self.controller.is_cancelled() here as well.
             let _span = tracing::debug_span!(
                 target: "resharding",
                 "shard_catchup_apply_deltas/batch",
