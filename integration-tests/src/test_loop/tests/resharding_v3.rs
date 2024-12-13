@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
+use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
@@ -32,9 +32,8 @@ use crate::test_loop::utils::transactions::{
 use crate::test_loop::utils::trie_sanity::{
     check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
 };
-use crate::test_loop::utils::{LoopActionFn, ONE_NEAR, TGAS};
+use crate::test_loop::utils::{retrieve_client_actor, LoopActionFn, ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
-use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
 use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::test_utils::create_user_test_signer;
@@ -45,18 +44,27 @@ use near_primitives::views::FinalExecutionStatus;
 #[builder(pattern = "owned", build_fn(skip))]
 #[allow(unused)]
 struct TestReshardingParameters {
-    chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
+    base_shard_layout_version: u64,
     num_accounts: u64,
     num_clients: u64,
+    num_producers: u64,
+    num_validators: u64,
+    num_rpcs: u64,
     #[builder(setter(skip))]
     accounts: Vec<AccountId>,
     #[builder(setter(skip))]
     clients: Vec<AccountId>,
-    base_shard_layout_version: u64,
     #[builder(setter(skip))]
-    block_and_chunk_producers: Vec<AccountId>,
+    producers: Vec<AccountId>,
+    #[builder(setter(skip))]
+    validators: Vec<AccountId>,
+    #[builder(setter(skip))]
+    rpcs: Vec<AccountId>,
+    #[builder(setter(skip))]
+    rpc_client_index: Option<usize>,
     initial_balance: u128,
     epoch_length: BlockHeightDelta,
+    chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
     load_mem_tries_for_tracked_shards: bool,
@@ -85,14 +93,18 @@ struct TestReshardingParameters {
 
 impl TestReshardingParametersBuilder {
     fn build(self) -> TestReshardingParameters {
-        let num_accounts = self.num_accounts.unwrap_or(8);
-        let num_clients = self.num_clients.unwrap_or(3);
         let epoch_length = self.epoch_length.unwrap_or(6);
 
-        // #12195 prevents number of BPs bigger than `epoch_length`.
-        assert!(num_clients > 0 && num_clients <= epoch_length);
+        let num_accounts = self.num_accounts.unwrap_or(8);
+        let num_clients = self.num_clients.unwrap_or(6);
+        let num_producers = self.num_producers.unwrap_or(3);
+        let num_validators = self.num_validators.unwrap_or(2);
+        let num_rpcs = self.num_rpcs.unwrap_or(1);
 
-        let accounts = Self::compute_initial_accounts(num_accounts);
+        // #12195 prevents number of BPs bigger than `epoch_length`.
+        assert!(num_producers > 0 && num_producers <= epoch_length);
+
+        let accounts: Vec<AccountId> = Self::compute_initial_accounts(num_accounts);
 
         // This piece of code creates `num_clients` from `accounts`. First client is at index 0 and
         // other clients are spaced in the accounts' space as evenly as possible.
@@ -112,27 +124,53 @@ impl TestReshardingParametersBuilder {
             .cloned()
             .collect();
 
-        let block_and_chunk_producers = clients.clone();
+        // Split the clients into producers, validators, and rpc nodes.
+        let tmp = clients.clone();
+        let (producers, tmp) = tmp.split_at(num_producers as usize);
+        let producers = producers.to_vec();
+        let (validators, tmp) = if num_validators > 0 {
+            let (validators, tmp) = tmp.split_at(num_validators as usize);
+            (validators.to_vec(), tmp)
+        } else {
+            (vec![], tmp)
+        };
+        let (rpcs, rpc_client_index) = if num_rpcs > 0 {
+            let (rpcs, _) = tmp.split_at(num_rpcs as usize);
+            (rpcs.to_vec(), Some(num_producers as usize + num_validators as usize))
+        } else {
+            (vec![], None)
+        };
+
+        println!("Clients setup:");
+        println!("Producers: {producers:?}");
+        println!("Validators: {validators:?}");
+        println!("Rpcs: {rpcs:?}, first RPC node uses client at index: {rpc_client_index:?}");
 
         TestReshardingParameters {
-            chunk_ranges_to_drop: self.chunk_ranges_to_drop.unwrap_or_default(),
+            base_shard_layout_version: self.base_shard_layout_version.unwrap_or(2),
             num_accounts,
             num_clients,
+            num_producers,
+            num_validators,
+            num_rpcs,
             accounts,
             clients,
-            base_shard_layout_version: self.base_shard_layout_version.unwrap_or(2),
-            block_and_chunk_producers,
+            producers,
+            validators,
+            rpcs,
+            rpc_client_index,
             initial_balance: self.initial_balance.unwrap_or(1_000_000 * ONE_NEAR),
             epoch_length,
+            chunk_ranges_to_drop: self.chunk_ranges_to_drop.unwrap_or_default(),
             shuffle_shard_assignment_for_chunk_producers: self
                 .shuffle_shard_assignment_for_chunk_producers
                 .unwrap_or(false),
-            track_all_shards: self.track_all_shards.unwrap_or(true),
+            track_all_shards: self.track_all_shards.unwrap_or(false),
             load_mem_tries_for_tracked_shards: self
                 .load_mem_tries_for_tracked_shards
                 .unwrap_or(true),
             loop_actions: self.loop_actions.unwrap_or_default(),
-            all_chunks_expected: self.all_chunks_expected.unwrap_or(true),
+            all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
@@ -161,19 +199,20 @@ impl TestReshardingParametersBuilder {
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
 fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
+    use crate::test_loop::utils::retrieve_client_actor;
     use near_client::client_actor::AdvProduceBlockHeightSelection;
 
     let done = Cell::new(false);
     Box::new(
-        move |_: &[TestData],
+        move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
+              client_account_id: AccountId| {
             // It must happen only for the first resharding block encountered.
             if done.get() {
                 return;
             }
-
-            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
 
             // If there's a new shard layout force a chain fork.
@@ -202,16 +241,15 @@ fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
     const NUM_TRANSFERS_PER_BLOCK: usize = 20;
 
     let latest_height = Cell::new(0);
-    // TODO: to be fixed when all shard tracking gets disabled.
-    let rpc_id: AccountId = "account0".parse().unwrap();
     let seed = rand::thread_rng().gen::<u64>();
     println!("Random seed: {}", seed);
 
     Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
 
             // Run this action only once at every block height.
@@ -247,7 +285,7 @@ fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
                     amount,
                     anchor_hash,
                 );
-                submit_tx(&node_datas, &rpc_id, tx);
+                submit_tx(&node_datas, &client_account_id, tx);
             }
         },
     )
@@ -271,14 +309,13 @@ fn call_burn_gas_contract(
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
-    // TODO: to be fixed when all shard tracking gets disabled.
-    let rpc_id: AccountId = "account0".parse().unwrap();
 
     Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
 
             // Run this action only once at every block height.
@@ -333,7 +370,7 @@ fn call_burn_gas_contract(
                     );
                     store_and_submit_tx(
                         &node_datas,
-                        &rpc_id,
+                        &client_account_id,
                         &txs,
                         &signer_id,
                         &receiver_id,
@@ -360,8 +397,6 @@ fn call_promise_yield(
     let resharding_height: Cell<Option<u64>> = Cell::new(None);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
-    // TODO: to be fixed when all shard tracking gets disabled.
-    let rpc_id: AccountId = "account0".parse().unwrap();
     let promise_txs_sent = Cell::new(false);
     let nonce = Cell::new(102);
     let yield_payload = vec![];
@@ -369,8 +404,9 @@ fn call_promise_yield(
     Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
 
             // Run this action only once at every block height.
@@ -403,7 +439,7 @@ fn call_promise_yield(
                         );
                         store_and_submit_tx(
                             &node_datas,
-                            &rpc_id,
+                            &client_account_id,
                             &txs,
                             &signer_id,
                             &receiver_id,
@@ -460,7 +496,7 @@ fn call_promise_yield(
                         );
                         store_and_submit_tx(
                             &node_datas,
-                            &rpc_id,
+                            &client_account_id,
                             &txs,
                             &signer_id,
                             &receiver_id,
@@ -494,14 +530,6 @@ fn get_base_shard_layout(version: u64) -> ShardLayout {
 }
 
 /// Base setup to check sanity of Resharding V3.
-/// TODO(#11881): add the following scenarios:
-/// - Nodes must not track all shards. State sync must succeed.
-/// - Set up chunk validator-only nodes. State witness must pass validation.
-/// - Consistent tx load. All txs must succeed.
-/// - Delayed receipts, congestion control computation.
-/// - Cross-shard receipts of all kinds, crossing resharding boundary.
-/// - Shard layout v2 -> v2 transition.
-/// - Shard layout can be taken from mainnet.
 fn test_resharding_v3_base(params: TestReshardingParameters) {
     if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
         return;
@@ -522,6 +550,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let base_protocol_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
     let mut base_epoch_config =
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
+    base_epoch_config.num_block_producer_seats = params.num_producers;
+    base_epoch_config.num_chunk_producer_seats = params.num_producers;
+    base_epoch_config.num_chunk_validator_seats = params.num_producers + params.num_validators;
     base_epoch_config.shuffle_shard_assignment_for_chunk_producers =
         params.shuffle_shard_assignment_for_chunk_producers;
     if !params.chunk_ranges_to_drop.is_empty() {
@@ -552,12 +583,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .protocol_version(base_protocol_version)
         .epoch_length(params.epoch_length)
         .validators_spec(ValidatorsSpec::desired_roles(
-            &params
-                .block_and_chunk_producers
-                .iter()
-                .map(|account_id| account_id.as_str())
-                .collect_vec(),
-            &[],
+            &params.producers.iter().map(|account_id| account_id.as_str()).collect_vec(),
+            &params.validators.iter().map(|account_id| account_id.as_str()).collect_vec(),
         ))
         .add_user_accounts_simple(&params.accounts, params.initial_balance)
         .build();
@@ -590,7 +617,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
-        .clients(params.clients)
+        .clients(params.clients.clone())
         .load_mem_tries_for_tracked_shards(params.load_mem_tries_for_tracked_shards)
         .drop_protocol_upgrade_chunks(
             base_protocol_version + 1,
@@ -628,17 +655,20 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         client_handles.iter().map(|handle| &test_loop.data.get(handle).client).collect_vec();
     let mut trie_sanity_check =
         TrieSanityCheck::new(&clients, params.load_mem_tries_for_tracked_shards);
+    // Try to use an RPC client, if available. Otherwise fallback to the client with the lowest index.
+    let client_index = params.rpc_client_index.unwrap_or(0);
+    let client_account_id = params.rpcs.get(0).unwrap_or_else(|| &params.clients[0]).clone();
 
     let latest_block_height = std::cell::Cell::new(0u64);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         params
             .loop_actions
             .iter()
-            .for_each(|action| action(&node_datas, test_loop_data, client_handles[0].clone()));
+            .for_each(|action| action(&node_datas, test_loop_data, client_account_id.clone()));
 
         let clients =
             client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
-        let client = &clients[0];
+        let client: &&near_client::Client = &clients[client_index];
 
         let tip = get_smallest_height_head(&clients);
 
@@ -678,7 +708,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         // Give enough time to produce ~7 epochs.
         Duration::seconds((7 * params.epoch_length) as i64),
     );
-    let client = &test_loop.data.get(&client_handles[0]).client;
+    let client = &test_loop.data.get(&client_handles[client_index]).client;
     trie_sanity_check.check_epochs(client);
     // Wait for garbage collection to kick in, so that it is tested as well.
     test_loop
@@ -691,6 +721,16 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 #[test]
 fn test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
+}
+
+#[test]
+fn test_resharding_v3_track_all_shards() {
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .track_all_shards(true)
+            .all_chunks_expected(true)
+            .build(),
+    );
 }
 
 #[test]
@@ -741,6 +781,9 @@ fn test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .num_clients(1)
+            .num_producers(1)
+            .num_validators(0)
+            .num_rpcs(0)
             .add_loop_action(fork_before_resharding_block(false))
             .build(),
     );
@@ -756,6 +799,9 @@ fn test_resharding_v3_double_sign_resharding_block() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .num_clients(1)
+            .num_producers(1)
+            .num_validators(0)
+            .num_rpcs(0)
             .add_loop_action(fork_before_resharding_block(true))
             .build(),
     );
@@ -765,8 +811,6 @@ fn test_resharding_v3_double_sign_resharding_block() {
 fn test_resharding_v3_shard_shuffling() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .track_all_shards(false)
-        .all_chunks_expected(false)
         .build();
     test_resharding_v3_base(params);
 }
@@ -778,8 +822,6 @@ fn test_resharding_v3_shard_shuffling_intense() {
         .num_accounts(8)
         .epoch_length(8)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .track_all_shards(false)
-        .all_chunks_expected(false)
         .chunk_ranges_to_drop(chunk_ranges_to_drop)
         .add_loop_action(execute_money_transfers(
             TestReshardingParametersBuilder::compute_initial_accounts(8),
@@ -804,6 +846,9 @@ fn test_resharding_v3_delayed_receipts_left_child() {
             ReceiptKind::Delayed,
         ))
         .allow_negative_refcount(true)
+        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
+        .num_rpcs(0)
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -824,6 +869,9 @@ fn test_resharding_v3_delayed_receipts_right_child() {
             ReceiptKind::Delayed,
         ))
         .allow_negative_refcount(true)
+        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
+        .num_rpcs(0)
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -850,6 +898,9 @@ fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_vers
             vec![account_in_left_child],
             ReceiptKind::Buffered,
         ))
+        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
+        .num_rpcs(0)
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -937,6 +988,9 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
             vec![receiver_account],
             5 * TGAS,
         ))
+        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
+        .num_rpcs(0)
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -946,6 +1000,8 @@ fn test_resharding_v3_load_mem_trie_v1() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(1)
         .load_mem_tries_for_tracked_shards(false)
+        // TODO(resharding): should it work without tracking all shards?
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -955,6 +1011,8 @@ fn test_resharding_v3_load_mem_trie_v2() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(2)
         .load_mem_tries_for_tracked_shards(false)
+        // TODO(resharding): should it work without tracking all shards?
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -974,8 +1032,6 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .track_all_shards(false)
-        .all_chunks_expected(false)
         .delay_flat_state_resharding(2)
         .build();
     test_resharding_v3_base(params);
@@ -1001,6 +1057,9 @@ fn test_resharding_v3_yield_resume() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
+        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
+        .num_rpcs(0)
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -1028,6 +1087,9 @@ fn test_resharding_v3_yield_timeout() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
+        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
+        .num_rpcs(0)
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }

@@ -1,6 +1,7 @@
 use super::env::{TestData, TestLoopEnv};
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
+use near_async::test_loop::data::TestLoopData;
 use near_client::client_actor::ClientActorInner;
+use near_primitives::types::AccountId;
 
 pub(crate) mod contract_distribution;
 pub(crate) mod network;
@@ -22,5 +23,24 @@ pub(crate) fn get_head_height(env: &mut TestLoopEnv) -> u64 {
 }
 
 /// Signature of functions callable from inside the inner loop of a test loop test.
-pub(crate) type LoopActionFn =
-    Box<dyn Fn(&[TestData], &mut TestLoopData, TestLoopDataHandle<ClientActorInner>)>;
+pub(crate) type LoopActionFn = Box<dyn Fn(&[TestData], &mut TestLoopData, AccountId)>;
+
+/// Retrieves the client actor of the node having account_id equal to `client_account_id`.
+pub fn retrieve_client_actor<'a>(
+    node_datas: &'a [TestData],
+    test_loop_data: &'a mut TestLoopData,
+    client_account_id: &AccountId,
+) -> &'a mut ClientActorInner {
+    let client_handle = node_datas
+        .iter()
+        .filter_map(|data| {
+            if data.account_id == *client_account_id {
+                Some(data.client_sender.actor_handle())
+            } else {
+                None
+            }
+        })
+        .next()
+        .unwrap();
+    test_loop_data.get_mut(&client_handle)
+}
