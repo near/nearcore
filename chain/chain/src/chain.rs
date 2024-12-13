@@ -793,6 +793,7 @@ impl Chain {
     fn get_state_sync_info(
         &self,
         me: &Option<AccountId>,
+        prev_prev_hash: &CryptoHash,
         epoch_first_block: &Block,
     ) -> Result<Option<StateSyncInfo>, Error> {
         let prev_hash = *epoch_first_block.header().prev_hash();
@@ -801,6 +802,7 @@ impl Chain {
             &self.shard_tracker,
             me,
             &prev_hash,
+            prev_prev_hash,
         )?;
         if shards_to_state_sync.is_empty() {
             Ok(None)
@@ -2392,7 +2394,7 @@ impl Chain {
             // For the first block of the epoch we check if we need to start download states for
             // shards that we will care about in the next epoch. If there is no state to be downloaded,
             // we consider that we are caught up, otherwise not
-            let state_sync_info = self.get_state_sync_info(me, block)?;
+            let state_sync_info = self.get_state_sync_info(me, &prev_prev_hash, block)?;
             Ok((state_sync_info.is_none(), state_sync_info))
         } else {
             Ok((self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None))
@@ -2424,56 +2426,69 @@ impl Chain {
         shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
+        prev_prev_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        Ok((epoch_manager.shard_ids(&epoch_id)?)
-            .into_iter()
-            .filter(|shard_id| {
-                Self::should_catch_up_shard(
-                    epoch_manager,
-                    shard_tracker,
-                    me,
-                    parent_hash,
-                    *shard_id,
-                )
-            })
-            .collect())
+        let mut shards_to_sync = Vec::new();
+        for shard_id in epoch_manager.shard_ids(&epoch_id)? {
+            if Self::should_catch_up_shard(
+                epoch_manager,
+                shard_tracker,
+                me,
+                &epoch_id,
+                parent_hash,
+                prev_prev_hash,
+                shard_id,
+            )? {
+                shards_to_sync.push(shard_id)
+            }
+        }
+        Ok(shards_to_sync)
     }
 
     fn should_catch_up_shard(
         epoch_manager: &dyn EpochManagerAdapter,
         shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
+        epoch_id: &EpochId,
         parent_hash: &CryptoHash,
+        prev_prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> bool {
-        let result = epoch_manager.will_shard_layout_change(parent_hash);
-        let will_shard_layout_change = match result {
-            Ok(_will_shard_layout_change) => {
-                // TODO(#11881): before state sync is fixed, we don't catch up
-                // split shards. Assume that all needed shards are tracked
-                // already.
-                // will_shard_layout_change,
-                false
-            }
-            Err(err) => {
-                // TODO(resharding) This is a problem, if this happens the node
-                // will not perform resharding and fall behind the network.
-                tracing::error!(target: "chain", ?err, "failed to check if shard layout will change");
-                false
-            }
+    ) -> Result<bool, Error> {
+        // Won't care about it next epoch, no need to state sync it.
+        if !shard_tracker.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true) {
+            return Ok(false);
+        }
+        // Currently tracking the shard, so no need to state sync it.
+        if shard_tracker.care_about_shard(me.as_ref(), parent_hash, shard_id, true) {
+            return Ok(false);
+        }
+        // Now we need to state sync it unless this is a post-resharding child shard whose parent we were tracking in the
+        // previous epoch, in which case we don't need to state sync because we'll generate the child when we do the resharding
+
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(parent_hash)?;
+        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
+
+        let resharded = shard_layout != prev_shard_layout;
+        if !resharded {
+            return Ok(true);
+        }
+        let Some(parent_shard_id) = shard_layout.try_get_parent_shard_id(shard_id)? else {
+            return Ok(true);
         };
-        // if shard layout will change the next epoch, we should catch up the shard regardless
-        // whether we already have the shard's state this epoch, because we need to generate
-        // new states for shards split from the current shard for the next epoch
-        let will_care_about_shard =
-            shard_tracker.will_care_about_shard(me.as_ref(), parent_hash, shard_id, true);
-        let does_care_about_shard =
-            shard_tracker.care_about_shard(me.as_ref(), parent_hash, shard_id, true);
+        let was_split = parent_shard_id != shard_id;
+        if !was_split {
+            return Ok(true);
+        }
 
-        tracing::debug!(target: "chain", does_care_about_shard, will_care_about_shard, will_shard_layout_change, "should catch up shard");
-
-        will_care_about_shard && (will_shard_layout_change || !does_care_about_shard)
+        // Note that here passing `prev_prev_hash` to care_about_shard() will have us check whether we were tracking it in
+        // the previous epoch, because the current block is the first block of an epoch, so prev_prev_hash is the "parent_hash"
+        // of the last block of the previous epoch. TODO: consider refactoring these ShardTracker functions to accept an epoch_id
+        // to make this less tricky.
+        let splitting_child =
+            shard_tracker.care_about_shard(me.as_ref(), prev_prev_hash, parent_shard_id, true);
+        Ok(!splitting_child)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
