@@ -818,7 +818,6 @@ pub fn init_configs(
     }
 
     let mut config = Config::default();
-
     // Make sure node tracks all shards, see
     // https://github.com/near/nearcore/issues/7388
     config.tracked_shards = vec![ShardId::new(0)];

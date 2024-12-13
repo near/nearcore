@@ -6,10 +6,11 @@ use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_time::Duration;
 use std::{collections::HashMap, str::FromStr};
 
+// known cache access patterns per prominent contract account
 // used to derive config `per_account_max_bytes`
 const PER_ACCOUNT_CACHE_SIZE: &[(&'static str, bytesize::ByteSize)] = &[
     // aurora has its dedicated shard and it had very few cache misses even with
@@ -193,8 +194,11 @@ impl StoreConfig {
     fn default_per_shard_max_bytes() -> HashMap<ShardUId, bytesize::ByteSize> {
         let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
         let mut shard_layouts: Vec<ShardLayout> = Vec::new();
-        // 72 is the latest protocol version of config store as of writing
-        for protocol_version in 72..=PROTOCOL_VERSION {
+        // Ideally we should use the protocol version from current epoch config as start of
+        // the range, but store should not need to depend on the knowledge of current epoch.
+        let start_version =
+            PROTOCOL_VERSION.min(ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1);
+        for protocol_version in start_version..=PROTOCOL_VERSION {
             let epoch_config = epoch_config_store.get_config(protocol_version);
             let shard_layout = epoch_config.shard_layout.clone();
             // O(n) is fine as list is short
@@ -204,8 +208,8 @@ impl StoreConfig {
         }
 
         let mut per_shard_max_bytes: HashMap<ShardUId, bytesize::ByteSize> = HashMap::new();
-        for (shard_uid, bytes) in PER_ACCOUNT_CACHE_SIZE.iter() {
-            let account_id = AccountId::from_str(shard_uid)
+        for (account_id, bytes) in PER_ACCOUNT_CACHE_SIZE.iter() {
+            let account_id = AccountId::from_str(account_id)
                 .expect("the hardcoded account id should guarantee to be valid");
             for shard_layout in shard_layouts.iter() {
                 let shard_uid = account_id_to_shard_uid(&account_id, &shard_layout);
