@@ -899,12 +899,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
-        let validator_stake = &self.validators[&validator];
-        Ok(header.verify_block_producer(validator_stake.public_key()))
-    }
-
     fn verify_chunk_endorsement_signature(
         &self,
         _endorsement: &ChunkEndorsement,
