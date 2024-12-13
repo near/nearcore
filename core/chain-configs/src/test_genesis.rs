@@ -17,30 +17,39 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_time::{Clock, FakeClock};
 use num_rational::Rational32;
 
-use crate::{Genesis, GenesisConfig, GenesisContents, GenesisRecords};
+use crate::{
+    Genesis, GenesisConfig, GenesisContents, GenesisRecords, FISHERMEN_THRESHOLD,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+};
 
-/// Builder for constructing `EpochConfig` for testing.
-///
-/// Defaults
-/// * single shard
-/// * single block and chunk producer
-/// * epoch_length: 5
-/// * block_producer_kickout_threshold: 0
-/// * chunk_producer_kickout_threshold: 0
-/// * chunk_validator_only_kickout_threshold: 0
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TestEpochConfigBuilder {
-    epoch_length: Option<BlockHeightDelta>,
-    shard_layout: Option<ShardLayout>,
-    validators_spec: Option<ValidatorsSpec>,
-    target_validator_mandates_per_shard: Option<NumSeats>,
-    block_producer_kickout_threshold: Option<u8>,
-    chunk_producer_kickout_threshold: Option<u8>,
-    chunk_validator_only_kickout_threshold: Option<u8>,
-    // validator selection
-    minimum_stake_ratio: Option<Rational32>,
-    minimum_validators_per_shard: Option<NumSeats>,
-    shuffle_shard_assignment_for_chunk_producers: Option<bool>,
+    epoch_length: BlockHeightDelta,
+    shard_layout: ShardLayout,
+    num_block_producer_seats: NumSeats,
+    num_chunk_producer_seats: NumSeats,
+    num_chunk_validator_seats: NumSeats,
+    target_validator_mandates_per_shard: NumSeats,
+    avg_hidden_validator_seats_per_shard: Vec<NumSeats>,
+    minimum_validators_per_shard: NumSeats,
+    block_producer_kickout_threshold: u8,
+    chunk_producer_kickout_threshold: u8,
+    chunk_validator_only_kickout_threshold: u8,
+    validator_max_kickout_stake_perc: u8,
+    online_min_threshold: Rational32,
+    online_max_threshold: Rational32,
+    fishermen_threshold: Balance,
+    protocol_upgrade_stake_threshold: Rational32,
+    minimum_stake_divisor: u64,
+    minimum_stake_ratio: Rational32,
+    chunk_producer_assignment_changes_limit: NumSeats,
+    shuffle_shard_assignment_for_chunk_producers: bool,
+
+    // not used any more
+    num_block_producer_seats_per_shard: Vec<NumSeats>,
+    // TODO (#11267): deprecate after StatelessValidationV0 is in place.
+    // Use 300 for older protocol versions.
+    num_chunk_only_producer_seats: NumSeats,
 }
 
 /// A builder for constructing a valid genesis for testing.
@@ -94,33 +103,66 @@ struct UserAccount {
     access_keys: Vec<PublicKey>,
 }
 
+impl Default for TestEpochConfigBuilder {
+    fn default() -> Self {
+        Self {
+            epoch_length: 5,
+            shard_layout: ShardLayout::single_shard(),
+            num_block_producer_seats: 1,
+            num_chunk_producer_seats: 1,
+            num_chunk_validator_seats: 1,
+            target_validator_mandates_per_shard: 68,
+            avg_hidden_validator_seats_per_shard: vec![],
+            minimum_validators_per_shard: 1,
+            block_producer_kickout_threshold: 0,
+            chunk_producer_kickout_threshold: 0,
+            chunk_validator_only_kickout_threshold: 0,
+            validator_max_kickout_stake_perc: 100,
+            online_min_threshold: Rational32::new(90, 100),
+            online_max_threshold: Rational32::new(99, 100),
+            fishermen_threshold: FISHERMEN_THRESHOLD,
+            protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+            minimum_stake_divisor: 10,
+            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
+            // consider them ineffective
+            num_block_producer_seats_per_shard: vec![1],
+            num_chunk_only_producer_seats: 300,
+        }
+    }
+}
+
 impl TestEpochConfigBuilder {
     pub fn new() -> Self {
         Default::default()
     }
 
     pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
-        self.epoch_length = Some(epoch_length);
+        self.epoch_length = epoch_length;
         self
     }
 
     pub fn shard_layout(mut self, shard_layout: ShardLayout) -> Self {
-        self.shard_layout = Some(shard_layout);
+        self.shard_layout = shard_layout;
         self
     }
 
     pub fn validators_spec(mut self, validators_spec: ValidatorsSpec) -> Self {
-        self.validators_spec = Some(validators_spec);
-        self
-    }
-
-    pub fn minimum_stake_ratio(mut self, minimum_stake_ratio: Rational32) -> Self {
-        self.minimum_stake_ratio = Some(minimum_stake_ratio);
+        let DerivedValidatorSetup {
+            validators: _,
+            num_block_producer_seats,
+            num_chunk_producer_seats,
+            num_chunk_validator_seats,
+        } = derive_validator_setup(validators_spec);
+        self.num_block_producer_seats = num_block_producer_seats;
+        self.num_chunk_producer_seats = num_chunk_producer_seats;
+        self.num_chunk_validator_seats = num_chunk_validator_seats;
         self
     }
 
     pub fn minimum_validators_per_shard(mut self, minimum_validators_per_shard: NumSeats) -> Self {
-        self.minimum_validators_per_shard = Some(minimum_validators_per_shard);
+        self.minimum_validators_per_shard = minimum_validators_per_shard;
         self
     }
 
@@ -128,140 +170,63 @@ impl TestEpochConfigBuilder {
         mut self,
         target_validator_mandates_per_shard: NumSeats,
     ) -> Self {
-        self.target_validator_mandates_per_shard = Some(target_validator_mandates_per_shard);
+        self.target_validator_mandates_per_shard = target_validator_mandates_per_shard;
         self
     }
 
-    pub fn shuffle_shard_assignment_for_chunk_producers(mut self, shuffle: bool) -> Self {
-        self.shuffle_shard_assignment_for_chunk_producers = Some(shuffle);
+    pub fn shuffle_shard_assignment_for_chunk_producers(
+        mut self,
+        shuffle_shard_assignment_for_chunk_producers: bool,
+    ) -> Self {
+        self.shuffle_shard_assignment_for_chunk_producers =
+            shuffle_shard_assignment_for_chunk_producers;
         self
     }
 
     // Validators with performance below 80% are kicked out, similarly to
     // mainnet as of 28 Jun 2024.
     pub fn kickouts_standard_80_percent(mut self) -> Self {
-        self.block_producer_kickout_threshold = Some(80);
-        self.chunk_producer_kickout_threshold = Some(80);
-        self.chunk_validator_only_kickout_threshold = Some(80);
+        self.block_producer_kickout_threshold = 80;
+        self.chunk_producer_kickout_threshold = 80;
+        self.chunk_validator_only_kickout_threshold = 80;
         self
     }
 
     // Only chunk validator-only nodes can be kicked out.
     pub fn kickouts_for_chunk_validators_only(mut self) -> Self {
-        self.block_producer_kickout_threshold = Some(0);
-        self.chunk_producer_kickout_threshold = Some(0);
-        self.chunk_validator_only_kickout_threshold = Some(50);
+        self.block_producer_kickout_threshold = 0;
+        self.chunk_producer_kickout_threshold = 0;
+        self.chunk_validator_only_kickout_threshold = 50;
         self
     }
 
     pub fn build(self) -> EpochConfig {
-        let epoch_length = self.epoch_length.unwrap_or_else(|| {
-            let default = 5;
-            tracing::warn!(
-                "Epoch config epoch_length not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
-        let shard_layout = self.shard_layout.unwrap_or_else(|| {
-            let default = ShardLayout::single_shard();
-            tracing::warn!(
-                "Epoch config shard_layout not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
-        let validators_spec = self.validators_spec.unwrap_or_else(|| {
-            let default = ValidatorsSpec::DesiredRoles {
-                block_and_chunk_producers: vec!["validator0".to_string()],
-                chunk_validators_only: vec![],
-            };
-            tracing::warn!(
-                "Epoch config validators_spec not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
-
-        let DerivedValidatorSetup {
-            validators: _,
-            num_block_producer_seats,
-            num_chunk_producer_seats,
-            num_chunk_validator_seats,
-        } = derive_validator_setup(validators_spec);
-
-        let mut epoch_config =
-            Genesis::test_epoch_config(num_block_producer_seats, shard_layout, epoch_length);
-        epoch_config.block_producer_kickout_threshold = 0;
-        epoch_config.chunk_producer_kickout_threshold = 0;
-        epoch_config.chunk_validator_only_kickout_threshold = 0;
-        epoch_config.num_chunk_producer_seats = num_chunk_producer_seats;
-        epoch_config.num_chunk_validator_seats = num_chunk_validator_seats;
-
-        if let Some(target_validator_mandates_per_shard) = self.target_validator_mandates_per_shard
-        {
-            epoch_config.target_validator_mandates_per_shard = target_validator_mandates_per_shard;
-        } else {
-            tracing::warn!(
-                "Epoch config target_validator_mandates_per_shard not explicitly set, defaulting to {:?}.",
-                epoch_config.target_validator_mandates_per_shard
-            );
-        }
-        if let Some(block_producer_kickout_threshold) = self.block_producer_kickout_threshold {
-            epoch_config.block_producer_kickout_threshold = block_producer_kickout_threshold;
-        } else {
-            tracing::warn!(
-                "Epoch config block_producer_kickout_threshold not explicitly set, defaulting to {:?}.",
-                epoch_config.block_producer_kickout_threshold
-            );
-        }
-        if let Some(chunk_producer_kickout_threshold) = self.chunk_producer_kickout_threshold {
-            epoch_config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
-        } else {
-            tracing::warn!(
-                "Epoch config chunk_producer_kickout_threshold not explicitly set, defaulting to {:?}.",
-                epoch_config.chunk_producer_kickout_threshold
-            );
-        }
-        if let Some(chunk_validator_only_kickout_threshold) =
-            self.chunk_validator_only_kickout_threshold
-        {
-            epoch_config.chunk_validator_only_kickout_threshold =
-                chunk_validator_only_kickout_threshold;
-        } else {
-            tracing::warn!(
-                "Epoch config chunk_validator_only_kickout_threshold not explicitly set, defaulting to {:?}.",
-                epoch_config.chunk_validator_only_kickout_threshold
-            );
-        }
-        if let Some(minimum_stake_ratio) = self.minimum_stake_ratio {
-            epoch_config.minimum_stake_ratio = minimum_stake_ratio;
-        } else {
-            tracing::warn!(
-                "Epoch config minimum_stake_ratio not explicitly set, defaulting to {:?}.",
-                epoch_config.minimum_stake_ratio
-            );
-        }
-        if let Some(minimum_validators_per_shard) = self.minimum_validators_per_shard {
-            epoch_config.minimum_validators_per_shard = minimum_validators_per_shard;
-        } else {
-            tracing::warn!(
-                "Epoch config minimum_validators_per_shard not explicitly set, defaulting to {:?}.",
-                epoch_config.minimum_validators_per_shard
-            );
-        }
-        if let Some(shuffle_shard_assignment_for_chunk_producers) =
-            self.shuffle_shard_assignment_for_chunk_producers
-        {
-            epoch_config.shuffle_shard_assignment_for_chunk_producers =
-                shuffle_shard_assignment_for_chunk_producers;
-        } else {
-            tracing::warn!(
-                "Epoch config shuffle_shard_assignment_for_chunk_producers not explicitly set, defaulting to {:?}.",
-                epoch_config.shuffle_shard_assignment_for_chunk_producers
-            );
-        }
-
+        let epoch_config = EpochConfig {
+            epoch_length: self.epoch_length,
+            shard_layout: self.shard_layout,
+            num_block_producer_seats: self.num_block_producer_seats,
+            num_chunk_producer_seats: self.num_chunk_producer_seats,
+            num_chunk_validator_seats: self.num_chunk_validator_seats,
+            target_validator_mandates_per_shard: self.target_validator_mandates_per_shard,
+            avg_hidden_validator_seats_per_shard: self.avg_hidden_validator_seats_per_shard,
+            minimum_validators_per_shard: self.minimum_validators_per_shard,
+            block_producer_kickout_threshold: self.block_producer_kickout_threshold,
+            chunk_producer_kickout_threshold: self.chunk_producer_kickout_threshold,
+            chunk_validator_only_kickout_threshold: self.chunk_validator_only_kickout_threshold,
+            validator_max_kickout_stake_perc: self.validator_max_kickout_stake_perc,
+            online_min_threshold: self.online_min_threshold,
+            online_max_threshold: self.online_max_threshold,
+            fishermen_threshold: self.fishermen_threshold,
+            protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,
+            minimum_stake_divisor: self.minimum_stake_divisor,
+            minimum_stake_ratio: self.minimum_stake_ratio,
+            chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
+            shuffle_shard_assignment_for_chunk_producers: self
+                .shuffle_shard_assignment_for_chunk_producers,
+            num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
+            num_chunk_only_producer_seats: self.num_chunk_only_producer_seats,
+        };
+        tracing::warn!("Epoch config: {:#?}", epoch_config);
         epoch_config
     }
 }
