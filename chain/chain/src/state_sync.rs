@@ -112,7 +112,6 @@ fn remove_old_blocks<T: ChainStoreAccess>(
         Err(Error::DBNotFoundErr(_)) => return Ok(()),
         Err(e) => return Err(e),
     };
-
     for block_hash in iter_state_sync_new_chunks_keys(chain_store.store()) {
         let block_hash = block_hash?;
         let old_header = chain_store.get_block_header(&block_hash)?;

@@ -740,6 +740,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_outcomes(&block)?;
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
+        println!("GC FOR BLOCK {:?}", block_hash);
+        self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 
         // 3. update columns related to prev block (block refcount and NextBlockHashes)
         self.dec_block_refcount(block.header().prev_hash())?;
@@ -990,6 +992,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
+            DBCol::StateSyncNewChunks => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount
@@ -1022,10 +1027,9 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
             | DBCol::StateShardUIdMapping
-            // Note that StateSyncHashes and StateSyncNewChunks should not ever have too many keys in them
+            // Note that StateSyncHashes should not ever have too many keys in them
             // because we remove unneeded keys as we add new ones.
             | DBCol::StateSyncHashes
-            | DBCol::StateSyncNewChunks
             => unreachable!(),
         }
         self.merge(store_update);
