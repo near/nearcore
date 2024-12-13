@@ -16,9 +16,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+#[cfg(feature = "test_utils")]
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fmt, str};
 
@@ -344,13 +343,23 @@ impl std::error::Error for ShardLayoutError {}
 impl ShardLayout {
     /// Handy constructor for a single-shard layout, mostly for test purposes
     pub fn single_shard() -> Self {
-        Self::multi_shard(1, 0)
+        let shard_id = ShardId::new(0);
+        Self::V2(ShardLayoutV2 {
+            boundary_accounts: vec![],
+            shard_ids: vec![shard_id],
+            id_to_index_map: [(shard_id, 0)].into(),
+            index_to_id_map: [(0, shard_id)].into(),
+            shards_split_map: None,
+            shards_parent_map: None,
+            version: 0,
+        })
     }
 
     /// Creates a multi-shard ShardLayout using the most recent ShardLayout
     /// version and default boundary accounts. It should be used for tests only.
     /// The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
+    #[cfg(feature = "test_utils")]
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
@@ -365,6 +374,7 @@ impl ShardLayout {
     /// version and provided boundary accounts. It should be used for tests
     /// only. The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
+    #[cfg(feature = "test_utils")]
     pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
         let num_shards = (boundary_accounts.len() + 1) as u64;
 
@@ -393,6 +403,7 @@ impl ShardLayout {
 
     /// Test-only helper to create a simple multi-shard ShardLayout with the provided boundaries.
     /// The shard ids are deterministic but arbitrary in order to test the non-contiguous ShardIds.
+    #[cfg(feature = "test_utils")]
     pub fn simple_v1(boundary_accounts: &[&str]) -> ShardLayout {
         // TODO these test methods should go into a different namespace
         let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
@@ -536,6 +547,7 @@ impl ShardLayout {
     /// TODO(resharding) Determine the shard layout for v4.
     /// This layout is provisional, the actual shard layout should be determined
     /// based on the fresh data before the resharding.
+    #[cfg(test)]
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
         let v3 = Self::get_simple_nightshade_layout_v3();
         ShardLayout::derive_shard_layout(&v3, "game.hot.tg-0".parse().unwrap())
@@ -739,6 +751,14 @@ impl ShardLayout {
         self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 
+    pub fn shard_indexes(&self) -> impl Iterator<Item = ShardIndex> + 'static {
+        let num_shards: usize =
+            self.num_shards().try_into().expect("Number of shards doesn't fit in usize");
+        match self {
+            Self::V0(_) | Self::V1(_) | Self::V2(_) => (0..num_shards).into_iter(),
+        }
+    }
+
     /// Returns an iterator that returns the ShardInfos for every shard in
     /// this shard layout. This method should be preferred over calling
     /// shard_ids().enumerate(). Today the result of shard_ids() is sorted but
@@ -778,8 +798,8 @@ impl ShardLayout {
                 Ok(ShardId::new(shard_index as u64))
             }
             Self::V2(v2) => v2
-                .index_to_id_map
-                .get(&shard_index)
+                .shard_ids
+                .get(shard_index)
                 .copied()
                 .ok_or(ShardLayoutError::InvalidShardIndexError { shard_index }),
         }
@@ -873,6 +893,7 @@ impl ShardUId {
 
     /// Returns the only shard uid in the ShardLayout::single_shard layout.
     /// It is not suitable for use with any other shard layout.
+    #[cfg(feature = "test_utils")]
     pub fn single_shard() -> Self {
         ShardLayout::single_shard().shard_uids().next().unwrap()
     }
@@ -1072,7 +1093,7 @@ impl ShardInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::epoch_manager::{AllEpochConfig, EpochConfig, ValidatorSelectionConfig};
+    use crate::epoch_manager::{AllEpochConfig, EpochConfig};
     use crate::shard_layout::{
         new_shard_ids_vec, new_shards_split_map, ShardLayout, ShardLayoutV1, ShardUId,
     };
@@ -1111,24 +1132,7 @@ mod tests {
         pub fn for_protocol_version(protocol_version: ProtocolVersion) -> Self {
             // none of the epoch config fields matter, we only need the shard layout
             // constructed through [`AllEpochConfig::for_protocol_version()`].
-            let genesis_epoch_config = EpochConfig {
-                epoch_length: 0,
-                num_block_producer_seats: 0,
-                num_block_producer_seats_per_shard: vec![],
-                avg_hidden_validator_seats_per_shard: vec![],
-                block_producer_kickout_threshold: 0,
-                chunk_producer_kickout_threshold: 0,
-                chunk_validator_only_kickout_threshold: 0,
-                target_validator_mandates_per_shard: 0,
-                validator_max_kickout_stake_perc: 0,
-                online_min_threshold: 0.into(),
-                online_max_threshold: 0.into(),
-                fishermen_threshold: 0,
-                minimum_stake_divisor: 0,
-                protocol_upgrade_stake_threshold: 0.into(),
-                shard_layout: ShardLayout::get_simple_nightshade_layout(),
-                validator_selection_config: ValidatorSelectionConfig::default(),
-            };
+            let genesis_epoch_config = EpochConfig::minimal();
 
             let genesis_protocol_version = PROTOCOL_VERSION;
             let all_epoch_config = AllEpochConfig::new(

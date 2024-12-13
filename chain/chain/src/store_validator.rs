@@ -160,6 +160,13 @@ impl StoreValidator {
                     self.check(&validate::block_header_exists, &block_hash, &block, col);
                     // Chunks for current Block exist
                     self.check(&validate::block_chunks_exist, &block_hash, &block, col);
+                    // IncomingReceipts for the Block are an exact mapping with the receipts in the Receipts column
+                    self.check(
+                        &validate::receipts_contain_block_incoming_receipts,
+                        &block_hash,
+                        &block,
+                        col,
+                    );
                     // Chunks for current Block have Height Created not higher than Block Height
                     self.check(&validate::block_chunks_height_validity, &block_hash, &block, col);
                     // BlockInfo for current Block exists

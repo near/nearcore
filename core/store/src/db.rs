@@ -23,7 +23,7 @@ pub use self::rocksdb::RocksDB;
 pub use self::splitdb::SplitDB;
 
 pub use self::slice::DBSlice;
-pub use self::testdb::TestDB;
+pub use self::testdb::{TestDB, TestDBFlags};
 use std::sync::Arc;
 
 // `DBCol::BlockMisc` keys

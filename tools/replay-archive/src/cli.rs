@@ -15,7 +15,9 @@ use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpd
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
-use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
+use near_chain::{
+    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+};
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
 use near_epoch_manager::EpochManagerAdapter;
@@ -392,6 +394,7 @@ impl ReplayController {
             &shard_layout,
             *block_header.hash(),
             prev_chunk_height_included,
+            ReceiptFilter::TargetShard,
         )?;
         let receipts = collect_receipts_from_response(receipt_response);
         Ok(receipts)
