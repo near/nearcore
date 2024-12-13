@@ -1498,10 +1498,28 @@ impl Client {
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), shard_index);
 
-        // TODO(#10569) We would like a proper error handling here instead of `expect`.
-        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
-            .expect("Could not persist chunk");
-
+        // If we produced the chunk, don't persist the chunk again, because we would have already
+        // persisted it. It is fine except that we also increment refcount for each receipt in the
+        // Receipts column and that would double-count the same receipts.
+        let we_produced_the_chunk = if let Some(signer) = signer {
+            let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash).unwrap();
+            self.epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id,
+                    height_created: chunk_header.height_created(),
+                    shard_id,
+                })
+                .unwrap()
+                .account_id()
+                == signer.validator_id()
+        } else {
+            false
+        };
+        if !we_produced_the_chunk {
+            // TODO(#10569) We would like a proper error handling here instead of `expect`.
+            persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
+                .expect("Could not persist chunk");
+        }
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
