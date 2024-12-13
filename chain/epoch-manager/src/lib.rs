@@ -868,9 +868,6 @@ impl EpochManager {
         let next_epoch_version = next_epoch_info.protocol_version();
         let next_shard_layout = self.config.for_protocol_version(next_epoch_version).shard_layout;
         let has_same_shard_layout = next_shard_layout == next_next_epoch_config.shard_layout;
-        let shard_layout = self.config.for_protocol_version(epoch_protocol_version).shard_layout;
-        let use_stable_shard_assignment =
-            if shard_layout != next_shard_layout { true } else { has_same_shard_layout };
         let next_next_epoch_info = match proposals_to_epoch_info(
             &next_next_epoch_config,
             rng_seed,
@@ -881,7 +878,7 @@ impl EpochManager {
             minted_amount,
             epoch_protocol_version,
             next_next_epoch_version,
-            use_stable_shard_assignment,
+            has_same_shard_layout,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError { stake_sum, num_seats }) => {

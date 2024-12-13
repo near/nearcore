@@ -2688,20 +2688,7 @@ impl Chain {
 
                 // Make sure we send something reasonable.
                 assert_eq!(block_header.prev_chunk_outgoing_receipts_root(), &block_receipts_root);
-                if !verify_path(root_proof, proof, &receipts_hash) {
-                    tracing::error!(
-                        target: "chain",
-                        ?root_proof,
-                        ?receipts_hash,
-                        ?sync_hash,
-                        ?block_hash,
-                        ?from_shard_id,
-                        from_shard_index,
-                        "Receipts root proof is invalid: {} {:?}",
-                        block.header().height(),
-                        proof
-                    );
-                }
+                assert!(verify_path(root_proof, proof, &receipts_hash));
                 assert!(verify_path(
                     block_receipts_root,
                     &block_receipts_proofs[from_shard_index],
