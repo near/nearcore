@@ -16,8 +16,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
-#[cfg(feature = "test_utils")]
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fmt, str};
 
@@ -359,7 +357,7 @@ impl ShardLayout {
     /// version and default boundary accounts. It should be used for tests only.
     /// The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
-    #[cfg(feature = "test_utils")]
+    #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
@@ -374,8 +372,10 @@ impl ShardLayout {
     /// version and provided boundary accounts. It should be used for tests
     /// only. The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
-    #[cfg(feature = "test_utils")]
+    #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
+        use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+
         let num_shards = (boundary_accounts.len() + 1) as u64;
 
         // In order to test the non-contiguous shard ids randomize the order and
@@ -403,7 +403,7 @@ impl ShardLayout {
 
     /// Test-only helper to create a simple multi-shard ShardLayout with the provided boundaries.
     /// The shard ids are deterministic but arbitrary in order to test the non-contiguous ShardIds.
-    #[cfg(feature = "test_utils")]
+    #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn simple_v1(boundary_accounts: &[&str]) -> ShardLayout {
         // TODO these test methods should go into a different namespace
         let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
