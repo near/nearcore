@@ -21,7 +21,9 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
+use near_chain::{
+    Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, ReceiptFilter,
+};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
@@ -88,6 +90,7 @@ pub(crate) fn apply_block(
                 &shard_layout,
                 block_hash,
                 prev_block.chunks()[shard_index].height_included(),
+                ReceiptFilter::TargetShard,
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
