@@ -189,7 +189,7 @@ impl TestReshardingParametersBuilder {
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
-            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(false),
+            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(true),
         }
     }
 

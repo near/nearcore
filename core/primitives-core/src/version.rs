@@ -275,6 +275,7 @@ impl ProtocolFeature {
             // BandwidthScheduler must be enabled before ReshardingV3! When
             // releasing this feature please make sure to schedule separate
             // protocol upgrades for those features!
+            // TODO ask longarithm to update the forknet instructions
             ProtocolFeature::BandwidthScheduler => 145,
             ProtocolFeature::SimpleNightshadeV4 => 146,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
