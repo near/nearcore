@@ -1064,7 +1064,6 @@ pub fn create_test_signer(account_name: &str) -> ValidatorSigner {
         near_crypto::KeyType::ED25519,
         account_name,
     )
-    .into()
 }
 
 /// Helper function that creates a new signer for a given account, that uses the account name as seed.

@@ -6,7 +6,7 @@ use near_primitives::checked_feature;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, EpochInfoProvider, Gas};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::contract::ContractStorage;
@@ -28,6 +28,7 @@ pub struct RuntimeExt<'a> {
     epoch_id: EpochId,
     prev_block_hash: CryptoHash,
     last_block_hash: CryptoHash,
+    block_height: BlockHeight,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     current_protocol_version: ProtocolVersion,
 }
@@ -70,6 +71,7 @@ impl<'a> RuntimeExt<'a> {
         epoch_id: EpochId,
         prev_block_hash: CryptoHash,
         last_block_hash: CryptoHash,
+        block_height: BlockHeight,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         current_protocol_version: ProtocolVersion,
     ) -> Self {
@@ -83,6 +85,7 @@ impl<'a> RuntimeExt<'a> {
             epoch_id,
             prev_block_hash,
             last_block_hash,
+            block_height,
             epoch_info_provider,
             current_protocol_version,
         }
@@ -188,6 +191,7 @@ impl<'a> External for RuntimeExt<'a> {
             &self.action_hash,
             &self.prev_block_hash,
             &self.last_block_hash,
+            self.block_height,
             self.data_count as usize,
         );
         self.data_count += 1;

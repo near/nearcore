@@ -498,8 +498,8 @@ fn slow_test_dump_epoch_missing_chunk_in_last_block() {
 
             assert!(sync_height < 2 * epoch_length + 1);
 
-            // Produce blocks up to sync_height + 1 to give nodes a chance to create the necessary state snapshot
-            for i in 1..=sync_height + 1 {
+            // Produce blocks up to sync_height + 2 to give nodes a chance to create the necessary state snapshot
+            for i in 1..=sync_height + 2 {
                 tracing::info!(
                     target: "test",
                     height=i,
@@ -732,7 +732,7 @@ fn slow_test_state_sync_headers() {
                 let sync_height =
                     if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
                         // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                        epoch_start_height + 2
+                        epoch_start_height + 3
                     } else {
                         epoch_start_height
                     };
@@ -917,7 +917,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                 let sync_height =
                     if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
                         // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                        epoch_start_height + 2
+                        epoch_start_height + 3
                     } else {
                         epoch_start_height
                     };
