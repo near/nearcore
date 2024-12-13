@@ -504,15 +504,15 @@ impl<'a> ChainUpdate<'a> {
             .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
 
         // Getting actual incoming receipts.
-        let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
+        let mut receipt_proof_responses: Vec<ReceiptProofResponse> = vec![];
         for incoming_receipt_proof in incoming_receipts_proofs.iter() {
             let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
             let block_header = self.chain_store_update.get_block_header(hash)?;
             if block_header.height() <= chunk.height_included() {
-                receipt_proof_response.push(incoming_receipt_proof.clone());
+                receipt_proof_responses.push(incoming_receipt_proof.clone());
             }
         }
-        let receipts = collect_receipts_from_response(&receipt_proof_response);
+        let receipts = collect_receipts_from_response(&receipt_proof_responses);
         // Prev block header should be present during state sync, since headers have been synced at this point.
         let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
             block_header.next_gas_price()
@@ -601,7 +601,7 @@ impl<'a> ChainUpdate<'a> {
             outcome_proofs,
         );
         // Saving all incoming receipts.
-        for receipt_proof_response in incoming_receipts_proofs {
+        for receipt_proof_response in receipt_proof_responses {
             self.chain_store_update.save_incoming_receipt(
                 &receipt_proof_response.0,
                 shard_id,
