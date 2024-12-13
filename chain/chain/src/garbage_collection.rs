@@ -740,7 +740,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_outcomes(&block)?;
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
-        println!("GC FOR BLOCK {:?}", block_hash);
         self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 
         // 3. update columns related to prev block (block refcount and NextBlockHashes)

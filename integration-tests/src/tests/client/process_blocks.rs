@@ -2178,6 +2178,7 @@ fn test_sync_hash_validity() {
         let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
         let block_hash = *header.hash();
         let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
+        println!("height {} -> {}", i, valid);
         if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // This assumes that all shards have new chunks in every block, which should be true
             // with TestEnv::produce_block()
