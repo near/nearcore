@@ -3701,7 +3701,6 @@ mod contract_precompilation_tests {
     }
 
     #[test]
-    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn slow_test_sync_and_call_cached_contract() {
         init_integration_logger();
         let num_clients = 2;
@@ -3733,7 +3732,7 @@ mod contract_precompilation_tests {
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
             // and then one more than that so the node will generate the neede snapshot.
-            produce_blocks_from_height(&mut env, 3, height) - 1
+            produce_blocks_from_height(&mut env, 4, height) - 2
         } else {
             height - 1
         };
@@ -3801,7 +3800,6 @@ mod contract_precompilation_tests {
     }
 
     #[test]
-    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn slow_test_two_deployments() {
         init_integration_logger();
         let num_clients = 2;
@@ -3847,7 +3845,7 @@ mod contract_precompilation_tests {
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
             // and then one more than that so the node will generate the neede snapshot.
-            produce_blocks_from_height(&mut env, 3, height) - 1
+            produce_blocks_from_height(&mut env, 4, height) - 2
         } else {
             height - 1
         };
@@ -3877,7 +3875,6 @@ mod contract_precompilation_tests {
     }
 
     #[test]
-    #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
     fn slow_test_sync_after_delete_account() {
         init_test_logger();
         let num_clients = 3;
@@ -3928,7 +3925,7 @@ mod contract_precompilation_tests {
         // to get to produce the first block of the next epoch. If we want to state sync the new
         // way, we produce two more than that, plus one more so that the node will generate the needed snapshot.
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 4, height) - 1
+            produce_blocks_from_height(&mut env, EPOCH_LENGTH + 5, height) - 2
         } else {
             produce_blocks_from_height(&mut env, EPOCH_LENGTH + 1, height) - 1
         };
