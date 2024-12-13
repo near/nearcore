@@ -11,7 +11,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::ShardUId;
 use near_vm_runner::logic::ProtocolVersion;
 
 use std::cell::{Cell, RefCell};
@@ -29,7 +28,7 @@ use crate::test_loop::utils::ONE_NEAR;
 pub(crate) fn test_protocol_upgrade(
     old_protocol: ProtocolVersion,
     new_protocol: ProtocolVersion,
-    missing_chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
+    chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
 ) {
     init_test_logger();
 
@@ -92,7 +91,7 @@ pub(crate) fn test_protocol_upgrade(
         config.num_chunk_producer_seats = genesis_epoch_info.num_chunk_producer_seats;
         config.num_chunk_validator_seats = genesis_epoch_info.num_chunk_validator_seats;
 
-        if !missing_chunk_ranges.is_empty() {
+        if !chunk_ranges_to_drop.is_empty() {
             config.block_producer_kickout_threshold = 0;
             config.chunk_producer_kickout_threshold = 0;
             config.chunk_validator_only_kickout_threshold = 0;
@@ -109,21 +108,11 @@ pub(crate) fn test_protocol_upgrade(
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    // Translate shard ids to shard uids
-    let chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>> = missing_chunk_ranges
-        .iter()
-        .map(|(&shard_index, range)| {
-            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let shard_uid = ShardUId::new(shard_layout.version(), shard_id);
-            (shard_uid, range.clone())
-        })
-        .collect();
-
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
-        .drop_protocol_upgrade_chunks(new_protocol, chunk_ranges_to_drop)
+        .drop_protocol_upgrade_chunks(new_protocol, chunk_ranges_to_drop.clone())
         .clients(clients)
         .build();
 
@@ -191,7 +180,7 @@ pub(crate) fn test_protocol_upgrade(
     // Validate that the correct chunks were missing
     let upgraded_epoch_start = first_new_protocol_height.get().unwrap();
     let mut expected_missing_chunks = BTreeMap::new();
-    for (shard_index, missing_range) in &missing_chunk_ranges {
+    for (shard_index, missing_range) in &chunk_ranges_to_drop {
         let shard_id = shard_layout.get_shard_id(*shard_index).unwrap();
         let missing_heights: Vec<BlockHeight> = missing_range
             .clone()

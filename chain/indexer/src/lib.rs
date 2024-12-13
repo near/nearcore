@@ -15,6 +15,7 @@ pub use near_indexer_primitives::{
     StreamerMessage,
 };
 
+use near_epoch_manager::shard_tracker::ShardTracker;
 pub use streamer::build_streamer_message;
 
 mod streamer;
@@ -92,6 +93,7 @@ pub struct Indexer {
     near_config: nearcore::NearConfig,
     view_client: actix::Addr<near_client::ViewClientActor>,
     client: actix::Addr<near_client::ClientActor>,
+    shard_tracker: ShardTracker,
 }
 
 impl Indexer {
@@ -113,16 +115,16 @@ impl Indexer {
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         assert!(
-            !&near_config.client_config.tracked_shards.is_empty(),
-            "Indexer should track at least one shard. \n\
-            Tip: You may want to update {} with `\"tracked_shards\": [0]`
-            ",
+            !&near_config.client_config.tracked_shards.is_empty() || !&near_config.client_config.tracked_accounts.is_empty(),
+            "Indexer should either track at least one shard or track at least one account. \n\
+            Tip: You may want to update {} with `\"tracked_shards\": [0]` (which tracks all shards)
+            or `\"tracked_accounts\": [\"some_account.near\"]` (which tracks whatever shard the account is on)",
             indexer_config.home_dir.join("config.json").display()
         );
-        let nearcore::NearNode { client, view_client, .. } =
+        let nearcore::NearNode { client, view_client, shard_tracker, .. } =
             nearcore::start_with_config(&indexer_config.home_dir, near_config.clone())
                 .with_context(|| "start_with_config")?;
-        Ok(Self { view_client, client, near_config, indexer_config })
+        Ok(Self { view_client, client, near_config, indexer_config, shard_tracker })
     }
 
     /// Boots up `near_indexer::streamer`, so it monitors the new blocks with chunks, transactions, receipts, and execution outcomes inside. The returned stream handler should be drained and handled on the user side.
@@ -131,6 +133,7 @@ impl Indexer {
         actix::spawn(streamer::start(
             self.view_client.clone(),
             self.client.clone(),
+            self.shard_tracker.clone(),
             self.indexer_config.clone(),
             self.near_config.config.store.clone(),
             sender,

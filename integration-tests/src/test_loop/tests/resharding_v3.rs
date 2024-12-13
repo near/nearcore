@@ -6,9 +6,13 @@ use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
-use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId};
+use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId, ShardIndex};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::ShardUId;
+use rand::seq::SliceRandom;
+use rand::Rng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -22,7 +26,8 @@ use crate::test_loop::utils::sharding::{
     next_block_has_new_shard_layout, print_and_assert_shard_accounts,
 };
 use crate::test_loop::utils::transactions::{
-    get_shared_block_hash, get_smallest_height_head, run_tx, store_and_submit_tx,
+    get_anchor_hash, get_next_nonce, get_shared_block_hash, get_smallest_height_head, run_tx,
+    store_and_submit_tx, submit_tx,
 };
 use crate::test_loop::utils::trie_sanity::{
     check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
@@ -35,12 +40,10 @@ use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::FinalExecutionStatus;
-use std::cell::Cell;
-use std::u64;
 
 #[derive(Default)]
 struct TestReshardingParameters {
-    chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
+    chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
     accounts: Vec<AccountId>,
     clients: Vec<AccountId>,
     base_shard_layout_version: u64,
@@ -126,9 +129,14 @@ impl TestReshardingParameters {
         }
     }
 
+    fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
+        self.epoch_length = epoch_length;
+        self
+    }
+
     fn chunk_ranges_to_drop(
         mut self,
-        chunk_ranges_to_drop: HashMap<ShardUId, std::ops::Range<i64>>,
+        chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
     ) -> Self {
         self.chunk_ranges_to_drop = chunk_ranges_to_drop;
         self
@@ -241,6 +249,61 @@ fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
                 };
                 client_actor.adv_produce_blocks_on(3, true, height_selection);
                 done.set(true);
+            }
+        },
+    )
+}
+
+fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
+    const NUM_TRANSFERS_PER_BLOCK: usize = 20;
+
+    let latest_height = Cell::new(0);
+    // TODO: to be fixed when all shard tracking gets disabled.
+    let rpc_id: AccountId = "account0".parse().unwrap();
+    let seed = rand::thread_rng().gen::<u64>();
+    println!("Random seed: {}", seed);
+
+    Box::new(
+        move |node_datas: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_handle: TestLoopDataHandle<ClientActorInner>| {
+            let client_actor = &mut test_loop_data.get_mut(&client_handle);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            let mut slice = [0u8; 32];
+            slice[0..8].copy_from_slice(&seed.to_le_bytes());
+            slice[8..16].copy_from_slice(&tip.height.to_le_bytes());
+            let mut rng: ChaCha20Rng = SeedableRng::from_seed(slice);
+
+            for _ in 0..NUM_TRANSFERS_PER_BLOCK {
+                let sender = account_ids.choose(&mut rng).unwrap().clone();
+                let receiver = account_ids.choose(&mut rng).unwrap().clone();
+
+                let clients = node_datas
+                    .iter()
+                    .map(|test_data| {
+                        &test_loop_data.get(&test_data.client_sender.actor_handle()).client
+                    })
+                    .collect_vec();
+
+                let anchor_hash = get_anchor_hash(&clients);
+                let nonce = get_next_nonce(&test_loop_data, &node_datas, &sender);
+                let amount = ONE_NEAR * rng.gen_range(1..=10);
+                let tx = SignedTransaction::send_money(
+                    nonce,
+                    sender.clone(),
+                    receiver.clone(),
+                    &create_user_test_signer(&sender).into(),
+                    amount,
+                    anchor_hash,
+                );
+                submit_tx(&node_datas, &rpc_id, tx);
             }
         },
     )
@@ -688,7 +751,7 @@ fn test_resharding_v3() {
 
 #[test]
 fn test_resharding_v3_drop_chunks_before() {
-    let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 1, version: 3 }, -2..0)]);
+    let chunk_ranges_to_drop = HashMap::from([(1, -2..0)]);
     test_resharding_v3_base(
         TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
@@ -696,7 +759,7 @@ fn test_resharding_v3_drop_chunks_before() {
 
 #[test]
 fn test_resharding_v3_drop_chunks_after() {
-    let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 2, version: 3 }, 0..2)]);
+    let chunk_ranges_to_drop = HashMap::from([(2, 0..2)]);
     test_resharding_v3_base(
         TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
@@ -704,7 +767,7 @@ fn test_resharding_v3_drop_chunks_after() {
 
 #[test]
 fn test_resharding_v3_drop_chunks_before_and_after() {
-    let chunk_ranges_to_drop = HashMap::from([(ShardUId { shard_id: 0, version: 3 }, -2..2)]);
+    let chunk_ranges_to_drop = HashMap::from([(0, -2..2)]);
     test_resharding_v3_base(
         TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
@@ -712,12 +775,7 @@ fn test_resharding_v3_drop_chunks_before_and_after() {
 
 #[test]
 fn test_resharding_v3_drop_chunks_all() {
-    let chunk_ranges_to_drop = HashMap::from([
-        (ShardUId { shard_id: 0, version: 3 }, -1..2),
-        (ShardUId { shard_id: 1, version: 3 }, -3..0),
-        (ShardUId { shard_id: 2, version: 3 }, 0..3),
-        (ShardUId { shard_id: 3, version: 3 }, 0..1),
-    ]);
+    let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, 0..3), (3, 0..1)]);
     test_resharding_v3_base(
         TestReshardingParameters::new().chunk_ranges_to_drop(chunk_ranges_to_drop),
     );
@@ -753,6 +811,20 @@ fn test_resharding_v3_shard_shuffling() {
         .shuffle_shard_assignment()
         .single_shard_tracking()
         .chunk_miss_possible();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+fn test_resharding_v3_shard_shuffling_intense() {
+    let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
+    let mut params = TestReshardingParameters::new()
+        .epoch_length(8)
+        .shuffle_shard_assignment()
+        .single_shard_tracking()
+        .chunk_miss_possible()
+        .chunk_ranges_to_drop(chunk_ranges_to_drop);
+    let accounts = params.accounts.clone();
+    params = params.add_loop_action(execute_money_transfers(accounts));
     test_resharding_v3_base(params);
 }
 
