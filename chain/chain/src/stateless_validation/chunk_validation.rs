@@ -4,6 +4,7 @@ use crate::chain::{
 };
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
+use crate::resharding::manager::ReshardingManager;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
@@ -722,7 +723,27 @@ pub fn validate_chunk_state_witness(
                 let new_root = trie.retain_split_shard(&boundary_account, retain_mode)?;
 
                 if let Some(congestion_info) = chunk_extra.congestion_info_mut() {
-                    // let trie = tries.get_trie_for_shard(new_shard_uid, new_state_root);
+                    // Get the congestion info based on the parent shard.
+                    let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+                    let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+                    let parent_congestion_info = congestion_info.clone();
+                    *congestion_info = ReshardingManager::get_child_congestion_info(
+                        // This is iffy - this should be trie parent trie.
+                        &trie,
+                        &parent_shard_layout,
+                        parent_congestion_info,
+                        retain_mode,
+                    )?;
+
+                    // Set the allowed shard based on the child shard.
+                    let next_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
+                    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
+                    ReshardingManager::finalize_allowed_shard(
+                        &next_shard_layout,
+                        child_shard_uid,
+                        congestion_info,
+                    )?;
+
                     let config = runtime_adapter.get_runtime_config(protocol_version)?;
                     let new_shard_id = child_shard_uid.shard_id();
                     *congestion_info = bootstrap_congestion_info(&trie, &config, new_shard_id)?;

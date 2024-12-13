@@ -21,13 +21,11 @@ use near_store::trie::mem::mem_trie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
 use near_store::trie::TrieRecorder;
-use near_store::{DBCol, ShardTries, ShardUId, Store};
-use node_runtime::bootstrap_congestion_info;
+use near_store::{DBCol, ShardTries, ShardUId, Store, TrieAccess};
 
 pub struct ReshardingManager {
     store: Store,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
     /// Configuration for resharding.
     pub resharding_config: MutableConfigValue<ReshardingConfig>,
     /// A handle that allows the main process to interrupt resharding if needed.
@@ -47,19 +45,12 @@ impl ReshardingManager {
     ) -> Self {
         let resharding_handle = ReshardingHandle::new();
         let flat_storage_resharder = FlatStorageResharder::new(
-            runtime_adapter.clone(),
+            runtime_adapter,
             resharding_sender,
             FlatStorageResharderController::from_resharding_handle(resharding_handle.clone()),
             resharding_config.clone(),
         );
-        Self {
-            store,
-            epoch_manager,
-            runtime_adapter,
-            resharding_config,
-            flat_storage_resharder,
-            resharding_handle,
-        }
+        Self { store, epoch_manager, resharding_config, flat_storage_resharder, resharding_handle }
     }
 
     /// Trigger resharding if shard layout changes after the given block.
@@ -286,62 +277,48 @@ impl ReshardingManager {
         *child_chunk_extra.state_root_mut() = new_state_root;
 
         if let Some(congestion_info) = child_chunk_extra.congestion_info_mut() {
-            let &parent_state_root = parent_chunk_extra.state_root();
-            *congestion_info = self.get_child_congestion_info(
-                block,
-                tries,
-                parent_shard_uid,
-                parent_state_root,
-                new_shard_uid,
-                new_state_root,
+            // Get the congestion info based on the parent shard.
+            let epoch_id = block.header().epoch_id();
+            let parent_shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+            let parent_state_root = *parent_chunk_extra.state_root();
+            let parent_congestion_info = congestion_info.clone();
+            let trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
+            *congestion_info = Self::get_child_congestion_info(
+                &trie,
+                &parent_shard_layout,
+                parent_congestion_info,
                 retain_mode,
-                &congestion_info,
             )?;
 
-            // Please note the usage of the child shard layout here.
+            // Set the allowed shard based on the child shard.
             let next_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
             let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-            let all_shards = next_shard_layout.shard_ids().collect_vec();
-            let own_shard = new_shard_uid.shard_id();
-            let own_shard_index = next_shard_layout
-                .get_shard_index(own_shard)?
-                .try_into()
-                .expect("ShardIndex must fit in u64");
-
-            // Use simplified congestion seed. The proper one should be
-            // block height + shard index, however the block heigh is not
-            // easily available in all required places.
-            let congestion_seed = own_shard_index;
-            congestion_info.finalize_allowed_shard(own_shard, &all_shards, congestion_seed);
+            Self::finalize_allowed_shard(&next_shard_layout, new_shard_uid, congestion_info)?;
         }
         Ok(child_chunk_extra)
     }
 
-    fn get_child_congestion_info(
-        &mut self,
-        block: &Block,
-        tries: &ShardTries,
-        parent_shard_uid: ShardUId,
-        parent_state_root: CryptoHash,
-        new_shard_uid: ShardUId,
-        new_state_root: CryptoHash,
+    // Get the congestion info for the child shard.
+    //
+    // The left child contains all the delayed and buffered receipts from the
+    // parent so it should have identical congestion info.
+    //
+    // The right child contains all the delayed receipts from the parent but it
+    // has no buffered receipts. It's info needs to be computed by subtracting
+    // the parent's buffered receipts from the parent's congestion info.
+    pub fn get_child_congestion_info(
+        trie: &dyn TrieAccess,
+        parent_shard_layout: &ShardLayout,
+        parent_congestion_info: CongestionInfo,
         retain_mode: RetainMode,
-        congestion_info: &CongestionInfo,
     ) -> Result<CongestionInfo, Error> {
         if retain_mode == RetainMode::Left {
-            return Ok(congestion_info.clone());
+            return Ok(parent_congestion_info);
         }
 
-        // left child -> unchanged
-        // right child -> remove the buffered receipts
-        let epoch_id = block.header().epoch_id();
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-
-        let trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
-        let mut smart_congestion_info = congestion_info.clone();
-        for shard_id in shard_layout.shard_ids() {
-            let receipt_groups = ReceiptGroupsQueue::load(&trie, shard_id)?;
+        let mut congestion_info = parent_congestion_info;
+        for shard_id in parent_shard_layout.shard_ids() {
+            let receipt_groups = ReceiptGroupsQueue::load(trie, shard_id)?;
             let Some(receipt_groups) = receipt_groups else {
                 continue;
             };
@@ -350,25 +327,33 @@ impl ReshardingManager {
             let gas = receipt_groups.total_gas();
             let gas = gas.try_into().expect("ReceiptGroup gas must fit in u64");
 
-            smart_congestion_info
+            congestion_info
                 .remove_buffered_receipt_gas(gas)
                 .expect("Buffered gas must not exceed congestion info buffered gas");
-            smart_congestion_info
+            congestion_info
                 .remove_receipt_bytes(bytes)
                 .expect("Buffered size must not exceed congestion info buffered size");
         }
 
-        assert_eq!(smart_congestion_info.buffered_receipts_gas(), 0);
-
-        let trie = tries.get_trie_for_shard(new_shard_uid, new_state_root);
-        let config = self.runtime_adapter.get_runtime_config(protocol_version)?;
-        let new_shard_id = new_shard_uid.shard_id();
-        let congestion_info = bootstrap_congestion_info(&trie, &config, new_shard_id)?;
-
-        smart_congestion_info.set_allowed_shard(congestion_info.allowed_shard());
-        assert_eq!(congestion_info, smart_congestion_info);
+        assert_eq!(congestion_info.buffered_receipts_gas(), 0);
 
         Ok(congestion_info)
+    }
+
+    pub fn finalize_allowed_shard(
+        next_shard_layout: &ShardLayout,
+        new_shard_uid: ShardUId,
+        congestion_info: &mut CongestionInfo,
+    ) -> Result<(), Error> {
+        let all_shards = next_shard_layout.shard_ids().collect_vec();
+        let own_shard = new_shard_uid.shard_id();
+        let own_shard_index = next_shard_layout
+            .get_shard_index(own_shard)?
+            .try_into()
+            .expect("ShardIndex must fit in u64");
+        let congestion_seed = own_shard_index;
+        congestion_info.finalize_allowed_shard(own_shard, &all_shards, congestion_seed);
+        Ok(())
     }
 
     // TODO(store): Use proper store interface
