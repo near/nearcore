@@ -30,7 +30,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
@@ -38,7 +38,7 @@ use near_store::config::StateSnapshotType;
 use near_store::db::TestDBFlags;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store_with_flags};
-use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
+use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
@@ -55,7 +55,7 @@ enum DropConditionKind {
     EndorsementsFrom(AccountId),
     /// Whether test loop should drop all chunks in the given range of heights
     /// relative to first block height where protocol version changes.
-    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardUId, std::ops::Range<i64>>)),
+    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardIndex, std::ops::Range<i64>>)),
     /// Specifies the chunks that should be produced by their appearance in the
     /// chain with respect to the start of an epoch. That is, a given chunk at height
     /// `height_created` for shard `shard_id` will be produced if
@@ -152,17 +152,17 @@ fn should_drop_chunk_for_protocol_upgrade(
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     chunk: ShardChunkHeader,
     version_of_protocol_upgrade: ProtocolVersion,
-    chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+    chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
 ) -> bool {
     let prev_block_hash = chunk.prev_block_hash();
     let shard_id = chunk.shard_id();
     let height_created = chunk.height_created();
     let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
     let shard_layout = epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
-    let chunk_shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     // If there is no condition for the shard, all chunks
     // pass through.
-    let Some(range) = chunk_ranges.get(&chunk_shard_uid) else {
+    let Some(range) = chunk_ranges.get(&shard_index) else {
         return false;
     };
 
@@ -366,7 +366,7 @@ impl TestLoopBuilder {
     pub(crate) fn drop_protocol_upgrade_chunks(
         mut self,
         protocol_version: ProtocolVersion,
-        chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+        chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
     ) -> Self {
         if !chunk_ranges.is_empty() {
             self.drop_condition_kinds.push(DropConditionKind::ProtocolUpgradeChunkRange((

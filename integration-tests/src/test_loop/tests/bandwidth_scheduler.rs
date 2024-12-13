@@ -23,7 +23,7 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain::ChainStoreAccess;
+use near_chain::{ChainStoreAccess, ReceiptFilter};
 use near_chain_configs::test_genesis::{
     build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
 };
@@ -320,7 +320,7 @@ fn analyze_workload_blocks(
                     &cur_shard_layout,
                     *block.hash(),
                     prev_height_included,
-                    true,
+                    ReceiptFilter::TargetShard,
                 )
                 .unwrap();
 

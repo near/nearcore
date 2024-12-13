@@ -468,9 +468,6 @@ pub fn pre_validate_chunk_state_witness(
 /// Validate that receipt proofs contain the receipts that should be applied during the
 /// transition proven by ChunkStateWitness. The receipts are extracted from the proofs
 /// and arranged in the order in which they should be applied during the transition.
-/// TODO(resharding): Handle resharding properly. If the receipts were sent from before
-/// a resharding boundary, we should first validate the proof using the pre-resharding
-/// target_shard_id and then extract the receipts that are targeted at this half of a split shard.
 fn validate_source_receipt_proofs(
     epoch_manager: &dyn EpochManagerAdapter,
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,

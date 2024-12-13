@@ -2,7 +2,7 @@ use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use crate::Client;
 use near_async::messaging::{CanSend, IntoSender};
-use near_chain::{BlockHeader, Chain, ChainStoreAccess};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, ReceiptFilter};
 use near_chain_primitives::Error;
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
@@ -378,7 +378,7 @@ impl Client {
             &shard_layout,
             *prev_chunk_original_block.hash(),
             prev_prev_chunk_header.height_included(),
-            false,
+            ReceiptFilter::All,
         )?;
 
         // Convert to the right format (from [block_hash -> Vec<ReceiptProof>] to [chunk_hash -> ReceiptProof])

@@ -22,7 +22,9 @@ use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::stateless_validation::chunk_endorsement::{
     validate_chunk_endorsements_in_block, validate_chunk_endorsements_in_header,
 };
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess};
+use crate::store::{
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, MerkleProofAccess, ReceiptFilter,
+};
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
     StorageDataSource,
@@ -2647,7 +2649,7 @@ impl Chain {
             &shard_layout,
             sync_hash,
             prev_chunk_height_included,
-            false,
+            ReceiptFilter::All,
         )?;
 
         // Collecting proofs for incoming receipts.
@@ -3780,7 +3782,7 @@ impl Chain {
                     &shard_layout,
                     *prev_hash,
                     prev_chunk_height_included,
-                    true,
+                    ReceiptFilter::TargetShard,
                 )?;
                 let old_receipts = collect_receipts_from_response(old_receipts);
                 let receipts = [new_receipts, old_receipts].concat();
