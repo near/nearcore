@@ -63,23 +63,36 @@ pub struct TestEpochConfigBuilder {
 /// since the validator selection algorithm is rather tricky, the builder
 /// provides an option to specify exactly which accounts should be block and
 /// chunk-only producers.
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct TestGenesisBuilder {
-    chain_id: Option<String>,
-    genesis_time: Option<chrono::DateTime<chrono::Utc>>,
-    protocol_version: Option<ProtocolVersion>,
-    genesis_height: Option<BlockHeight>,
+    chain_id: String,
+    protocol_version: ProtocolVersion,
     // TODO: remove when epoch length is no longer controlled by genesis
-    epoch_length: Option<BlockHeightDelta>,
-    min_max_gas_price: Option<(Balance, Balance)>,
-    gas_limit: Option<Gas>,
-    transaction_validity_period: Option<NumBlocks>,
-    validators_spec: Option<ValidatorsSpec>,
-    protocol_treasury_account: Option<String>,
-    max_inflation_rate: Option<Rational32>,
-    user_accounts: Vec<UserAccount>,
+    epoch_length: BlockHeightDelta,
     // TODO: remove when shard layout is no longer controlled by genesis
-    shard_layout: Option<ShardLayout>,
+    shard_layout: ShardLayout,
+    validators_spec: ValidatorsSpec,
+    genesis_time: chrono::DateTime<chrono::Utc>,
+    genesis_height: BlockHeight,
+    min_gas_price: Balance,
+    max_gas_price: Balance,
+    gas_limit: Gas,
+    transaction_validity_period: NumBlocks,
+    protocol_treasury_account: String,
+    max_inflation_rate: Rational32,
+    dynamic_resharding: bool,
+    fishermen_threshold: Balance,
+    online_min_threshold: Rational32,
+    online_max_threshold: Rational32,
+    gas_price_adjustment_rate: Rational32,
+    num_blocks_per_year: NumBlocks,
+    protocol_reward_rate: Rational32,
+    max_kickout_stake_perc: u8,
+    num_chunk_only_producer_seats: NumSeats,
+    minimum_stake_divisor: u64,
+    protocol_upgrade_stake_threshold: Rational32,
+    chunk_producer_assignment_changes_limit: NumSeats,
+    user_accounts: Vec<UserAccount>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +117,9 @@ struct UserAccount {
 }
 
 impl Default for TestEpochConfigBuilder {
+    // NOTE: The hardcoded defaults below are meticulously chosen for the purpose of testing. If you
+    // want to override any of them, add corresponding functions to set the field. DO NOT just
+    // modify the defaults.
     fn default() -> Self {
         Self {
             epoch_length: 5,
@@ -226,8 +242,47 @@ impl TestEpochConfigBuilder {
             num_block_producer_seats_per_shard: self.num_block_producer_seats_per_shard,
             num_chunk_only_producer_seats: self.num_chunk_only_producer_seats,
         };
-        tracing::warn!("Epoch config: {:#?}", epoch_config);
+        tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config
+    }
+}
+
+impl Default for TestGenesisBuilder {
+    // NOTE: The hardcoded defaults below are meticulously chosen for the purpose of testing. If you
+    // want to override any of them, add corresponding functions to set the field. DO NOT just
+    // modify the defaults.
+    fn default() -> Self {
+        Self {
+            chain_id: "test".to_string(),
+            protocol_version: PROTOCOL_VERSION,
+            epoch_length: 100,
+            shard_layout: ShardLayout::single_shard(),
+            validators_spec: ValidatorsSpec::DesiredRoles {
+                block_and_chunk_producers: vec!["validator0".to_string()],
+                chunk_validators_only: vec![],
+            },
+            genesis_time: chrono::Utc::now(),
+            genesis_height: 1,
+            min_gas_price: 0,
+            max_gas_price: 0,
+            gas_limit: 1_000_000_000_000_000,
+            transaction_validity_period: 100,
+            protocol_treasury_account: "near".to_string().parse().unwrap(),
+            max_inflation_rate: Rational32::new(1, 1),
+            user_accounts: vec![],
+            dynamic_resharding: false,
+            fishermen_threshold: 0,
+            online_min_threshold: Rational32::new(90, 100),
+            online_max_threshold: Rational32::new(99, 100),
+            gas_price_adjustment_rate: Rational32::new(0, 1),
+            num_blocks_per_year: 86400,
+            protocol_reward_rate: Rational32::new(0, 1),
+            max_kickout_stake_perc: 100,
+            num_chunk_only_producer_seats: 0,
+            minimum_stake_divisor: 10,
+            protocol_upgrade_stake_threshold: Rational32::new(8, 10),
+            chunk_producer_assignment_changes_limit: 5,
+        }
     }
 }
 
@@ -237,72 +292,68 @@ impl TestGenesisBuilder {
     }
 
     pub fn chain_id(mut self, chain_id: String) -> Self {
-        self.chain_id = Some(chain_id);
+        self.chain_id = chain_id;
         self
     }
 
     pub fn genesis_time(mut self, genesis_time: chrono::DateTime<chrono::Utc>) -> Self {
-        self.genesis_time = Some(genesis_time);
+        self.genesis_time = genesis_time;
         self
     }
 
     pub fn genesis_time_from_clock(mut self, clock: &Clock) -> Self {
-        self.genesis_time = Some(from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64));
+        self.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
         self
     }
 
     pub fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
-        self.protocol_version = Some(protocol_version);
+        self.protocol_version = protocol_version;
         self
     }
 
     pub fn genesis_height(mut self, genesis_height: BlockHeight) -> Self {
-        self.genesis_height = Some(genesis_height);
+        self.genesis_height = genesis_height;
         self
     }
 
     pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
-        self.epoch_length = Some(epoch_length);
+        self.epoch_length = epoch_length;
         self
     }
 
     pub fn shard_layout(mut self, shard_layout: ShardLayout) -> Self {
-        self.shard_layout = Some(shard_layout);
+        self.shard_layout = shard_layout;
         self
     }
 
     pub fn gas_prices(mut self, min: Balance, max: Balance) -> Self {
-        self.min_max_gas_price = Some((min, max));
-        self
-    }
-
-    pub fn gas_prices_free(mut self) -> Self {
-        self.min_max_gas_price = Some((0, 0));
+        self.min_gas_price = min;
+        self.max_gas_price = max;
         self
     }
 
     pub fn gas_limit(mut self, gas_limit: Gas) -> Self {
-        self.gas_limit = Some(gas_limit);
+        self.gas_limit = gas_limit;
         self
     }
 
     pub fn gas_limit_one_petagas(mut self) -> Self {
-        self.gas_limit = Some(1_000_000_000_000_000);
+        self.gas_limit = 1_000_000_000_000_000;
         self
     }
 
     pub fn transaction_validity_period(mut self, transaction_validity_period: NumBlocks) -> Self {
-        self.transaction_validity_period = Some(transaction_validity_period);
+        self.transaction_validity_period = transaction_validity_period;
         self
     }
 
-    pub fn validators_spec(mut self, validators: ValidatorsSpec) -> Self {
-        self.validators_spec = Some(validators);
+    pub fn validators_spec(mut self, validators_spec: ValidatorsSpec) -> Self {
+        self.validators_spec = validators_spec;
         self
     }
 
     pub fn max_inflation_rate(mut self, max_inflation_rate: Rational32) -> Self {
-        self.max_inflation_rate = Some(max_inflation_rate);
+        self.max_inflation_rate = max_inflation_rate;
         self
     }
 
@@ -310,7 +361,7 @@ impl TestGenesisBuilder {
     /// pick an arbitrary account name and ensure that it is included in the
     /// genesis records.
     pub fn protocol_treasury_account(mut self, protocol_treasury_account: String) -> Self {
-        self.protocol_treasury_account = Some(protocol_treasury_account);
+        self.protocol_treasury_account = protocol_treasury_account;
         self
     }
 
@@ -343,95 +394,6 @@ impl TestGenesisBuilder {
     }
 
     pub fn build(self) -> Genesis {
-        let chain_id = self.chain_id.clone().unwrap_or_else(|| {
-            let default = "test".to_string();
-            tracing::warn!("Genesis chain_id not explicitly set, defaulting to {:?}.", default);
-            default
-        });
-        let protocol_version = self.protocol_version.unwrap_or_else(|| {
-            let default = PROTOCOL_VERSION;
-            tracing::warn!("Genesis protocol_version not explicitly set, defaulting to latest protocol version {:?}.", default);
-            default
-        });
-        let validators_spec = self.validators_spec.clone().unwrap_or_else(|| {
-            let default = ValidatorsSpec::DesiredRoles {
-                block_and_chunk_producers: vec!["validator0".to_string()],
-                chunk_validators_only: vec![],
-            };
-            tracing::warn!(
-                "Genesis validators not explicitly set, defaulting to a single validator setup {:?}.",
-                default
-            );
-            default
-        });
-        let epoch_length = self.epoch_length.unwrap_or_else(|| {
-            let default = 100;
-            tracing::warn!("Genesis epoch_length not explicitly set, defaulting to {:?}.", default);
-            default
-        });
-        let shard_layout = self.shard_layout.clone().unwrap_or_else(|| {
-            let default = ShardLayout::single_shard();
-            tracing::warn!("Genesis shard_layout not explicitly set, defaulting to {:?}.", default);
-            default
-        });
-        let genesis_time = self.genesis_time.unwrap_or_else(|| {
-            let default = chrono::Utc::now();
-            tracing::warn!(
-                "Genesis genesis_time not explicitly set, defaulting to current time {:?}.",
-                default
-            );
-            default
-        });
-
-        let genesis_height = self.genesis_height.unwrap_or_else(|| {
-            let default = 1;
-            tracing::warn!(
-                "Genesis genesis_height not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
-        let (min_gas_price, max_gas_price) = self.min_max_gas_price.unwrap_or_else(|| {
-            let default = (0, 0);
-            tracing::warn!("Genesis gas prices not explicitly set, defaulting to free gas.");
-            default
-        });
-        let gas_limit = self.gas_limit.unwrap_or_else(|| {
-            let default = 1_000_000_000_000_000;
-            tracing::warn!("Genesis gas_limit not explicitly set, defaulting to {:?}.", default);
-            default
-        });
-        let transaction_validity_period = self.transaction_validity_period.unwrap_or_else(|| {
-            let default = 100;
-            tracing::warn!(
-                "Genesis transaction_validity_period not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
-
-        let protocol_treasury_account: AccountId = self
-            .protocol_treasury_account
-            .clone()
-            .unwrap_or_else(|| {
-                let default = "near".to_string();
-                tracing::warn!(
-                    "Genesis protocol_treasury_account not explicitly set, defaulting to {:?}.",
-                    default
-                );
-                default
-            })
-            .parse()
-            .unwrap();
-        let max_inflation_rate = self.max_inflation_rate.unwrap_or_else(|| {
-            let default = Rational32::new(1, 1);
-            tracing::warn!(
-                "Genesis max_inflation_rate not explicitly set, defaulting to {:?}.",
-                default
-            );
-            default
-        });
-
         if self
             .user_accounts
             .iter()
@@ -442,6 +404,8 @@ impl TestGenesisBuilder {
         {
             panic!("Duplicate user accounts specified.");
         }
+
+        let protocol_treasury_account: AccountId = self.protocol_treasury_account.parse().unwrap();
 
         // We will merge the user accounts that were specified, with the
         // validator staking accounts from the validator setup, and ensure
@@ -467,7 +431,7 @@ impl TestGenesisBuilder {
             num_block_producer_seats,
             num_chunk_producer_seats,
             num_chunk_validator_seats,
-        } = derive_validator_setup(validators_spec);
+        } = derive_validator_setup(self.validators_spec);
 
         let mut total_supply = 0;
         let mut validator_stake: HashMap<AccountId, Balance> = HashMap::new();
@@ -486,7 +450,7 @@ impl TestGenesisBuilder {
                     0,
                     CryptoHash::default(),
                     0,
-                    protocol_version,
+                    self.protocol_version,
                 ),
             });
             for access_key in &user_account.access_keys {
@@ -503,50 +467,55 @@ impl TestGenesisBuilder {
         for (account_id, balance) in validator_stake {
             records.push(StateRecord::Account {
                 account_id,
-                account: Account::new(0, balance, 0, CryptoHash::default(), 0, protocol_version),
+                account: Account::new(
+                    0,
+                    balance,
+                    0,
+                    CryptoHash::default(),
+                    0,
+                    self.protocol_version,
+                ),
             });
         }
 
-        // NOTE: If you want to override any of the hardcoded defaults below,
-        // follow the same pattern and add a corresponding `Option` field to the builder,
-        // and add the corresponding functions to set the field. DO NOT just modify
-        // the defaults.
         let genesis_config = GenesisConfig {
-            chain_id,
-            genesis_time,
-            genesis_height,
-            epoch_length,
-            min_gas_price,
-            max_gas_price,
-            gas_limit,
-            dynamic_resharding: false,
-            fishermen_threshold: 0,
-            transaction_validity_period,
-            protocol_version,
+            chain_id: self.chain_id,
+            genesis_time: self.genesis_time,
+            genesis_height: self.genesis_height,
+            epoch_length: self.epoch_length,
+            min_gas_price: self.min_gas_price,
+            max_gas_price: self.max_gas_price,
+            gas_limit: self.gas_limit,
+            dynamic_resharding: self.dynamic_resharding,
+            fishermen_threshold: self.fishermen_threshold,
+            transaction_validity_period: self.transaction_validity_period,
+            protocol_version: self.protocol_version,
             protocol_treasury_account,
-            online_min_threshold: Rational32::new(90, 100),
-            online_max_threshold: Rational32::new(99, 100),
-            gas_price_adjustment_rate: Rational32::new(0, 1),
-            num_blocks_per_year: 86400,
-            protocol_reward_rate: Rational32::new(0, 1),
+            online_min_threshold: self.online_min_threshold,
+            online_max_threshold: self.online_max_threshold,
+            gas_price_adjustment_rate: self.gas_price_adjustment_rate,
+            num_blocks_per_year: self.num_blocks_per_year,
+            protocol_reward_rate: self.protocol_reward_rate,
             total_supply,
-            max_kickout_stake_perc: 100,
+            max_kickout_stake_perc: self.max_kickout_stake_perc,
             validators,
-            shard_layout: shard_layout.clone(),
+            shard_layout: self.shard_layout.clone(),
             num_block_producer_seats,
-            num_block_producer_seats_per_shard: shard_layout
+            num_block_producer_seats_per_shard: self
+                .shard_layout
                 .shard_ids()
                 .map(|_| num_block_producer_seats)
                 .collect(),
-            num_chunk_only_producer_seats: 0,
-            minimum_stake_divisor: 10,
-            max_inflation_rate,
-            protocol_upgrade_stake_threshold: Rational32::new(8, 10),
+            num_chunk_only_producer_seats: self.num_chunk_only_producer_seats,
+            minimum_stake_divisor: self.minimum_stake_divisor,
+            max_inflation_rate: self.max_inflation_rate,
+            protocol_upgrade_stake_threshold: self.protocol_upgrade_stake_threshold,
             num_chunk_producer_seats,
             num_chunk_validator_seats,
-            chunk_producer_assignment_changes_limit: 5,
+            chunk_producer_assignment_changes_limit: self.chunk_producer_assignment_changes_limit,
             ..Default::default()
         };
+        tracing::debug!("Genesis config: {:#?}", genesis_config);
 
         Genesis {
             config: genesis_config,
@@ -679,7 +648,6 @@ pub fn build_genesis_and_epoch_config_store<'a>(
         .shard_layout(shard_layout.clone())
         .validators_spec(validators_spec.clone())
         .add_user_accounts_simple(accounts, 1_000_000 * ONE_NEAR)
-        .gas_prices_free()
         .gas_limit_one_petagas();
     let epoch_config_builder = TestEpochConfigBuilder::new()
         .epoch_length(epoch_length)
