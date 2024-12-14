@@ -358,8 +358,8 @@ mod tests {
         }
         assert_eq!(n, incremental_encoder.encoded_length());
 
-        let temp = bytes_encoded1.iter().map(|part| part.clone().unwrap()).collect_vec();
-        assert_eq!(bytes_encoded2, temp);
+        let mut bytes_encoded2 = bytes_encoded2.iter().map(|part| Some(part.clone())).collect_vec();
+        assert_eq!(bytes_encoded1, bytes_encoded2);
 
         // Make some missing parts
         let redundant = (total_parts as f64 - total_parts as f64 * ratio) as usize;
@@ -367,15 +367,12 @@ mod tests {
             bytes_encoded1[i] = None;
         }
 
-        let part_length = reed_solomon_part_length(n, incremental_encoder.data_parts);
         for i in 10..(10 + redundant) {
-            bytes_encoded2[i] = vec![0; part_length].into_boxed_slice();
+            bytes_encoded2[i] = None;
         }
 
-        let rs = encoder.rs.as_ref().unwrap();
-        let t = encoder.decode::<EncodedChunkStateWitness>(&mut bytes_encoded2, n).unwrap();
-        let bytes_rebuilt1 =
-            encoder.decode::<EncodedChunkStateWitness>(&mut bytes_encoded1, n).unwrap();
-        // let bytes_rebuilt2 = rs.decode(&mut bytes_encoded2, n).unwrap();
+        let rebuilt1 = encoder.decode::<EncodedChunkStateWitness>(&mut bytes_encoded1, n).unwrap();
+        let rebuilt2 = encoder.decode::<EncodedChunkStateWitness>(&mut bytes_encoded2, n).unwrap();
+        assert_eq!(rebuilt1, rebuilt2);
     }
 }
