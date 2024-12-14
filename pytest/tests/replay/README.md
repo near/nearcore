@@ -38,4 +38,3 @@ python3 pytest/tests/replay/replay.py send --tx-json [PREREQ2] --home-dir [PRERE
 ```
 
 Now the localnet db contains a dense trace of the txs dumped, replayed on the dumped genesis.
-11
