@@ -77,7 +77,7 @@ fn create_block() -> Block {
         Some(0),
         vec![],
         vec![],
-        &signer.into(),
+        &signer,
         CryptoHash::default(),
         CryptoHash::default(),
         Clock::real(),

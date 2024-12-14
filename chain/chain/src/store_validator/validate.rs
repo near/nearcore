@@ -4,8 +4,9 @@ use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -294,6 +295,25 @@ pub(crate) fn chunk_indexed_by_height_created(
     Ok(())
 }
 
+pub(crate) fn partial_chunk_receipts_exist_in_receipts(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    partial_chunk: &PartialEncodedChunk,
+) -> Result<(), StoreValidatorError> {
+    for receipt_proof in partial_chunk.prev_outgoing_receipts() {
+        for receipt in &receipt_proof.0 {
+            unwrap_or_err_db!(
+                sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt.receipt_id().as_bytes()),
+                "IncomingReceipt has {:?} but it doesn't exist in Receipts column",
+                receipt
+            );
+            // This is verified later when we verify the Receipts column.
+            *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn header_hash_indexed_by_height(
     sv: &mut StoreValidator,
     _hash: &CryptoHash,
@@ -338,9 +358,6 @@ pub(crate) fn chunk_tx_exists(
     for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();
         sv.inner.tx_refcount.entry(tx_hash).and_modify(|x| *x += 1).or_insert(1);
-    }
-    for receipt in shard_chunk.prev_outgoing_receipts().iter() {
-        sv.inner.receipt_refcount.entry(receipt.get_hash()).and_modify(|x| *x += 1).or_insert(1);
     }
     for tx in shard_chunk.transactions().iter() {
         let tx_hash = tx.get_hash();

@@ -2,7 +2,7 @@ use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use crate::Client;
 use near_async::messaging::{CanSend, IntoSender};
-use near_chain::{BlockHeader, Chain, ChainStoreAccess};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, ReceiptFilter};
 use near_chain_primitives::Error;
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
@@ -210,8 +210,10 @@ impl Client {
             }
 
             let current_epoch_id = *header.epoch_id();
-            let current_shard_id =
-                self.epoch_manager.get_prev_shard_id(&current_block_hash, next_shard_id)?.0;
+            let current_shard_id = self
+                .epoch_manager
+                .get_prev_shard_id_from_prev_hash(&current_block_hash, next_shard_id)?
+                .1;
             if current_shard_id != next_shard_id {
                 // If shard id changes, we need to get implicit state
                 // transition from current shard id to the next shard id.
@@ -376,6 +378,7 @@ impl Client {
             &shard_layout,
             *prev_chunk_original_block.hash(),
             prev_prev_chunk_header.height_included(),
+            ReceiptFilter::All,
         )?;
 
         // Convert to the right format (from [block_hash -> Vec<ReceiptProof>] to [chunk_hash -> ReceiptProof])

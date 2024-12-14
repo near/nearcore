@@ -5,6 +5,7 @@ use bitvec::order::Lsb0;
 use bitvec::slice::BitSlice;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
@@ -301,20 +302,29 @@ impl BlockBandwidthRequests {
 /// The state should be the same on all shards. All shards start with the same state
 /// and apply the same bandwidth scheduler algorithm at the same heights, so the resulting
 /// scheduler state stays the same.
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    ProtocolSchema,
-)]
+/// TODO(bandwidth_scheduler) - make this struct versioned.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
 pub struct BandwidthSchedulerState {
-    /// Random data for now
-    pub mock_data: [u8; 32],
+    /// Allowance for every pair of (sender, receiver). Used in the scheduler algorithm.
+    /// Bandwidth scheduler updates the allowances on every run.
+    pub link_allowances: Vec<LinkAllowance>,
+    /// Sanity check hash to assert that all shards run bandwidth scheduler in the exact same way.
+    /// Hash of previous scheduler state and (some) scheduler inputs.
+    pub sanity_check_hash: CryptoHash,
+}
+
+/// Allowance for a (sender, receiver) pair of shards.
+/// Used in bandwidth scheduler.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+pub struct LinkAllowance {
+    /// Sender shard
+    pub sender: ShardId,
+    /// Receiver shard
+    pub receiver: ShardId,
+    /// Link allowance, determines priority for granting bandwidth.
+    /// See the bandwidth scheduler module-level comment for a more
+    /// detailed description.
+    pub allowance: Bandwidth,
 }
 
 /// Parameters used in the bandwidth scheduler algorithm.
