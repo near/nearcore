@@ -5,7 +5,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId, ShardIndex};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use rand::seq::SliceRandom;
@@ -534,7 +534,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     base_epoch_config.shard_layout = base_shard_layout.clone();
 
     let new_boundary_account = "account6".parse().unwrap();
-    let parent_shard_uid = account_id_to_shard_uid(&new_boundary_account, &base_shard_layout);
+    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&new_boundary_account);
     let mut epoch_config = base_epoch_config.clone();
     epoch_config.shard_layout =
         ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account);
