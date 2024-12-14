@@ -582,7 +582,7 @@ impl ShardLayout {
         )
     }
 
-    /// Maps an account to the shard_id that it belongs to given a shard_layout
+    /// Maps an account to the shard_id that it belongs to in this shard_layout
     /// For V0, maps according to hash of account id
     /// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -598,13 +598,15 @@ impl ShardLayout {
         }
     }
 
-    /// Maps an account to the shard_uid that it belongs to given a shard_layout
+    /// Maps an account to the shard_uid that it belongs to in this shard_layout
+    #[inline]
     pub fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId {
         ShardUId::from_shard_id_and_layout(self.account_id_to_shard_id(account_id), self)
     }
 
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
+    #[inline]
     pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         self.get_children_shards_ids(parent_shard_id).map(|shards| {
             shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, self)).collect()
