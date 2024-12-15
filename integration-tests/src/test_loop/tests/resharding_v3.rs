@@ -87,7 +87,13 @@ impl TestReshardingParametersBuilder {
     fn build(self) -> TestReshardingParameters {
         let num_accounts = self.num_accounts.unwrap_or(8);
         let num_clients = self.num_clients.unwrap_or(3);
-        let epoch_length = self.epoch_length.unwrap_or(6);
+        // When there's a resharding task delay and single-shard tracking, the delay might be pushed out
+        // even further because the resharding task might have to wait for the state snapshot to be made
+        // before it can proceed, which might mean that flat storage won't be ready for the child shard for a whole epoch.
+        // So we extend the epoch length a bit in this case.
+        let epoch_length = self
+            .epoch_length
+            .unwrap_or_else(|| self.delay_flat_state_resharding.map_or(6, |delay| delay + 7));
 
         // #12195 prevents number of BPs bigger than `epoch_length`.
         assert!(num_clients > 0 && num_clients <= epoch_length);
@@ -968,9 +974,11 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and change the ignore condition
-// #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+// TODO(resharding): fix the fact that this test fails if the epoch length is set to 10, (and state sync
+// is made to run before shard catchup) because set_state_finalize() sets flat storage state to
+// ready before child catchup is done. Also fix the failure in
+// check_state_shard_uid_mapping_after_resharding() if the epoch length is set to 11
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
