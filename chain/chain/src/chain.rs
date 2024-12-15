@@ -795,30 +795,27 @@ impl Chain {
     fn get_state_sync_info(
         &self,
         me: &Option<AccountId>,
+        epoch_id: &EpochId,
+        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
-        epoch_first_block: &Block,
     ) -> Result<Option<StateSyncInfo>, Error> {
-        let prev_hash = *epoch_first_block.header().prev_hash();
         let shards_to_state_sync = Chain::get_shards_to_state_sync(
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
             me,
-            &prev_hash,
+            prev_hash,
             prev_prev_hash,
         )?;
         if shards_to_state_sync.is_empty() {
             Ok(None)
         } else {
             debug!(target: "chain", "Downloading state for {:?}, I'm {:?}", shards_to_state_sync, me);
-            let epoch_id = epoch_first_block.header().epoch_id();
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
             // Note that this block is the first block in an epoch because this function is only called
             // in get_catchup_and_state_sync_infos() when that is the case.
-            let state_sync_info = StateSyncInfo::new(
-                protocol_version,
-                *epoch_first_block.header().hash(),
-                shards_to_state_sync,
-            );
+            let state_sync_info =
+                StateSyncInfo::new(protocol_version, *block_hash, shards_to_state_sync);
             Ok(Some(state_sync_info))
         }
     }
@@ -2274,7 +2271,7 @@ impl Chain {
         // First real I/O expense.
         let prev = self.get_previous_header(header)?;
         let prev_hash = *prev.hash();
-        let prev_prev_hash = *prev.prev_hash();
+        let prev_prev_hash = prev.prev_hash();
         let gas_price = prev.next_gas_price();
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
@@ -2284,8 +2281,13 @@ impl Chain {
             return Err(Error::InvalidBlockHeight(prev_height));
         }
 
-        let (is_caught_up, state_sync_info) =
-            self.get_catchup_and_state_sync_infos(header, prev_hash, prev_prev_hash, me, block)?;
+        let (is_caught_up, state_sync_info) = self.get_catchup_and_state_sync_infos(
+            header.epoch_id(),
+            header.hash(),
+            &prev_hash,
+            prev_prev_hash,
+            me,
+        )?;
 
         self.check_if_challenged_block_on_chain(header)?;
 
@@ -2378,15 +2380,15 @@ impl Chain {
 
     fn get_catchup_and_state_sync_infos(
         &self,
-        header: &BlockHeader,
-        prev_hash: CryptoHash,
-        prev_prev_hash: CryptoHash,
+        epoch_id: &EpochId,
+        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+        prev_prev_hash: &CryptoHash,
         me: &Option<AccountId>,
-        block: &MaybeValidated<Block>,
     ) -> Result<(bool, Option<StateSyncInfo>), Error> {
-        if self.epoch_manager.is_next_block_epoch_start(&prev_hash)? {
-            debug!(target: "chain", block_hash=?header.hash(), "block is the first block of an epoch");
-            if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+            debug!(target: "chain", %block_hash, "block is the first block of an epoch");
+            if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
                 // The previous block is not caught up for the next epoch relative to the previous
                 // block, which is the current epoch for this block, so this block cannot be applied
                 // at all yet, needs to be orphaned
@@ -2396,10 +2398,11 @@ impl Chain {
             // For the first block of the epoch we check if we need to start download states for
             // shards that we will care about in the next epoch. If there is no state to be downloaded,
             // we consider that we are caught up, otherwise not
-            let state_sync_info = self.get_state_sync_info(me, &prev_prev_hash, block)?;
+            let state_sync_info =
+                self.get_state_sync_info(me, epoch_id, block_hash, prev_hash, prev_prev_hash)?;
             Ok((state_sync_info.is_none(), state_sync_info))
         } else {
-            Ok((self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, None))
+            Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash)?, None))
         }
     }
 
