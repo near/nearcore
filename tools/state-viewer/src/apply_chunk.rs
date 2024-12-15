@@ -5,7 +5,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -80,6 +80,7 @@ fn get_incoming_receipts(
         &shard_layout,
         *prev_hash,
         prev_height_included,
+        ReceiptFilter::TargetShard,
     )?);
     Ok(collect_receipts_from_response(&responses))
 }

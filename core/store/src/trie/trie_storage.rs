@@ -613,7 +613,7 @@ mod trie_cache_tests {
     use crate::trie::trie_storage::TrieCacheInner;
     use crate::{StoreConfig, TrieCache, TrieConfig};
     use near_primitives::hash::hash;
-    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::shard_layout::{ShardUId, ShardVersion};
     use near_primitives::types::ShardId;
 
     fn put_value(cache: &mut TrieCacheInner, value: &[u8]) {
@@ -702,20 +702,29 @@ mod trie_cache_tests {
         store_config.view_trie_cache.per_shard_max_bytes.insert(s0, S0_VIEW_SIZE);
         let trie_config = TrieConfig::from_store_config(&store_config);
 
-        check_cache_size(&trie_config, ShardId::new(1), false, DEFAULT_SIZE);
-        check_cache_size(&trie_config, ShardId::new(0), false, S0_SIZE);
-        check_cache_size(&trie_config, ShardId::new(1), true, DEFAULT_VIEW_SIZE);
-        check_cache_size(&trie_config, ShardId::new(0), true, S0_VIEW_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(1), false, DEFAULT_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(0), false, S0_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(1), true, DEFAULT_VIEW_SIZE);
+        check_cache_size(&trie_config, 0, ShardId::new(0), true, S0_VIEW_SIZE);
+    }
+
+    #[test]
+    fn test_default_per_shard_max_bytes() {
+        let store_config = StoreConfig::default();
+        let trie_config = TrieConfig::from_store_config(&store_config);
+        check_cache_size(&trie_config, 3, ShardId::new(1), false, bytesize::ByteSize::mb(50));
+        check_cache_size(&trie_config, 3, ShardId::new(5), false, bytesize::ByteSize::gb(3));
     }
 
     #[track_caller]
     fn check_cache_size(
         trie_config: &TrieConfig,
+        version: ShardVersion,
         shard_id: ShardId,
         is_view: bool,
         expected_size: bytesize::ByteSize,
     ) {
-        let shard_uid = ShardUId::new(0, shard_id);
+        let shard_uid = ShardUId::new(version, shard_id);
         let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
         assert_eq!(expected_size.as_u64(), trie_cache.lock().total_size_limit);
         assert_eq!(is_view, trie_cache.lock().is_view);

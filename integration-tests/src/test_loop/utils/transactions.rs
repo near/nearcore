@@ -2,6 +2,7 @@ use crate::test_loop::env::{TestData, TestLoopEnv};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
+use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
@@ -57,12 +58,15 @@ pub(crate) fn get_anchor_hash(clients: &[&Client]) -> CryptoHash {
 }
 
 /// Get next available nonce for the account's public key.
-pub fn get_next_nonce(env: &mut TestLoopEnv, account_id: &AccountId) -> u64 {
+pub fn get_next_nonce(
+    test_loop_data: &TestLoopData,
+    node_datas: &[TestData],
+    account_id: &AccountId,
+) -> u64 {
     let signer: Signer = create_user_test_signer(&account_id);
-    let clients = env
-        .datas
+    let clients = node_datas
         .iter()
-        .map(|data| &env.test_loop.data.get(&data.client_sender.actor_handle()).client)
+        .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
     let response = clients.runtime_query(
         account_id,
@@ -188,7 +192,7 @@ pub fn do_deploy_contract(
     code: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Deploying contract.");
-    let nonce = get_next_nonce(env, contract_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.datas, rpc_id, contract_id, code, nonce);
     env.test_loop.run_for(Duration::seconds(2));
     check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
@@ -203,7 +207,7 @@ pub fn do_call_contract(
     args: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Calling contract.");
-    let nonce = get_next_nonce(env, contract_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
         &env.datas,
@@ -227,9 +231,9 @@ pub fn create_account(
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(&env.datas, &env.test_loop);
 
-    let nonce = get_next_nonce(env, originator);
-    let signer = create_user_test_signer(&originator);
-    let new_signer: Signer = create_user_test_signer(&new_account_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, originator);
+    let signer = create_user_test_signer(&originator).into();
+    let new_signer: Signer = create_user_test_signer(&new_account_id).into();
 
     let tx = SignedTransaction::create_account(
         nonce,
@@ -253,8 +257,8 @@ pub fn delete_account(
     account_id: &AccountId,
     beneficiary_id: &AccountId,
 ) -> CryptoHash {
-    let signer: Signer = create_user_test_signer(&account_id);
-    let nonce = get_next_nonce(env, account_id);
+    let signer: Signer = create_user_test_signer(&account_id).into();
+    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, account_id);
     let block_hash = get_shared_block_hash(&env.datas, &env.test_loop);
 
     let tx = SignedTransaction::delete_account(

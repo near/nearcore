@@ -195,7 +195,7 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Extra sanity check for bandwdith scheduler - the scheduler state should be the same on all shards.
+    /// Extra sanity check for bandwidth scheduler - the scheduler state should be the same on all shards.
     fn bandwidth_scheduler_state_sanity_check(apply_results: &[ShardUpdateResult]) {
         let state_hashes: Vec<CryptoHash> = apply_results
             .iter()
