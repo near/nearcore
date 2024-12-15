@@ -974,8 +974,10 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 }
 
 #[test]
-// TODO(resharding): fix the fact that this test fails if the epoch length is set to 10,
-// because set_state_finalize() sets flat storage state to ready before child catchup is done
+// TODO(resharding): fix the fact that this test fails if the epoch length is set to 10, (and state sync
+// is made to run before shard catchup) because set_state_finalize() sets flat storage state to
+// ready before child catchup is done. Also fix the failure in
+// check_state_shard_uid_mapping_after_resharding() if the epoch length is set to 11
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
