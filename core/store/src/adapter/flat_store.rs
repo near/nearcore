@@ -20,8 +20,8 @@ pub struct FlatStoreAdapter {
 }
 
 impl StoreAdapter for FlatStoreAdapter {
-    fn store(&self) -> Store {
-        self.store.clone()
+    fn store_ref(&self) -> &Store {
+        &self.store
     }
 }
 

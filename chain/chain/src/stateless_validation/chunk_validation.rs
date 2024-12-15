@@ -6,6 +6,7 @@ use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
+use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
     RuntimeStorageConfig, StorageDataSource,
@@ -23,7 +24,7 @@ use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
@@ -74,6 +75,7 @@ pub struct ChunkStateWitnessValidationResult {
     pub outgoing_receipts: Vec<Receipt>,
 }
 
+// TODO: key should be a pair (chunk_shard_uid, witness_shard_uid) for shard merging
 pub type MainStateTransitionCache =
     Arc<Mutex<HashMap<ShardUId, LruCache<CryptoHash, ChunkStateWitnessValidationResult>>>>;
 
@@ -127,9 +129,10 @@ struct StateWitnessBlockRange {
     /// (inclusive). Note they are in **reverse** order, from the newest to the
     /// oldest. They are needed to validate the chunk's source receipt proofs.
     blocks_after_last_last_chunk: Vec<Block>,
-    /// Shard id and index of last chunk before the chunk being validated.
+    /// Shard layout for the last chunk before the chunk being validated.
+    last_chunk_shard_layout: ShardLayout,
+    /// Shard id of the last chunk before the chunk being validated.
     last_chunk_shard_id: ShardId,
-    last_chunk_shard_index: ShardIndex,
 }
 
 /// Checks if a block has a new chunk with `shard_index`.
@@ -166,12 +169,12 @@ fn get_state_witness_block_range(
         prev_block: Block,
         /// Number of new chunks seen during traversal.
         num_new_chunks_seen: u32,
+        /// Current candidate shard layout of last chunk before the chunk being
+        /// validated.
+        last_chunk_shard_layout: ShardLayout,
         /// Current candidate shard id of last chunk before the chunk being
         /// validated.
         last_chunk_shard_id: ShardId,
-        /// Current candidate shard index of last chunk before the chunk being
-        /// validated.
-        last_chunk_shard_index: usize,
     }
 
     let initial_prev_hash = *state_witness.chunk_header.prev_block_hash();
@@ -179,14 +182,16 @@ fn get_state_witness_block_range(
     let initial_shard_layout =
         epoch_manager.get_shard_layout_from_prev_block(&initial_prev_hash)?;
     let initial_shard_id = state_witness.chunk_header.shard_id();
-    let initial_shard_index = initial_shard_layout.get_shard_index(initial_shard_id)?;
+    // Check that shard id is present in current epoch.
+    // TODO: consider more proper way to validate this.
+    let _ = initial_shard_layout.get_shard_index(initial_shard_id)?;
 
     let mut position = TraversalPosition {
         shard_id: initial_shard_id,
         prev_block: initial_prev_block,
         num_new_chunks_seen: 0,
+        last_chunk_shard_layout: initial_shard_layout,
         last_chunk_shard_id: initial_shard_id,
-        last_chunk_shard_index: initial_shard_index,
     };
 
     loop {
@@ -203,8 +208,8 @@ fn get_state_witness_block_range(
         )? {
             implicit_transition_params.push(transition);
         }
-        let (prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id(prev_hash, position.shard_id)?;
+        let (prev_shard_layout, prev_shard_id, prev_shard_index) =
+            epoch_manager.get_prev_shard_id_from_prev_hash(prev_hash, position.shard_id)?;
 
         let new_chunk_seen = block_has_new_chunk(&position.prev_block, prev_shard_index)?;
         let new_chunks_seen_update =
@@ -239,17 +244,17 @@ fn get_state_witness_block_range(
         let prev_prev_block = store.get_block(&prev_prev_hash)?;
         // If we have not seen chunks, switch to previous shard id, but
         // once we just saw the first chunk, start keeping its shard id.
-        let (last_chunk_shard_id, last_chunk_shard_index) = if position.num_new_chunks_seen == 0 {
-            (prev_shard_id, prev_shard_index)
+        let (last_chunk_shard_layout, last_chunk_shard_id) = if position.num_new_chunks_seen == 0 {
+            (prev_shard_layout, prev_shard_id)
         } else {
-            (position.last_chunk_shard_id, position.last_chunk_shard_index)
+            (position.last_chunk_shard_layout, position.last_chunk_shard_id)
         };
         position = TraversalPosition {
             shard_id: prev_shard_id,
             prev_block: prev_prev_block,
             num_new_chunks_seen: new_chunks_seen_update,
+            last_chunk_shard_layout,
             last_chunk_shard_id,
-            last_chunk_shard_index,
         };
     }
 
@@ -257,8 +262,8 @@ fn get_state_witness_block_range(
     Ok(StateWitnessBlockRange {
         implicit_transition_params,
         blocks_after_last_last_chunk,
+        last_chunk_shard_layout: position.last_chunk_shard_layout,
         last_chunk_shard_id: position.last_chunk_shard_id,
-        last_chunk_shard_index: position.last_chunk_shard_index,
     })
 }
 
@@ -330,14 +335,16 @@ pub fn pre_validate_chunk_state_witness(
     let StateWitnessBlockRange {
         implicit_transition_params,
         blocks_after_last_last_chunk,
+        last_chunk_shard_layout,
         last_chunk_shard_id,
-        last_chunk_shard_index,
     } = get_state_witness_block_range(store, epoch_manager, state_witness)?;
+    let last_chunk_shard_index = last_chunk_shard_layout.get_shard_index(last_chunk_shard_id)?;
 
     let receipts_to_apply = validate_source_receipt_proofs(
         epoch_manager,
         &state_witness.source_receipt_proofs,
         &blocks_after_last_last_chunk,
+        last_chunk_shard_layout,
         last_chunk_shard_id,
     )?;
     let applied_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
@@ -461,13 +468,11 @@ pub fn pre_validate_chunk_state_witness(
 /// Validate that receipt proofs contain the receipts that should be applied during the
 /// transition proven by ChunkStateWitness. The receipts are extracted from the proofs
 /// and arranged in the order in which they should be applied during the transition.
-/// TODO(resharding): Handle resharding properly. If the receipts were sent from before
-/// a resharding boundary, we should first validate the proof using the pre-resharding
-/// target_shard_id and then extract the receipts that are targeted at this half of a split shard.
 fn validate_source_receipt_proofs(
     epoch_manager: &dyn EpochManagerAdapter,
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
     receipt_source_blocks: &[Block],
+    target_shard_layout: ShardLayout,
     target_chunk_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
     if receipt_source_blocks.iter().any(|block| block.header().is_genesis()) {
@@ -507,11 +512,18 @@ fn validate_source_receipt_proofs(
                     chunk.chunk_hash()
                 )));
             };
+
             validate_receipt_proof(receipt_proof, chunk, current_target_shard_id)?;
 
             expected_proofs_len += 1;
-            block_receipt_proofs.push(receipt_proof);
+            block_receipt_proofs.push(receipt_proof.clone());
         }
+
+        block_receipt_proofs = filter_incoming_receipts_for_shard(
+            &target_shard_layout,
+            target_chunk_shard_id,
+            Arc::new(block_receipt_proofs),
+        );
 
         // Arrange the receipts in the order in which they should be applied.
         shuffle_receipt_proofs(&mut block_receipt_proofs, block.hash());
@@ -519,8 +531,9 @@ fn validate_source_receipt_proofs(
             receipts_to_apply.extend(proof.0.iter().cloned());
         }
 
-        current_target_shard_id =
-            epoch_manager.get_prev_shard_id(block.header().prev_hash(), current_target_shard_id)?.0;
+        current_target_shard_id = epoch_manager
+            .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), current_target_shard_id)?
+            .1;
     }
 
     // Check that there are no extraneous proofs in source_receipt_proofs.
@@ -580,16 +593,22 @@ pub fn validate_chunk_state_witness(
         .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
     let span = tracing::debug_span!(target: "client", "validate_chunk_state_witness").entered();
+    let witness_shard_layout = epoch_manager.get_shard_layout(&state_witness.epoch_id)?;
+    let witness_chunk_shard_id = state_witness.chunk_header.shard_id();
+    let witness_chunk_shard_uid =
+        epoch_manager.shard_id_to_uid(witness_chunk_shard_id, &state_witness.epoch_id)?;
     let block_hash = pre_validation_output.main_transition_params.block_hash();
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
-    let shard_uid = epoch_manager
-        .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
+    let shard_id = pre_validation_output.main_transition_params.shard_id();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
     let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let cache_result = {
         let mut shard_cache = main_state_transition_cache.lock().unwrap();
-        shard_cache.get_mut(&shard_uid).and_then(|cache| cache.get(&block_hash).cloned())
+        shard_cache
+            .get_mut(&witness_chunk_shard_uid)
+            .and_then(|cache| cache.get(&block_hash).cloned())
     };
-    let (mut chunk_extra, outgoing_receipts) =
+    let (mut chunk_extra, mut outgoing_receipts) =
         match (pre_validation_output.main_transition_params, cache_result) {
             (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
             (MainTransition::NewChunk(new_chunk_data), None) => {
@@ -622,14 +641,23 @@ pub fn validate_chunk_state_witness(
 
     // Compute receipt hashes here to avoid copying receipts
     let outgoing_receipts_hashes = {
-        let shard_layout = epoch_manager
-            .get_shard_layout_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
-        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
+        let chunk_epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+        let chunk_shard_layout = epoch_manager.get_shard_layout(&chunk_epoch_id)?;
+        if chunk_shard_layout != witness_shard_layout {
+            ChainStore::reassign_outgoing_receipts_for_resharding(
+                &mut outgoing_receipts,
+                protocol_version,
+                &witness_shard_layout,
+                state_witness.chunk_header.shard_id(),
+                shard_id,
+            )?;
+        }
+        Chain::build_receipts_hashes(&outgoing_receipts, &witness_shard_layout)
     };
     // Save main state transition result to cache.
     {
         let mut shard_cache = main_state_transition_cache.lock().unwrap();
-        let cache = shard_cache.entry(shard_uid).or_insert_with(|| {
+        let cache = shard_cache.entry(witness_chunk_shard_uid).or_insert_with(|| {
             LruCache::new(NonZeroUsize::new(NUM_WITNESS_RESULT_CACHE_ENTRIES).unwrap())
         });
         cache.put(
