@@ -126,7 +126,6 @@ impl TestReshardingParametersBuilder {
 
         let non_validator_accounts: Vec<_> = accounts
             .iter()
-            .cloned()
             .filter(|account| !block_and_chunk_producers.contains(account))
             .collect();
         assert!(non_validator_accounts.len() >= 2);
@@ -581,6 +580,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
     base_epoch_config.shuffle_shard_assignment_for_chunk_producers =
         params.shuffle_shard_assignment_for_chunk_producers;
+    // TODO(resharding) Test chunk validators too (would need to change the lines below).
+    base_epoch_config.num_block_producer_seats = params.num_validators;
+    base_epoch_config.num_chunk_producer_seats = params.num_validators;
+    base_epoch_config.num_chunk_validator_seats = params.num_validators;
     if !params.chunk_ranges_to_drop.is_empty() {
         base_epoch_config.block_producer_kickout_threshold = 0;
         base_epoch_config.chunk_producer_kickout_threshold = 0;
