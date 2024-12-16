@@ -5,7 +5,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeightDelta, Gas, ShardId, ShardIndex};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use rand::seq::SliceRandom;
@@ -362,7 +362,7 @@ fn call_burn_gas_contract(
                         signer_id.clone(),
                         receiver_id.clone(),
                         &signer,
-                        0,
+                        1,
                         method_name,
                         args,
                         gas_burnt_per_call + 10 * TGAS,
@@ -431,7 +431,7 @@ fn call_promise_yield(
                             signer_id.clone(),
                             receiver_id.clone(),
                             &signer,
-                            0,
+                            1,
                             "call_yield_resume_read_data_id_from_storage".to_string(),
                             yield_payload.clone(),
                             300 * TGAS,
@@ -565,7 +565,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     base_epoch_config.shard_layout = base_shard_layout.clone();
 
     let new_boundary_account = "account6".parse().unwrap();
-    let parent_shard_uid = account_id_to_shard_uid(&new_boundary_account, &base_shard_layout);
+    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&new_boundary_account);
     let mut epoch_config = base_epoch_config.clone();
     epoch_config.shard_layout =
         ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account);
@@ -1020,19 +1020,25 @@ fn test_resharding_v3_load_mem_trie_v2() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_slower_post_processing_tasks() {
+    // When there's a resharding task delay and single-shard tracking, the delay might be pushed out
+    // even further because the resharding task might have to wait for the state snapshot to be made
+    // before it can proceed, which might mean that flat storage won't be ready for the child shard for a whole epoch.
+    // So we extend the epoch length a bit in this case.
     test_resharding_v3_base(
-        TestReshardingParametersBuilder::default().delay_flat_state_resharding(2).build(),
+        TestReshardingParametersBuilder::default()
+            .delay_flat_state_resharding(2)
+            .epoch_length(13)
+            .build(),
     );
 }
 
 #[test]
-// TODO(resharding): fix nearcore and change the ignore condition
-// #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
+#[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
         .delay_flat_state_resharding(2)
+        .epoch_length(13)
         .build();
     test_resharding_v3_base(params);
 }
@@ -1065,8 +1071,6 @@ fn test_resharding_v3_yield_resume() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and unignore this test.
-#[ignore]
 fn test_resharding_v3_yield_timeout() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1090,6 +1094,7 @@ fn test_resharding_v3_yield_timeout() {
         // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
         .num_rpcs(0)
         .track_all_shards(true)
+        .allow_negative_refcount(true)
         .build();
     test_resharding_v3_base(params);
 }

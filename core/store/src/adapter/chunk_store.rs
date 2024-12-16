@@ -13,8 +13,8 @@ pub struct ChunkStoreAdapter {
 }
 
 impl StoreAdapter for ChunkStoreAdapter {
-    fn store(&self) -> Store {
-        self.store.clone()
+    fn store_ref(&self) -> &Store {
+        &self.store
     }
 }
 

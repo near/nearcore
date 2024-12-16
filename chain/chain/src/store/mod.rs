@@ -2381,6 +2381,20 @@ impl<'a> ChainStoreUpdate<'a> {
                     chunk_hash.as_ref(),
                     partial_chunk,
                 )?;
+
+                // We'd like the Receipts column to be exactly the same collection of receipts as
+                // the partial encoded chunks. This way, if we only track a subset of shards, we
+                // can still have all the incoming receipts for the shards we do track.
+                for receipts in partial_chunk.prev_outgoing_receipts() {
+                    for receipt in &receipts.0 {
+                        let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
+                        store_update.increment_refcount(
+                            DBCol::Receipts,
+                            receipt.get_hash().as_ref(),
+                            &bytes,
+                        );
+                    }
+                }
             }
         }
 
@@ -2425,16 +2439,6 @@ impl<'a> ChainStoreUpdate<'a> {
                     &get_block_shard_id(block_hash, *shard_id),
                     receipt,
                 )?;
-                for receipts in receipt.iter() {
-                    for receipt in &receipts.0 {
-                        let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
-                        store_update.increment_refcount(
-                            DBCol::Receipts,
-                            receipt.get_hash().as_ref(),
-                            &bytes,
-                        );
-                    }
-                }
             }
         }
 

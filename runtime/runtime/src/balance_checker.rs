@@ -275,6 +275,7 @@ pub(crate) fn check_balance(
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
+    processed_delayed_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
     transactions: &[SignedTransaction],
     outgoing_receipts: &[Receipt],
@@ -288,11 +289,6 @@ pub(crate) fn check_balance(
     let final_delayed_receipt_indices: DelayedReceiptIndices =
         get(final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
 
-    // Previously delayed receipts that were processed this time.
-    let processed_delayed_receipts = get_delayed_receipts(
-        initial_state,
-        initial_delayed_receipt_indices.first_index..final_delayed_receipt_indices.first_index,
-    )?;
     // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
         final_state,
@@ -427,6 +423,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
             &ApplyStats::default(),
         )
         .unwrap();
@@ -442,6 +439,7 @@ mod tests {
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&alice_account(), 1000, ReceiptPriority::NoPriority)],
+            &[],
             &[],
             &[],
             &[],
@@ -509,6 +507,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
             &ApplyStats::default(),
         )
         .unwrap();
@@ -553,6 +552,7 @@ mod tests {
             &cfg,
             &final_state,
             &None,
+            &[],
             &[],
             &[],
             &[tx],
@@ -627,6 +627,7 @@ mod tests {
                 &None,
                 &[receipt],
                 &[],
+                &[],
                 &[tx],
                 &[],
                 &ApplyStats::default(),
@@ -668,6 +669,7 @@ mod tests {
                 &initial_state,
                 &None,
                 &[receipt],
+                &[],
                 &[],
                 &[tx],
                 &[],
@@ -748,6 +750,7 @@ mod tests {
             &None,
             &[],
             &[],
+            &[],
             &[tx],
             &[],
             &ApplyStats {
@@ -819,6 +822,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
             &outgoing_receipts,
             &ApplyStats::default(),
         )
@@ -879,6 +883,7 @@ mod tests {
             &RuntimeConfig::test(),
             &final_state,
             &None,
+            &[],
             &[],
             &[],
             &[],

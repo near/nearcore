@@ -18,8 +18,8 @@ pub struct TrieStoreAdapter {
 }
 
 impl StoreAdapter for TrieStoreAdapter {
-    fn store(&self) -> Store {
-        self.store.clone()
+    fn store_ref(&self) -> &Store {
+        &self.store
     }
 }
 
