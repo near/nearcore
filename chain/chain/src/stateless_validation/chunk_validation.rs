@@ -381,6 +381,11 @@ pub fn pre_validate_chunk_state_witness(
         RelaxedChunkValidation,
         current_protocol_version
     ) {
+        if !state_witness.new_transactions.is_empty() {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Witness new_transactions must be empty",
+            )));
+        }
         if last_chunk_block.header().is_genesis() {
             vec![true; state_witness.transactions.len()]
         } else {
