@@ -149,10 +149,10 @@ check-protocol-schema:
     env {{protocol_schema_env}} cargo test -p protocol-schema-check --profile dev-artifacts
     env {{protocol_schema_env}} cargo run -p protocol-schema-check --profile dev-artifacts
 
-publishable := "cargo metadata --format-version 1 | jq -r '.packages[] | select(.name | startswith(\"near-\")) | select(.publish == null or (.publish | length > 0)) | .name'"
-check-publishable-separately:
+publishable := "cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length > 0)) | .name'"
+check-publishable-separately *OPTIONS:
     #!/usr/bin/env bash
-    for pkg in $({{publishable}}); do
+    for pkg in $({{ publishable }}); do
         echo "Checking $pkg..."
-        cargo check -p $pkg
+        cargo check -p $pkg {{ OPTIONS }}
     done

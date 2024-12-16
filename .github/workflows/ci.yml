@@ -445,3 +445,5 @@ jobs:
         with:
           tool: just
       - run: just check-publishable-separately
+      - run: just check-publishable-separately --no-default-features
+      - run: just check-publishable-separately --all-features
