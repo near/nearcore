@@ -1069,7 +1069,7 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+            NetworkRequests::PartialEncodedStateWitnesses(validator_witness_tuple) => {
                 for (chunk_validator, partial_witness) in validator_witness_tuple {
                     self.state.send_message_to_account(
                         &self.clock,
@@ -1077,6 +1077,15 @@ impl PeerManagerActor {
                         RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
                     );
                 }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                let (chunk_validator, partial_witness) = validator_witness_tuple;
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &chunk_validator,
+                    RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitnessForward(
