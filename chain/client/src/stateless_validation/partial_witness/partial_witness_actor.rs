@@ -266,14 +266,16 @@ impl PartialWitnessActor {
             "generate_next_state_witness_part",
         );
         let encoder = self.witness_encoders.entry(total_parts);
-        let mut incremental_encoder = encoder.incremental_encoder(witness_bytes).ok()?;
+        let mut incremental_encoder = encoder
+            .incremental_encoder(witness_bytes)
+            .expect("Failed to create incremental encoder");
 
         incremental_encoder.encode_next().map(|part| {
             let partial_witness = PartialEncodedStateWitness::new(
                 epoch_id,
                 chunk_header.clone(),
                 part_ord,
-                part.unwrap().to_vec(),
+                part.into_vec(),
                 incremental_encoder.encoded_length(),
                 signer,
             );
@@ -282,7 +284,7 @@ impl PartialWitnessActor {
     }
 
     // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
-    fn generate_state_witness_parts(
+    fn _generate_state_witness_parts(
         &mut self,
         epoch_id: EpochId,
         chunk_header: &ShardChunkHeader,

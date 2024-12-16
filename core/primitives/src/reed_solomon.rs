@@ -307,7 +307,7 @@ impl<'a> IncrementalEncoder<'a> {
 
     /// If we still have data shards left, we call `encode` once per data shard.
     /// After finishing the data shards, parity is ready and the shards get returned in order.
-    pub fn encode_next(&mut self) -> Option<ReedSolomonPart> {
+    pub fn encode_next(&mut self) -> ReedSolomonPart {
         if self.shards_returned >= self.total_parts {
             return None; // All shards returned
         }
@@ -326,7 +326,7 @@ impl<'a> IncrementalEncoder<'a> {
         let part = self.parts[self.shards_returned].clone();
         self.shards_returned += 1;
 
-        Some(Some(part))
+        Some(part)
     }
 
     pub fn encoded_length(&self) -> usize {
@@ -355,8 +355,8 @@ mod tests {
         let mut incremental_encoder = encoder.incremental_encoder(&data).unwrap();
         let mut bytes_encoded2 = Vec::new();
         for _ in 0..total_parts {
-            let part = incremental_encoder.encode_next().unwrap();
-            bytes_encoded2.push(Some(part.unwrap()));
+            let part = incremental_encoder.encode_next();
+            bytes_encoded2.push(part);
         }
 
         assert_eq!(n, incremental_encoder.encoded_length());
