@@ -354,8 +354,9 @@ mod tests {
         let (bytes_encoded1, n) = encoder.encode(&data);
         let mut incremental_encoder = encoder.incremental_encoder(&data).unwrap();
         let mut bytes_encoded2 = Vec::new();
-        for _ in 0..total_parts {
+        for i in 0..total_parts {
             let part = incremental_encoder.encode_next();
+            assert_eq!(part, bytes_encoded1[i]);
             bytes_encoded2.push(part);
         }
 
