@@ -20,7 +20,12 @@ bytesize.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
-derive_more = { workspace = true, features = ["as_ref", "from", "into", "deref" ] }
+derive_more = { workspace = true, features = [
+  "as_ref",
+  "from",
+  "into",
+  "deref",
+] }
 easy-ext.workspace = true
 hex.workspace = true
 itertools.workspace = true
@@ -52,7 +57,7 @@ near-schema-checker-lib.workspace = true
 [features]
 sandbox = []
 test_features = []
-test_utils = ["rand"]
+test_utils = []
 solomon = ["reed-solomon-erasure"]
 rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
 clock = ["near-time/clock", "near-time/serde"]
@@ -86,13 +91,16 @@ nightly_protocol = [
 
 calimero_zero_storage = []
 
-protocol_schema = [
-  "near-schema-checker-lib/protocol_schema",
-]
+protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }
-near-primitives = { path = ".", features = ["clock", "solomon", "rand", "test_utils"] }
+near-primitives = { path = ".", features = [
+  "clock",
+  "solomon",
+  "rand",
+  "test_utils",
+] }
 assert_matches.workspace = true
 bencher.workspace = true
 bolero.workspace = true

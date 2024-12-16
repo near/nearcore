@@ -16,7 +16,6 @@ use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId};
 
 use crate::types::RuntimeAdapter;
 use crate::{metrics, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
-use near_primitives::sharding::ReceiptProof;
 
 #[derive(Clone)]
 pub enum GCMode {
@@ -435,6 +434,15 @@ impl<'a> ChainStoreUpdate<'a> {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
 
+                let partial_chunk = self.get_partial_chunk(&chunk_hash);
+                if let Ok(partial_chunk) = partial_chunk {
+                    for receipts in partial_chunk.prev_outgoing_receipts() {
+                        for receipt in &receipts.0 {
+                            self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                        }
+                    }
+                }
+
                 // 2. Delete chunk_hash-indexed data
                 let chunk_hash = chunk_hash.as_bytes();
                 self.gc_col(DBCol::Chunks, chunk_hash);
@@ -597,7 +605,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
-            self.gc_incoming_receipts(&block_hash, shard_id);
+            self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
@@ -698,7 +706,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // delete Receipts
             self.gc_outgoing_receipts(&block_hash, shard_id);
-            self.gc_incoming_receipts(&block_hash, shard_id);
+            self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
 
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
 
@@ -764,6 +772,15 @@ impl<'a> ChainStoreUpdate<'a> {
             debug_assert_eq!(chunk.cloned_header().height_created(), height);
             for transaction in chunk.transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
+            }
+
+            let partial_chunk = self.get_partial_chunk(&chunk_hash);
+            if let Ok(partial_chunk) = partial_chunk {
+                for receipts in partial_chunk.prev_outgoing_receipts() {
+                    for receipt in &receipts.0 {
+                        self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                    }
+                }
             }
 
             // 2. Delete chunk_hash-indexed data
@@ -832,27 +849,6 @@ impl<'a> ChainStoreUpdate<'a> {
         self.merge(store_update);
     }
 
-    fn gc_incoming_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
-        let mut store_update = self.store().store_update();
-        let key = get_block_shard_id(block_hash, shard_id);
-        // IncomingReceipts and Receipts are equivalent but keyed differently. So as we clean up
-        // IncomingReceipts, also clean up Receipts.
-        if let Ok(incoming_receipts) =
-            self.store().get_ser::<Vec<ReceiptProof>>(DBCol::IncomingReceipts, &key)
-        {
-            if let Some(incoming_receipts) = incoming_receipts {
-                for receipts in incoming_receipts {
-                    for receipt in receipts.0 {
-                        self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
-                    }
-                }
-            }
-        }
-        store_update.delete(DBCol::IncomingReceipts, &key);
-        self.chain_store().incoming_receipts.pop(&key);
-        self.merge(store_update);
-    }
-
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
@@ -885,7 +881,8 @@ impl<'a> ChainStoreUpdate<'a> {
                 panic!("Outgoing receipts must be garbage collected by calling gc_outgoing_receipts");
             }
             DBCol::IncomingReceipts => {
-                panic!("Incoming receipts must be garbage collected by calling gc_incoming_receipts");
+                store_update.delete(col, key);
+                self.chain_store().incoming_receipts.pop(key);
             }
             DBCol::StateHeaders => {
                 store_update.delete(col, key);
