@@ -377,12 +377,13 @@ pub fn pre_validate_chunk_state_witness(
         RelaxedChunkValidation,
         current_protocol_version
     ) {
+        if !state_witness.new_transactions.is_empty() {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "Witness new_transactions must be empty",
+            )));
+        }
         let mut check = chain.transaction_validity_check(last_chunk_block.header().clone());
-        state_witness
-            .transactions
-            .iter()
-            .map(|t| check(t))
-            .collect::<Vec<_>>()
+        state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
     } else {
         let new_transactions = &state_witness.new_transactions;
         let (new_tx_root_from_state_witness, _) = merklize(&new_transactions);
