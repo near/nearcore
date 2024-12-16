@@ -175,6 +175,9 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
 
 /// Get the `ShardUId` mapping for child_shard_uid. If the mapping does not exist, map the shard to itself.
 /// Used by Resharding V3 for State mapping.
+///
+/// It is kept out of `TrieStoreAdapter`, so that `TrieStoreUpdateAdapter` can use it without
+/// cloning `store` each time, see https://github.com/near/nearcore/pull/12232#discussion_r1804810508.
 pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardUId {
     store
         .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
