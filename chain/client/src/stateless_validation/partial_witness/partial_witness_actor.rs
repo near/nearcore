@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::f32::consts::E;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -20,7 +21,9 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
-use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
+use near_primitives::reed_solomon::{
+    ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonEncoderSerialize,
+};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
@@ -266,21 +269,31 @@ impl PartialWitnessActor {
             "generate_next_state_witness_part",
         );
         let encoder = self.witness_encoders.entry(total_parts);
-        let mut incremental_encoder = encoder
-            .incremental_encoder(witness_bytes)
-            .expect("Failed to create incremental encoder");
-
-        incremental_encoder.encode_next().map(|part| {
+        if let Ok(mut incremental_encoder) = encoder.incremental_encoder(witness_bytes) {
+            incremental_encoder.encode_next().map(|part| {
+                let partial_witness = PartialEncodedStateWitness::new(
+                    epoch_id,
+                    chunk_header.clone(),
+                    part_ord,
+                    part.into_vec(),
+                    incremental_encoder.encoded_length(),
+                    signer,
+                );
+                (chunk_validator.clone(), partial_witness)
+            })
+        } else {
+            let bytes = witness_bytes.serialize_single_part().unwrap();
+            let size = bytes.len();
             let partial_witness = PartialEncodedStateWitness::new(
                 epoch_id,
                 chunk_header.clone(),
                 part_ord,
-                part.into_vec(),
-                incremental_encoder.encoded_length(),
+                bytes,
+                size,
                 signer,
             );
-            (chunk_validator.clone(), partial_witness)
-        })
+            Some((chunk_validator.clone(), partial_witness))
+        }
     }
 
     // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
