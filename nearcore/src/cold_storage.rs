@@ -4,11 +4,11 @@ use near_chain::types::Tip;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
+use near_store::archive::ArchivalStore;
 use near_store::config::SplitStorageConfig;
 use near_store::{
     archive::cold_storage::{
-        copy_all_data_to_cold, get_cold_head, update_cold_db, update_cold_head,
-        CopyAllDataToColdStatus,
+        copy_all_data_to_cold, get_cold_head, update_cold_head, CopyAllDataToColdStatus,
     },
     db::ColdDB,
     DBCol, NodeStorage, Store, FINAL_HEAD_KEY, TAIL_KEY,
@@ -85,14 +85,14 @@ impl From<EpochError> for ColdStoreError {
 /// for the next available produced block after current cold store head.
 /// Updates cold store head after.
 fn cold_store_copy(
+    archival_store: &ArchivalStore,
     hot_store: &Store,
-    cold_db: &ColdDB,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
     num_threads: usize,
 ) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
     // If HEAD is not set for cold storage we default it to genesis_height.
-    let cold_head = get_cold_head(cold_db)?;
+    let cold_head = archival_store.get_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
     // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
@@ -125,7 +125,7 @@ fn cold_store_copy(
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
     let mut next_height = cold_head_height + 1;
-    while !update_cold_db(cold_db, hot_store, &shard_layout, &next_height, num_threads)? {
+    while !archival_store.archive_block(hot_store, &shard_layout, &next_height, num_threads)? {
         next_height += 1;
         if next_height > hot_final_head_height {
             return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
@@ -136,7 +136,7 @@ fn cold_store_copy(
         }
     }
 
-    update_cold_head(cold_db, hot_store, &next_height)?;
+    archival_store.update_head(hot_store, &next_height)?;
 
     let result = if next_height >= hot_final_head_height {
         Ok(ColdStoreCopyResult::LatestBlockCopied)
@@ -152,11 +152,11 @@ fn cold_store_copy(
 // * cold head <= hot final head
 // * cold head >= hot tail
 fn sanity_check(
+    archival_store: &ArchivalStore,
     hot_store: &Store,
-    cold_db: &ColdDB,
     genesis_height: BlockHeight,
 ) -> anyhow::Result<()> {
-    let cold_head = get_cold_head(cold_db)?;
+    let cold_head = archival_store.get_head()?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
     let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
@@ -354,8 +354,8 @@ fn cold_store_migration_loop(
 fn cold_store_loop(
     split_storage_config: &SplitStorageConfig,
     keep_going: &Arc<AtomicBool>,
+    archival_store: &ArchivalStore,
     hot_store: Store,
-    cold_db: Arc<ColdDB>,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
 ) {
@@ -369,8 +369,8 @@ fn cold_store_loop(
 
         let instant = std::time::Instant::now();
         let result = cold_store_copy(
+            archival_store,
             &hot_store,
-            cold_db.as_ref(),
             genesis_height,
             epoch_manager,
             split_storage_config.num_cold_store_read_threads,
@@ -425,41 +425,52 @@ pub fn spawn_cold_store_loop(
         return Ok(None);
     }
 
+    let archival_store = storage.archival_store().unwrap().clone();
     let hot_store = storage.get_hot_store();
-    let cold_db = match storage.cold_db() {
-        Some(cold_db) => cold_db.clone(),
-        None => {
-            tracing::debug!(target : "cold_store", "Not spawning the cold store loop because cold store is not configured");
-            return Ok(None);
-        }
-    };
-
     let genesis_height = config.genesis.config.genesis_height;
+
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
-
-    // Perform the sanity check before spawning the thread.
-    // If the check fails when the node is starting it's better to just fail
-    // fast and crash the node immediately.
-    sanity_check(&hot_store, cold_db.as_ref(), genesis_height)?;
 
     let split_storage_config = config.config.split_storage.clone().unwrap_or_default();
 
     tracing::info!(target : "cold_store", "Spawning the cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_copy".to_string()).spawn(move || {
-            cold_store_migration_loop(
-                &split_storage_config,
-                &keep_going_clone,
-                genesis_height,
-                &hot_store,
-                cold_db.clone(),
-            );
+            // Initialize the head of the archival storage (if not before) from the cold head read from the ColdDB.
+            // Note that we need to run this check in the new thread, because it runs blocking calls to async code
+            // and it panics if run from the main thread.
+            if let Err(err) = archival_store.try_init_head_from_cold_db() {
+                panic!("Failed to sync cold head: {:?}", err);
+            }
+
+            // Perform the sanity check first, before running the loops.
+            // If the check fails when the node is starting it's better to just fail
+            // fast and crash the node immediately.
+            // Note that we need to run this check in the new thread, because it runs blocking calls to async code
+            // and it panics if run from the main thread.
+            if let Err(err) = sanity_check(&archival_store, &hot_store, genesis_height) {
+                panic!("Failed to sanity check cold store: {:?}", err);
+            }
+
+            // If the archival storage is ColdDB, try the migration from legacy archival storage (single RocksDB)
+            // to split storage (HotDB + ColdDB).
+            // NOTE: Legacy archival storage is deprecated and this migration should not be needed anymore.
+            if let Some(cold_db) = archival_store.cold_db() {
+                cold_store_migration_loop(
+                    &split_storage_config,
+                    &keep_going_clone,
+                    genesis_height,
+                    &hot_store,
+                    cold_db.clone(),
+                );
+            }
+
             cold_store_loop(
                 &split_storage_config,
                 &keep_going_clone,
+                &archival_store,
                 hot_store,
-                cold_db,
                 genesis_height,
                 epoch_manager.as_ref(),
             )

@@ -16,7 +16,9 @@ actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
+bs58.workspace = true
 bytesize.workspace = true
+cloud-storage.workspace = true
 crossbeam.workspace = true
 derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
@@ -26,12 +28,14 @@ hex.workspace = true
 itoa.workspace = true
 itertools.workspace = true
 lru.workspace = true
+near-async.workspace = true
 num_cpus.workspace = true
 rand.workspace = true
 rayon.workspace = true
 reed-solomon-erasure.workspace = true
 rlimit.workspace = true
 rocksdb.workspace = true
+rustix = { workspace = true, features = ["fs"] }
 serde.workspace = true
 serde_json.workspace = true
 stdx.workspace = true

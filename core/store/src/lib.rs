@@ -13,6 +13,7 @@ pub use crate::trie::{
     STATE_SNAPSHOT_COLUMNS,
 };
 use adapter::{StoreAdapter, StoreUpdateAdapter};
+use archive::ArchivalStore;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use config::ArchivalConfig;
@@ -103,6 +104,7 @@ const STATE_FILE_END_MARK: u8 = 255;
 pub struct NodeStorage {
     hot_storage: Arc<dyn Database>,
     cold_storage: Option<Arc<crate::db::ColdDB>>,
+    archival_store: Option<Arc<ArchivalStore>>,
 }
 
 /// Node’s single storage source.
@@ -123,31 +125,13 @@ impl StoreAdapter for Store {
 }
 
 impl NodeStorage {
-    /// Initialises a new opener with given home directory and hot and cold
-    /// store config.
+    /// Initialises a new opener with given home directory and archival store configs.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
         archival_config: Option<ArchivalConfig<'a>>,
     ) -> StoreOpener<'a> {
         StoreOpener::new(home_dir, store_config, archival_config)
-    }
-
-    /// Constructs new object backed by given database.
-    fn from_rocksdb(
-        hot_storage: crate::db::RocksDB,
-        cold_storage: Option<crate::db::RocksDB>,
-    ) -> Self {
-        let hot_storage = Arc::new(hot_storage);
-        let cold_storage = cold_storage.map(|storage| Arc::new(storage));
-
-        let cold_db = if let Some(cold_storage) = cold_storage {
-            Some(Arc::new(crate::db::ColdDB::new(cold_storage)))
-        } else {
-            None
-        };
-
-        Self { hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -175,7 +159,7 @@ impl NodeStorage {
     /// possibly [`crate::test_utils::create_test_store`] (depending whether you
     /// need [`NodeStorage`] or [`Store`] object.
     pub fn new(storage: Arc<dyn Database>) -> Self {
-        Self { hot_storage: storage, cold_storage: None }
+        Self { hot_storage: storage, cold_storage: None, archival_store: None }
     }
 }
 
@@ -283,12 +267,21 @@ impl NodeStorage {
         })
     }
 
-    pub fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
-        Self { hot_storage: hot, cold_storage: Some(Arc::new(crate::db::ColdDB::new(cold))) }
+    fn new_with_cold(hot: Arc<dyn Database>, cold: Arc<dyn Database>) -> Self {
+        let cold_db = Arc::new(crate::db::ColdDB::new(cold));
+        Self {
+            hot_storage: hot,
+            cold_storage: Some(cold_db.clone()),
+            archival_store: Some(ArchivalStore::test_with_cold(cold_db)),
+        }
     }
 
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
         self.cold_storage.as_ref()
+    }
+
+    pub fn archival_store(&self) -> Option<&Arc<ArchivalStore>> {
+        self.archival_store.as_ref()
     }
 }
 
