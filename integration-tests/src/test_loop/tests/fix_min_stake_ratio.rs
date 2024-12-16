@@ -6,15 +6,16 @@ use itertools::Itertools;
 use near_async::messaging::SendAsync;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_network::client::ProcessTxRequest;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives_core::version::ProtocolFeature;
 use std::string::ToString;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,9 +23,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Check that small validator is included in the validator set after
 /// enabling protocol feature `FixMinStakeRatio`.
 #[test]
-fn test_fix_min_stake_ratio() {
+fn slow_test_fix_min_stake_ratio() {
     init_test_logger();
-    let builder = TestLoopBuilder::new();
+
+    // Take epoch configuration before the protocol upgrade, where minimum
+    // stake ratio was 1/6250.
+    let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
+    let target_protocol_version = ProtocolFeature::FixMinStakeRatio.protocol_version();
+    let genesis_protocol_version = target_protocol_version - 1;
+
+    // Immediately start voting for the new protocol version
+    let protocol_upgrade_schedule =
+        ProtocolUpgradeVotingSchedule::new_immediate(target_protocol_version);
+
+    let builder = TestLoopBuilder::new().protocol_upgrade_schedule(protocol_upgrade_schedule);
 
     let initial_balance = 1_000_000 * ONE_NEAR;
     let epoch_length = 10;
@@ -56,27 +68,25 @@ fn test_fix_min_stake_ratio() {
         },
     ];
 
+    let shard_layout =
+        epoch_config_store.get_config(genesis_protocol_version).as_ref().shard_layout.clone();
+    let validators_spec = ValidatorsSpec::raw(validators, 1, 1, 2);
+
     // Create chain with version before FixMinStakeRatio was enabled.
     // Check that the small validator is not included in the validator set.
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
+    let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
-        .shard_layout(ShardLayout::get_simple_nightshade_layout_v3())
-        .protocol_version(ProtocolFeature::FixMinStakeRatio.protocol_version() - 1)
+        .shard_layout(shard_layout)
+        .protocol_version(genesis_protocol_version)
         .epoch_length(epoch_length)
-        .validators_raw(validators, 1, 2)
-        // For genesis, set high minimum stake ratio so that small validator
-        // will be excluded from the validator set.
-        .minimum_stake_ratio(Rational32::new(1, 6_250))
+        .validators_spec(validators_spec)
         // Disable validator rewards.
-        .max_inflation_rate(Rational32::new(0, 1));
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let genesis = genesis_builder.build();
+        .max_inflation_rate(Rational32::new(0, 1))
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis).clients(clients).build();
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
     let client_sender = node_datas[0].client_sender.clone();
     let client_handle = node_datas[0].client_sender.actor_handle();
@@ -130,10 +140,7 @@ fn test_fix_min_stake_ratio() {
         return if validators.len() == 3 {
             assert!(validators.contains(&small_validator.to_string()));
             let epoch_config = client.epoch_manager.get_epoch_config(&tip.epoch_id).unwrap();
-            assert_eq!(
-                epoch_config.validator_selection_config.minimum_stake_ratio,
-                Rational32::new(1, 62_500)
-            );
+            assert_eq!(epoch_config.minimum_stake_ratio, Rational32::new(1, 62_500));
             true
         } else {
             false

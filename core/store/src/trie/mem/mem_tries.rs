@@ -14,11 +14,12 @@ use crate::Trie;
 use super::arena::hybrid::{HybridArena, HybridArenaMemory};
 use super::arena::single_thread::STArena;
 use super::arena::Arena;
+use super::arena::FrozenArena;
 use super::flexible_data::value::ValueView;
 use super::iter::STMemTrieIterator;
 use super::lookup::memtrie_lookup;
+use super::mem_trie_update::{construct_root_from_changes, MemTrieUpdate, TrackingMode};
 use super::node::{MemTrieNodeId, MemTrieNodePtr};
-use super::updating::{construct_root_from_changes, MemTrieUpdate};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
 /// Tries may share nodes with each other via refcounting. The way the
@@ -42,12 +43,33 @@ pub struct MemTries {
     shard_uid: ShardUId,
 }
 
+/// Frozen arena together with supported roots and heights.
+/// Used to construct new memtries which share nodes from the same arena.
+#[derive(Clone)]
+pub struct FrozenMemTries {
+    arena: FrozenArena,
+    roots: HashMap<StateRoot, Vec<MemTrieNodeId>>,
+    heights: BTreeMap<BlockHeight, Vec<StateRoot>>,
+}
+
 impl MemTries {
     pub fn new(shard_uid: ShardUId) -> Self {
         Self {
             arena: STArena::new(shard_uid.to_string()).into(),
             roots: HashMap::new(),
             heights: Default::default(),
+            shard_uid,
+        }
+    }
+
+    /// Creates a new `MemTries` from a frozen `FrozenMemTries`.
+    /// Used on resharding, where memtries with different UIDs share some
+    /// nodes.
+    pub fn from_frozen_memtries(shard_uid: ShardUId, frozen_memtries: FrozenMemTries) -> Self {
+        Self {
+            arena: HybridArena::from_frozen(shard_uid.to_string(), frozen_memtries.arena),
+            roots: frozen_memtries.roots,
+            heights: frozen_memtries.heights,
             shard_uid,
         }
     }
@@ -103,7 +125,7 @@ impl MemTries {
     }
 
     /// Returns the root node corresponding to the given state root.
-    pub(super) fn get_root(
+    pub fn get_root(
         &self,
         state_root: &CryptoHash,
     ) -> Result<MemTrieNodePtr<HybridArenaMemory>, StorageError> {
@@ -155,19 +177,14 @@ impl MemTries {
             .set(self.roots.len() as i64);
     }
 
-    pub fn update(
-        &self,
+    pub fn update<'a>(
+        &'a self,
         root: CryptoHash,
-        track_trie_changes: bool,
-    ) -> Result<MemTrieUpdate<HybridArenaMemory>, StorageError> {
+        mode: TrackingMode<'a>,
+    ) -> Result<MemTrieUpdate<'a, HybridArenaMemory>, StorageError> {
         let root_id =
             if root == CryptoHash::default() { None } else { Some(self.get_root(&root)?.id()) };
-        Ok(MemTrieUpdate::new(
-            root_id,
-            &self.arena.memory(),
-            self.shard_uid.to_string(),
-            track_trie_changes,
-        ))
+        Ok(MemTrieUpdate::new(root_id, &self.arena.memory(), self.shard_uid.to_string(), mode))
     }
 
     /// Returns an iterator over the memtrie for the given trie root.
@@ -190,6 +207,12 @@ impl MemTries {
     ) -> Result<Option<ValueView>, StorageError> {
         let root = self.get_root(state_root)?;
         Ok(memtrie_lookup(root, key, nodes_accessed))
+    }
+
+    /// Freezes memtrie. The result is used as a shared data to construct new
+    /// memtries.
+    pub fn freeze(self) -> FrozenMemTries {
+        FrozenMemTries { arena: self.arena.freeze(), roots: self.roots, heights: self.heights }
     }
 
     #[cfg(test)]

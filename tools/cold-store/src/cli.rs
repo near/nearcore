@@ -8,7 +8,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
+use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
@@ -75,8 +75,11 @@ impl ColdStoreCommand {
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(storage.get_hot_store(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            storage.get_hot_store(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),
@@ -111,9 +114,8 @@ impl ColdStoreCommand {
 
         let opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_config(),
         );
 
         match self.subcmd {
@@ -134,9 +136,8 @@ impl ColdStoreCommand {
 
         NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_config(),
         )
     }
 }
@@ -346,7 +347,7 @@ impl PrepareHotCmd {
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
-        let rpc_opener = NodeStorage::opener(home_dir, false, &rpc_store_config, None);
+        let rpc_opener = NodeStorage::opener(home_dir, &rpc_store_config, None);
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 
@@ -494,7 +495,7 @@ impl StateRootSelector {
                     .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
                     .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
                 let mut hashes = vec![];
-                for chunk in block.chunks().iter() {
+                for chunk in block.chunks().iter_deprecated() {
                     hashes.push(
                         cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(

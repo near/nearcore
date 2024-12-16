@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
@@ -47,7 +48,7 @@ impl From<FlatStorageError> for StorageError {
 pub type FlatStorageResult<T> = Result<T, FlatStorageError>;
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema, Clone,
 )]
 pub enum FlatStorageStatus {
     /// Flat Storage is not supported.
@@ -55,9 +56,12 @@ pub enum FlatStorageStatus {
     /// Flat Storage is empty: either wasn't created yet or was deleted.
     Empty,
     /// Flat Storage is in the process of being created.
+    /// Deprectated: flat storage creation code was removed in #12534
     Creation(FlatStorageCreationStatus),
     /// Flat Storage is ready to be used.
     Ready(FlatStorageReadyStatus),
+    /// Flat storage is undergoing resharding.
+    Resharding(FlatStorageReshardingStatus),
 }
 
 impl Into<i64> for &FlatStorageStatus {
@@ -74,12 +78,18 @@ impl Into<i64> for &FlatStorageStatus {
                 FlatStorageCreationStatus::FetchingState(_) => 11,
                 FlatStorageCreationStatus::CatchingUp(_) => 12,
             },
+            // 20..30 is reserved for resharding statuses.
+            FlatStorageStatus::Resharding(resharding_status) => match resharding_status {
+                FlatStorageReshardingStatus::SplittingParent(_) => 20,
+                FlatStorageReshardingStatus::CreatingChild => 21,
+                FlatStorageReshardingStatus::CatchingUp(_) => 22,
+            },
         }
     }
 }
 
 #[derive(
-    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema, Clone,
 )]
 pub struct FlatStorageReadyStatus {
     pub flat_head: BlockInfo,
@@ -119,6 +129,29 @@ pub enum FlatStorageCreationStatus {
     CatchingUp(CryptoHash),
 }
 
+/// This struct represents what is the current status of flat storage resharding.
+/// During resharding flat storage must be changed to reflect the new shard layout.
+///
+/// When two shards are split, the parent shard disappears and two children are created. The flat storage
+/// entries that belonged to the parent must be copied in one of the two shards. This operation happens in the
+/// background and could take significant time.
+/// After all elements have been copied the new flat storages will be behind the chain head. To remediate this issue
+/// they will enter a catching up phase. The parent shard, instead, must be removed and cleaned up.
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+)]
+pub enum FlatStorageReshardingStatus {
+    /// Resharding phase entered when a shard is being split.
+    /// Copy key-value pairs from this shard (the parent) to children shards.
+    SplittingParent(ParentSplitParameters),
+    /// Resharding phase entered when a shard is being split.
+    /// This shard (child) is being built from state taken from its parent.
+    CreatingChild,
+    /// We apply deltas from disk until the head reaches final head.
+    /// Includes block hash of flat storage head.
+    CatchingUp(CryptoHash),
+}
+
 /// Current step of fetching state to fill flat storage.
 #[derive(
     BorshSerialize,
@@ -140,6 +173,24 @@ pub struct FetchingStateStatus {
     pub num_parts_in_step: u64,
     /// Total number of state parts.
     pub num_parts: u64,
+}
+
+/// Holds the state associated to [FlatStorageReshardingStatus::SplittingParent].
+/// This struct stores the necessary data to execute a shard split of a parent shard into two children.
+#[derive(
+    BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq, serde::Serialize, ProtocolSchema,
+)]
+pub struct ParentSplitParameters {
+    /// UId of the left child shard. Will contain everything lesser than boundary account.
+    pub left_child_shard: ShardUId,
+    /// UId of the right child shard. Will contain everything greater or equal than boundary account.
+    pub right_child_shard: ShardUId,
+    /// The new shard layout.
+    pub shard_layout: ShardLayout,
+    /// Hash of the last block having the old shard layout.
+    pub resharding_hash: CryptoHash,
+    /// Parent's flat head state when the split began.
+    pub flat_head: BlockInfo,
 }
 
 pub type FlatStateIterator<'a> =

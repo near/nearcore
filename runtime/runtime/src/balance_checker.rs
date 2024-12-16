@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::{AccountId, Balance, ShardId};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, Trie, TrieAccess,
@@ -141,7 +141,7 @@ fn buffered_receipts(
     let mut forwarded_receipts: Vec<Receipt> = vec![];
     let mut new_buffered_receipts: Vec<Receipt> = vec![];
 
-    let mut shards: BTreeSet<u64> = BTreeSet::new();
+    let mut shards: BTreeSet<ShardId> = BTreeSet::new();
     shards.extend(initial_buffers.shards().iter());
     shards.extend(final_buffers.shards().iter());
     for shard_id in shards {
@@ -275,6 +275,7 @@ pub(crate) fn check_balance(
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
+    processed_delayed_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
     transactions: &[SignedTransaction],
     outgoing_receipts: &[Receipt],
@@ -288,11 +289,6 @@ pub(crate) fn check_balance(
     let final_delayed_receipt_indices: DelayedReceiptIndices =
         get(final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
 
-    // Previously delayed receipts that were processed this time.
-    let processed_delayed_receipts = get_delayed_receipts(
-        initial_state,
-        initial_delayed_receipt_indices.first_index..final_delayed_receipt_indices.first_index,
-    )?;
     // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
         final_state,
@@ -393,7 +389,7 @@ pub(crate) fn check_balance(
 mod tests {
     use super::*;
     use crate::ApplyStats;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::InMemorySigner;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{
         ActionReceipt, BufferedReceiptIndices, ReceiptPriority, ReceiptV0, TrieQueueIndices,
@@ -427,6 +423,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
             &ApplyStats::default(),
         )
         .unwrap();
@@ -442,6 +439,7 @@ mod tests {
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&alice_account(), 1000, ReceiptPriority::NoPriority)],
+            &[],
             &[],
             &[],
             &[],
@@ -463,7 +461,7 @@ mod tests {
             let mut trie_update = tries.new_trie_update(shard_uid, Trie::EMPTY_ROOT);
             set_initial_state(&mut trie_update);
             trie_update.commit(StateChangeCause::NotWritableToDisk);
-            let trie_changes = trie_update.finalize().unwrap().1;
+            let trie_changes = trie_update.finalize().unwrap().trie_changes;
             let mut store_update = tries.store_update();
             let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
             store_update.commit().unwrap();
@@ -506,6 +504,7 @@ mod tests {
                 refund_balance,
                 ReceiptPriority::NoPriority,
             )],
+            &[],
             &[],
             &[],
             &[],
@@ -555,6 +554,7 @@ mod tests {
             &None,
             &[],
             &[],
+            &[],
             &[tx],
             &[receipt],
             &ApplyStats {
@@ -568,12 +568,12 @@ mod tests {
     }
 
     fn transfer_tx(sender: AccountId, receiver: AccountId, deposit: u128) -> SignedTransaction {
-        let signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
+        let signer = InMemorySigner::test_signer(&sender);
         let tx = SignedTransaction::send_money(
             0,
             sender,
             receiver,
-            &signer.into(),
+            &signer,
             deposit,
             CryptoHash::default(),
         );
@@ -627,6 +627,7 @@ mod tests {
                 &None,
                 &[receipt],
                 &[],
+                &[],
                 &[tx],
                 &[],
                 &ApplyStats::default(),
@@ -669,6 +670,7 @@ mod tests {
                 &None,
                 &[receipt],
                 &[],
+                &[],
                 &[tx],
                 &[],
                 &ApplyStats::default(),
@@ -706,14 +708,15 @@ mod tests {
 
                 // create buffer with already a receipt in it, but a different balance
                 let mut indices = BufferedReceiptIndices::default();
-                indices
-                    .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 1 });
+                indices.shard_buffers.insert(
+                    ShardId::new(0),
+                    TrieQueueIndices { first_index: 0, next_available_index: 1 },
+                );
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 },
+                    TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 0 },
                     &existing_receipt,
                 );
             },
@@ -727,14 +730,15 @@ mod tests {
 
                 // store receipt with the balance in the receipt buffer
                 let mut indices = BufferedReceiptIndices::default();
-                indices
-                    .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 2 });
+                indices.shard_buffers.insert(
+                    ShardId::new(0),
+                    TrieQueueIndices { first_index: 0, next_available_index: 2 },
+                );
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 1 },
+                    TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 1 },
                     &new_receipt,
                 );
             },
@@ -744,6 +748,7 @@ mod tests {
             &RuntimeConfig::test(),
             &final_state,
             &None,
+            &[],
             &[],
             &[],
             &[tx],
@@ -776,31 +781,36 @@ mod tests {
             |trie_update| {
                 // store 2 receipts with balance in the receipt buffer
                 let mut indices = BufferedReceiptIndices::default();
-                indices
-                    .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 2 });
+                indices.shard_buffers.insert(
+                    ShardId::new(0),
+                    TrieQueueIndices { first_index: 0, next_available_index: 2 },
+                );
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 },
+                    TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 0 },
                     &receipt0,
                 );
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 1 },
+                    TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 1 },
                     &receipt1,
                 );
             },
             |trie_update| {
                 // remove 1 receipt at index 0
                 let mut indices = BufferedReceiptIndices::default();
-                indices
-                    .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 1, next_available_index: 2 });
+                indices.shard_buffers.insert(
+                    ShardId::new(0),
+                    TrieQueueIndices { first_index: 1, next_available_index: 2 },
+                );
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
-                trie_update.remove(TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 });
+                trie_update.remove(TrieKey::BufferedReceipt {
+                    receiving_shard: ShardId::new(0),
+                    index: 0,
+                });
             },
         );
 
@@ -809,6 +819,7 @@ mod tests {
             &RuntimeConfig::test(),
             &final_state,
             &None,
+            &[],
             &[],
             &[],
             &[],
@@ -834,31 +845,36 @@ mod tests {
             |trie_update| {
                 // store receipt0 with balance in the receipt buffer
                 let mut indices = BufferedReceiptIndices::default();
-                indices
-                    .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 0, next_available_index: 1 });
+                indices.shard_buffers.insert(
+                    ShardId::new(0),
+                    TrieQueueIndices { first_index: 0, next_available_index: 1 },
+                );
 
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 },
+                    TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 0 },
                     &receipt0,
                 );
             },
             |trie_update| {
                 // pop receipt0 and push receipt1 with a different balance
                 let mut indices = BufferedReceiptIndices::default();
-                indices
-                    .shard_buffers
-                    .insert(0, TrieQueueIndices { first_index: 1, next_available_index: 2 });
+                indices.shard_buffers.insert(
+                    ShardId::new(0),
+                    TrieQueueIndices { first_index: 1, next_available_index: 2 },
+                );
 
                 set(
                     trie_update,
-                    TrieKey::BufferedReceipt { receiving_shard: 0, index: 1 },
+                    TrieKey::BufferedReceipt { receiving_shard: ShardId::new(0), index: 1 },
                     &receipt1,
                 );
                 set(trie_update, TrieKey::BufferedReceiptIndices, &indices);
-                trie_update.remove(TrieKey::BufferedReceipt { receiving_shard: 0, index: 0 });
+                trie_update.remove(TrieKey::BufferedReceipt {
+                    receiving_shard: ShardId::new(0),
+                    index: 0,
+                });
             },
         );
 
@@ -867,6 +883,7 @@ mod tests {
             &RuntimeConfig::test(),
             &final_state,
             &None,
+            &[],
             &[],
             &[],
             &[],

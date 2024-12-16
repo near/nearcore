@@ -325,7 +325,8 @@ fn verify_block_stats(
         {
             let aggregator =
                 epoch_manager.get_epoch_info_aggregator_upto_last(&block_hashes[i]).unwrap();
-            let epoch_info = epoch_manager.get_epoch_info(block_infos[i].epoch_id()).unwrap();
+            let epoch_id = block_infos[i].epoch_id();
+            let epoch_info = epoch_manager.get_epoch_info(epoch_id).unwrap();
             for key in aggregator.block_tracker.keys().copied() {
                 assert!(key < epoch_info.validators_iter().len() as u64);
             }
@@ -340,7 +341,10 @@ fn verify_block_stats(
                 aggregator.block_tracker.values().map(|value| value.expected).sum::<u64>();
             assert_eq!(sum_produced, blocks_in_epoch);
             assert_eq!(sum_expected, blocks_in_epoch_expected);
-            for shard_id in 0..(aggregator.shard_tracker.len() as u64) {
+            // TODO: The following sophisticated check doesn't do anything. The
+            // shard tracker is empty because the chunk mask in all block infos
+            // is empty.
+            for &shard_id in aggregator.shard_tracker.keys() {
                 let sum_produced = aggregator
                     .shard_tracker
                     .get(&shard_id)

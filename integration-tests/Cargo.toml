@@ -70,13 +70,14 @@ near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
 assert_matches.workspace = true
 aurora-engine-transactions.workspace = true
 aurora-engine-types.workspace = true
-derive-enum-from-into.workspace = true
+derive_builder.workspace = true
 ethabi.workspace = true
 insta.workspace = true
 near-undo-block.workspace = true
 rlp.workspace = true
 sha3.workspace = true
 regex.workspace = true
+rand_chacha.workspace = true
 
 [features]
 performance_stats = [
@@ -93,12 +94,11 @@ test_features = [
 protocol_feature_fix_contract_loading_cost = [
   "nearcore/protocol_feature_fix_contract_loading_cost",
 ]
-protocol_feature_reject_blocks_with_outdated_protocol_version = [
-  "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
-  "near-chain/protocol_feature_reject_blocks_with_outdated_protocol_version",
-]
 protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
+]
+protocol_feature_relaxed_chunk_validation = [
+  "near-primitives-core/protocol_feature_relaxed_chunk_validation",
 ]
 
 nightly = [
@@ -129,7 +129,7 @@ nightly = [
   "node-runtime/nightly",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_nonrefundable_transfer_nep491",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
+  "protocol_feature_relaxed_chunk_validation",
   "testlib/nightly",
 ]
 nightly_protocol = [
@@ -165,6 +165,4 @@ sandbox = [
   "near-o11y/sandbox",
   "node-runtime/sandbox",
 ]
-no_cache = ["nearcore/no_cache"]
 calimero_zero_storage = []
-testloop = ["near-chain/testloop"]

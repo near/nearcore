@@ -15,7 +15,9 @@ use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpd
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
-use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
+use near_chain::{
+    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+};
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
 use near_epoch_manager::EpochManagerAdapter;
@@ -27,7 +29,7 @@ use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader, Shar
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
-use near_state_viewer::progress_reporter::{timestamp_ms, ProgressReporter};
+use near_state_viewer::progress_reporter::ProgressReporter;
 use near_store::{get_genesis_state_roots, ShardUId, Store};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::HashMap;
@@ -120,8 +122,11 @@ impl ReplayController {
         let start_height = start_height.unwrap_or(genesis_height);
         let end_height = end_height.unwrap_or(head_height).min(head_height);
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
@@ -129,12 +134,13 @@ impl ReplayController {
 
         let progress_reporter = ProgressReporter {
             cnt: AtomicU64::new(0),
-            ts: AtomicU64::new(timestamp_ms()),
-            all: (end_height + 1).saturating_sub(start_height),
             skipped: AtomicU64::new(0),
             empty_blocks: AtomicU64::new(0),
             non_empty_blocks: AtomicU64::new(0),
             tgas_burned: AtomicU64::new(0),
+            indicatif: near_state_viewer::progress_reporter::default_indicatif(
+                (end_height + 1).checked_sub(start_height),
+            ),
         };
 
         Ok(Self {
@@ -189,7 +195,8 @@ impl ReplayController {
                 total_gas_burnt = Some(gas_burnt);
             }
         }
-        self.progress_reporter.inc_and_report_progress(total_gas_burnt.unwrap_or(0));
+        self.progress_reporter
+            .inc_and_report_progress(self.next_height, total_gas_burnt.unwrap_or(0));
         self.next_height += 1;
         Ok(self.next_height <= self.end_height)
     }
@@ -302,7 +309,7 @@ impl ReplayController {
         )?;
 
         let shard_id = shard_uid.shard_id();
-        let shard_context = self.get_shard_context(block_header, shard_uid)?;
+        let shard_context = self.get_shard_context(shard_uid)?;
 
         let storage_context = StorageContext {
             storage_data_source: StorageDataSource::DbTrieOnly,
@@ -379,11 +386,15 @@ impl ReplayController {
         shard_id: ShardId,
         prev_chunk_height_included: BlockHeight,
     ) -> Result<Vec<Receipt>> {
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
         let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
+            &shard_layout,
             *block_header.hash(),
             prev_chunk_height_included,
+            ReceiptFilter::TargetShard,
         )?;
         let receipts = collect_receipts_from_response(receipt_response);
         Ok(receipts)
@@ -448,7 +459,7 @@ impl ReplayController {
         let block_height = block.header().height();
         let block_hash = block.header().hash();
         let mut receipt_proofs_by_shard_id: HashMap<ShardId, Vec<ReceiptProof>> = HashMap::new();
-        for chunk_header in block.chunks().iter() {
+        for chunk_header in block.chunks().iter_deprecated() {
             if !chunk_header.is_new_chunk(block_height) {
                 continue;
             }
@@ -482,19 +493,8 @@ impl ReplayController {
 
     /// Generates a ShardContext specific to replaying the blocks, which indicates that
     /// we care about all the shards and should always apply chunk.
-    fn get_shard_context(
-        &self,
-        block_header: &BlockHeader,
-        shard_uid: ShardUId,
-    ) -> Result<ShardContext> {
-        let prev_hash = block_header.prev_hash();
-        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
-        let shard_context = ShardContext {
-            shard_uid,
-            cares_about_shard_this_epoch: true,
-            will_shard_layout_change: will_shard_layout_change,
-            should_apply_chunk: true,
-        };
+    fn get_shard_context(&self, shard_uid: ShardUId) -> Result<ShardContext> {
+        let shard_context = ShardContext { shard_uid, should_apply_chunk: true };
         Ok(shard_context)
     }
 

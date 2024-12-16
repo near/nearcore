@@ -11,6 +11,7 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage};
 use crate::{Trie, TrieChanges, TrieUpdate};
+use itertools::Itertools;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -19,7 +20,7 @@ use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
@@ -286,7 +287,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_insertions",
-        fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_insertions = trie_changes.insertions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_insertions(
@@ -309,7 +310,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_deletions",
-        fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_deletions = trie_changes.deletions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_deletions(
@@ -445,21 +446,35 @@ impl ShardTries {
     /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
     /// but which exact shards to load depends on configuration. This may only be called when flat
     /// storage is ready.
+    ///
+    /// The `shard_uids_pending_resharding` parameter is used to load memtries
+    /// for shards that are not configured to be loaded but should be loaded
+    /// anyway. This is used when a shard is about to be resharded and we need
+    /// to have the memtries loaded for it.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
+        shard_uids_pending_resharding: &HashSet<ShardUId>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
         let shard_uids_to_load = tracked_shards
             .iter()
-            .copied()
             .filter(|shard_uid| {
                 trie_config.load_mem_tries_for_tracked_shards
                     || trie_config.load_mem_tries_for_shards.contains(shard_uid)
+                    || shard_uids_pending_resharding.contains(shard_uid)
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
 
+        tracing::debug!(
+            target: "memtrie",
+            ?tracked_shards,
+            load_mem_tries_for_tracked_shards=?trie_config.load_mem_tries_for_tracked_shards,
+            load_mem_tries_for_shards=?trie_config.load_mem_tries_for_shards,
+            ?shard_uids_pending_resharding,
+            "Loading tries config"
+        );
         info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
         shard_uids_to_load
             .par_iter()
@@ -482,6 +497,51 @@ impl ShardTries {
         if let Some(memtries) = self.get_mem_tries(shard_uid) {
             memtries.write().unwrap().delete_until_height(height);
         }
+    }
+
+    /// Freezes in-memory trie for parent shard and copies reference to it to
+    /// children shards.
+    /// Needed to serve queries for these shards just after resharding, before
+    /// proper memtries are loaded.
+    pub fn freeze_mem_tries(
+        &self,
+        parent_shard_uid: ShardUId,
+        children_shard_uids: Vec<ShardUId>,
+    ) -> Result<(), StorageError> {
+        info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            ?children_shard_uids,
+            "Freezing parent memtrie, creating children memtries...",
+        );
+        let mut outer_guard = self.0.mem_tries.write().unwrap();
+        let Some(memtries) = outer_guard.remove(&parent_shard_uid) else {
+            return Err(StorageError::MemTrieLoadingError(format!(
+                "On freezing parent memtrie, memtrie not loaded for shard {:?}",
+                parent_shard_uid
+            )));
+        };
+        let mut guard = memtries.write().unwrap();
+        let memtries = std::mem::replace(&mut *guard, MemTries::new(parent_shard_uid));
+        let frozen_memtries = memtries.freeze();
+
+        for shard_uid in [vec![parent_shard_uid], children_shard_uids.clone()].concat() {
+            outer_guard.insert(
+                shard_uid,
+                Arc::new(RwLock::new(MemTries::from_frozen_memtries(
+                    shard_uid,
+                    frozen_memtries.clone(),
+                ))),
+            );
+        }
+
+        info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            ?children_shard_uids,
+            "Memtries freezing complete"
+        );
+        Ok(())
     }
 }
 
@@ -553,7 +613,7 @@ impl WrappedTrieChanges {
         level = "debug",
         target = "store::trie::shard_tries",
         "ShardTries::state_changes_into",
-        fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
+        fields(num_state_changes = self.state_changes.len(), shard_id = ?self.shard_uid.shard_id()),
         skip_all,
     )]
     pub fn state_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {

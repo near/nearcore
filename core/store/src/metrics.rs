@@ -3,8 +3,9 @@ use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter_vec, try_create_int_gauge,
-    try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 use near_time::Duration;
 use std::sync::LazyLock;
@@ -389,49 +390,6 @@ pub(crate) static GET_STATE_PART_WITH_FS_NODES: LazyLock<IntCounterVec> = LazyLo
 pub mod flat_state_metrics {
     use super::*;
 
-    pub static FLAT_STORAGE_CREATION_STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-        try_create_int_gauge_vec(
-            "near_flat_storage_creation_status",
-            "Integer representing status of flat storage creation",
-            &["shard_uid"],
-        )
-        .unwrap()
-    });
-    pub static FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS: LazyLock<IntGaugeVec> =
-        LazyLock::new(|| {
-            try_create_int_gauge_vec(
-                "near_flat_storage_creation_remaining_state_parts",
-                "Number of remaining state parts to fetch to fill flat storage in bytes",
-                &["shard_uid"],
-            )
-            .unwrap()
-        });
-    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS: LazyLock<IntCounterVec> =
-        LazyLock::new(|| {
-            try_create_int_counter_vec(
-                "near_flat_storage_creation_fetched_state_parts",
-                "Number of fetched state parts to fill flat storage in bytes",
-                &["shard_uid"],
-            )
-            .unwrap()
-        });
-    pub static FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS: LazyLock<IntCounterVec> =
-        LazyLock::new(|| {
-            try_create_int_counter_vec(
-                "near_flat_storage_creation_fetched_state_items",
-                "Number of fetched items to fill flat storage",
-                &["shard_uid"],
-            )
-            .unwrap()
-        });
-    pub static FLAT_STORAGE_CREATION_THREADS_USED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
-        try_create_int_gauge_vec(
-            "near_flat_storage_creation_threads_used",
-            "Number of currently used threads to fetch state",
-            &["shard_uid"],
-        )
-        .unwrap()
-    });
     pub static FLAT_STORAGE_HEAD_HEIGHT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
         try_create_int_gauge_vec(
             "near_flat_storage_head_height",
@@ -530,7 +488,47 @@ pub mod flat_state_metrics {
             .unwrap()
         });
     }
+
+    pub mod resharding {
+        use near_o11y::metrics::{
+            try_create_int_gauge, try_create_int_gauge_vec, IntGauge, IntGaugeVec,
+        };
+        use std::sync::LazyLock;
+
+        pub static STATUS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_resharding_status",
+                "Integer representing status of flat storage resharding",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+        pub static SPLIT_SHARD_PROCESSED_BATCHES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_resharding_split_shard_processed_batches",
+                "Number of processed batches inside the split shard task",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+        pub static SPLIT_SHARD_BATCH_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
+            try_create_int_gauge(
+                "near_flat_storage_resharding_split_shard_batch_size",
+                "Size in bytes of every batch inside the split shard task",
+            )
+            .unwrap()
+        });
+        pub static SPLIT_SHARD_PROCESSED_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+            try_create_int_gauge_vec(
+                "near_flat_storage_resharding_split_shard_processed_bytes",
+                "Total bytes of Flat State that have been split inside the split shard task",
+                &["shard_uid"],
+            )
+            .unwrap()
+        });
+    }
 }
+
 pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_cold_migration_initial_writes",
@@ -539,12 +537,32 @@ pub static COLD_STORE_MIGRATION_BATCH_WRITE_COUNT: LazyLock<IntCounterVec> = Laz
     )
     .unwrap()
 });
+
 pub static COLD_STORE_MIGRATION_BATCH_WRITE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_cold_migration_initial_writes_time",
         "Time spent on writing initial migration batches by column.",
         &["column"],
         None,
+    )
+    .unwrap()
+});
+
+pub static TRIE_MEMORY_PARTIAL_STORAGE_MISSING_VALUES_COUNT: LazyLock<IntCounter> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "near_trie_memory_partial_storage_missing_values_count",
+            "Number of accesses to TrieMemoryPartialStorage resulted in MissingTrieValue error",
+        )
+        .unwrap()
+    });
+
+/// This metrics is useful to track witness contract distribution failures.
+pub static STORAGE_MISSING_CONTRACTS_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_storage_missing_contracts_count",
+        "Number of contract reads from storage resulted in MissingTrieValue error",
+        &["context"],
     )
     .unwrap()
 });

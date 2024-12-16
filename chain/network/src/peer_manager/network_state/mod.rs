@@ -1,8 +1,8 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, EpochSyncRequestMessage,
-    EpochSyncResponseMessage, ProcessTxRequest, TxStatusRequest, TxStatusResponse,
+    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest,
+    TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -18,18 +18,22 @@ use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
+#[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::state_witness::{
-    ChunkStateWitnessAckMessage, PartialEncodedStateWitnessForwardMessage,
-    PartialEncodedStateWitnessMessage, PartialWitnessSenderForNetwork,
+    ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
+    ContractCodeResponseMessage, PartialEncodedContractDeploysMessage,
+    PartialEncodedStateWitnessForwardMessage, PartialEncodedStateWitnessMessage,
+    PartialWitnessSenderForNetwork,
 };
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
 use crate::types::{
-    ChainInfo, PeerType, ReasonForBan, StatePartRequestBody, Tier3Request, Tier3RequestBody,
+    ChainInfo, PeerManagerSenderForNetwork, PeerType, ReasonForBan, StatePartRequestBody,
+    Tier3Request, Tier3RequestBody,
 };
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -38,10 +42,8 @@ use near_async::time;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
-use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::sync::atomic::AtomicUsize;
@@ -67,9 +69,6 @@ pub const PRUNE_EDGES_AFTER: time::Duration = time::Duration::minutes(30);
 
 /// How long to wait between reconnection attempts to the same peer
 pub(crate) const RECONNECT_ATTEMPT_INTERVAL: time::Duration = time::Duration::seconds(10);
-
-/// Limit number of pending tier3 requests to avoid OOM.
-pub(crate) const LIMIT_TIER3_REQUESTS: usize = 60;
 
 impl WhitelistNode {
     pub fn from_peer_info(pi: &PeerInfo) -> anyhow::Result<Self> {
@@ -109,6 +108,7 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
+    pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
 
@@ -138,6 +138,7 @@ pub(crate) struct NetworkState {
     pub graph: Arc<crate::routing::Graph>,
     /// A sparsified graph of the whole NEAR network.
     /// TODO(saketh): deprecate graph above, rename this to RoutingTable
+    #[cfg(feature = "distance_vector_routing")]
     pub graph_v2: Arc<crate::routing::GraphV2>,
 
     /// Hashes of the body of recently received routed messages.
@@ -152,9 +153,6 @@ pub(crate) struct NetworkState {
     /// TODO(gprusak): consider removing it altogether.
     pub tier1_route_back: Mutex<RouteBackCache>,
 
-    /// Queue of received requests to which a response should be made over TIER3.
-    pub tier3_requests: Mutex<VecDeque<Tier3Request>>,
-
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
     /// messages sincce last block.
     pub txns_since_last_block: AtomicUsize,
@@ -168,6 +166,7 @@ pub(crate) struct NetworkState {
     /// Demultiplexer aggregating calls to add_edges(), for V1 routing protocol
     add_edges_demux: demux::Demux<Vec<Edge>, Result<(), ReasonForBan>>,
     /// Demultiplexer aggregating calls to update_routes(), for V2 routing protocol
+    #[cfg(feature = "distance_vector_routing")]
     update_routes_demux:
         demux::Demux<crate::routing::NetworkTopologyChange, Result<(), ReasonForBan>>,
 
@@ -184,6 +183,7 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
+        peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         whitelist_nodes: Vec<WhitelistNode>,
@@ -195,12 +195,14 @@ impl NetworkState {
                 prune_unreachable_peers_after: PRUNE_UNREACHABLE_PEERS_AFTER,
                 prune_edges_after: Some(PRUNE_EDGES_AFTER),
             })),
+            #[cfg(feature = "distance_vector_routing")]
             graph_v2: Arc::new(crate::routing::GraphV2::new(crate::routing::GraphConfigV2 {
                 node_id: config.node_id(),
                 prune_edges_after: Some(PRUNE_EDGES_AFTER),
             })),
             genesis_id,
             client,
+            peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
             chain_info: Default::default(),
@@ -217,13 +219,13 @@ impl NetworkState {
             account_announcements: Arc::new(AnnounceAccountCache::new(store)),
             tier2_route_back: Mutex::new(RouteBackCache::default()),
             tier1_route_back: Mutex::new(RouteBackCache::default()),
-            tier3_requests: Mutex::new(VecDeque::<Tier3Request>::new()),
             recent_routed_messages: Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(RECENT_ROUTED_MESSAGES_CACHE_SIZE).unwrap(),
             )),
             txns_since_last_block: AtomicUsize::new(0),
             whitelist_nodes,
             add_edges_demux: demux::Demux::new(config.routing_table_update_rate_limit),
+            #[cfg(feature = "distance_vector_routing")]
             update_routes_demux: demux::Demux::new(config.routing_table_update_rate_limit),
             set_chain_info_mutex: Mutex::new(()),
             config,
@@ -359,6 +361,7 @@ impl NetworkState {
                     // Insert to the local connection pool
                     this.tier2.insert_ready(conn.clone()).map_err(RegisterPeerError::PoolError)?;
                     // Update the V2 routing table
+                    #[cfg(feature = "distance_vector_routing")]
                     this.update_routes(&clock, NetworkTopologyChange::PeerConnected(peer_info.id.clone(), edge.clone()))
                         .await.map_err(|_: ReasonForBan| RegisterPeerError::InvalidEdge)?;
                     // Write to the peer store
@@ -421,6 +424,7 @@ impl NetworkState {
             }
 
             // Update the V2 routing table
+            #[cfg(feature = "distance_vector_routing")]
             this.update_routes(&clock, NetworkTopologyChange::PeerDisconnected(peer_id.clone()))
                 .await
                 .unwrap();
@@ -695,7 +699,7 @@ impl NetworkState {
     }
 
     pub async fn receive_routed_message(
-        &self,
+        self: &Arc<Self>,
         clock: &time::Clock,
         peer_id: PeerId,
         msg_hash: CryptoHash,
@@ -760,11 +764,6 @@ impl NetworkState {
                 self.partial_witness_adapter.send(ChunkStateWitnessAckMessage(ack));
                 None
             }
-            RoutedMessageBody::ChunkEndorsement(endorsement) => {
-                let endorsement = ChunkEndorsement::V1(endorsement);
-                self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
-                None
-            }
             RoutedMessageBody::PartialEncodedStateWitness(witness) => {
                 self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
                 None
@@ -778,30 +777,31 @@ impl NetworkState {
                 self.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }
-            RoutedMessageBody::EpochSyncRequest => {
-                self.client.send(EpochSyncRequestMessage { route_back: msg_hash });
-                None
-            }
-            RoutedMessageBody::EpochSyncResponse(proof) => {
-                self.client.send(EpochSyncResponseMessage { from_peer: peer_id, proof });
-                None
-            }
             RoutedMessageBody::StatePartRequest(request) => {
-                let mut queue = self.tier3_requests.lock();
-                if queue.len() < LIMIT_TIER3_REQUESTS {
-                    queue.push_back(Tier3Request {
-                        peer_info: PeerInfo {
-                            id: peer_id,
-                            addr: Some(request.addr),
-                            account_id: None,
-                        },
-                        body: Tier3RequestBody::StatePart(StatePartRequestBody {
-                            shard_id: request.shard_id,
-                            sync_hash: request.sync_hash,
-                            part_id: request.part_id,
-                        }),
-                    });
-                }
+                self.peer_manager_adapter.send(Tier3Request {
+                    peer_info: PeerInfo { id: peer_id, addr: Some(request.addr), account_id: None },
+                    body: Tier3RequestBody::StatePart(StatePartRequestBody {
+                        shard_id: request.shard_id,
+                        sync_hash: request.sync_hash,
+                        part_id: request.part_id,
+                    }),
+                });
+                None
+            }
+            RoutedMessageBody::ChunkContractAccesses(accesses) => {
+                self.partial_witness_adapter.send(ChunkContractAccessesMessage(accesses));
+                None
+            }
+            RoutedMessageBody::ContractCodeRequest(request) => {
+                self.partial_witness_adapter.send(ContractCodeRequestMessage(request));
+                None
+            }
+            RoutedMessageBody::ContractCodeResponse(response) => {
+                self.partial_witness_adapter.send(ContractCodeResponseMessage(response));
+                None
+            }
+            RoutedMessageBody::PartialEncodedContractDeploys(deploys) => {
+                self.partial_witness_adapter.send(PartialEncodedContractDeploysMessage(deploys));
                 None
             }
             body => {
@@ -939,23 +939,26 @@ impl NetworkState {
 
             // Now that `graph` has been synchronized with the state of the local connections,
             // use it as the source of truth to fix the local state in `graph_v2`
-            let mut tasks = vec![];
-            let node_id = this.config.node_id();
-            for edge in graph.local_edges.values() {
-                let other_peer = edge.other(&node_id).unwrap();
-                tasks.push(match edge.edge_type() {
-                    EdgeState::Active => this.update_routes(
-                        &clock,
-                        NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
-                    ),
-                    EdgeState::Removed => this.update_routes(
-                        &clock,
-                        NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
-                    ),
-                });
-            }
-            for t in tasks {
-                let _ = t.await;
+            #[cfg(feature = "distance_vector_routing")]
+            {
+                let mut tasks = vec![];
+                let node_id = this.config.node_id();
+                for edge in graph.local_edges.values() {
+                    let other_peer = edge.other(&node_id).unwrap();
+                    tasks.push(match edge.edge_type() {
+                        EdgeState::Active => this.update_routes(
+                            &clock,
+                            NetworkTopologyChange::PeerConnected(other_peer.clone(), edge.clone()),
+                        ),
+                        EdgeState::Removed => this.update_routes(
+                            &clock,
+                            NetworkTopologyChange::PeerDisconnected(other_peer.clone()),
+                        ),
+                    });
+                }
+                for t in tasks {
+                    let _ = t.await;
+                }
             }
         })
         .await

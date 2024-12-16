@@ -442,7 +442,6 @@ mod test {
     use near_time::Clock;
     use num_rational::Rational32;
     use std::collections::{HashMap, HashSet};
-    use std::str::FromStr;
     use tempfile::NamedTempFile;
 
     // these (TestAccountInfo, TestStateRecord, and ParsedTestCase) are here so we can
@@ -616,13 +615,7 @@ mod test {
             let records_in: Vec<_> = self.records_in.iter().map(|r| r.parse()).collect();
 
             let num_shards = 4;
-            let shards = ShardLayout::v1(
-                (0..num_shards - 1)
-                    .map(|f| AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap())
-                    .collect(),
-                None,
-                1,
-            );
+            let shard_layout = ShardLayout::multi_shard(num_shards, 3);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -660,7 +653,7 @@ mod test {
                 num_blocks_per_year: near_chain_configs::NUM_BLOCKS_PER_YEAR,
                 protocol_treasury_account: "treasury.near".parse().unwrap(),
                 fishermen_threshold: near_chain_configs::FISHERMEN_THRESHOLD,
-                shard_layout: shards,
+                shard_layout,
                 min_gas_price: near_chain_configs::MIN_GAS_PRICE,
                 ..Default::default()
             };

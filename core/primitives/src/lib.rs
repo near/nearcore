@@ -9,6 +9,7 @@ pub use near_primitives_core::num_rational;
 pub use near_primitives_core::serialize;
 
 pub mod action;
+pub mod bandwidth_scheduler;
 pub mod block;
 pub mod block_body;
 pub mod block_header;
@@ -38,11 +39,12 @@ pub mod state_record;
 pub mod state_sync;
 pub mod stateless_validation;
 pub mod telemetry;
+#[cfg(feature = "test_utils")]
 pub mod test_utils;
 pub mod transaction;
 pub mod trie_key;
 pub mod types;
-mod upgrade_schedule;
+pub mod upgrade_schedule;
 pub mod utils;
 pub mod validator_mandates;
 pub mod validator_signer;

@@ -70,10 +70,6 @@ pub enum ShardUpdateReason {
 /// Information about shard to update.
 pub struct ShardContext {
     pub shard_uid: ShardUId,
-    /// Whether node cares about shard in this epoch.
-    pub cares_about_shard_this_epoch: bool,
-    /// Whether shard layout changes in the next epoch.
-    pub will_shard_layout_change: bool,
     /// Whether transactions should be applied.
     pub should_apply_chunk: bool,
 }
@@ -133,7 +129,7 @@ pub fn apply_new_chunk(
         target: "chain",
         parent: parent_span,
         "apply_new_chunk",
-        shard_id,
+        ?shard_id,
         ?apply_reason)
     .entered();
     let gas_limit = chunk_header.gas_limit();
@@ -182,7 +178,7 @@ pub fn apply_old_chunk(
         target: "chain",
         parent: parent_span,
         "apply_old_chunk",
-        shard_id,
+        ?shard_id,
         ?apply_reason)
     .entered();
 

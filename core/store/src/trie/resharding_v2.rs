@@ -2,8 +2,8 @@ use crate::adapter::trie_store::TrieStoreUpdateAdapter;
 use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::{
-    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, Trie,
-    TrieAccess as _, TrieUpdate,
+    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, TrieAccess,
+    TrieUpdate,
 };
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
@@ -11,22 +11,12 @@ use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_part::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
 
-use super::iterator::TrieItem;
-
-impl Trie {
-    // TODO(#9446) remove function when shifting to flat storage iteration for resharding
-    pub fn get_trie_items_for_part(&self, part_id: PartId) -> Result<Vec<TrieItem>, StorageError> {
-        let path_begin = self.find_state_part_boundary(part_id.idx, part_id.total)?;
-        let path_end = self.find_state_part_boundary(part_id.idx + 1, part_id.total)?;
-        self.disk_iter()?.get_trie_items(&path_begin, &path_end)
-    }
-}
+use super::update::TrieUpdateResult;
 
 impl ShardTries {
     /// add `values` (key-value pairs of items stored in states) to build states for new shards
@@ -135,7 +125,7 @@ impl ShardTries {
         let mut new_state_roots = HashMap::new();
         let mut store_update = self.store_update();
         for (shard_uid, update) in updates {
-            let (_, trie_changes, state_changes) = update.finalize()?;
+            let TrieUpdateResult { trie_changes, state_changes, .. } = update.finalize()?;
             let state_root = self.apply_all(&trie_changes, shard_uid, &mut store_update);
             FlatStateChanges::from_state_changes(&state_changes)
                 .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
@@ -475,7 +465,7 @@ mod tests {
             delayed_receipt_indices.next_available_index = all_receipts.len() as u64;
             set(&mut trie_update, TrieKey::DelayedReceiptIndices, &delayed_receipt_indices);
             trie_update.commit(StateChangeCause::ReshardingV2);
-            let (_, trie_changes, _) = trie_update.finalize().unwrap();
+            let trie_changes = trie_update.finalize().unwrap().trie_changes;
             let mut store_update = tries.store_update();
             let state_root =
                 tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
@@ -530,7 +520,7 @@ mod tests {
             promise_yield_indices.next_available_index = all_timeouts.len() as u64;
             set(&mut trie_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
             trie_update.commit(StateChangeCause::ReshardingV2);
-            let (_, trie_changes, _) = trie_update.finalize().unwrap();
+            let trie_changes = trie_update.finalize().unwrap().trie_changes;
             let mut store_update = tries.store_update();
             let state_root =
                 tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);

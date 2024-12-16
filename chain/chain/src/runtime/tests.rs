@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, RngSeed};
@@ -10,13 +12,20 @@ use near_pool::{
 };
 use near_primitives::action::FunctionCallAction;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::version::PROTOCOL_VERSION;
+use near_store::config::StateSnapshotType;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
+use near_vm_runner::{
+    get_contract_cache_key, CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache,
+};
 use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -24,7 +33,7 @@ use near_chain_configs::{
     default_produce_chunk_add_transactions_time_limit, Genesis, MutableConfigValue,
     DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE,
 };
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::challenge::{ChallengesResult, PartialState, SlashedValidator};
@@ -42,6 +51,7 @@ use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 use super::*;
 
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::Clock;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
@@ -120,7 +130,7 @@ impl TestEnv {
             FilesystemContractRuntimeCache::new(&dir.as_ref(), None::<&str>).unwrap();
 
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::new(
             store.clone(),
             compiled_contract_cache.handle(),
@@ -213,13 +223,15 @@ impl TestEnv {
     ) -> ApplyChunkResult {
         // TODO(congestion_control): pass down prev block info and read congestion info from there
         // For now, just use default.
+        // TODO(bandwidth_scheduler) - pass bandwidth requests from prev_block
         let prev_block_hash = self.head.last_block_hash;
-        let state_root = self.state_roots[shard_id as usize];
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap();
+        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+        let state_root = self.state_roots[shard_index];
         let gas_limit = u64::MAX;
         let height = self.head.height + 1;
         let block_timestamp = 0;
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         let gas_price = self.runtime.genesis_config.min_gas_price;
         let congestion_info = if !ProtocolFeature::CongestionControl.enabled(protocol_version) {
@@ -254,6 +266,7 @@ impl TestEnv {
                     challenges_result,
                     random_seed: CryptoHash::default(),
                     congestion_info,
+                    bandwidth_requests: BlockBandwidthRequests::empty(),
                 },
                 receipts,
                 transactions,
@@ -316,19 +329,21 @@ impl TestEnv {
     ) {
         let new_hash = hash(&[(self.head.height + 1) as u8]);
         let shard_ids = self.epoch_manager.shard_ids(&self.head.epoch_id).unwrap();
+        let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
         assert_eq!(transactions.len(), shard_ids.len());
         assert_eq!(chunk_mask.len(), shard_ids.len());
         let mut all_proposals = vec![];
         let mut all_receipts = vec![];
         for shard_id in shard_ids {
+            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
             let (state_root, proposals, receipts) = self.update_runtime(
                 shard_id,
                 new_hash,
-                &transactions[shard_id as usize],
+                &transactions[shard_index],
                 self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
                 challenges_result.clone(),
             );
-            self.state_roots[shard_id as usize] = state_root;
+            self.state_roots[shard_index] = state_root;
             all_receipts.extend(receipts);
             all_proposals.append(&mut proposals.clone());
             self.last_shard_proposals.insert(shard_id, proposals);
@@ -357,7 +372,7 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
-            let shard_id = account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
+            let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
             new_receipts.entry(shard_id).or_default().push(receipt);
         }
         self.last_receipts = new_receipts;
@@ -391,9 +406,11 @@ impl TestEnv {
             &self.head.epoch_id,
         )
         .unwrap();
+        let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
         self.runtime
-            .view_account(&shard_uid, self.state_roots[shard_id as usize], account_id)
+            .view_account(&shard_uid, self.state_roots[shard_index], account_id)
             .unwrap()
             .into()
     }
@@ -435,16 +452,12 @@ fn test_validator_rotation() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
     // test1 doubles stake and the new account stakes the same, so test2 will be kicked out.`
     let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE * 2);
     let new_account = AccountId::try_from(format!("test{}", num_nodes + 1)).unwrap();
     let new_validator = create_test_signer(new_account.as_str());
-    let new_signer: Signer =
-        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref())
-            .into();
+    let new_signer: Signer = InMemorySigner::test_signer(&new_account);
     let create_account_transaction = SignedTransaction::create_account(
         2,
         block_producers[0].validator_id().clone(),
@@ -458,12 +471,7 @@ fn test_validator_rotation() {
     let transactions = {
         // With the new validator selection algorithm, test2 needs to have less stake to
         // become a fisherman.
-        let signer = InMemorySigner::from_seed(
-            validators[1].clone(),
-            KeyType::ED25519,
-            validators[1].as_ref(),
-        )
-        .into();
+        let signer = InMemorySigner::test_signer(&validators[1]);
         vec![
             staking_transaction,
             create_account_transaction,
@@ -524,9 +532,7 @@ fn test_validator_stake_change() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
 
     let desired_stake = 2 * TESTING_INIT_STAKE / 3;
     let staking_transaction = stake(1, &signer, &block_producers[0], desired_stake);
@@ -561,10 +567,7 @@ fn test_validator_stake_change_multiple_times() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE - 1);
     let staking_transaction1 = stake(2, &signers[0], &block_producers[0], TESTING_INIT_STAKE - 2);
@@ -656,10 +659,7 @@ fn test_stake_in_last_block_of_an_epoch() {
     let mut env = TestEnv::new(vec![validators.clone()], 5, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     let staking_transaction =
         stake(1, &signers[0], &block_producers[0], TESTING_INIT_STAKE + TESTING_INIT_STAKE / 6);
     env.step_default(vec![staking_transaction]);
@@ -691,8 +691,7 @@ fn test_verify_validator_signature() {
         (0..2).map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap()).collect::<Vec<_>>();
     let env = TestEnv::new(vec![validators.clone()], 2, true);
     let data = [0; 32];
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref());
+    let signer = InMemorySigner::test_signer(&validators[0]);
     let signature = signer.sign(&data);
     assert!(env
         .epoch_manager
@@ -718,18 +717,21 @@ fn test_state_sync() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
     let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
     env.step_default(vec![staking_transaction]);
     env.step_default(vec![]);
     let block_hash = hash(&[env.head.height as u8]);
+
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+
     let state_part = env
         .runtime
-        .obtain_state_part(0, &block_hash, &env.state_roots[0], PartId::new(0, 1))
+        .obtain_state_part(shard_id, &block_hash, &env.state_roots[0], PartId::new(0, 1))
         .unwrap();
-    let root_node = env.runtime.get_state_root_node(0, &block_hash, &env.state_roots[0]).unwrap();
+    let root_node =
+        env.runtime.get_state_root_node(shard_id, &block_hash, &env.state_roots[0]).unwrap();
     let mut new_env = TestEnv::new(vec![validators], 2, false);
     for i in 1..=2 {
         let prev_hash = hash(&[new_env.head.height as u8]);
@@ -786,7 +788,7 @@ fn test_state_sync() {
     let epoch_id = &new_env.head.epoch_id;
     new_env
         .runtime
-        .apply_state_part(0, &env.state_roots[0], PartId::new(0, 1), &state_part, epoch_id)
+        .apply_state_part(shard_id, &env.state_roots[0], PartId::new(0, 1), &state_part, epoch_id)
         .unwrap();
     new_env.state_roots[0] = env.state_roots[0];
     for _ in 3..=5 {
@@ -811,9 +813,7 @@ fn test_get_validator_info() {
     let mut env = TestEnv::new(vec![validators.clone()], 2, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signer =
-        InMemorySigner::from_seed(validators[0].clone(), KeyType::ED25519, validators[0].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[0]);
     let staking_transaction = stake(1, &signer, &block_producers[0], 0);
     let mut expected_blocks = [0, 0];
     let mut expected_chunks = [0, 0];
@@ -825,11 +825,16 @@ fn test_get_validator_info() {
          expected_endorsements: &mut [u64; 2]| {
             let epoch_id = env.head.epoch_id;
             let height = env.head.height;
+
+            let shard_layout = env.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+            let shard_id = shard_layout.shard_ids().next().unwrap();
+
             let em = env.runtime.epoch_manager.read();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
-            let cp = em.get_chunk_producer_info(&epoch_id, height, 0).unwrap();
+            let cp_key = ChunkProductionKey { epoch_id, height_created: height, shard_id };
+            let cp = em.get_chunk_producer_info(&cp_key).unwrap();
             let stateless_validators =
-                em.get_chunk_validator_assignments(&epoch_id, 0, height).ok();
+                em.get_chunk_validator_assignments(&epoch_id, shard_id, height).ok();
 
             if let Some(vs) = stateless_validators {
                 if vs.contains(&validators[0]) {
@@ -870,13 +875,18 @@ fn test_get_validator_info() {
         &mut expected_chunks,
         &mut expected_endorsements,
     );
+
+    let shard_layout = env.epoch_manager.get_shard_layout(&env.head.epoch_id).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+
     let mut current_epoch_validator_info = vec![
         CurrentEpochValidatorInfo {
             account_id: "test1".parse().unwrap(),
             public_key: block_producers[0].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards_produced: vec![shard_id],
+            shards_endorsed: vec![shard_id],
             num_produced_blocks: expected_blocks[0],
             num_expected_blocks: expected_blocks[0],
             num_produced_chunks: expected_chunks[0],
@@ -893,7 +903,8 @@ fn test_get_validator_info() {
             public_key: block_producers[1].public_key(),
             is_slashed: false,
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards_produced: vec![shard_id],
+            shards_endorsed: vec![shard_id],
             num_produced_blocks: expected_blocks[1],
             num_expected_blocks: expected_blocks[1],
             num_produced_chunks: expected_chunks[1],
@@ -911,13 +922,13 @@ fn test_get_validator_info() {
             account_id: "test1".parse().unwrap(),
             public_key: block_producers[0].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![shard_id],
         },
         NextEpochValidatorInfo {
             account_id: "test2".parse().unwrap(),
             public_key: block_producers[1].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![shard_id],
         },
     ];
     let response = env
@@ -973,14 +984,15 @@ fn test_get_validator_info() {
     current_epoch_validator_info[1].num_expected_blocks = expected_blocks[1];
     current_epoch_validator_info[1].num_produced_chunks = expected_chunks[1];
     current_epoch_validator_info[1].num_expected_chunks = expected_chunks[1];
-    current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![expected_chunks[1]];
-    current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![expected_chunks[1]];
+    current_epoch_validator_info[1].num_produced_chunks_per_shard = vec![];
+    current_epoch_validator_info[1].num_expected_chunks_per_shard = vec![];
     current_epoch_validator_info[1].num_produced_endorsements = expected_endorsements[1];
     current_epoch_validator_info[1].num_expected_endorsements = expected_endorsements[1];
     current_epoch_validator_info[1].num_produced_endorsements_per_shard =
         vec![expected_endorsements[1]];
     current_epoch_validator_info[1].num_expected_endorsements_per_shard =
         vec![expected_endorsements[1]];
+    current_epoch_validator_info[1].shards_produced = vec![];
     assert_eq!(response.current_validators, current_epoch_validator_info);
     assert_eq!(
         response.next_validators,
@@ -988,7 +1000,7 @@ fn test_get_validator_info() {
             account_id: "test2".parse().unwrap(),
             public_key: block_producers[1].public_key(),
             stake: TESTING_INIT_STAKE,
-            shards: vec![0],
+            shards: vec![ShardId::new(0)],
         }]
     );
     assert!(response.current_proposals.is_empty());
@@ -1022,7 +1034,7 @@ fn test_challenges() {
     bps.sort_unstable();
     assert_eq!(bps, vec![("test1".parse().unwrap(), false), ("test2".parse().unwrap(), true)]);
     let msg = vec![0, 1, 2];
-    let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
+    let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
     assert!(!env
         .epoch_manager
@@ -1053,9 +1065,7 @@ fn test_double_sign_challenge_not_all_slashed() {
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
 
-    let signer =
-        InMemorySigner::from_seed(validators[2].clone(), KeyType::ED25519, validators[2].as_ref())
-            .into();
+    let signer = InMemorySigner::test_signer(&validators[2]);
     let staking_transaction = stake(1, &signer, &block_producers[2], TESTING_INIT_STAKE / 3);
     env.step(
         vec![vec![staking_transaction]],
@@ -1080,7 +1090,7 @@ fn test_double_sign_challenge_not_all_slashed() {
         ]
     );
     let msg = vec![0, 1, 2];
-    let signer = InMemorySigner::from_seed("test2".parse().unwrap(), KeyType::ED25519, "test2");
+    let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
     assert!(!env
         .epoch_manager
@@ -1132,10 +1142,7 @@ fn test_double_sign_challenge_all_slashed() {
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
     let mut env = TestEnv::new(vec![validators.clone()], 5, false);
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test1".parse().unwrap(), true)]);
     env.step(vec![vec![]], vec![true], vec![SlashedValidator::new("test2".parse().unwrap(), true)]);
     let msg = vec![0, 1, 2];
@@ -1229,10 +1236,7 @@ fn test_fishermen_stake() {
     );
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
@@ -1296,10 +1300,7 @@ fn test_fishermen_unstake() {
     );
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
     let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
@@ -1370,12 +1371,9 @@ fn test_delete_account_after_unstake() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
-    let staking_transaction1 = stake(1, &signers[1].clone().into(), &block_producers[1], 0);
+    let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 0);
     env.step_default(vec![staking_transaction1]);
     let account = env.view_account(block_producers[1].validator_id());
     assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
@@ -1383,7 +1381,7 @@ fn test_delete_account_after_unstake() {
     for _ in 2..=5 {
         env.step_default(vec![]);
     }
-    let staking_transaction2 = stake(2, &signers[1].clone().into(), &block_producers[1], 1);
+    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 1);
     env.step_default(vec![staking_transaction2]);
     for _ in 7..=13 {
         env.step_default(vec![]);
@@ -1393,11 +1391,11 @@ fn test_delete_account_after_unstake() {
 
     let delete_account_transaction = SignedTransaction::from_actions(
         4,
-        signers[1].account_id.clone(),
-        signers[1].account_id.clone(),
-        &signers[1].clone().into(),
+        signers[1].get_account_id(),
+        signers[1].get_account_id(),
+        &signers[1],
         vec![Action::DeleteAccount(DeleteAccountAction {
-            beneficiary_id: signers[0].account_id.clone(),
+            beneficiary_id: signers[0].get_account_id(),
         })],
         // runtime does not validate block history
         CryptoHash::default(),
@@ -1418,10 +1416,7 @@ fn test_proposal_deduped() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 100);
     let staking_transaction2 = stake(2, &signers[1], &block_producers[1], TESTING_INIT_STAKE - 10);
@@ -1439,10 +1434,7 @@ fn test_insufficient_stake() {
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()).into())
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
     let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * NEAR_BASE);
@@ -1459,16 +1451,15 @@ fn test_insufficient_stake() {
 #[test]
 fn test_flat_state_usage() {
     let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
-    let trie = env
-        .runtime
-        .get_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT, true)
-        .unwrap();
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let state_root = Trie::EMPTY_ROOT;
+
+    let trie = env.runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, true).unwrap();
     assert!(trie.has_flat_storage_chunk_view());
 
-    let trie = env
-        .runtime
-        .get_view_trie_for_shard(0, &env.head.prev_block_hash, Trie::EMPTY_ROOT)
-        .unwrap();
+    let trie = env.runtime.get_view_trie_for_shard(shard_id, &prev_hash, state_root).unwrap();
     assert!(!trie.has_flat_storage_chunk_view());
 }
 
@@ -1480,16 +1471,13 @@ fn test_trie_and_flat_state_equality() {
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
     let mut env = TestEnv::new(vec![validators.clone()], 4, false);
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let transfer_tx = SignedTransaction::from_actions(
         4,
-        signers[0].account_id.clone(),
+        signers[0].get_account_id(),
         validators[1].clone(),
-        &signers[0].clone().into(),
+        &signers[0],
         vec![Action::Transfer(TransferAction { deposit: 10 })],
         // runtime does not validate block history
         CryptoHash::default(),
@@ -1503,11 +1491,13 @@ fn test_trie_and_flat_state_equality() {
     // Extract account in two ways:
     // - using state trie, which should use flat state after enabling it in the protocol
     // - using view state, which should never use flat state
-    let head_prev_block_hash = env.head.prev_block_hash;
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+
     let state_root = env.state_roots[0];
-    let state = env.runtime.get_trie_for_shard(0, &head_prev_block_hash, state_root, true).unwrap();
-    let view_state =
-        env.runtime.get_view_trie_for_shard(0, &head_prev_block_hash, state_root).unwrap();
+    let state = env.runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, true).unwrap();
+    let view_state = env.runtime.get_view_trie_for_shard(shard_id, &prev_hash, state_root).unwrap();
     let trie_key = TrieKey::Account { account_id: validators[1].clone() };
     let key = trie_key.to_vec();
 
@@ -1528,7 +1518,7 @@ fn test_genesis_hash() {
 
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime = NightshadeRuntime::test_with_runtime_config_store(
         tempdir.path(),
         store.clone(),
@@ -1569,10 +1559,7 @@ fn test_genesis_hash() {
 /// Creates a signed transaction between each pair of `signers`,
 /// where transactions outcoming from a single signer differ by nonce.
 /// The transactions are then shuffled and used to fill a transaction pool.
-fn generate_transaction_pool(
-    signers: &Vec<InMemorySigner>,
-    block_hash: CryptoHash,
-) -> TransactionPool {
+fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> TransactionPool {
     const TEST_SEED: RngSeed = [3; 32];
     let mut rng = StdRng::from_seed(TEST_SEED);
     let signer_count = signers.len();
@@ -1582,9 +1569,9 @@ fn generate_transaction_pool(
         for i in 0..signer_count {
             let transaction = SignedTransaction::send_money(
                 round.try_into().unwrap(),
-                signers[i].account_id.clone(),
-                signers[(i + round) % signer_count].account_id.clone(),
-                &signers[i].clone().into(),
+                signers[i].get_account_id(),
+                signers[(i + round) % signer_count].get_account_id(),
+                &signers[i],
                 round.try_into().unwrap(),
                 block_hash,
             );
@@ -1628,6 +1615,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         None,
         Arc::new(RayonAsyncComputationSpawner),
         MutableConfigValue::new(None, "validator_signer"),
+        noop().into_multi_sender(),
     )
     .unwrap();
 
@@ -1636,10 +1624,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     // Produce a single block, so that `prev_block_hash` is valid.
     env.step_default(vec![]);
 
-    let signers: Vec<_> = validators
-        .iter()
-        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
-        .collect();
+    let signers: Vec<_> = validators.iter().map(|id| InMemorySigner::test_signer(&id)).collect();
 
     let transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
     (env, chain, transaction_pool)
@@ -1651,8 +1636,10 @@ fn prepare_transactions(
     transaction_groups: &mut dyn TransactionGroupIterator,
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
-    let shard_id = 0;
-    let block = chain.get_block(&env.head.prev_block_hash).unwrap();
+    let prev_hash = env.head.prev_block_hash;
+    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
+    let block = chain.get_block(&prev_hash).unwrap();
     let congestion_info = block.block_congestion_info();
 
     env.runtime.prepare_transactions(
@@ -1773,7 +1760,7 @@ fn test_prepare_transactions_empty_storage_proof() {
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_storage_proof_garbage() {
-    let shard_id = 0;
+    let shard_id = ShardId::new(0);
     let signer = create_test_signer("test1");
     let env = TestEnv::new(vec![vec![signer.validator_id().clone()]], 100, false);
     let garbage_size_mb = 50usize;
@@ -1806,6 +1793,76 @@ fn test_storage_proof_garbage() {
     assert_eq!(total_size / 1000_000, garbage_size_mb);
 }
 
+/// Tests that precompiling a set of contracts updates the compiled contract cache.
+#[test]
+fn test_precompile_contracts_updates_cache() {
+    struct FakeTestCompiledContractType; // For testing AnyCache.
+    let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
+    let store = near_store::test_utils::create_test_store();
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
+
+    let contract_cache = FilesystemContractRuntimeCache::new(tempdir.path(), None::<&str>)
+        .expect("filesystem contract cache");
+    let runtime = NightshadeRuntime::test_with_runtime_config_store(
+        tempdir.path(),
+        store,
+        contract_cache.handle(),
+        &genesis.config,
+        epoch_manager,
+        RuntimeConfigStore::new(None),
+        StateSnapshotType::EveryEpoch,
+    );
+
+    let contracts = vec![
+        ContractCode::new(near_test_contracts::sized_contract(100).to_vec(), None),
+        ContractCode::new(near_test_contracts::rs_contract().to_vec(), None),
+        ContractCode::new(near_test_contracts::trivial_contract().to_vec(), None),
+    ];
+    let code_hashes: Vec<CryptoHash> = contracts.iter().map(|c| c.hash()).cloned().collect();
+
+    // First check that the cache does not have the contracts.
+    for code_hash in code_hashes.iter() {
+        let cache_key = get_contract_cache_key(
+            *code_hash,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+        );
+        let contract = contract_cache.get(&cache_key).unwrap();
+        assert!(contract.is_none());
+    }
+
+    runtime.precompile_contracts(&EpochId::default(), contracts).unwrap();
+
+    // Check that the persistent cache contains the compiled contract after precompilation,
+    // but it does not populate the in-memory cache (so that the value is generated by try_lookup call).
+    for code_hash in code_hashes.into_iter() {
+        let cache_key = get_contract_cache_key(
+            code_hash,
+            &runtime.get_runtime_config(PROTOCOL_VERSION).unwrap().wasm_config,
+        );
+
+        let contract = contract_cache.get(&cache_key).unwrap();
+        assert_matches!(
+            contract,
+            Some(CompiledContractInfo { compiled: CompiledContract::Code(_), .. })
+        );
+
+        let result = contract_cache
+            .memory_cache()
+            .try_lookup(
+                cache_key,
+                || Ok::<_, ()>(Box::new(FakeTestCompiledContractType)),
+                |v| {
+                    assert!(v.is::<FakeTestCompiledContractType>());
+                    "compiled code"
+                },
+            )
+            .unwrap();
+        assert_eq!(result, "compiled code");
+    }
+}
+
 fn stake(
     nonce: Nonce,
     signer: &Signer,
@@ -1816,7 +1873,7 @@ fn stake(
         nonce,
         sender.validator_id().clone(),
         sender.validator_id().clone(),
-        &*signer,
+        &signer,
         vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
         // runtime does not validate block history
         CryptoHash::default(),

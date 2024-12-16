@@ -34,7 +34,7 @@ pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 
 
 /// The default number of attempts to obtain a state part from peers in the network
 /// before giving up and downloading it from external storage.
-pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 5;
+pub const DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD: u64 = 3;
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -188,9 +188,26 @@ impl SyncConfig {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct EpochSyncConfig {
-    pub enabled: bool,
+    /// If true, even if the node started from genesis, it will not perform epoch sync.
+    /// There should be no reason to set this flag in production, because on both mainnet
+    /// and testnet it would be infeasible to catch up from genesis without epoch sync.
+    #[serde(default)]
+    pub disable_epoch_sync_for_bootstrapping: bool,
+    /// If true, the node will ignore epoch sync requests from the network. It is strongly
+    /// recommended not to set this flag, because it will prevent other nodes from
+    /// bootstrapping. This flag is only included as a kill-switch and may be removed in a
+    /// future release. Please note that epoch sync requests are heavily rate limited and
+    /// cached, and therefore should not affect the performance of the node or introduce
+    /// any non-negligible increase in network traffic.
+    #[serde(default)]
+    pub ignore_epoch_sync_network_requests: bool,
+    /// This serves as two purposes: (1) the node will not epoch sync and instead resort to
+    /// header sync, if the genesis block is within this many blocks from the current block;
+    /// (2) the node will reject an epoch sync proof if the provided proof is for an epoch
+    /// that is more than this many blocks behind the current block.
     pub epoch_sync_horizon: BlockHeightDelta,
-    pub epoch_sync_accept_proof_max_horizon: BlockHeightDelta,
+    /// Timeout for epoch sync requests. The node will continue retrying indefinitely even
+    /// if this timeout is exceeded.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub timeout_for_epoch_sync: Duration,
 }
@@ -198,12 +215,12 @@ pub struct EpochSyncConfig {
 impl Default for EpochSyncConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            disable_epoch_sync_for_bootstrapping: false,
+            ignore_epoch_sync_network_requests: false,
             // Mainnet is 43200 blocks per epoch, so let's default to epoch sync if
             // we're more than 5 epochs behind, and we accept proofs up to 2 epochs old.
             // (Epoch sync should not be picking a target epoch more than 2 epochs old.)
             epoch_sync_horizon: 216000,
-            epoch_sync_accept_proof_max_horizon: 86400,
             timeout_for_epoch_sync: Duration::seconds(60),
         }
     }
@@ -211,7 +228,7 @@ impl Default for EpochSyncConfig {
 
 // A handle that allows the main process to interrupt resharding if needed.
 // This typically happens when the main process is interrupted.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReshardingHandle {
     keep_going: Arc<AtomicBool>,
 }
@@ -247,19 +264,27 @@ pub struct ReshardingConfig {
 
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
+    /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub retry_delay: Duration,
 
     /// The delay between the resharding request is received and when the actor
     /// actually starts working on it. This delay should only be used in tests.
+    /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub initial_delay: Duration,
 
     /// The maximum time that the actor will wait for the snapshot to be ready,
     /// before starting resharding. Do not wait indefinitely since we want to
     /// report error early enough for the node maintainer to have time to recover.
+    /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub max_poll_time: Duration,
+
+    /// The number of blocks applied in a single batch during shard catch up.
+    /// This value can be decreased if resharding is consuming too many
+    /// resources and interfering with regular node operation.
+    pub catch_up_blocks: BlockHeightDelta,
 }
 
 impl Default for ReshardingConfig {
@@ -268,13 +293,14 @@ impl Default for ReshardingConfig {
         // extra load on the node as possible.
         Self {
             batch_size: ByteSize::kb(500),
-            batch_delay: Duration::milliseconds(100),
+            batch_delay: Duration::milliseconds(5),
             retry_delay: Duration::seconds(10),
             initial_delay: Duration::seconds(0),
             // The snapshot typically is available within a minute from the
             // epoch start. Set the default higher in case we need to wait for
             // state sync.
             max_poll_time: Duration::seconds(2 * 60 * 60), // 2 hours
+            catch_up_blocks: 20,
         }
     }
 }
@@ -291,7 +317,19 @@ pub fn default_header_sync_stall_ban_timeout() -> Duration {
     Duration::seconds(120)
 }
 
-pub fn default_state_sync_timeout() -> Duration {
+pub fn default_state_sync_external_timeout() -> Duration {
+    Duration::seconds(60)
+}
+
+pub fn default_state_sync_p2p_timeout() -> Duration {
+    Duration::seconds(10)
+}
+
+pub fn default_state_sync_retry_backoff() -> Duration {
+    Duration::seconds(1)
+}
+
+pub fn default_state_sync_external_backoff() -> Duration {
     Duration::seconds(60)
 }
 
@@ -424,8 +462,14 @@ pub struct ClientConfig {
     pub header_sync_stall_ban_timeout: Duration,
     /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
-    /// How long to wait for a response during state sync
-    pub state_sync_timeout: Duration,
+    /// How long to wait for a response from centralized state sync
+    pub state_sync_external_timeout: Duration,
+    /// How long to wait for a response from p2p state sync
+    pub state_sync_p2p_timeout: Duration,
+    /// How long to wait after a failed state sync request
+    pub state_sync_retry_backoff: Duration,
+    /// Additional waiting period after a failed request to external storage
+    pub state_sync_external_backoff: Duration,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -483,10 +527,6 @@ pub struct ClientConfig {
     pub enable_statistics_export: bool,
     /// Number of threads to execute background migration work in client.
     pub client_background_migration_threads: usize,
-    /// Enables background flat storage creation.
-    pub flat_storage_creation_enabled: bool,
-    /// Duration to perform background flat storage creation step.
-    pub flat_storage_creation_period: Duration,
     /// Whether to use the State Sync mechanism.
     /// If disabled, the node will do Block Sync instead of State Sync.
     pub state_sync_enabled: bool,
@@ -567,7 +607,10 @@ impl ClientConfig {
             header_sync_initial_timeout: Duration::seconds(10),
             header_sync_progress_timeout: Duration::seconds(2),
             header_sync_stall_ban_timeout: Duration::seconds(30),
-            state_sync_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_external_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_p2p_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_retry_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
+            state_sync_external_backoff: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
             log_summary_period: Duration::seconds(10),
@@ -597,8 +640,6 @@ impl ClientConfig {
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
-            flat_storage_creation_enabled: true,
-            flat_storage_creation_period: Duration::seconds(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             epoch_sync: EpochSyncConfig::default(),

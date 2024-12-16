@@ -1,16 +1,19 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
+    EpochSyncRequestMessage, EpochSyncResponseMessage, ProcessTxRequest, RecvChallenge,
+    StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
-use crate::network_protocol::SnapshotHostInfoVerificationError;
+#[cfg(feature = "distance_vector_routing")]
+use crate::network_protocol::DistanceVector;
 use crate::network_protocol::{
-    DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
-    PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
-    RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, SyncAccountsData, SyncSnapshotHosts,
+    Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError, PartialEdgeInfo,
+    PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse, RawRoutedMessage,
+    RoutedMessageBody, RoutingTableUpdate, SnapshotHostInfoVerificationError, SyncAccountsData,
+    SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -22,6 +25,7 @@ use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
 use crate::routing::edge::verify_nonce;
+#[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
 use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
@@ -32,7 +36,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
-use near_async::messaging::SendAsync;
+use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
 use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
@@ -674,6 +678,7 @@ impl PeerActor {
             peer_type: self.peer_type,
             stats: self.stats.clone(),
             _peer_connections_metric: metrics::PEER_CONNECTIONS.new_point(&metrics::Connection {
+                tier: tier,
                 type_: self.peer_type,
                 encoding: self.encoding(),
             }),
@@ -972,7 +977,7 @@ impl PeerActor {
     )]
     async fn receive_routed_message(
         clock: &time::Clock,
-        network_state: &NetworkState,
+        network_state: &Arc<NetworkState>,
         peer_id: PeerId,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
@@ -1081,7 +1086,7 @@ impl PeerActor {
                     None
                 }
                 PeerMessage::Challenge(challenge) => {
-                    network_state.client.send_async(RecvChallenge(challenge)).await.ok();
+                    network_state.client.send_async(RecvChallenge(*challenge)).await.ok();
                     None
                 }
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => network_state
@@ -1100,7 +1105,24 @@ impl PeerActor {
                     .map(|response| PeerMessage::VersionedStateResponse(*response.0)),
                 PeerMessage::VersionedStateResponse(info) => {
                     //TODO: Route to state sync actor.
-                    network_state.client.send_async(StateResponse(info.into())).await.ok();
+                    network_state
+                        .client
+                        .send_async(StateResponseReceived {
+                            peer_id,
+                            state_response_info: info.into(),
+                        })
+                        .await
+                        .ok();
+                    None
+                }
+                PeerMessage::EpochSyncRequest => {
+                    network_state.client.send(EpochSyncRequestMessage { from_peer: peer_id });
+                    None
+                }
+                PeerMessage::EpochSyncResponse(proof) => {
+                    network_state
+                        .client
+                        .send(EpochSyncResponseMessage { from_peer: peer_id, proof });
                     None
                 }
                 msg => {
@@ -1269,6 +1291,9 @@ impl PeerActor {
                     message_processed_event();
                 }));
             }
+            #[cfg(not(feature = "distance_vector_routing"))]
+            PeerMessage::DistanceVector(_) => {}
+            #[cfg(feature = "distance_vector_routing")]
             PeerMessage::DistanceVector(dv) => {
                 let clock = self.clock.clone();
                 let conn = conn.clone();
@@ -1463,6 +1488,7 @@ impl PeerActor {
         }
 
         // Also pass the edges to the V2 routing table
+        #[cfg(feature = "distance_vector_routing")]
         if let Err(ban_reason) = network_state
             .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
             .await
@@ -1493,6 +1519,7 @@ impl PeerActor {
     }
 
     #[tracing::instrument(level = "trace", target = "network", "handle_distance_vector", skip_all)]
+    #[cfg(feature = "distance_vector_routing")]
     async fn handle_distance_vector(
         clock: &time::Clock,
         network_state: &Arc<NetworkState>,

@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 borsh.workspace = true
+itertools.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
 rand.workspace = true
@@ -21,6 +22,8 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+bytesize.workspace = true
+rand_chacha.workspace = true
 
 near-crypto.workspace = true
 near-o11y.workspace = true
@@ -33,6 +36,7 @@ near-wallet-contract.workspace = true
 
 [features]
 default = []
+estimator = ["near-primitives/test_utils"]
 nightly = [
   "near-chain-configs/nightly",
   "near-o11y/nightly",
@@ -44,6 +48,7 @@ nightly = [
   "near-wallet-contract/nightly",
   "nightly_protocol",
   "protocol_feature_nonrefundable_transfer_nep491",
+  "protocol_feature_relaxed_chunk_validation",
   "testlib/nightly",
 ]
 nightly_protocol = [
@@ -58,13 +63,11 @@ nightly_protocol = [
   "testlib/nightly_protocol",
 ]
 protocol_feature_nonrefundable_transfer_nep491 = []
-no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
-
-no_cache = [
-  "near-vm-runner/no_cache",
-  "near-store/no_cache",
+protocol_feature_relaxed_chunk_validation = [
+  "near-primitives/protocol_feature_relaxed_chunk_validation",
+  "near-primitives-core/protocol_feature_relaxed_chunk_validation",
 ]
-
+no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [
   "near-primitives/test_features",

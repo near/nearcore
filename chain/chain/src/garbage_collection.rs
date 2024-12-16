@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::{fmt, io};
 
@@ -141,6 +141,10 @@ impl ChainStore {
         let _span = tracing::debug_span!(target: "garbage_collection", "clear_data").entered();
         let tries = runtime_adapter.get_tries();
         let head = self.head()?;
+        if head.height == self.get_genesis_height() {
+            // Nothing to do if head is at genesis. Return early because some of the later queries would fail.
+            return Ok(());
+        }
         let tail = self.tail()?;
         let gc_stop_height = runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
@@ -318,6 +322,7 @@ impl ChainStore {
         let header = self.get_block_header(&sync_hash)?;
         let prev_hash = *header.prev_hash();
         let sync_height = header.height();
+        // TODO(current_epoch_state_sync): fix this when syncing to the current epoch's state
         // The congestion control added a dependency on the prev block when
         // applying chunks in a block. This means that we need to keep the
         // blocks at sync hash, prev hash and prev prev hash. The heigh of that
@@ -331,7 +336,7 @@ impl ChainStore {
         let prev_block = self.get_block(&prev_hash);
         if let Ok(prev_block) = prev_block {
             let min_height_included =
-                prev_block.chunks().iter().map(|chunk| chunk.height_included()).min();
+                prev_block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
             if let Some(min_height_included) = min_height_included {
                 tracing::debug!(target: "sync", ?min_height_included, ?gc_height, "adjusting gc_height for missing chunks");
                 gc_height = std::cmp::min(gc_height, min_height_included - 1);
@@ -427,8 +432,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 for transaction in chunk.transactions() {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
-                for receipt in chunk.prev_outgoing_receipts() {
-                    self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
+
+                let partial_chunk = self.get_partial_chunk(&chunk_hash);
+                if let Ok(partial_chunk) = partial_chunk {
+                    for receipts in partial_chunk.prev_outgoing_receipts() {
+                        for receipt in &receipts.0 {
+                            self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                        }
+                    }
                 }
 
                 // 2. Delete chunk_hash-indexed data
@@ -495,6 +506,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
+    // TODO(reshardingV3) Revisit this function, probably it is not needed anymore.
     fn get_shard_uids_to_gc(
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -516,7 +528,8 @@ impl<'a> ChainStoreUpdate<'a> {
         if shard_layout != next_shard_layout {
             shard_uids_to_gc.extend(next_shard_layout.shard_uids());
         }
-        shard_uids_to_gc
+        let unique_shard_uids_to_gc = shard_uids_to_gc.into_iter().collect::<HashSet<_>>();
+        unique_shard_uids_to_gc.into_iter().collect()
     }
 
     // Clearing block data of `block_hash`, if on a fork.
@@ -584,9 +597,11 @@ impl<'a> ChainStoreUpdate<'a> {
         let block =
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
         let height = block.header().height();
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+        for shard_id in shard_layout.shard_ids() {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
@@ -647,7 +662,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 // 6. Canonical Chain only clearing
                 // Delete chunks, chunk-indexed data and block headers
                 let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks().iter() {
+                for chunk_header in block.chunks().iter_deprecated() {
                     if min_chunk_height > chunk_header.height_created() {
                         min_chunk_height = chunk_header.height_created();
                     }
@@ -677,11 +692,11 @@ impl<'a> ChainStoreUpdate<'a> {
             self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
 
         let epoch_id = block.header().epoch_id();
-
         let head_height = block.header().height();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
+        for shard_id in shard_layout.shard_ids() {
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
 
@@ -732,6 +747,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_outcomes(&block)?;
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
+        self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 
         // 3. update columns related to prev block (block refcount and NextBlockHashes)
         self.dec_block_refcount(block.header().prev_hash())?;
@@ -756,8 +772,14 @@ impl<'a> ChainStoreUpdate<'a> {
             for transaction in chunk.transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
-            for receipt in chunk.prev_outgoing_receipts() {
-                self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
+
+            let partial_chunk = self.get_partial_chunk(&chunk_hash);
+            if let Ok(partial_chunk) = partial_chunk {
+                for receipts in partial_chunk.prev_outgoing_receipts() {
+                    for receipt in &receipts.0 {
+                        self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                    }
+                }
             }
 
             // 2. Delete chunk_hash-indexed data
@@ -826,9 +848,13 @@ impl<'a> ChainStoreUpdate<'a> {
     fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
         let block_hash = block.hash();
         let store_update = self.store().store_update();
-        for chunk_header in
-            block.chunks().iter().filter(|h| h.height_included() == block.header().height())
+        for chunk_header in block
+            .chunks()
+            .iter_deprecated()
+            .filter(|h| h.height_included() == block.header().height())
         {
+            // It is ok to use the shard id from the header because it is a new
+            // chunk. An old chunk may have the shard id from the parent shard.
             let shard_id = chunk_header.shard_id();
             let outcome_ids =
                 self.chain_store().get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
@@ -945,6 +971,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
+            DBCol::StateSyncNewChunks => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount
@@ -976,6 +1005,10 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::EpochSyncProof
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
+            | DBCol::StateShardUIdMapping
+            // Note that StateSyncHashes should not ever have too many keys in them
+            // because we remove unneeded keys as we add new ones.
+            | DBCol::StateSyncHashes
             => unreachable!(),
         }
         self.merge(store_update);

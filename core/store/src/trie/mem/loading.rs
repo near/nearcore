@@ -5,7 +5,9 @@ use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageStatus;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
+use crate::trie::mem::mem_trie_update::TrackingMode;
 use crate::trie::mem::parallel_loader::load_memtrie_in_parallel;
+use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::{DBCol, NibbleSlice, Store};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -154,13 +156,13 @@ pub fn load_trie_from_flat_state_and_delta(
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
             let new_state_root = get_state_root(store, hash, shard_uid)?;
 
-            let mut trie_update = mem_tries.update(old_state_root, false)?;
+            let mut trie_update = mem_tries.update(old_state_root, TrackingMode::None)?;
             for (key, value) in changes.0 {
                 match value {
                     Some(value) => {
-                        trie_update.insert_memtrie_only(&key, value);
+                        trie_update.insert_memtrie_only(&key, value)?;
                     }
-                    None => trie_update.delete(&key),
+                    None => trie_update.generic_delete(0, &key)?,
                 };
             }
 
@@ -188,7 +190,9 @@ mod tests {
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::nibbles_utils::{all_two_nibble_nibbles, multi_hex_to_nibbles};
+    use crate::trie::update::TrieUpdateResult;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
+    use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
@@ -201,8 +205,9 @@ mod tests {
     use rand::{Rng, SeedableRng};
 
     fn check_maybe_parallelize(keys: Vec<Vec<u8>>, parallelize: bool) {
-        let shard_tries = TestTriesBuilder::new().with_flat_storage(true).build();
-        let shard_uid = ShardUId::single_shard();
+        let (shard_tries, shard_layout) = TestTriesBuilder::new().with_flat_storage(true).build2();
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
         let changes = keys.iter().map(|key| (key.to_vec(), Some(key.to_vec()))).collect::<Vec<_>>();
         let changes = simplify_changes(&changes);
         test_populate_flat_storage(
@@ -359,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn test_memtrie_rand_large_data() {
+    fn slow_test_memtrie_rand_large_data() {
         check_random(32, 100000, 1);
     }
 
@@ -484,7 +489,7 @@ mod tests {
         }
         trie_update
             .commit(StateChangeCause::TransactionProcessing { tx_hash: CryptoHash::default() });
-        let (_, trie_changes, state_changes) = trie_update.finalize().unwrap();
+        let TrieUpdateResult { trie_changes, state_changes, .. } = trie_update.finalize().unwrap();
         let mut store_update = tries.store_update();
         tries.apply_insertions(&trie_changes, shard_uid, &mut store_update);
         store_update.store_update().merge(
@@ -526,6 +531,7 @@ mod tests {
             0,
             0,
             congestion_info,
+            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
         );
         let mut store_update = store.store_update();
         store_update

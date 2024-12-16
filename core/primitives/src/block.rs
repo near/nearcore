@@ -1,3 +1,4 @@
+use crate::bandwidth_scheduler::BlockBandwidthRequests;
 use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
@@ -14,6 +15,7 @@ use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives_core::types::ShardIndex;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use primitive_types::U256;
@@ -88,6 +90,7 @@ pub enum Block {
 #[cfg(feature = "solomon")]
 type ShardChunkReedSolomon = reed_solomon_erasure::galois_8::ReedSolomon;
 
+/// The shard_ids, state_roots and congestion_infos must be in the same order.
 #[cfg(feature = "solomon")]
 pub fn genesis_chunks(
     state_roots: Vec<crate::types::StateRoot>,
@@ -110,10 +113,9 @@ pub fn genesis_chunks(
     let num = shard_ids.len();
     assert_eq!(state_roots.len(), num);
 
-    for shard_id in 0..num {
-        let state_root = state_roots[shard_id];
-        let congestion_info = congestion_infos[shard_id];
-        let shard_id = shard_id as crate::types::ShardId;
+    for (shard_index, &shard_id) in shard_ids.iter().enumerate() {
+        let state_root = state_roots[shard_index];
+        let congestion_info = congestion_infos[shard_index];
 
         let encoded_chunk = genesis_chunk(
             &rs,
@@ -140,10 +142,12 @@ fn genesis_chunk(
     genesis_protocol_version: u32,
     genesis_height: u64,
     initial_gas_limit: u64,
-    shard_id: u64,
+    shard_id: crate::types::ShardId,
     state_root: CryptoHash,
     congestion_info: Option<crate::congestion_info::CongestionInfo>,
 ) -> crate::sharding::EncodedShardChunk {
+    use crate::bandwidth_scheduler::BandwidthRequests;
+
     let (encoded_chunk, _) = crate::sharding::EncodedShardChunk::new(
         CryptoHash::default(),
         state_root,
@@ -160,6 +164,7 @@ fn genesis_chunk(
         &[],
         CryptoHash::default(),
         congestion_info,
+        BandwidthRequests::default_for_protocol_version(genesis_protocol_version),
         &crate::validator_signer::EmptyValidatorSigner::default().into(),
         genesis_protocol_version,
     )
@@ -279,6 +284,7 @@ impl Block {
     pub fn produce(
         this_epoch_protocol_version: ProtocolVersion,
         next_epoch_protocol_version: ProtocolVersion,
+        latest_protocol_version: ProtocolVersion,
         prev: &BlockHeader,
         height: BlockHeight,
         block_ordinal: crate::types::NumBlocks,
@@ -398,6 +404,7 @@ impl Block {
         let header = BlockHeader::new(
             this_epoch_protocol_version,
             next_epoch_protocol_version,
+            latest_protocol_version,
             height,
             *prev.hash(),
             body.compute_hash(),
@@ -425,7 +432,6 @@ impl Block {
             next_bp_hash,
             block_merkle_root,
             prev.height(),
-            clock,
             chunk_endorsements_bitmap,
         );
 
@@ -444,7 +450,7 @@ impl Block {
     ) -> bool {
         let mut balance_burnt = 0;
 
-        for chunk in self.chunks().iter() {
+        for chunk in self.chunks().iter_deprecated() {
             if chunk.height_included() == self.header().height() {
                 balance_burnt += chunk.prev_balance_burnt();
             }
@@ -461,8 +467,10 @@ impl Block {
         max_gas_price: Balance,
         gas_price_adjustment_rate: Rational32,
     ) -> bool {
-        let gas_used = Self::compute_gas_used(self.chunks().iter(), self.header().height());
-        let gas_limit = Self::compute_gas_limit(self.chunks().iter(), self.header().height());
+        let gas_used =
+            Self::compute_gas_used(self.chunks().iter_deprecated(), self.header().height());
+        let gas_limit =
+            Self::compute_gas_limit(self.chunks().iter_deprecated(), self.header().height());
         let expected_price = Self::compute_next_gas_price(
             gas_price,
             gas_used,
@@ -609,15 +617,8 @@ impl Block {
         }
     }
 
-    pub fn chunks(&self) -> ChunksCollection {
-        match self {
-            Block::BlockV1(block) => ChunksCollection::V1(
-                block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
-            ),
-            Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
-            Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
-            Block::BlockV4(block) => ChunksCollection::V2(&block.body.chunks()),
-        }
+    pub fn chunks(&self) -> Chunks {
+        Chunks::new(&self)
     }
 
     #[inline]
@@ -661,7 +662,7 @@ impl Block {
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
         let mut result = BTreeMap::new();
 
-        for chunk in self.chunks().iter() {
+        for chunk in self.chunks().iter_deprecated() {
             let shard_id = chunk.shard_id();
 
             if let Some(congestion_info) = chunk.congestion_info() {
@@ -677,6 +678,28 @@ impl Block {
             }
         }
         BlockCongestionInfo::new(result)
+    }
+
+    pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.chunks().iter() {
+            // It's okay to take bandwidth requests from a missing chunk,
+            // the chunk was missing so it didn't send anything and still
+            // wants to send out the same receipts.
+            let chunk = match chunk {
+                MaybeNew::New(new_chunk) => new_chunk,
+                MaybeNew::Old(missing_chunk) => missing_chunk,
+            };
+
+            let shard_id = chunk.shard_id();
+
+            if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
+                result.insert(shard_id, bandwidth_requests.clone());
+            }
+        }
+
+        BlockBandwidthRequests { shards_bandwidth_requests: result }
     }
 
     pub fn hash(&self) -> &CryptoHash {
@@ -695,31 +718,32 @@ impl Block {
     /// Checks that block content matches block hash, with the possible exception of chunk signatures
     pub fn check_validity(&self) -> Result<(), BlockValidityError> {
         // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(self.chunks().iter());
+        let state_root = Block::compute_state_root(self.chunks().iter_deprecated());
         if self.header().prev_state_root() != &state_root {
             return Err(InvalidStateRoot);
         }
 
         // Check that chunk receipts root stored in the header matches the state root of the chunks
         let chunk_receipts_root =
-            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter());
+            Block::compute_chunk_prev_outgoing_receipts_root(self.chunks().iter_deprecated());
         if self.header().prev_chunk_outgoing_receipts_root() != &chunk_receipts_root {
             return Err(InvalidReceiptRoot);
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(self.chunks().iter()).0;
+        let chunk_headers_root =
+            Block::compute_chunk_headers_root(self.chunks().iter_deprecated()).0;
         if self.header().chunk_headers_root() != &chunk_headers_root {
             return Err(InvalidChunkHeaderRoot);
         }
 
         // Check that chunk tx root stored in the header matches the tx root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter());
+        let chunk_tx_root = Block::compute_chunk_tx_root(self.chunks().iter_deprecated());
         if self.header().chunk_tx_root() != &chunk_tx_root {
             return Err(InvalidTransactionRoot);
         }
 
-        let outcome_root = Block::compute_outcome_root(self.chunks().iter());
+        let outcome_root = Block::compute_outcome_root(self.chunks().iter_deprecated());
         if self.header().outcome_root() != &outcome_root {
             return Err(InvalidTransactionRoot);
         }
@@ -727,7 +751,7 @@ impl Block {
         // Check that chunk included root stored in the header matches the chunk included root of the chunks
         let chunk_mask: Vec<bool> = self
             .chunks()
-            .iter()
+            .iter_deprecated()
             .map(|chunk| chunk.height_included() == self.header().height())
             .collect();
         if self.header().chunk_mask() != &chunk_mask[..] {
@@ -744,72 +768,96 @@ impl Block {
     }
 }
 
+#[derive(Clone)]
+pub enum MaybeNew<'a, T> {
+    New(&'a T),
+    Old(&'a T),
+}
+
+fn annotate_chunk(
+    chunk: &ShardChunkHeader,
+    block_height: BlockHeight,
+) -> MaybeNew<ShardChunkHeader> {
+    if chunk.is_new_chunk(block_height) {
+        MaybeNew::New(chunk)
+    } else {
+        MaybeNew::Old(chunk)
+    }
+}
+
 pub enum ChunksCollection<'a> {
     V1(Vec<ShardChunkHeader>),
     V2(&'a [ShardChunkHeader]),
 }
 
-pub struct VersionedChunksIter<'a> {
-    chunks: &'a [ShardChunkHeader],
-    curr_index: usize,
-    len: usize,
+pub struct Chunks<'a> {
+    chunks: ChunksCollection<'a>,
+    block_height: BlockHeight,
 }
 
-impl<'a> VersionedChunksIter<'a> {
-    fn new(chunks: &'a [ShardChunkHeader]) -> Self {
-        Self { chunks, curr_index: 0, len: chunks.len() }
-    }
-}
-
-impl<'a> Iterator for VersionedChunksIter<'a> {
-    type Item = &'a ShardChunkHeader;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.curr_index < self.len {
-            let item = &self.chunks[self.curr_index];
-            self.curr_index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> ExactSizeIterator for VersionedChunksIter<'a> {
-    fn len(&self) -> usize {
-        self.len - self.curr_index
-    }
-}
-
-impl<'a> Index<usize> for ChunksCollection<'a> {
+impl<'a> Index<ShardIndex> for Chunks<'a> {
     type Output = ShardChunkHeader;
 
     /// Deprecated. Please use get instead, it's safer.
     fn index(&self, index: usize) -> &Self::Output {
-        match self {
+        match &self.chunks {
             ChunksCollection::V1(chunks) => &chunks[index],
             ChunksCollection::V2(chunks) => &chunks[index],
         }
     }
 }
 
-impl<'a> ChunksCollection<'a> {
+impl<'a> Chunks<'a> {
+    pub fn new(block: &'a Block) -> Self {
+        let chunks = match block {
+            Block::BlockV1(block) => ChunksCollection::V1(
+                block.chunks.iter().map(|h| ShardChunkHeader::V1(h.clone())).collect(),
+            ),
+            Block::BlockV2(block) => ChunksCollection::V2(&block.chunks),
+            Block::BlockV3(block) => ChunksCollection::V2(&block.body.chunks),
+            Block::BlockV4(block) => ChunksCollection::V2(&block.body.chunks()),
+        };
+
+        Self { chunks, block_height: block.header().height() }
+    }
+
     pub fn len(&self) -> usize {
-        match self {
+        match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.len(),
             ChunksCollection::V2(chunks) => chunks.len(),
         }
     }
 
-    pub fn iter(&'a self) -> VersionedChunksIter<'a> {
-        match self {
-            ChunksCollection::V1(chunks) => VersionedChunksIter::new(chunks),
-            ChunksCollection::V2(chunks) => VersionedChunksIter::new(chunks),
+    /// Deprecated, use `iter` instead. `iter_raw` is available if there is no need to
+    /// distinguish between old and new headers.
+    pub fn iter_deprecated(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
+        match &self.chunks {
+            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
+            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
         }
     }
 
-    pub fn get(&self, index: usize) -> Option<&ShardChunkHeader> {
-        match self {
+    pub fn iter_raw(&'a self) -> Box<dyn Iterator<Item = &'a ShardChunkHeader> + 'a> {
+        match &self.chunks {
+            ChunksCollection::V1(chunks) => Box::new(chunks.iter()),
+            ChunksCollection::V2(chunks) => Box::new(chunks.iter()),
+        }
+    }
+
+    /// Returns an iterator over the shard chunk headers, differentiating between new and old chunks.
+    pub fn iter(&'a self) -> Box<dyn Iterator<Item = MaybeNew<'a, ShardChunkHeader>> + 'a> {
+        match &self.chunks {
+            ChunksCollection::V1(chunks) => {
+                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+            }
+            ChunksCollection::V2(chunks) => {
+                Box::new(chunks.iter().map(|chunk| annotate_chunk(chunk, self.block_height)))
+            }
+        }
+    }
+
+    pub fn get(&self, index: ShardIndex) -> Option<&ShardChunkHeader> {
+        match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),
         }

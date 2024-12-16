@@ -12,8 +12,11 @@ use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
@@ -21,11 +24,9 @@ use near_chain::state_snapshot_actor::{
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ReshardingHandle;
-use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
-use near_client::sync::adapter::SyncAdapter;
 use near_client::{
     start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult,
     ViewClientActor, ViewClientActorInner,
@@ -42,7 +43,7 @@ use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{NodeStorage, Store, StoreOpenerError};
 use near_telemetry::TelemetryActor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
 pub mod append_only_map;
@@ -54,7 +55,7 @@ mod config_validate;
 mod download_file;
 pub mod dyn_config;
 #[cfg(feature = "json_rpc")]
-mod entity_debug;
+pub mod entity_debug;
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
@@ -89,9 +90,8 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
-        near_config.client_config.archive,
         &near_config.config.store,
-        near_config.config.cold_store.as_ref(),
+        near_config.config.archival_config(),
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {
@@ -223,6 +223,10 @@ pub struct NearNode {
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
     pub resharding_handle: ReshardingHandle,
+    // The threads that state sync runs in.
+    pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
+    /// Shard tracker, allows querying of which shards are tracked by this node.
+    pub shard_tracker: ShardTracker,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -252,8 +256,11 @@ pub fn start_with_config_and_synchronization(
         config.client_config.log_summary_period,
     )?;
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(
+        storage.get_hot_store(),
+        &config.genesis.config,
+        Some(home_dir),
+    );
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
@@ -280,8 +287,11 @@ pub fn start_with_config_and_synchronization(
     let split_store = get_split_store(&config, &storage)?;
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
-            let view_epoch_manager =
-                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config);
+            let view_epoch_manager = EpochManager::new_arc_handle(
+                split_store.clone(),
+                &config.genesis.config,
+                Some(home_dir),
+            );
             let view_shard_tracker = ShardTracker::new(
                 TrackedConfig::from_config(&config.client_config),
                 epoch_manager.clone(),
@@ -314,15 +324,6 @@ pub fn start_with_config_and_synchronization(
         chain_id: config.client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
     };
-
-    // State Sync actors
-    let client_adapter_for_sync = LateBoundSender::new();
-    let network_adapter_for_sync = LateBoundSender::new();
-    let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        client_adapter_for_sync.as_sender(),
-        network_adapter_for_sync.as_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
 
     let node_id = config.network_config.node_id();
     let network_adapter = LateBoundSender::new();
@@ -369,7 +370,8 @@ pub fn start_with_config_and_synchronization(
             client_adapter_for_partial_witness_actor.as_multi_sender(),
             config.validator_signer.clone(),
             epoch_manager.clone(),
-            storage.get_hot_store(),
+            runtime.clone(),
+            Arc::new(RayonAsyncComputationSpawner),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
@@ -381,6 +383,12 @@ pub fn start_with_config_and_synchronization(
         config.client_config.archive,
     ));
 
+    let (resharding_sender_addr, _) =
+        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), chain_genesis.height));
+    let resharding_sender = resharding_sender_addr.with_auto_span_context();
+    let state_sync_runtime =
+        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+
     let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -389,7 +397,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        sync_adapter,
+        Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone())),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -401,10 +409,8 @@ pub fn start_with_config_and_synchronization(
         partial_witness_actor.clone().with_auto_span_context().into_multi_sender(),
         true,
         None,
+        resharding_sender.into_multi_sender(),
     );
-    if let SyncConfig::Peers = config.client_config.state_sync.sync {
-        client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
-    };
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
     client_adapter_for_partial_witness_actor.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
@@ -424,7 +430,7 @@ pub fn start_with_config_and_synchronization(
         client_config: config.client_config.clone(),
         chain_genesis,
         epoch_manager,
-        shard_tracker,
+        shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
@@ -441,15 +447,13 @@ pub fn start_with_config_and_synchronization(
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client_addr.clone()),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
     )
     .context("PeerManager::spawn()")?;
     network_adapter.bind(network_actor.clone().with_auto_span_context());
-    if let SyncConfig::Peers = config.client_config.state_sync.sync {
-        network_adapter_for_sync.bind(network_actor.clone().with_auto_span_context())
-    }
     #[cfg(feature = "json_rpc")]
     if let Some(rpc_config) = config.rpc_config {
         let entity_debug_handler = EntityDebugHandlerImpl {
@@ -508,5 +512,7 @@ pub fn start_with_config_and_synchronization(
         cold_store_loop_handle,
         state_sync_dumper,
         resharding_handle,
+        state_sync_runtime,
+        shard_tracker,
     })
 }

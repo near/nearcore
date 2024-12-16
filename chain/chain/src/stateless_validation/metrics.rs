@@ -1,6 +1,7 @@
 use near_o11y::metrics::{
     exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_gauge, HistogramVec, IntCounter, IntGauge,
+    try_create_int_counter_vec, try_create_int_gauge, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge,
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use std::sync::LazyLock;
@@ -14,6 +15,7 @@ pub static SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME: LazyLock<HistogramVec> = La
     )
     .unwrap()
 });
+
 pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_save_latest_witness_commit_update_time",
@@ -23,6 +25,7 @@ pub static SAVE_LATEST_WITNESS_COMMIT_UPDATE_TIME: LazyLock<HistogramVec> = Lazy
     )
     .unwrap()
 });
+
 pub static SAVED_LATEST_WITNESSES_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_saved_latest_witnesses_count",
@@ -30,6 +33,7 @@ pub static SAVED_LATEST_WITNESSES_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
     )
     .unwrap()
 });
+
 pub static SAVED_LATEST_WITNESSES_SIZE: LazyLock<IntGauge> = LazyLock::new(|| {
     try_create_int_gauge(
         "near_saved_latest_witnesses_size",
@@ -48,10 +52,29 @@ pub static CHUNK_STATE_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub static PROCESS_CONTRACT_CODE_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_process_contract_code_request_time",
+        "Total time taken to process contract code reuqest from a chunk validator",
+        &["shard_id"],
+        Some(exponential_buckets(0.001, 2.0, 10).unwrap()),
+    )
+    .unwrap()
+});
+
 pub static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_shadow_chunk_validation_failed_total",
         "Shadow chunk validation failures count",
+    )
+    .unwrap()
+});
+
+pub static CHUNK_WITNESS_VALIDATION_FAILED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_witness_validation_failed_total",
+        "Witnesss validation failure count",
+        &["shard_id", "error"],
     )
     .unwrap()
 });

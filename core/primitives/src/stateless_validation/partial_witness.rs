@@ -55,7 +55,7 @@ impl PartialEncodedStateWitness {
             part,
             encoded_length,
         );
-        let signature = signer.sign_partial_encoded_state_witness(&inner);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         Self { inner, signature }
     }
 
@@ -80,9 +80,12 @@ impl PartialEncodedStateWitness {
         self.inner.part.len()
     }
 
-    /// Decomposes the partial witness to return (part_ord, part, encoded_length)
-    pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
-        (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
+    pub fn encoded_length(&self) -> usize {
+        self.inner.encoded_length
+    }
+
+    pub fn into_part(self) -> Box<[u8]> {
+        self.inner.part
     }
 }
 

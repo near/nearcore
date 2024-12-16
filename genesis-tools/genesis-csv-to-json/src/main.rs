@@ -35,7 +35,7 @@ fn main() {
             if s.is_empty() {
                 HashSet::default()
             } else {
-                s.split(',').map(|v| v.parse::<ShardId>().unwrap()).collect()
+                s.split(',').map(|v| v.parse::<u64>().unwrap().into()).collect()
             }
         }
         None => HashSet::default(),

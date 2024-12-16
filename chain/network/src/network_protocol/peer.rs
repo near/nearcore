@@ -37,10 +37,6 @@ impl PeerInfo {
     pub fn random() -> Self {
         PeerInfo { id: PeerId::random(), addr: None, account_id: None }
     }
-
-    pub fn addr_port(&self) -> Option<u16> {
-        self.addr.map(|addr| addr.port())
-    }
 }
 
 // Note, `Display` automatically implements `ToString` which must be reciprocal to `FromStr`.
