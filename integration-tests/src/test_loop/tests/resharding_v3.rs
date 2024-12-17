@@ -30,12 +30,12 @@ use crate::test_loop::utils::sharding::{
 };
 use crate::test_loop::utils::transactions::{
     check_txs, create_account, delete_account, deploy_contract, get_anchor_hash, get_next_nonce,
-    get_node_data, get_smallest_height_head, store_and_submit_tx, submit_tx,
+    get_smallest_height_head, store_and_submit_tx, submit_tx,
 };
 use crate::test_loop::utils::trie_sanity::{
     check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
 };
-use crate::test_loop::utils::{retrieve_client_actor, LoopActionFn, ONE_NEAR, TGAS};
+use crate::test_loop::utils::{get_node_data, retrieve_client_actor, LoopActionFn, ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
 use near_crypto::Signer;
 use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
@@ -137,24 +137,14 @@ impl TestReshardingParametersBuilder {
         let tmp = clients.clone();
         let (producers, tmp) = tmp.split_at(num_producers as usize);
         let producers = producers.to_vec();
-        let (validators, tmp) = if num_validators > 0 {
-            let (validators, tmp) = tmp.split_at(num_validators as usize);
-            (validators.to_vec(), tmp)
-        } else {
-            (vec![], tmp)
-        };
-        let (rpcs, tmp, rpc_client_index) = if num_rpcs > 0 {
-            let (rpcs, tmp) = tmp.split_at(num_rpcs as usize);
-            (rpcs.to_vec(), tmp, Some(num_producers as usize + num_validators as usize))
-        } else {
-            (vec![], tmp, None)
-        };
-        let archivals = if num_archivals > 0 {
-            let (archivals, _) = tmp.split_at(num_archivals as usize);
-            archivals.to_vec()
-        } else {
-            vec![]
-        };
+        let (validators, tmp) = tmp.split_at(num_validators as usize);
+        let validators = validators.to_vec();
+        let (rpcs, tmp) = tmp.split_at(num_rpcs as usize);
+        let rpcs = rpcs.to_vec();
+        let rpc_client_index =
+            rpcs.first().map(|_| num_producers as usize + num_validators as usize);
+        let (archivals, _) = tmp.split_at(num_archivals as usize);
+        let archivals = archivals.to_vec();
 
         println!("Clients setup:");
         println!("Producers: {producers:?}");
@@ -786,13 +776,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     trie_sanity_check.check_epochs(client);
     let height_after_resharding = latest_block_height.get();
 
+    // Delete `temporary_account`.
+    delete_account(&mut env, &client_account_id, &temporary_account, &client_account_id);
+    // Wait for garbage collection to kick in.
+    env.test_loop
+        .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
     if let Some(archival_id) = archival_id {
-        // Delete `temporary_account`.
-        delete_account(&mut env, &client_account_id, &temporary_account, &client_account_id);
-        // Wait for garbage collection to kick in.
-        env.test_loop.run_for(Duration::seconds(
-            (DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64,
-        ));
         // Check that the deleted account is still accessible at archival node, but not at a regular node.
         check_deleted_account_availability(
             &mut env,
@@ -936,9 +925,6 @@ fn test_resharding_v3_delayed_receipts_left_child() {
             ReceiptKind::Delayed,
         ))
         .allow_negative_refcount(true)
-        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
-        .num_rpcs(0)
-        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -1181,9 +1167,6 @@ fn test_resharding_v3_yield_timeout() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
-        .num_rpcs(0)
-        .track_all_shards(true)
         .allow_negative_refcount(true)
         .build();
     test_resharding_v3_base(params);

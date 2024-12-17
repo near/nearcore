@@ -25,22 +25,25 @@ pub(crate) fn get_head_height(env: &mut TestLoopEnv) -> u64 {
 /// Signature of functions callable from inside the inner loop of a test loop test.
 pub(crate) type LoopActionFn = Box<dyn Fn(&[TestData], &mut TestLoopData, AccountId)>;
 
+/// Returns the test data of for the node with the given account id.
+pub(crate) fn get_node_data<'a>(
+    node_datas: &'a [TestData],
+    account_id: &AccountId,
+) -> &'a TestData {
+    for node_data in node_datas {
+        if &node_data.account_id == account_id {
+            return node_data;
+        }
+    }
+    panic!("client not found");
+}
+
 /// Retrieves the client actor of the node having account_id equal to `client_account_id`.
-pub fn retrieve_client_actor<'a>(
+pub(crate) fn retrieve_client_actor<'a>(
     node_datas: &'a [TestData],
     test_loop_data: &'a mut TestLoopData,
     client_account_id: &AccountId,
 ) -> &'a mut ClientActorInner {
-    let client_handle = node_datas
-        .iter()
-        .filter_map(|data| {
-            if data.account_id == *client_account_id {
-                Some(data.client_sender.actor_handle())
-            } else {
-                None
-            }
-        })
-        .next()
-        .unwrap();
+    let client_handle = get_node_data(node_datas, client_account_id).client_sender.actor_handle();
     test_loop_data.get_mut(&client_handle)
 }
