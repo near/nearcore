@@ -43,7 +43,24 @@ impl tcp::Tier {
                 self == tcp::Tier::T2 || self == tcp::Tier::T3
             }
             PeerMessage::Routed(msg) => self.is_allowed_routed(&msg.body),
-            _ => self == tcp::Tier::T2,
+            PeerMessage::SyncRoutingTable(..)
+            | PeerMessage::DistanceVector(..)
+            | PeerMessage::RequestUpdateNonce(..)
+            | PeerMessage::SyncAccountsData(..)
+            | PeerMessage::PeersRequest(..)
+            | PeerMessage::PeersResponse(..)
+            | PeerMessage::BlockHeadersRequest(..)
+            | PeerMessage::BlockHeaders(..)
+            | PeerMessage::BlockRequest(..)
+            | PeerMessage::Block(..)
+            | PeerMessage::Transaction(..)
+            | PeerMessage::Disconnect(..)
+            | PeerMessage::Challenge(..)
+            | PeerMessage::SyncSnapshotHosts(..)
+            | PeerMessage::StateRequestHeader(..)
+            | PeerMessage::StateRequestPart(..)
+            | PeerMessage::EpochSyncRequest
+            | PeerMessage::EpochSyncResponse(..) => self == tcp::Tier::T2,
         }
     }
 
