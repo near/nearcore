@@ -49,6 +49,7 @@ impl tcp::Tier {
 
     pub(crate) fn is_allowed_routed(self, body: &RoutedMessageBody) -> bool {
         match body {
+            // T1
             RoutedMessageBody::BlockApproval(..)
             | RoutedMessageBody::VersionedChunkEndorsement(..)
             | RoutedMessageBody::PartialEncodedStateWitness(..)
@@ -57,7 +58,32 @@ impl tcp::Tier {
             | RoutedMessageBody::ChunkContractAccesses(_)
             | RoutedMessageBody::ContractCodeRequest(_)
             | RoutedMessageBody::ContractCodeResponse(_) => true,
-            _ => self == tcp::Tier::T2,
+            // Rest
+            RoutedMessageBody::ForwardTx(..)
+            | RoutedMessageBody::TxStatusRequest(..)
+            | RoutedMessageBody::TxStatusResponse(..)
+            | RoutedMessageBody::PartialEncodedChunkRequest(..)
+            | RoutedMessageBody::PartialEncodedChunkResponse(..)
+            | RoutedMessageBody::Ping(..)
+            | RoutedMessageBody::Pong(..)
+            | RoutedMessageBody::PartialEncodedChunkForward(..)
+            | RoutedMessageBody::ChunkStateWitnessAck(..)
+            | RoutedMessageBody::StatePartRequest(..)
+            | RoutedMessageBody::PartialEncodedContractDeploys(..) => self == tcp::Tier::T2,
+            // Deprecated
+            RoutedMessageBody::_UnusedQueryRequest
+            | RoutedMessageBody::_UnusedQueryResponse
+            | RoutedMessageBody::_UnusedReceiptOutcomeRequest(..)
+            | RoutedMessageBody::_UnusedReceiptOutcomeResponse
+            | RoutedMessageBody::_UnusedStateRequestHeader
+            | RoutedMessageBody::_UnusedStateRequestPart
+            | RoutedMessageBody::_UnusedStateResponse
+            | RoutedMessageBody::_UnusedPartialEncodedChunk
+            | RoutedMessageBody::_UnusedVersionedStateResponse
+            | RoutedMessageBody::_UnusedChunkStateWitness
+            | RoutedMessageBody::_UnusedChunkEndorsement
+            | RoutedMessageBody::_UnusedEpochSyncRequest
+            | RoutedMessageBody::_UnusedEpochSyncResponse(..) => unreachable!(),
         }
     }
 }
