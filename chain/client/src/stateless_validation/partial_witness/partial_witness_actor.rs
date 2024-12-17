@@ -20,7 +20,9 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
-use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
+use near_primitives::reed_solomon::{
+    IncrementalEncoder, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonEncoderSerialize,
+};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
@@ -253,11 +255,10 @@ impl PartialWitnessActor {
         &mut self,
         epoch_id: EpochId,
         chunk_header: &ShardChunkHeader,
-        witness_bytes: &EncodedChunkStateWitness,
         chunk_validator: &AccountId,
         part_ord: usize,
-        total_parts: usize,
         signer: &ValidatorSigner,
+        incremental_encoder: &mut IncrementalEncoder,
     ) -> Option<(AccountId, PartialEncodedStateWitness)> {
         tracing::debug!(
             target: "client",
@@ -265,11 +266,6 @@ impl PartialWitnessActor {
             ?chunk_validator,
             "generate_next_state_witness_part",
         );
-        let encoder = self.witness_encoders.entry(total_parts);
-        let mut incremental_encoder = encoder
-            .incremental_encoder(witness_bytes)
-            .expect("Failed to create incremental encoder");
-
         incremental_encoder.encode_next().map(|part| {
             let partial_witness = PartialEncodedStateWitness::new(
                 epoch_id,
@@ -387,24 +383,44 @@ impl PartialWitnessActor {
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
 
-        for (part_ord, chunk_validator) in chunk_validators.iter().enumerate() {
-            let validator_witness_tuple = self
-                .generate_next_state_witness_part(
-                    epoch_id,
-                    chunk_header,
-                    &witness_bytes,
-                    chunk_validator,
-                    part_ord,
-                    chunk_validators.len(),
-                    signer,
-                )
-                .unwrap();
+        let encoder = self.witness_encoders.entry(chunk_validators.len());
+        if let Ok(mut incremental_encoder) = encoder.incremental_encoder(&witness_bytes) {
+            for (part_ord, chunk_validator) in chunk_validators.iter().enumerate() {
+                let validator_witness_tuple = self
+                    .generate_next_state_witness_part(
+                        epoch_id,
+                        chunk_header,
+                        chunk_validator,
+                        part_ord,
+                        signer,
+                        &mut incremental_encoder,
+                    )
+                    .unwrap();
 
+                // Send the part to the corresponding chunk validator owner.
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
+                ));
+            }
+        } else {
+            let bytes = witness_bytes.serialize_single_part().unwrap();
+            let size = bytes.len();
+            let partial_witness = PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header.clone(),
+                0,
+                bytes,
+                size,
+                signer,
+            );
             // Send the part to the corresponding chunk validator owner.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
+                NetworkRequests::PartialEncodedStateWitness((
+                    chunk_validators[0].clone(),
+                    partial_witness,
+                )),
             ));
-        }
+        };
         encode_timer.observe_duration();
 
         Ok(())

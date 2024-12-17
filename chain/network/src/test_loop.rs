@@ -347,7 +347,13 @@ fn network_message_to_partial_witness_handler(
                 .send(ChunkStateWitnessAckMessage(witness_ack));
             None
         }
-
+        NetworkRequests::PartialEncodedStateWitness((target, partial_witness)) => {
+            shared_state
+                .senders_for_account(&target)
+                .partial_witness_sender
+                .send(PartialEncodedStateWitnessMessage(partial_witness));
+            None
+        }
         NetworkRequests::PartialEncodedStateWitnesses(validator_witness_tuple) => {
             for (target, partial_witness) in validator_witness_tuple.into_iter() {
                 shared_state
