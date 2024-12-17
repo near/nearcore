@@ -270,11 +270,13 @@ impl ProtocolFeature {
             ProtocolFeature::ShuffleShardAssignments => 143,
             ProtocolFeature::CurrentEpochStateSync => 144,
             ProtocolFeature::SimpleNightshadeV4 => 145,
+            // Protocol version 146 is reserved for resharding tests.
+            // ProtocolFeature::SimpleNightshadeV4 => 146,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
-            ProtocolFeature::RelaxedChunkValidation => 146,
-            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
-            ProtocolFeature::BandwidthScheduler => 148,
-            ProtocolFeature::BlockHeightForReceiptId => 149,
+            ProtocolFeature::RelaxedChunkValidation => 147,
+            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::BandwidthScheduler => 149,
+            ProtocolFeature::BlockHeightForReceiptId => 150,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -288,7 +290,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 150;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {

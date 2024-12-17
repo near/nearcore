@@ -5,7 +5,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_client::Query;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
     AccountId, BlockHeightDelta, BlockId, BlockReference, Gas, ShardId, ShardIndex,
@@ -86,6 +86,8 @@ struct TestReshardingParameters {
     // TODO(resharding) Remove this when negative refcounts are properly handled.
     /// Whether to allow negative refcount being a result of the database update.
     allow_negative_refcount: bool,
+    /// Make two reshardings in a row.
+    reshard_twice: bool,
 }
 
 impl TestReshardingParametersBuilder {
@@ -163,6 +165,7 @@ impl TestReshardingParametersBuilder {
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
             allow_negative_refcount: self.allow_negative_refcount.unwrap_or(false),
+            reshard_twice: self.reshard_twice.unwrap_or(false),
         }
     }
 
@@ -549,6 +552,18 @@ fn check_deleted_account_availability(
     assert!(!rpc_node_result.is_ok());
 }
 
+fn derive_new_epoch_config_from_boundary(
+    base_epoch_config: &EpochConfig,
+    boundary_account: &AccountId,
+) -> EpochConfig {
+    let base_shard_layout = &base_epoch_config.shard_layout;
+    let mut epoch_config = base_epoch_config.clone();
+    epoch_config.shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, boundary_account.clone());
+    tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
+    epoch_config
+}
+
 /// Base setup to check sanity of Resharding V3.
 /// TODO(#11881): add the following scenarios:
 /// - Nodes must not track all shards. State sync must succeed.
@@ -592,20 +607,24 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     let base_shard_layout = get_base_shard_layout(params.base_shard_layout_version);
     base_epoch_config.shard_layout = base_shard_layout.clone();
+    let mut new_boundary_account = "account6".parse().unwrap();
+    let epoch_config =
+        derive_new_epoch_config_from_boundary(&base_epoch_config, &new_boundary_account);
 
-    let new_boundary_account = "account6".parse().unwrap();
-    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&new_boundary_account);
-    let mut epoch_config = base_epoch_config.clone();
-    epoch_config.shard_layout =
-        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account.clone());
-    tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
-
-    let expected_num_shards = epoch_config.shard_layout.num_shards();
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
-        (base_protocol_version, Arc::new(base_epoch_config)),
-        (base_protocol_version + 1, Arc::new(epoch_config)),
-    ]));
-
+    let mut epoch_configs = vec![
+        (base_protocol_version, Arc::new(base_epoch_config.clone())),
+        (base_protocol_version + 1, Arc::new(epoch_config.clone())),
+    ];
+    if params.reshard_twice {
+        new_boundary_account = "account7".parse().unwrap();
+        let second_resharding_epoch_config =
+            derive_new_epoch_config_from_boundary(&epoch_config, &new_boundary_account);
+        epoch_configs.push((base_protocol_version + 2, Arc::new(second_resharding_epoch_config)));
+    }
+    let expected_num_shards = epoch_configs.last().unwrap().1.shard_layout.num_shards();
+    let parent_shard_uid =
+        base_epoch_config.shard_layout.account_id_to_shard_uid(&new_boundary_account);
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
         .shard_layout(base_shard_layout)
@@ -788,6 +807,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 #[test]
 fn test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
+}
+
+#[test]
+// TODO(resharding) Fix it and un-ignore the test,
+// see https://near.zulipchat.com/#narrow/channel/407288-core.2Fresharding/topic/testloop.20failures/near/489466638
+#[ignore]
+fn test_resharding_v3_twice() {
+    test_resharding_v3_base(TestReshardingParametersBuilder::default().reshard_twice(true).build());
 }
 
 #[test]
