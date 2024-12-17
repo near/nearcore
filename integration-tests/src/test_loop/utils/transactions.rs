@@ -168,7 +168,8 @@ pub fn do_create_account(
     amount: u128,
 ) {
     tracing::info!(target: "test", "Creating account.");
-    let tx = create_account(env, rpc_id, originator, new_account_id, amount);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, originator);
+    let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
     env.test_loop.run_for(Duration::seconds(5));
     check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
 }
@@ -228,12 +229,11 @@ pub fn create_account(
     originator: &AccountId,
     new_account_id: &AccountId,
     amount: u128,
+    nonce: u64,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(&env.datas, &env.test_loop);
-
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, originator);
-    let signer = create_user_test_signer(&originator).into();
-    let new_signer: Signer = create_user_test_signer(&new_account_id).into();
+    let signer = create_user_test_signer(&originator);
+    let new_signer: Signer = create_user_test_signer(&new_account_id);
 
     let tx = SignedTransaction::create_account(
         nonce,
@@ -408,18 +408,19 @@ pub fn get_node_data<'a>(node_datas: &'a [TestData], account_id: &AccountId) -> 
             return node_data;
         }
     }
-    panic!("RPC client not found");
+    panic!("client not found");
 }
 
 /// Run a transaction until completion and assert that the result is "success".
 /// Returns the transaction result.
 pub fn run_tx(
     test_loop: &mut TestLoopV2,
+    rpc_id: &AccountId,
     tx: SignedTransaction,
     node_datas: &[TestData],
     maximum_duration: Duration,
 ) -> Vec<u8> {
-    let tx_res = execute_tx(test_loop, tx, node_datas, maximum_duration).unwrap();
+    let tx_res = execute_tx(test_loop, rpc_id, tx, node_datas, maximum_duration).unwrap();
     assert_matches!(tx_res.status, FinalExecutionStatus::SuccessValue(_));
     match tx_res.status {
         FinalExecutionStatus::SuccessValue(res) => res,
@@ -462,14 +463,12 @@ pub fn run_txs_parallel(
 /// For valid transactions returns the execution result (which could have an execution error inside, check it!).
 pub fn execute_tx(
     test_loop: &mut TestLoopV2,
+    rpc_id: &AccountId,
     tx: SignedTransaction,
     node_datas: &[TestData],
     maximum_duration: Duration,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-    // Last node is usually the rpc node
-    let rpc_node_id = node_datas.len().checked_sub(1).unwrap();
-
-    let client_sender = &node_datas[rpc_node_id].client_sender;
+    let client_sender = &get_node_data(node_datas, rpc_id).client_sender;
     let future_spawner = test_loop.future_spawner();
 
     let mut tx_runner = TransactionRunner::new(tx, true);
@@ -477,7 +476,7 @@ pub fn execute_tx(
     let mut res = None;
     test_loop.run_until(
         |tl_data| {
-            let client = &tl_data.get(&node_datas[rpc_node_id].client_sender.actor_handle()).client;
+            let client = &tl_data.get(&client_sender.actor_handle()).client;
             match tx_runner.poll(client_sender, client, &future_spawner) {
                 Poll::Pending => false,
                 Poll::Ready(tx_res) => {

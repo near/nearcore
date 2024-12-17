@@ -4,7 +4,7 @@ use crate::trie::{
 use crate::DBCol;
 use near_primitives::chains::MAINNET;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::types::AccountId;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_time::Duration;
@@ -212,7 +212,7 @@ impl StoreConfig {
             let account_id = AccountId::from_str(account_id)
                 .expect("the hardcoded account id should guarantee to be valid");
             for shard_layout in shard_layouts.iter() {
-                let shard_uid = account_id_to_shard_uid(&account_id, &shard_layout);
+                let shard_uid = shard_layout.account_id_to_shard_uid(&account_id);
                 per_shard_max_bytes.insert(shard_uid, *bytes);
             }
         }

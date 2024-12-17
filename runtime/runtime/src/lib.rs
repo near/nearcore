@@ -2071,7 +2071,8 @@ impl Runtime {
         let apply_state = processing_state.apply_state;
         let epoch_info_provider = processing_state.epoch_info_provider;
         let mut state_update = processing_state.state_update;
-        let delayed_receipts = processing_state.delayed_receipts;
+        let pending_delayed_receipts = processing_state.delayed_receipts;
+        let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
 
         if promise_yield_result.promise_yield_indices
@@ -2086,10 +2087,10 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
-        let delayed_receipts_count = delayed_receipts.upper_bound_len();
+        let delayed_receipts_count = pending_delayed_receipts.upper_bound_len();
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
-            delayed_receipts.apply_congestion_changes(congestion_info)?;
+            pending_delayed_receipts.apply_congestion_changes(congestion_info)?;
             let protocol_version = apply_state.current_protocol_version;
 
             let (all_shards, shard_seed) =
@@ -2123,6 +2124,7 @@ impl Runtime {
                 &state_update,
                 validator_accounts_update,
                 processing_state.incoming_receipts,
+                &processed_delayed_receipts,
                 &promise_yield_result.timeout_receipts,
                 processing_state.transactions,
                 &receipt_sink.outgoing_receipts(),
@@ -2187,7 +2189,6 @@ impl Runtime {
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         metrics::report_recorded_column_sizes(&trie, &apply_state);
         let proof = trie.recorded_storage();
-        let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let processed_yield_timeouts = promise_yield_result.processed_yield_timeouts;
         let bandwidth_scheduler_state_hash = receipt_sink
             .bandwidth_scheduler_output()

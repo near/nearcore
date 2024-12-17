@@ -492,14 +492,9 @@ impl FlatStorage {
     }
 
     /// Updates `move_head_enabled` and returns whether the change was done.
-    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) -> bool {
+    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
-        if enabled != guard.move_head_enabled {
-            guard.move_head_enabled = enabled;
-            true
-        } else {
-            false
-        }
+        guard.move_head_enabled = enabled;
     }
 }
 
