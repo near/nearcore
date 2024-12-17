@@ -139,6 +139,7 @@ fn test_max_receipt_size_promise_return() {
 
     let account: AccountId = "account0".parse().unwrap();
     let account_signer = &create_user_test_signer(&account).into();
+    let rpc_id = "account4".parse().unwrap();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -148,7 +149,7 @@ fn test_max_receipt_size_promise_return() {
         &account_signer,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(5));
 
     // User calls a contract method
     // Contract method creates a DAG with two promises: [A -then-> B]
@@ -190,7 +191,7 @@ fn test_max_receipt_size_promise_return() {
         300 * TGAS,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    run_tx(&mut env.test_loop, large_receipt_tx, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, large_receipt_tx, &env.datas, Duration::seconds(5));
 
     // Make sure that the last promise in the DAG was called
     let assert_test_completed = SignedTransaction::call(
@@ -204,7 +205,7 @@ fn test_max_receipt_size_promise_return() {
         300 * TGAS,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    run_tx(&mut env.test_loop, assert_test_completed, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, assert_test_completed, &env.datas, Duration::seconds(5));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
@@ -221,6 +222,7 @@ fn test_max_receipt_size_value_return() {
 
     let account: AccountId = "account0".parse().unwrap();
     let account_signer = &create_user_test_signer(&account).into();
+    let rpc_id = "account4".parse().unwrap();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -230,7 +232,7 @@ fn test_max_receipt_size_value_return() {
         &account_signer,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(5));
 
     let max_receipt_size = 4_194_304;
 
@@ -246,7 +248,7 @@ fn test_max_receipt_size_value_return() {
         300 * TGAS,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    run_tx(&mut env.test_loop, large_receipt_tx, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, large_receipt_tx, &env.datas, Duration::seconds(5));
 
     // Make sure that the last promise in the DAG was called
     let assert_test_completed = SignedTransaction::call(
@@ -260,7 +262,7 @@ fn test_max_receipt_size_value_return() {
         300 * TGAS,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    run_tx(&mut env.test_loop, assert_test_completed, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, assert_test_completed, &env.datas, Duration::seconds(5));
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
@@ -274,6 +276,7 @@ fn test_max_receipt_size_yield_resume() {
 
     let account: AccountId = "account0".parse().unwrap();
     let account_signer = &create_user_test_signer(&account).into();
+    let rpc_id = "account4".parse().unwrap();
 
     // Deploy the test contract
     let deploy_contract_tx = SignedTransaction::deploy_contract(
@@ -283,7 +286,7 @@ fn test_max_receipt_size_yield_resume() {
         &account_signer,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(50));
+    run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(50));
 
     let max_receipt_size = 4_194_304;
 
@@ -300,9 +303,14 @@ fn test_max_receipt_size_yield_resume() {
         300 * TGAS,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    let yield_receipt_res =
-        execute_tx(&mut env.test_loop, yield_receipt_tx, &env.datas, Duration::seconds(10))
-            .unwrap();
+    let yield_receipt_res = execute_tx(
+        &mut env.test_loop,
+        &rpc_id,
+        yield_receipt_tx,
+        &env.datas,
+        Duration::seconds(10),
+    )
+    .unwrap();
 
     let expected_yield_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
@@ -330,9 +338,14 @@ fn test_max_receipt_size_yield_resume() {
         300 * TGAS,
         get_shared_block_hash(&env.datas, &env.test_loop),
     );
-    let resume_receipt_res =
-        execute_tx(&mut env.test_loop, resume_receipt_tx, &env.datas, Duration::seconds(5))
-            .unwrap();
+    let resume_receipt_res = execute_tx(
+        &mut env.test_loop,
+        &rpc_id,
+        resume_receipt_tx,
+        &env.datas,
+        Duration::seconds(5),
+    )
+    .unwrap();
 
     let expected_resume_status =
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
