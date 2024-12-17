@@ -555,7 +555,15 @@ impl ReceiptSinkV2 {
 
         // Metadata is fully initialized, make a proper bandwidth request using it.
         let receipt_sizes_iter = metadata.iter_receipt_group_sizes(trie, side_effects);
-        BandwidthRequest::make_from_receipt_sizes(to_shard, receipt_sizes_iter, params)
+
+        // There's a bug which allows to create receipts above `max_receipt_size` (https://github.com/near/nearcore/issues/12606).
+        // This could cause problems with bandwidth scheduler which would generate requests for size above max size, and these
+        // requests would never be fulfilled. For bandwidth requests let's pretend that all sizes are below `max_receipt_size`.
+        // The same pretending logic is also present in `try_forward` which compares receipt size with outgoing limit.
+        // This logic should also make it possible to do protocol upgrades that lower `max_receipt_size` without too much trouble.
+        let sizes_iter = receipt_sizes_iter
+            .map_ok(|group_size| std::cmp::min(group_size, params.max_receipt_size));
+        BandwidthRequest::make_from_receipt_sizes(to_shard, sizes_iter, params)
     }
 }
 
