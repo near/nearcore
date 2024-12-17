@@ -24,9 +24,22 @@ pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize =
 /// reconstruct the full state witness due to the Reed Solomon erasure encoding.
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct PartialEncodedStateWitness {
-    inner: PartialEncodedStateWitnessInner,
+    pub inner: PartialEncodedStateWitnessInner,
     pub signature: Signature,
 }
+
+/*
+#[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
+pub struct PartialEncodedStateWitnessInner {
+    epoch_id: EpochId,
+    shard_id: ShardId,
+    height_created: BlockHeight,
+    part_ord: usize,
+    part: Box<[u8]>,
+    encoded_length: usize,
+    signature_differentiator: SignatureDifferentiator,
+}
+*/
 
 impl Debug for PartialEncodedStateWitness {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -91,13 +104,13 @@ impl PartialEncodedStateWitness {
 
 #[derive(Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct PartialEncodedStateWitnessInner {
-    epoch_id: EpochId,
-    shard_id: ShardId,
-    height_created: BlockHeight,
-    part_ord: usize,
-    part: Box<[u8]>,
-    encoded_length: usize,
-    signature_differentiator: SignatureDifferentiator,
+    pub epoch_id: EpochId,
+    pub shard_id: ShardId,
+    pub height_created: BlockHeight,
+    pub part_ord: usize,
+    pub part: Box<[u8]>,
+    pub encoded_length: usize,
+    pub signature_differentiator: SignatureDifferentiator,
 }
 
 impl PartialEncodedStateWitnessInner {

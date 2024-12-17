@@ -362,5 +362,10 @@ mod tests {
 
         assert_eq!(n, incremental_encoder.encoded_length());
         assert_eq!(bytes_encoded1, bytes_encoded2);
+
+        let (bytes_encoded3, n) =
+            encoder.rs.as_ref().map(|rs| reed_solomon_encode(rs, &data)).unwrap();
+        assert_eq!(n, incremental_encoder.encoded_length());
+        assert_eq!(bytes_encoded3, bytes_encoded2);
     }
 }
