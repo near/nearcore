@@ -462,7 +462,6 @@ impl DBCol {
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions
-            // TODO(reshardingV3) How the mapping will work with split storage?
             | DBCol::StateShardUIdMapping => true,
 
             // TODO

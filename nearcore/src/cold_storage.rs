@@ -113,20 +113,8 @@ fn cold_store_copy(
         return Ok(ColdStoreCopyResult::NoBlockCopied);
     }
 
-    // Here it should be sufficient to just read from hot storage.
-    // Because BlockHeight is never garbage collectable and is not even copied to cold.
-    let cold_head_hash =
-        hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &cold_head_height.to_le_bytes())?;
-    let cold_head_hash =
-        cold_head_hash.ok_or(ColdStoreError::ColdHeadHashReadError { cold_head_height })?;
-
-    // The previous block is the cold head so we can use it to get epoch id.
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash)?;
-    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-
     let mut next_height = cold_head_height + 1;
-    while !update_cold_db(cold_db, hot_store, &shard_layout, &next_height, num_threads)? {
-        next_height += 1;
+    let next_height_block_hash = loop {
         if next_height > hot_final_head_height {
             return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
                 cold_head_height,
@@ -134,8 +122,28 @@ fn cold_store_copy(
                 hot_final_head_height,
             });
         }
-    }
-
+        // Here it should be sufficient to just read from hot storage.
+        // Because BlockHeight is never garbage collectable and is not even copied to cold.
+        let next_height_block_hash =
+            hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &next_height.to_le_bytes())?;
+        if let Some(next_height_block_hash) = next_height_block_hash {
+            break next_height_block_hash;
+        }
+        next_height = next_height + 1;
+    };
+    // The next block hash exists in hot store so we can use it to get epoch id.
+    let epoch_id = epoch_manager.get_epoch_id(&next_height_block_hash)?;
+    let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+    let is_last_block_in_epoch =
+        epoch_manager.is_next_block_epoch_start(&next_height_block_hash)?;
+    update_cold_db(
+        cold_db,
+        hot_store,
+        &shard_layout,
+        &next_height,
+        is_last_block_in_epoch,
+        num_threads,
+    )?;
     update_cold_head(cold_db, hot_store, &next_height)?;
 
     let result = if next_height >= hot_final_head_height {

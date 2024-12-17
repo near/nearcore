@@ -173,6 +173,20 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
     }
 }
 
+/// Get the `ShardUId` mapping for child_shard_uid. If the mapping does not exist, map the shard to itself.
+/// Used by Resharding V3 for State mapping.
+///
+/// It is kept out of `TrieStoreAdapter`, so that `TrieStoreUpdateAdapter` can use it without
+/// cloning `store` each time, see https://github.com/near/nearcore/pull/12232#discussion_r1804810508.
+pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardUId {
+    store
+        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
+        .unwrap_or_else(|_| {
+            panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
+        })
+        .unwrap_or(child_shard_uid)
+}
+
 /// Constructs db key to be used to access the State column.
 /// First, it consults the `StateShardUIdMapping` column to map the `shard_uid` prefix
 /// to its ancestor in the resharding tree (according to Resharding V3)
@@ -186,10 +200,7 @@ fn get_key_from_shard_uid_and_hash(
     shard_uid: ShardUId,
     hash: &CryptoHash,
 ) -> [u8; 40] {
-    let mapped_shard_uid = store
-        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
-        .expect("get_key_from_shard_uid_and_hash() failed")
-        .unwrap_or(shard_uid);
+    let mapped_shard_uid = get_shard_uid_mapping(store, shard_uid);
     let mut key = [0; 40];
     key[0..8].copy_from_slice(&mapped_shard_uid.to_bytes());
     key[8..].copy_from_slice(hash.as_ref());
