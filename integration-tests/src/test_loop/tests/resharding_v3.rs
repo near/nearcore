@@ -48,11 +48,17 @@ use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 #[allow(unused)]
 struct TestReshardingParameters {
     base_shard_layout_version: u64,
+    /// Number of accounts.
     num_accounts: u64,
+    /// Number of clients.
     num_clients: u64,
+    /// Number of block and chunk producers.
     num_producers: u64,
+    /// Number of chunk validators.
     num_validators: u64,
+    /// Number of RPC clients.
     num_rpcs: u64,
+    /// Number of archival clients.
     num_archivals: u64,
     #[builder(setter(skip))]
     accounts: Vec<AccountId>,
@@ -113,7 +119,7 @@ impl TestReshardingParametersBuilder {
         // #12195 prevents number of BPs bigger than `epoch_length`.
         assert!(num_producers > 0 && num_producers <= epoch_length);
 
-        let accounts: Vec<AccountId> = Self::compute_initial_accounts(num_accounts);
+        let accounts = Self::compute_initial_accounts(num_accounts);
 
         // This piece of code creates `num_clients` from `accounts`. First client is at index 0 and
         // other clients are spaced in the accounts' space as evenly as possible.
@@ -538,34 +544,37 @@ fn get_base_shard_layout(version: u64) -> ShardLayout {
 }
 
 // After resharding and gc-period, assert the deleted `account_id`
-// is still accessible through archival node view client,
+// is still accessible through archival node view client (if available),
 // and it is not accessible through a regular, RPC node.
 fn check_deleted_account_availability(
     env: &mut TestLoopEnv,
-    archival_id: &AccountId,
+    archival_id: &Option<&AccountId>,
     rpc_id: &AccountId,
     account_id: AccountId,
     height: u64,
 ) {
-    let archival_node_data = get_node_data(&env.datas, &archival_id);
     let rpc_node_data = get_node_data(&env.datas, &rpc_id);
-    let archival_view_client_handle = archival_node_data.view_client_sender.actor_handle();
     let rpc_view_client_handle = rpc_node_data.view_client_sender.actor_handle();
 
     let block_reference = BlockReference::BlockId(BlockId::Height(height));
     let request = QueryRequest::ViewAccount { account_id };
     let msg = Query::new(block_reference, request);
 
-    let archival_node_result = {
-        let view_client = env.test_loop.data.get_mut(&archival_view_client_handle);
-        near_async::messaging::Handler::handle(view_client, msg.clone())
-    };
     let rpc_node_result = {
         let view_client = env.test_loop.data.get_mut(&rpc_view_client_handle);
-        near_async::messaging::Handler::handle(view_client, msg)
+        near_async::messaging::Handler::handle(view_client, msg.clone())
     };
-    assert!(archival_node_result.is_ok());
     assert!(!rpc_node_result.is_ok());
+
+    if let Some(archival_id) = archival_id {
+        let archival_node_data = get_node_data(&env.datas, &archival_id);
+        let archival_view_client_handle = archival_node_data.view_client_sender.actor_handle();
+        let archival_node_result = {
+            let view_client = env.test_loop.data.get_mut(&archival_view_client_handle);
+            near_async::messaging::Handler::handle(view_client, msg)
+        };
+        assert!(archival_node_result.is_ok());
+    }
 }
 
 /// Base setup to check sanity of Resharding V3.
@@ -732,7 +741,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
         let clients =
             client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
-        let client: &&near_client::Client = &clients[client_index];
+        let client = clients[client_index];
 
         let tip = get_smallest_height_head(&clients);
 
@@ -781,16 +790,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     // Wait for garbage collection to kick in.
     env.test_loop
         .run_for(Duration::seconds((DEFAULT_GC_NUM_EPOCHS_TO_KEEP * params.epoch_length) as i64));
-    if let Some(archival_id) = archival_id {
-        // Check that the deleted account is still accessible at archival node, but not at a regular node.
-        check_deleted_account_availability(
-            &mut env,
-            &archival_id,
-            &client_account_id,
-            temporary_account,
-            height_after_resharding,
-        );
-    }
+    // Check that the deleted account is still accessible at archival node, but not at a regular node.
+    check_deleted_account_availability(
+        &mut env,
+        &archival_id,
+        &client_account_id,
+        temporary_account,
+        height_after_resharding,
+    );
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
