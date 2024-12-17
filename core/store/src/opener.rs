@@ -648,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn test_checkpoint_hot_storage_and_cleanup_columns() {
+    fn slow_test_checkpoint_hot_storage_and_cleanup_columns() {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
         let hot_store = Store { storage: node_storage.hot_storage.clone() };

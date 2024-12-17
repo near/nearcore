@@ -3838,6 +3838,24 @@ impl Chain {
         )))
     }
 
+    fn min_chunk_prev_height(&self, block: &Block) -> Result<BlockHeight, Error> {
+        let mut ret = None;
+        for chunk in block.chunks().iter_raw() {
+            let prev_height = if chunk.prev_block_hash() == &CryptoHash::default() {
+                0
+            } else {
+                let prev_header = self.get_block_header(chunk.prev_block_hash())?;
+                prev_header.height()
+            };
+            if let Some(min_height) = ret {
+                ret = Some(std::cmp::min(min_height, prev_height));
+            } else {
+                ret = Some(prev_height);
+            }
+        }
+        Ok(ret.unwrap_or(0))
+    }
+
     /// Function to create or delete a snapshot if necessary.
     /// TODO: this function calls head() inside of start_process_block_impl(), consider moving this to be called right after HEAD gets updated
     fn process_snapshot(&mut self) -> Result<(), Error> {
@@ -3847,6 +3865,7 @@ impl Chain {
             SnapshotAction::MakeSnapshot(prev_hash) => {
                 let prev_block = self.get_block(&prev_hash)?;
                 let prev_prev_hash = prev_block.header().prev_hash();
+                let min_chunk_prev_height = self.min_chunk_prev_height(&prev_block)?;
                 let epoch_height =
                     self.epoch_manager.get_epoch_height_from_prev_block(prev_prev_hash)?;
                 let shard_layout =
@@ -3854,7 +3873,13 @@ impl Chain {
                 let shard_uids = shard_layout.shard_uids().enumerate().collect();
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(*prev_prev_hash, epoch_height, shard_uids, prev_block);
+                make_snapshot_callback(
+                    *prev_prev_hash,
+                    min_chunk_prev_height,
+                    epoch_height,
+                    shard_uids,
+                    prev_block,
+                );
             }
             SnapshotAction::DeleteSnapshot => {
                 let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
