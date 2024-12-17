@@ -386,9 +386,13 @@ pub fn pre_validate_chunk_state_witness(
         RelaxedChunkValidation,
         current_protocol_version
     ) {
-        let prev_block_header = store.get_block_header(last_chunk_block.header().prev_hash())?;
-        let mut check = chain.transaction_validity_check(prev_block_header);
-        state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
+        if last_chunk_block.header().is_genesis() {
+            vec![true; state_witness.transactions.len()]
+        } else {
+            let prev_block_header = store.get_block_header(last_chunk_block.header().prev_hash())?;
+            let mut check = chain.transaction_validity_check(prev_block_header);
+            state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
+        }
     } else {
         let new_transactions = &state_witness.new_transactions;
         let (new_tx_root_from_state_witness, _) = merklize(&new_transactions);
