@@ -20,7 +20,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
@@ -3799,7 +3799,7 @@ fn test_get_shard_uids_pending_resharding_single() {
     let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
 
-    let s1 = account_id_to_shard_uid(&a, &shard_layout_0);
+    let s1 = shard_layout_0.account_id_to_shard_uid(&a);
 
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout_0, shard_layout_1]);
     assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
@@ -3822,8 +3822,8 @@ fn test_get_shard_uids_pending_resharding_double_different() {
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, a.clone());
     let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
 
-    let s0 = account_id_to_shard_uid(&a, &shard_layout_0);
-    let s1 = account_id_to_shard_uid(&b, &shard_layout_0);
+    let s0 = shard_layout_0.account_id_to_shard_uid(&a);
+    let s1 = shard_layout_0.account_id_to_shard_uid(&b);
 
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[
         shard_layout_0,
@@ -3850,7 +3850,7 @@ fn test_get_shard_uids_pending_resharding_double_same() {
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
     let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
 
-    let s1 = account_id_to_shard_uid(&a, &shard_layout_0);
+    let s1 = shard_layout_0.account_id_to_shard_uid(&a);
 
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[
         shard_layout_0,

@@ -90,7 +90,7 @@ impl StateSnapshot {
         tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?prev_block_hash, "new StateSnapshot");
         let mut included_shard_uids = vec![];
         for &(shard_index, shard_uid) in shard_indexes_and_uids {
-            if let Err(err) = flat_storage_manager.create_flat_storage_for_shard(shard_uid) {
+            if let Err(err) = flat_storage_manager.mark_ready_and_create_flat_storage(shard_uid) {
                 tracing::warn!(target: "state_snapshot", ?err, ?shard_uid, "Failed to create a flat storage for snapshot shard");
                 continue;
             }

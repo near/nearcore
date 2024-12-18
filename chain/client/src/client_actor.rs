@@ -1132,8 +1132,8 @@ impl ClientActorInner {
                     .client
                     .chunk_inclusion_tracker
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
-                let have_all_chunks = head.height == 0
-                    || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
+                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+                let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
 
                 if self.client.doomslug.ready_to_produce_block(
                     height,
@@ -1142,7 +1142,7 @@ impl ClientActorInner {
                 ) {
                     self.client
                         .chunk_inclusion_tracker
-                        .record_endorsement_metrics(&head.last_block_hash);
+                        .record_endorsement_metrics(&head.last_block_hash, &shard_ids);
                     if let Err(err) = self.produce_block(height, signer) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", height, "Block production failed: {}", err);

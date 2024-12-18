@@ -6,7 +6,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
-use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -295,6 +295,25 @@ pub(crate) fn chunk_indexed_by_height_created(
     Ok(())
 }
 
+pub(crate) fn partial_chunk_receipts_exist_in_receipts(
+    sv: &mut StoreValidator,
+    _chunk_hash: &ChunkHash,
+    partial_chunk: &PartialEncodedChunk,
+) -> Result<(), StoreValidatorError> {
+    for receipt_proof in partial_chunk.prev_outgoing_receipts() {
+        for receipt in &receipt_proof.0 {
+            unwrap_or_err_db!(
+                sv.store.get_ser::<Receipt>(DBCol::Receipts, receipt.receipt_id().as_bytes()),
+                "IncomingReceipt has {:?} but it doesn't exist in Receipts column",
+                receipt
+            );
+            // This is verified later when we verify the Receipts column.
+            *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn header_hash_indexed_by_height(
     sv: &mut StoreValidator,
     _hash: &CryptoHash,
@@ -405,43 +424,6 @@ pub(crate) fn block_chunks_exist(
                             chunk_header
                         );
                     }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn receipts_contain_block_incoming_receipts(
-    sv: &mut StoreValidator,
-    block_hash: &CryptoHash,
-    block: &Block,
-) -> Result<(), StoreValidatorError> {
-    let Ok(shard_ids) = sv.epoch_manager.shard_ids(block.header().epoch_id()) else {
-        err!("Error getting shard ids for epoch {:?}", block.header().epoch_id());
-    };
-    for shard_id in shard_ids {
-        let Ok(incoming_receipts) = sv.store.get_ser::<Vec<ReceiptProof>>(
-            DBCol::IncomingReceipts,
-            &get_block_shard_id(block_hash, shard_id),
-        ) else {
-            err!(
-                "DB error when getting incoming receipts for block {:?} shard {:?}",
-                block_hash,
-                shard_id
-            );
-        };
-        if let Some(incoming_receipts) = incoming_receipts {
-            for receipt_proof in incoming_receipts {
-                for receipt in receipt_proof.0 {
-                    unwrap_or_err_db!(
-                        sv.store
-                            .get_ser::<Receipt>(DBCol::Receipts, receipt.receipt_id().as_bytes()),
-                        "IncomingReceipt has {:?} but it doesn't exist in Receipts column",
-                        receipt
-                    );
-                    // This is verified later when we verify the Receipts column.
-                    *sv.inner.receipt_refcount.entry(*receipt.receipt_id()).or_insert(0) += 1;
                 }
             }
         }
@@ -862,7 +844,6 @@ pub(crate) fn receipt_refcount(
         err!("Invalid receipt refcount, expected {:?}, found {:?}", expected, refcount)
     } else {
         sv.inner.receipt_refcount.remove(receipt_id);
-        tracing::error!("Receipt {:?} refcount verified", receipt_id);
         return Ok(());
     }
 }

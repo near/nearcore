@@ -264,17 +264,20 @@ pub struct ReshardingConfig {
 
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
+    /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub retry_delay: Duration,
 
     /// The delay between the resharding request is received and when the actor
     /// actually starts working on it. This delay should only be used in tests.
+    /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub initial_delay: Duration,
 
     /// The maximum time that the actor will wait for the snapshot to be ready,
     /// before starting resharding. Do not wait indefinitely since we want to
     /// report error early enough for the node maintainer to have time to recover.
+    /// UNUSED in ReshardingV3.
     #[serde(with = "near_time::serde_duration_as_std")]
     pub max_poll_time: Duration,
 
@@ -290,14 +293,14 @@ impl Default for ReshardingConfig {
         // extra load on the node as possible.
         Self {
             batch_size: ByteSize::kb(500),
-            batch_delay: Duration::milliseconds(100),
+            batch_delay: Duration::milliseconds(5),
             retry_delay: Duration::seconds(10),
             initial_delay: Duration::seconds(0),
             // The snapshot typically is available within a minute from the
             // epoch start. Set the default higher in case we need to wait for
             // state sync.
             max_poll_time: Duration::seconds(2 * 60 * 60), // 2 hours
-            catch_up_blocks: 50,
+            catch_up_blocks: 20,
         }
     }
 }
