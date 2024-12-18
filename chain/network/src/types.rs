@@ -287,8 +287,10 @@ pub enum NetworkRequests {
     ChunkStateWitnessAck(AccountId, ChunkStateWitnessAck),
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
     ChunkEndorsement(AccountId, ChunkEndorsement),
+    /// Message from chunk producer to a chunk validator to send a state witness part.
+    PartialEncodedStateWitness((AccountId, PartialEncodedStateWitness)),
     /// Message from chunk producer to set of chunk validators to send state witness part.
-    PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
+    PartialEncodedStateWitnesses(Vec<(AccountId, PartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
     PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
     /// Requests an epoch sync
