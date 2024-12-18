@@ -783,7 +783,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     );
     let client = &env.test_loop.data.get(&client_handles[client_index]).client;
     trie_sanity_check.check_epochs(client);
-
     let height_after_resharding = latest_block_height.get();
 
     // Delete `temporary_account`.
