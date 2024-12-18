@@ -371,7 +371,7 @@ impl PartialWitnessActor {
     }
 
     /// Sends the witness part to the chunk validators, except the chunk producer that generated the witness part.
-    fn forward_state_witness_part(
+    fn _forward_state_witness_part(
         &self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
@@ -439,7 +439,6 @@ impl PartialWitnessActor {
                 runtime_adapter.store(),
             ).unwrap() {
                 forward_state_witness_part_v2(partial_witness,
-                    chunk_producer,
                     target_chunk_validators,
                     network_adapter).unwrap();
             }
@@ -833,13 +832,9 @@ fn contracts_cache_contains_contract(
 /// Sends the witness part to the chunk validators, except the chunk producer that generated the witness part.
 fn forward_state_witness_part_v2(
     partial_witness: PartialEncodedStateWitness,
-    chunk_producer: AccountId,
     target_chunk_validators: Vec<AccountId>,
     network_adapter: PeerManagerAdapter,
 ) -> Result<(), Error> {
-    let ChunkProductionKey { shard_id, epoch_id, height_created } =
-        partial_witness.chunk_production_key();
-
     network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
         NetworkRequests::PartialEncodedStateWitnessForward(
             target_chunk_validators,
