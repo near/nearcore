@@ -1025,16 +1025,35 @@ impl ChainStore {
         key
     }
 
-    /// Retrieves STATE_SYNC_DUMP for the given shard.
-    pub fn get_state_sync_dump_progress(
-        &self,
-        shard_id: ShardId,
-    ) -> Result<StateSyncDumpProgress, Error> {
-        option_to_not_found(
-            self.store
-                .get_ser(DBCol::BlockMisc, &ChainStore::state_sync_dump_progress_key(shard_id)),
-            format!("STATE_SYNC_DUMP:{}", shard_id),
-        )
+    /// For each value stored, this returs an (EpochId, bool), where the bool tells whether it's finished
+    /// because those are the only fields we really care about.
+    pub fn iter_state_sync_dump_progress<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = io::Result<(ShardId, (EpochId, bool))>> + 'a {
+        self.store
+            .iter_prefix_ser::<StateSyncDumpProgress>(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)
+            .map(|item| {
+                item.and_then(|(key, progress)| {
+                    // + 1 for the ':'
+                    let prefix_len = STATE_SYNC_DUMP_KEY.len() + 1;
+                    let int_part = &key[prefix_len..];
+                    let int_part = int_part.try_into().map_err(|_| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Bad StateSyncDump columnn key length: {}", key.len()),
+                        )
+                    })?;
+                    let shard_id = ShardId::from_le_bytes(int_part);
+                    Ok((
+                        shard_id,
+                        match progress {
+                            StateSyncDumpProgress::AllDumped { epoch_id, .. } => (epoch_id, true),
+                            StateSyncDumpProgress::InProgress { epoch_id, .. } => (epoch_id, false),
+                            StateSyncDumpProgress::Skipped { epoch_id, .. } => (epoch_id, true),
+                        },
+                    ))
+                })
+            })
     }
 
     /// Updates STATE_SYNC_DUMP for the given shard.
