@@ -1501,7 +1501,6 @@ impl Client {
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
-
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.

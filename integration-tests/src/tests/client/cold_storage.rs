@@ -147,9 +147,12 @@ fn test_storage_after_commit_of_cold_update() {
 
         let client = &env.clients[0];
         let client_store = client.runtime_adapter.store();
-        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let epoch_id = client.epoch_manager.get_epoch_id(block.hash()).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(cold_db, &client_store, &shard_layout, &height, 4).unwrap();
+        let is_last_block_in_epoch =
+            client.epoch_manager.is_next_block_epoch_start(block.hash()).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, is_last_block_in_epoch, 4)
+            .unwrap();
 
         last_hash = *block.hash();
     }
@@ -281,14 +284,22 @@ fn test_cold_db_copy_with_height_skips() {
         };
 
         let client = &env.clients[0];
-        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let hot_store = client.runtime_adapter.store();
+        let block_hash =
+            hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &height.to_le_bytes()).unwrap();
+        let Some(block) = block else {
+            assert!(block_hash.is_none());
+            continue;
+        };
+        let block_hash = block_hash.unwrap();
+        assert!(&block_hash == block.hash());
+        let epoch_id = client.epoch_manager.get_epoch_id(&block_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(&cold_db, &client.runtime_adapter.store(), &shard_layout, &height, 1)
+        let is_last_block_in_epoch =
+            client.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap();
+        update_cold_db(&cold_db, hot_store, &shard_layout, &height, is_last_block_in_epoch, 1)
             .unwrap();
-
-        if block.is_some() {
-            last_hash = *block.unwrap().hash();
-        }
+        last_hash = block_hash;
     }
 
     // We still need to filter out one chunk

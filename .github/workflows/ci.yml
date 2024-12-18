@@ -425,13 +425,25 @@ jobs:
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
 
-  windows_public_libraries_check:
-    name: "Windows check for building public libraries"
-    runs-on: "windows-latest"
+  publishable_packages_check:
+    name: "Cargo check publishable packages separately"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            id: linux
+            os: ubuntu-latest
+          - name: Windows
+            id: win
+            os: windows-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@5ce83af8b5520828f63d83d98df0eea6a66c7978
         with:
           tool: just
-      - run: just check_build_public_libraries
+      - run: just check-publishable-separately
+      - run: just check-publishable-separately --no-default-features
+      - run: just check-publishable-separately --all-features
