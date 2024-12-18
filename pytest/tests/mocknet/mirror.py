@@ -202,13 +202,13 @@ def new_genesis_timestamp(node):
     return genesis_time
 
 
-def _apply_stateless_config(args, node):
+def _apply_stateless_config(args, node, is_validator):
     """Applies configuration changes to the node for stateless validation,
     including changing config.json file and updating TCP buffer size at OS level."""
     # TODO: it should be possible to update multiple keys in one RPC call so we dont have to make multiple round trips
     # TODO: Enable saving witness after fixing the performance problems.
     do_update_config(node, 'save_latest_witnesses=false')
-    if not node.want_state_dump:
+    if not node.want_state_dump and is_validator:
         do_update_config(node, 'tracked_shards=[]')
         do_update_config(node, 'store.load_mem_tries_for_tracked_shards=true')
     if not args.local_test:
@@ -306,10 +306,19 @@ def new_test_cmd(args, traffic_generator, nodes):
     validators, boot_nodes = get_network_nodes(zip(nodes, test_keys),
                                                args.num_validators)
 
-    logger.info("""setting validators: {0}
+    # TODO: this is a bit of a hacky way of telling which are validators, taking advantage
+    # of the way we set validator IDs in neard_runner.py. This should be done in a cleaner way
+    validator_nodes = set([
+        n.name()
+        for n in nodes
+        if any([n.name() in v['account_id'] for v in validators])
+    ])
+    rpc_nodes = [n.name() for n in nodes if n.name() not in validator_nodes]
+    logger.info("""setting validators: {0}. non-validating nodes: {1}
 Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
 state roots. This will take a few hours. Run `status` to check if the nodes are \
-ready. After they're ready, you can run `start-traffic`""".format(validators))
+ready. After they're ready, you can run `start-traffic`""".format(
+        validators, rpc_nodes))
     pmap(
         lambda node: node.neard_runner_network_init(
             validators,
@@ -326,7 +335,10 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
 
     if args.stateless_setup:
         logger.info('Configuring nodes for stateless protocol')
-        pmap(lambda node: _apply_stateless_config(args, node), nodes)
+        pmap(
+            lambda node: _apply_stateless_config(args, node,
+                                                 node.name() in validator_nodes
+                                                ), nodes)
 
     _clear_state_parts_if_exists(location, nodes)
 
