@@ -218,12 +218,7 @@ impl ReshardingManager {
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
             drop(mem_tries);
 
-            // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
-            // typing. Clarify where it should happen when `State` and
-            // `FlatState` update is implemented.
-            let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
-            *child_chunk_extra.state_root_mut() = new_state_root;
-
+            // Get the congestion info for the child.
             let parent_epoch_id = block.header().epoch_id();
             let parent_shard_layout = self.epoch_manager.get_shard_layout(&parent_epoch_id)?;
             let child_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
@@ -237,6 +232,12 @@ impl ReshardingManager {
                 new_shard_uid,
                 retain_mode,
             )?;
+
+            // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
+            // typing. Clarify where it should happen when `State` and
+            // `FlatState` update is implemented.
+            let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
+            *child_chunk_extra.state_root_mut() = new_state_root;
             *child_chunk_extra.congestion_info_mut().expect("The congestion info must exist!") =
                 child_congestion_info;
 
