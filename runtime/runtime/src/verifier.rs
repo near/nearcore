@@ -5,6 +5,7 @@ use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -420,6 +421,7 @@ pub fn validate_action(
     match action {
         Action::CreateAccount(_) => Ok(()),
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
+        Action::DeployGlobalContract(a) => validate_deploy_global_contract_action(limit_config, a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -448,6 +450,21 @@ fn validate_delegate_action(
 fn validate_deploy_contract_action(
     limit_config: &LimitConfig,
     action: &DeployContractAction,
+) -> Result<(), ActionsValidationError> {
+    if action.code.len() as u64 > limit_config.max_contract_size {
+        return Err(ActionsValidationError::ContractSizeExceeded {
+            size: action.code.len() as u64,
+            limit: limit_config.max_contract_size,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validates `DeployGlobalContractAction`. Checks that the given contract size doesn't exceed the limit.
+fn validate_deploy_global_contract_action(
+    limit_config: &LimitConfig,
+    action: &DeployGlobalContractAction,
 ) -> Result<(), ActionsValidationError> {
     if action.code.len() as u64 > limit_config.max_contract_size {
         return Err(ActionsValidationError::ContractSizeExceeded {
