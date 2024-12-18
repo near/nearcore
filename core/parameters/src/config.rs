@@ -250,3 +250,16 @@ pub struct WitnessConfig {
     /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: usize,
 }
+
+impl WitnessConfig {
+    /// Creates a config that effectively disables ChunkStateWitness related limits by setting them
+    /// to max values. This can be useful for tests and benchmarks.
+    pub fn test_disabled() -> Self {
+        let max_value = usize::MAX;
+        Self {
+            main_storage_proof_size_soft_limit: max_value,
+            combined_transactions_size_limit: max_value,
+            new_transactions_validation_state_size_soft_limit: max_value,
+        }
+    }
+}
