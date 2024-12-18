@@ -299,6 +299,14 @@ pub trait ChainStoreAccess {
                 )),
             };
 
+            // println!("BLOCK: {:?}", current_block_hash);
+            let receipt_ids: Vec<Vec<CryptoHash>> = filtered_receipt_proofs
+                .iter()
+                .map(|receipt_proof| {
+                    receipt_proof.0.iter().map(|receipt| receipt.receipt_id().clone()).collect()
+                })
+                .collect();
+            // println!("RECEIPTS: {:?}", receipt_ids);
             ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));
             current_block_hash = *prev_hash;
         }

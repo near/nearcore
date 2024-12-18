@@ -97,7 +97,7 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
-    let apply_result = if block.header().is_genesis() {
+    let (apply_result, chunk_extra) = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
         }
@@ -182,7 +182,7 @@ fn apply_block_from_range(
             }
         }
 
-        runtime_adapter
+        let apply_result = runtime_adapter
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
@@ -202,14 +202,30 @@ fn apply_block_from_range(
                 &receipts,
                 chunk.transactions(),
             )
-            .unwrap()
+            .unwrap();
+        let protocol_version =
+            epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
+        let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+        let chunk_extra = ChunkExtra::new(
+            protocol_version,
+            &apply_result.new_root,
+            outcome_root,
+            apply_result.validator_proposals.clone(),
+            apply_result.total_gas_burnt,
+            genesis.config.gas_limit,
+            apply_result.total_balance_burnt,
+            apply_result.congestion_info,
+            apply_result.bandwidth_requests.clone(),
+        );
+        (apply_result, chunk_extra)
     } else {
         chunk_present = false;
         let chunk_extra =
             read_chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         prev_chunk_extra = Some(chunk_extra.clone());
+        let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
 
-        runtime_adapter
+        let apply_result = runtime_adapter
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_extra.state_root()),
                 ApplyChunkReason::UpdateTrackedShard,
@@ -229,23 +245,10 @@ fn apply_block_from_range(
                 &[],
                 &[],
             )
-            .unwrap()
+            .unwrap();
+        *new_chunk_extra.state_root_mut() = apply_result.new_root;
+        (apply_result, new_chunk_extra)
     };
-
-    let protocol_version =
-        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
-    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
-    let chunk_extra = ChunkExtra::new(
-        protocol_version,
-        &apply_result.new_root,
-        outcome_root,
-        apply_result.validator_proposals.clone(),
-        apply_result.total_gas_burnt,
-        genesis.config.gas_limit,
-        apply_result.total_balance_burnt,
-        apply_result.congestion_info,
-        apply_result.bandwidth_requests.clone(),
-    );
 
     let state_update =
         runtime_adapter.get_tries().new_trie_update(shard_uid, *chunk_extra.state_root());

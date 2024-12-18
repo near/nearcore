@@ -251,7 +251,8 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementV2
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
+            ProtocolFeature::ExcludeContractCodeFromStateWitness
+            | ProtocolFeature::CurrentEpochStateSync => 73,
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::SimpleNightshadeV4 => 74,
@@ -269,7 +270,6 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::CurrentEpochStateSync => 144,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
             ProtocolFeature::RelaxedChunkValidation => 146,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,

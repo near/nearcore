@@ -514,7 +514,7 @@ impl ShardsManagerActor {
 
         let shards_to_fetch_receipts =
         // TODO: only keep shards for which we don't have receipts yet
-            if request_full { HashSet::new() } else { self.get_tracking_shards(ancestor_hash, me) };
+            if request_full { HashSet::new() } else { self.get_tracking_shards(ancestor_hash, height, me) };
 
         // The loop below will be sending PartialEncodedChunkRequestMsg to various block producers.
         // We need to send such a message to the original chunk producer if we do not have the receipts
@@ -609,21 +609,31 @@ impl ShardsManagerActor {
     fn get_tracking_shards(
         &self,
         parent_hash: &CryptoHash,
+        height: BlockHeight,
         me: Option<&AccountId>,
     ) -> HashSet<ShardId> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let config = self.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+        let epoch_length = config.epoch_length;
+        let epoch_start_height = self.epoch_manager.get_epoch_start_height(parent_hash).unwrap();
+        let new_epoch_starts_soon = height + 30 >= epoch_start_height + epoch_length;
         self.epoch_manager
             .shard_ids(&epoch_id)
             .unwrap()
             .into_iter()
             .filter(|chunk_shard_id| {
-                cares_about_shard_this_or_next_epoch(
-                    me,
-                    parent_hash,
-                    *chunk_shard_id,
-                    true,
-                    &self.shard_tracker,
-                )
+                if new_epoch_starts_soon {
+                    warn!(target: "chunks", ?parent_hash, height, ?chunk_shard_id, "REQUEST GODMODE - new epoch starts soon");
+                }
+                
+                new_epoch_starts_soon
+                    || cares_about_shard_this_or_next_epoch(
+                        me,
+                        parent_hash,
+                        *chunk_shard_id,
+                        true,
+                        &self.shard_tracker,
+                    )
             })
             .collect::<HashSet<_>>()
     }
@@ -1981,9 +1991,19 @@ impl ShardsManagerActor {
         me: Option<&AccountId>,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let config = self.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+        let epoch_length = config.epoch_length;
+        let epoch_start_height =
+            self.epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
+        let height = chunk_entry.header.height_created();
+        let new_epoch_starts_soon =
+            height + 30 >= epoch_start_height + epoch_length;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if !chunk_entry.receipts.contains_key(&shard_id) {
-                if need_receipt(prev_block_hash, shard_id, me, &self.shard_tracker) {
+                if new_epoch_starts_soon {
+                    warn!(target: "chunks", ?prev_block_hash, height, ?shard_id, "HAS_ALL_RECEIPTS GODMODE - new epoch starts soon");
+                }
+                if new_epoch_starts_soon || need_receipt(prev_block_hash, shard_id, me, &self.shard_tracker) {
                     return Ok(false);
                 }
             }
@@ -2094,18 +2114,29 @@ impl ShardsManagerActor {
         .into_iter()
         .map(Arc::new)
         .collect::<Vec<_>>();
+        let config = self.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+        let epoch_length = config.epoch_length;
+        let epoch_start_height =
+            self.epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
+        let height = chunk_header.height_created();
+        let new_epoch_starts_soon =
+            height + 30 >= epoch_start_height + epoch_length;
         for (to_whom, part_ords) in block_producer_mapping {
             let part_receipt_proofs = receipt_proofs
                 .iter()
                 .filter(|proof| {
                     let proof_shard_id = proof.1.to_shard_id;
-                    cares_about_shard_this_or_next_epoch(
-                        Some(&to_whom),
-                        &prev_block_hash,
-                        proof_shard_id,
-                        false,
-                        &self.shard_tracker,
-                    )
+                    if new_epoch_starts_soon {
+                        warn!(target: "chunks", ?prev_block_hash, height, ?shard_id, ?proof_shard_id, "DISTRIBUTE GODMODE - new epoch starts soon");
+                    }
+                    new_epoch_starts_soon
+                        || cares_about_shard_this_or_next_epoch(
+                            Some(&to_whom),
+                            &prev_block_hash,
+                            proof_shard_id,
+                            false,
+                            &self.shard_tracker,
+                        )
                 })
                 .cloned()
                 .collect();

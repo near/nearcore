@@ -118,13 +118,13 @@ impl ChunkValidator {
                 &chunk_header,
             ) {
                 Ok(()) => {
-                    send_chunk_endorsement_to_block_producers(
-                        &chunk_header,
-                        epoch_manager.as_ref(),
-                        signer,
-                        &network_sender,
-                    );
-                    return Ok(());
+                    // send_chunk_endorsement_to_block_producers(
+                    //     &chunk_header,
+                    //     epoch_manager.as_ref(),
+                    //     signer,
+                    //     &network_sender,
+                    // );
+                    // return Ok(());
                 }
                 Err(err) => {
                     tracing::error!(

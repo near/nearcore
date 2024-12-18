@@ -891,8 +891,7 @@ impl Client {
                 // See comment in similar snipped in `produce_block`
                 debug!(target: "client", ?shard_id, next_height, "Produce chunk: prev block is not caught up");
                 return Err(Error::ChunkProducer(
-                    format!("State for the shard {shard_id} is not downloaded yet, skipping chunk production")
-                        .to_string(),
+                    format!("State for the shard {shard_id} is not downloaded yet, skipping chunk production"),
                 ));
             }
         }
