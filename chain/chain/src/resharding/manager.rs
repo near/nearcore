@@ -218,15 +218,27 @@ impl ReshardingManager {
             let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
             drop(mem_tries);
 
-            let child_chunk_extra = self.get_child_chunk_extra(
-                block,
+            // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
+            // typing. Clarify where it should happen when `State` and
+            // `FlatState` update is implemented.
+            let mut child_chunk_extra = ChunkExtra::clone(&parent_chunk_extra);
+            *child_chunk_extra.state_root_mut() = new_state_root;
+
+            let parent_epoch_id = block.header().epoch_id();
+            let parent_shard_layout = self.epoch_manager.get_shard_layout(&parent_epoch_id)?;
+            let child_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
+            let child_shard_layout = self.epoch_manager.get_shard_layout(&child_epoch_id)?;
+            let child_congestion_info = Self::get_child_congestion_info(
                 &tries,
+                &parent_shard_layout,
                 parent_shard_uid,
                 &parent_chunk_extra,
+                &child_shard_layout,
                 new_shard_uid,
-                new_state_root,
                 retain_mode,
             )?;
+            *child_chunk_extra.congestion_info_mut().expect("The congestion info must exist!") =
+                child_congestion_info;
 
             chain_store_update.save_chunk_extra(block_hash, &new_shard_uid, child_chunk_extra);
             chain_store_update.save_state_transition_data(
@@ -259,49 +271,43 @@ impl ReshardingManager {
         Ok(())
     }
 
-    fn get_child_chunk_extra(
-        &mut self,
-        block: &Block,
+    fn get_child_congestion_info(
         tries: &ShardTries,
+        parent_shard_layout: &ShardLayout,
         parent_shard_uid: ShardUId,
         parent_chunk_extra: &Arc<ChunkExtra>,
-        new_shard_uid: ShardUId,
-        new_state_root: CryptoHash,
+        child_shard_layout: &ShardLayout,
+        child_shard_uid: ShardUId,
         retain_mode: RetainMode,
-    ) -> Result<ChunkExtra, Error> {
-        // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
-        // typing. Clarify where it should happen when `State` and
-        // `FlatState` update is implemented.
-        let mut child_chunk_extra = ChunkExtra::clone(parent_chunk_extra);
-        *child_chunk_extra.state_root_mut() = new_state_root;
+    ) -> Result<CongestionInfo, Error> {
+        let parent_congestion_info =
+            parent_chunk_extra.congestion_info().expect("The congestion info must exist!");
 
-        if let Some(congestion_info) = child_chunk_extra.congestion_info_mut() {
-            // Get the congestion info based on the parent shard.
-            let epoch_id = block.header().epoch_id();
-            let parent_shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-            let parent_state_root = *parent_chunk_extra.state_root();
-            let parent_congestion_info = congestion_info.clone();
-            let parent_trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
-            *congestion_info = Self::get_child_congestion_info(
-                &parent_trie,
-                &parent_shard_layout,
-                parent_congestion_info,
-                retain_mode,
-            )?;
+        // Get the congestion info based on the parent shard.
+        let parent_state_root = *parent_chunk_extra.state_root();
+        let parent_trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
+        let mut child_congestion_info = Self::get_child_congestion_info_not_finalized(
+            &parent_trie,
+            &parent_shard_layout,
+            parent_congestion_info,
+            retain_mode,
+        )?;
 
-            // Set the allowed shard based on the child shard.
-            let next_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
-            let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
-            Self::finalize_allowed_shard(&next_shard_layout, new_shard_uid, congestion_info)?;
-        }
-        Ok(child_chunk_extra)
+        // Set the allowed shard based on the child shard.
+        Self::finalize_allowed_shard(
+            &child_shard_layout,
+            child_shard_uid,
+            &mut child_congestion_info,
+        )?;
+
+        Ok(child_congestion_info)
     }
 
     // Get the congestion info for the child shard. The congestion info can be
     // inferred efficiently from the combination of the parent shard's
     // congestion info and the receipt group metadata, that is available in the
     // parent shard's trie.
-    pub fn get_child_congestion_info(
+    pub fn get_child_congestion_info_not_finalized(
         parent_trie: &dyn TrieAccess,
         parent_shard_layout: &ShardLayout,
         parent_congestion_info: CongestionInfo,
@@ -343,13 +349,13 @@ impl ReshardingManager {
     }
 
     pub fn finalize_allowed_shard(
-        next_shard_layout: &ShardLayout,
-        new_shard_uid: ShardUId,
+        child_shard_layout: &ShardLayout,
+        child_shard_uid: ShardUId,
         congestion_info: &mut CongestionInfo,
     ) -> Result<(), Error> {
-        let all_shards = next_shard_layout.shard_ids().collect_vec();
-        let own_shard = new_shard_uid.shard_id();
-        let own_shard_index = next_shard_layout
+        let all_shards = child_shard_layout.shard_ids().collect_vec();
+        let own_shard = child_shard_uid.shard_id();
+        let own_shard_index = child_shard_layout
             .get_shard_index(own_shard)?
             .try_into()
             .expect("ShardIndex must fit in u64");
