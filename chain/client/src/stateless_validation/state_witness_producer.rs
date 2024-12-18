@@ -268,6 +268,7 @@ impl Client {
         shard_id: ShardId,
     ) -> Result<(ChunkStateTransition, CryptoHash, ContractUpdates), Error> {
         let shard_uid = self.chain.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        let me = self.validator_signer.get().map(|signer| signer.validator_id().clone());
         let stored_chunk_state_transition_data = self
             .chain
             .chain_store()
@@ -278,7 +279,7 @@ impl Client {
             )?
             .ok_or_else(|| {
                 let message = format!(
-                    "Missing transition state proof for block {block_hash} and shard {shard_id}"
+                    "Missing transition state proof for {me:?}, block {block_hash} and shard {shard_id}"
                 );
                 if !cfg!(feature = "shadow_chunk_validation") {
                     log_assert_fail!("{message}");

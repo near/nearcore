@@ -1927,6 +1927,7 @@ impl Chain {
             self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
         let new_head = chain_update.postprocess_block(
+            me,
             &block,
             block_preprocess_info,
             apply_results,
@@ -3273,6 +3274,7 @@ impl Chain {
         let mut chain_update = self.chain_update();
         let results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
         chain_update.apply_chunk_postprocessing(
+            me,
             &block,
             results,
             should_save_state_transition_data,

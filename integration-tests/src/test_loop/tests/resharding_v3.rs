@@ -767,7 +767,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             latest_block_height.set(tip.height);
             let shard_layout =
                 client.epoch_manager.get_epoch_config(&tip.epoch_id).unwrap().shard_layout;
-            println!("Block: {} {:?}", tip.height, block_header.chunk_mask());
+            println!(
+                "Block: {:?} {} {:?}",
+                tip.last_block_hash,
+                tip.height,
+                block_header.chunk_mask()
+            );
             println!("Shard IDs: {:?}", shard_layout.shard_ids().collect_vec());
             // if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
             //     assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
@@ -796,9 +801,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             seen_resharding.set(true);
             println!("Resharded!");
         }
-        // println!("State after resharding:");
-        // print_and_assert_shard_accounts(&clients, &tip);
-        // check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
+        println!("State after resharding:");
+        print_and_assert_shard_accounts(&clients, &tip);
+        check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
         // return true;
         return epoch_height >= 10;
     };
