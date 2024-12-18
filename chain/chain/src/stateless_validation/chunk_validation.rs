@@ -14,7 +14,6 @@ use crate::types::{
 };
 use crate::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use crate::{Chain, ChainStore, ChainStoreAccess};
-use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
@@ -37,7 +36,6 @@ use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
-use node_runtime::bootstrap_congestion_info;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
@@ -723,6 +721,7 @@ pub fn validate_chunk_state_witness(
                 let new_root = trie.retain_split_shard(&boundary_account, retain_mode)?;
 
                 if let Some(congestion_info) = chunk_extra.congestion_info_mut() {
+                    tracing::info!("BOOM doing congestion info");
                     // Get the congestion info based on the parent shard.
                     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
                     let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
@@ -743,26 +742,6 @@ pub fn validate_chunk_state_witness(
                         child_shard_uid,
                         congestion_info,
                     )?;
-
-                    let config = runtime_adapter.get_runtime_config(protocol_version)?;
-                    let new_shard_id = child_shard_uid.shard_id();
-                    *congestion_info = bootstrap_congestion_info(&trie, &config, new_shard_id)?;
-
-                    // Please note the usage of the child shard layout here.
-                    let next_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
-                    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
-                    let all_shards = next_shard_layout.shard_ids().collect_vec();
-                    let own_shard = new_shard_id;
-                    let own_shard_index = next_shard_layout
-                        .get_shard_index(own_shard)?
-                        .try_into()
-                        .expect("ShardIndex must fit in u64");
-
-                    // Use simplified congestion seed. The proper one should be
-                    // block height + shard index, however the block heigh is not
-                    // easily available in all required places.
-                    let congestion_seed = own_shard_index;
-                    congestion_info.finalize_allowed_shard(own_shard, &all_shards, congestion_seed);
                 }
 
                 (child_shard_uid, new_root)
