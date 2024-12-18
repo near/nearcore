@@ -204,7 +204,6 @@ impl ReshardingManager {
                 target: "resharding", ?new_shard_uid, ?retain_mode,
                 "Creating child memtrie by retaining nodes in parent memtrie..."
             );
-
             let mut mem_tries = mem_tries.write().unwrap();
             let mut trie_recorder = TrieRecorder::new();
             let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
@@ -222,10 +221,10 @@ impl ReshardingManager {
             let child_chunk_extra = self.get_child_chunk_extra(
                 block,
                 &tries,
-                &parent_chunk_extra,
-                new_state_root,
-                new_shard_uid,
                 parent_shard_uid,
+                &parent_chunk_extra,
+                new_shard_uid,
+                new_state_root,
                 retain_mode,
             )?;
 
@@ -264,10 +263,10 @@ impl ReshardingManager {
         &mut self,
         block: &Block,
         tries: &ShardTries,
-        parent_chunk_extra: &Arc<ChunkExtra>,
-        new_state_root: CryptoHash,
-        new_shard_uid: ShardUId,
         parent_shard_uid: ShardUId,
+        parent_chunk_extra: &Arc<ChunkExtra>,
+        new_shard_uid: ShardUId,
+        new_state_root: CryptoHash,
         retain_mode: RetainMode,
     ) -> Result<ChunkExtra, Error> {
         // TODO(resharding): set all fields of `ChunkExtra`. Consider stronger
@@ -282,9 +281,9 @@ impl ReshardingManager {
             let parent_shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
             let parent_state_root = *parent_chunk_extra.state_root();
             let parent_congestion_info = congestion_info.clone();
-            let trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
+            let parent_trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
             *congestion_info = Self::get_child_congestion_info(
-                &trie,
+                &parent_trie,
                 &parent_shard_layout,
                 parent_congestion_info,
                 retain_mode,
@@ -298,27 +297,28 @@ impl ReshardingManager {
         Ok(child_chunk_extra)
     }
 
-    // Get the congestion info for the child shard.
-    //
-    // The left child contains all the delayed and buffered receipts from the
-    // parent so it should have identical congestion info.
-    //
-    // The right child contains all the delayed receipts from the parent but it
-    // has no buffered receipts. It's info needs to be computed by subtracting
-    // the parent's buffered receipts from the parent's congestion info.
+    // Get the congestion info for the child shard. The congestion info can be
+    // inferred efficiently from the combination of the parent shard's
+    // congestion info and the receipt group metadata, that is available in the
+    // parent shard's trie.
     pub fn get_child_congestion_info(
-        trie: &dyn TrieAccess,
+        parent_trie: &dyn TrieAccess,
         parent_shard_layout: &ShardLayout,
         parent_congestion_info: CongestionInfo,
         retain_mode: RetainMode,
     ) -> Result<CongestionInfo, Error> {
+        // The left child contains all the delayed and buffered receipts from the
+        // parent so it should have identical congestion info.
         if retain_mode == RetainMode::Left {
             return Ok(parent_congestion_info);
         }
 
+        // The right child contains all the delayed receipts from the parent but it
+        // has no buffered receipts. It's info needs to be computed by subtracting
+        // the parent's buffered receipts from the parent's congestion info.
         let mut congestion_info = parent_congestion_info;
         for shard_id in parent_shard_layout.shard_ids() {
-            let receipt_groups = ReceiptGroupsQueue::load(trie, shard_id)?;
+            let receipt_groups = ReceiptGroupsQueue::load(parent_trie, shard_id)?;
             let Some(receipt_groups) = receipt_groups else {
                 continue;
             };
@@ -335,6 +335,8 @@ impl ReshardingManager {
                 .expect("Buffered size must not exceed congestion info buffered size");
         }
 
+        // The right child does not inherit any buffered receipts. The
+        // congestion info must match this invariant.
         assert_eq!(congestion_info.buffered_receipts_gas(), 0);
 
         Ok(congestion_info)

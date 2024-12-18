@@ -713,22 +713,19 @@ pub fn validate_chunk_state_witness(
                 child_shard_uid,
             ) => {
                 let old_root = *chunk_extra.state_root();
-                let trie = Trie::from_recorded_storage(
-                    PartialStorage { nodes: transition.base_state },
-                    old_root,
-                    true,
-                );
-                let new_root = trie.retain_split_shard(&boundary_account, retain_mode)?;
+                let partial_storage = PartialStorage { nodes: transition.base_state };
+                let parent_trie = Trie::from_recorded_storage(partial_storage, old_root, true);
 
+                // Update the congestion info based on the parent shard. It's
+                // important to do this step before the `retain_split_shard`
+                // because only the parent has the needed information.
                 if let Some(congestion_info) = chunk_extra.congestion_info_mut() {
-                    tracing::info!("BOOM doing congestion info");
                     // Get the congestion info based on the parent shard.
                     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
                     let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
                     let parent_congestion_info = congestion_info.clone();
                     *congestion_info = ReshardingManager::get_child_congestion_info(
-                        // This is iffy - this should be trie parent trie.
-                        &trie,
+                        &parent_trie,
                         &parent_shard_layout,
                         parent_congestion_info,
                         retain_mode,
@@ -743,6 +740,8 @@ pub fn validate_chunk_state_witness(
                         congestion_info,
                     )?;
                 }
+
+                let new_root = parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
 
                 (child_shard_uid, new_root)
             }
