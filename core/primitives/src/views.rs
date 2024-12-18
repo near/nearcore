@@ -1206,6 +1206,7 @@ impl From<Action> for ActionView {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
+            Action::DeployGlobalContract(_) => todo!(),
         }
     }
 }

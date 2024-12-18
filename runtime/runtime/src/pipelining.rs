@@ -185,6 +185,7 @@ impl ReceiptPreparationPipeline {
                 Action::Delegate(_) => {}
                 // No handling for these.
                 Action::CreateAccount(_)
+                | Action::DeployGlobalContract(_)
                 | Action::Transfer(_)
                 | Action::Stake(_)
                 | Action::AddKey(_)

@@ -1,6 +1,7 @@
 //! Settings of the parameters of the runtime.
 
 use near_primitives::account::AccessKeyPermission;
+use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::errors::IntegerOverflowError;
 use near_primitives::version::FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION;
 use near_primitives_core::types::ProtocolVersion;
@@ -83,6 +84,13 @@ pub fn total_send_fees(
             CreateAccount(_) => fees.fee(ActionCosts::create_account).send_fee(sender_is_receiver),
             DeployContract(DeployContractAction { code }) => {
                 let num_bytes = code.len() as u64;
+                fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
+                    + fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
+                        * num_bytes
+            }
+            DeployGlobalContract(DeployGlobalContractAction{ code }) => {
+                let num_bytes = code.len() as u64;
+                // TODO(#12639): introduce separate fees for global contracts
                 fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)
                     + fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
                         * num_bytes
@@ -194,6 +202,12 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         CreateAccount(_) => fees.fee(ActionCosts::create_account).exec_fee(),
         DeployContract(DeployContractAction { code }) => {
             let num_bytes = code.len() as u64;
+            fees.fee(ActionCosts::deploy_contract_base).exec_fee()
+                + fees.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
+        }
+        DeployGlobalContract(DeployGlobalContractAction { code }) => {
+            let num_bytes = code.len() as u64;
+            // TODO(#12639): introduce fees for global contracts
             fees.fee(ActionCosts::deploy_contract_base).exec_fee()
                 + fees.fee(ActionCosts::deploy_contract_byte).exec_fee() * num_bytes
         }
