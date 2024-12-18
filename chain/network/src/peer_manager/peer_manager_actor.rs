@@ -1069,14 +1069,12 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-                for (chunk_validator, partial_witness) in validator_witness_tuple {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
-                    );
-                }
+            NetworkRequests::PartialEncodedStateWitness((chunk_validator, partial_witness)) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &chunk_validator,
+                    RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitnessForward(

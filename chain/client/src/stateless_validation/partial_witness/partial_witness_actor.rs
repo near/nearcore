@@ -284,7 +284,7 @@ impl PartialWitnessActor {
 
                 // Send the parts to the corresponding chunk validator owners.
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedStateWitness(vec![validator_witness_tuple]),
+                    NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
                 ));
             },
         );
