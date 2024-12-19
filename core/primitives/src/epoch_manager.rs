@@ -523,7 +523,7 @@ macro_rules! include_config {
 
 /// List of (chain_id, version, JSON content) tuples used to initialize the EpochConfigStore.
 static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
-    // Epoch configs for mainnet (genesis protool version is 29).
+    // Epoch configs for mainnet (genesis protocol version is 29).
     include_config!("mainnet", 29, "29.json"),
     include_config!("mainnet", 48, "48.json"),
     include_config!("mainnet", 56, "56.json"),
@@ -536,7 +536,7 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 100, "100.json"),
     include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
-    // Epoch configs for testnet (genesis protool version is 29).
+    // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
     include_config!("testnet", 48, "48.json"),
     include_config!("testnet", 56, "56.json"),

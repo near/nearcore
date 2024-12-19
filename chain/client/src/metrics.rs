@@ -602,12 +602,12 @@ pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_MEMORY_USED: LazyLock<IntGauge
         .unwrap()
     });
 
-pub(crate) static BLOCK_PRODUCER_INSUFFICIENT_ENDORSEMENT_CHUNK_COUNT: LazyLock<CounterVec> =
+pub(crate) static BLOCK_PRODUCER_EXCLUDED_CHUNKS_COUNT: LazyLock<CounterVec> =
     LazyLock::new(|| {
         try_create_counter_vec(
-            "near_block_producer_insufficient_endorsement_chunk_count",
+            "near_block_producer_excluded_chunks_count",
             "Number of chunks excluded from the block due to insufficient chunk endorsements",
-            &["shard_id"],
+            &["shard_id", "reason"],
         )
         .unwrap()
     });

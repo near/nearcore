@@ -16,8 +16,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives_core::types::{ShardId, ShardIndex};
 use near_schema_checker_lib::ProtocolSchema;
-#[cfg(feature = "test_utils")]
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fmt, str};
 
@@ -359,7 +357,7 @@ impl ShardLayout {
     /// version and default boundary accounts. It should be used for tests only.
     /// The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
-    #[cfg(feature = "test_utils")]
+    #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
 
@@ -374,8 +372,10 @@ impl ShardLayout {
     /// version and provided boundary accounts. It should be used for tests
     /// only. The shard ids are deterministic but arbitrary in order to test the
     /// non-contiguous ShardIds.
-    #[cfg(feature = "test_utils")]
+    #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
+        use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+
         let num_shards = (boundary_accounts.len() + 1) as u64;
 
         // In order to test the non-contiguous shard ids randomize the order and
@@ -403,7 +403,7 @@ impl ShardLayout {
 
     /// Test-only helper to create a simple multi-shard ShardLayout with the provided boundaries.
     /// The shard ids are deterministic but arbitrary in order to test the non-contiguous ShardIds.
-    #[cfg(feature = "test_utils")]
+    #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn simple_v1(boundary_accounts: &[&str]) -> ShardLayout {
         // TODO these test methods should go into a different namespace
         let boundary_accounts = boundary_accounts.iter().map(|a| a.parse().unwrap()).collect();
@@ -582,7 +582,7 @@ impl ShardLayout {
         )
     }
 
-    /// Maps an account to the shard that it belongs to given a shard layout
+    /// Maps an account to the shard_id that it belongs to in this shard_layout
     /// For V0, maps according to hash of account id
     /// For V1 and V2, accounts are divided to ranges, each range of account is mapped to a shard.
     pub fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -598,8 +598,15 @@ impl ShardLayout {
         }
     }
 
+    /// Maps an account to the shard_uid that it belongs to in this shard_layout
+    #[inline]
+    pub fn account_id_to_shard_uid(&self, account_id: &AccountId) -> ShardUId {
+        ShardUId::from_shard_id_and_layout(self.account_id_to_shard_id(account_id), self)
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
+    #[inline]
     pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
         self.get_children_shards_ids(parent_shard_id).map(|shards| {
             shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, self)).collect()
@@ -850,14 +857,6 @@ fn validate_and_derive_shard_parent_map_v2(
         shards_parent_map.keys().copied().collect_vec()
     );
     shards_parent_map
-}
-
-/// Maps an account to the shard that it belongs to given a shard_layout
-pub fn account_id_to_shard_uid(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardUId {
-    ShardUId::from_shard_id_and_layout(
-        shard_layout.account_id_to_shard_id(account_id),
-        shard_layout,
-    )
 }
 
 /// `ShardUId` is a unique representation for shards from different shard layouts.

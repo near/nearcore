@@ -1,8 +1,8 @@
 use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_layout};
-use super::LoopActionFn;
+use super::{retrieve_client_actor, LoopActionFn};
 use crate::test_loop::env::TestData;
 use crate::test_loop::utils::sharding::get_memtrie_for_shard;
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
+use near_async::test_loop::data::TestLoopData;
 use near_chain::types::Tip;
 use near_chain::ChainStoreAccess;
 use near_client::client_actor::ClientActorInner;
@@ -28,10 +28,11 @@ pub fn check_receipts_presence_at_resharding_block(
     kind: ReceiptKind,
 ) -> LoopActionFn {
     Box::new(
-        move |_: &[TestData],
+        move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = test_loop_data.get_mut(&client_handle);
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
 
             if !next_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
@@ -52,10 +53,11 @@ pub fn check_receipts_presence_after_resharding_block(
     kind: ReceiptKind,
 ) -> LoopActionFn {
     Box::new(
-        move |_: &[TestData],
+        move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
-              client_handle: TestLoopDataHandle<ClientActorInner>| {
-            let client_actor = test_loop_data.get_mut(&client_handle);
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
 
             if !this_block_has_new_shard_layout(client_actor.client.epoch_manager.as_ref(), &tip) {
