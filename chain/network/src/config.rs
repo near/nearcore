@@ -90,7 +90,7 @@ pub struct Tier1 {
     /// TIER1 can consists of hundreds of nodes, so it is not feasible to connect to all of them at
     /// once.
     pub new_connections_per_attempt: u64,
-    /// Interval between broacasts of the list of validator's proxies.
+    /// Interval between broadcasts of the list of validator's proxies.
     /// Before the broadcast, validator tries to establish all the missing connections to proxies.
     pub advertise_proxies_interval: time::Duration,
     /// Support for gradual TIER1 feature rollout:
