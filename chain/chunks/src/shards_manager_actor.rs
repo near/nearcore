@@ -616,24 +616,18 @@ impl ShardsManagerActor {
         let config = self.epoch_manager.get_epoch_config(&epoch_id).unwrap();
         let epoch_length = config.epoch_length;
         let epoch_start_height = self.epoch_manager.get_epoch_start_height(parent_hash).unwrap();
-        let new_epoch_starts_soon = height + 30 >= epoch_start_height + epoch_length;
         self.epoch_manager
             .shard_ids(&epoch_id)
             .unwrap()
             .into_iter()
             .filter(|chunk_shard_id| {
-                if new_epoch_starts_soon {
-                    warn!(target: "chunks", ?parent_hash, height, ?chunk_shard_id, "REQUEST GODMODE - new epoch starts soon");
-                }
-                
-                new_epoch_starts_soon
-                    || cares_about_shard_this_or_next_epoch(
-                        me,
-                        parent_hash,
-                        *chunk_shard_id,
-                        true,
-                        &self.shard_tracker,
-                    )
+                cares_about_shard_this_or_next_epoch(
+                    me,
+                    parent_hash,
+                    *chunk_shard_id,
+                    true,
+                    &self.shard_tracker,
+                )
             })
             .collect::<HashSet<_>>()
     }
@@ -1995,15 +1989,9 @@ impl ShardsManagerActor {
         let epoch_length = config.epoch_length;
         let epoch_start_height =
             self.epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
-        let height = chunk_entry.header.height_created();
-        let new_epoch_starts_soon =
-            height + 30 >= epoch_start_height + epoch_length;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if !chunk_entry.receipts.contains_key(&shard_id) {
-                if new_epoch_starts_soon {
-                    warn!(target: "chunks", ?prev_block_hash, height, ?shard_id, "HAS_ALL_RECEIPTS GODMODE - new epoch starts soon");
-                }
-                if new_epoch_starts_soon || need_receipt(prev_block_hash, shard_id, me, &self.shard_tracker) {
+                if need_receipt(prev_block_hash, shard_id, me, &self.shard_tracker) {
                     return Ok(false);
                 }
             }
@@ -2118,25 +2106,18 @@ impl ShardsManagerActor {
         let epoch_length = config.epoch_length;
         let epoch_start_height =
             self.epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
-        let height = chunk_header.height_created();
-        let new_epoch_starts_soon =
-            height + 30 >= epoch_start_height + epoch_length;
         for (to_whom, part_ords) in block_producer_mapping {
             let part_receipt_proofs = receipt_proofs
                 .iter()
                 .filter(|proof| {
                     let proof_shard_id = proof.1.to_shard_id;
-                    if new_epoch_starts_soon {
-                        warn!(target: "chunks", ?prev_block_hash, height, ?shard_id, ?proof_shard_id, "DISTRIBUTE GODMODE - new epoch starts soon");
-                    }
-                    new_epoch_starts_soon
-                        || cares_about_shard_this_or_next_epoch(
-                            Some(&to_whom),
-                            &prev_block_hash,
-                            proof_shard_id,
-                            false,
-                            &self.shard_tracker,
-                        )
+                    cares_about_shard_this_or_next_epoch(
+                        Some(&to_whom),
+                        &prev_block_hash,
+                        proof_shard_id,
+                        false,
+                        &self.shard_tracker,
+                    )
                 })
                 .cloned()
                 .collect();

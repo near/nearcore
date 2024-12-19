@@ -140,10 +140,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
     );
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
     let config = epoch_manager.get_epoch_config(&epoch_id).unwrap();
-    let epoch_length = config.epoch_length;
     let epoch_start_height = epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
-    let height = header.height_created();
-    let new_epoch_starts_soon = height + 30 >= epoch_start_height + epoch_length;
     let parts = parts
         .filter(|entry| {
             cares_about_shard
@@ -153,11 +150,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
         .collect();
     let mut prev_outgoing_receipts: Vec<_> = receipts
         .filter(|receipt| {
-            if new_epoch_starts_soon {
-                tracing::warn!(target: "chunks", ?prev_block_hash, height, to_shard_id = ?receipt.1.to_shard_id, "MAKE_CHUNK GODMODE - new epoch starts soon");
-            }
-            new_epoch_starts_soon
-                || cares_about_shard
+            cares_about_shard
                 || need_receipt(prev_block_hash, receipt.1.to_shard_id, me, shard_tracker)
         })
         .cloned()

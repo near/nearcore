@@ -252,7 +252,8 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness
-            | ProtocolFeature::CurrentEpochStateSync => 73,
+            | ProtocolFeature::CurrentEpochStateSync
+            | ProtocolFeature::BandwidthScheduler => 73,
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::SimpleNightshadeV4 => 74,
@@ -273,7 +274,6 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
             ProtocolFeature::RelaxedChunkValidation => 146,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
-            ProtocolFeature::BandwidthScheduler => 148,
             ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.
         }
