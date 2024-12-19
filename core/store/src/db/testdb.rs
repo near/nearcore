@@ -154,11 +154,16 @@ impl Database for TestDB {
         Ok(())
     }
 
-    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
+    fn copy_if_test(&self, columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         let mut copy = Self::default();
         {
             let mut db = copy.db.write().unwrap();
             for (col, map) in self.db.read().unwrap().iter() {
+                if let Some(keep) = columns_to_keep {
+                    if !keep.contains(&col) {
+                        continue;
+                    }
+                }
                 let new_col = &mut db[col];
                 for (key, value) in map.iter() {
                     new_col.insert(key.clone(), value.clone());

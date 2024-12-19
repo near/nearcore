@@ -262,7 +262,7 @@ pub trait Database: Sync + Send {
 
     /// If this is a test database, return a copy of the entire database.
     /// Otherwise return None.
-    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
+    fn copy_if_test(&self, _columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         None
     }
 }
