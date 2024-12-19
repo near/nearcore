@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
-use super::{ONE_NEAR, TGAS};
+use super::{get_node_data, ONE_NEAR, TGAS};
 use near_async::futures::FutureSpawnerExt;
 use std::cell::Cell;
 
@@ -399,16 +399,6 @@ pub fn get_shared_block_hash(node_datas: &[TestData], test_loop: &TestLoopV2) ->
         .min_by_key(|&(height, _)| height)
         .unwrap();
     block_hash
-}
-
-/// Returns the test data of for the node with the given account id.
-pub fn get_node_data<'a>(node_datas: &'a [TestData], account_id: &AccountId) -> &'a TestData {
-    for node_data in node_datas {
-        if &node_data.account_id == account_id {
-            return node_data;
-        }
-    }
-    panic!("client not found");
 }
 
 /// Run a transaction until completion and assert that the result is "success".
