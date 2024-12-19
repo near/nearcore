@@ -698,7 +698,7 @@ impl Trie {
             storage,
             memtries,
             root,
-            charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
+            charge_gas_for_trie_node_access: false, // flat_storage_chunk_view.is_none(),
             flat_storage_chunk_view,
             accounting_cache,
             recorder: None,

@@ -21,7 +21,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, BlockHeightDelta, ShardId};
+use near_primitives::types::{AccountId, BlockExtra, BlockHeight, BlockHeightDelta, ShardId};
 use near_primitives::views::LightClientBlockView;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -80,6 +80,7 @@ impl<'a> ChainUpdate<'a> {
 
     pub(crate) fn apply_chunk_postprocessing(
         &mut self,
+        me: &Option<AccountId>,
         block: &Block,
         apply_results: Vec<ShardUpdateResult>,
         should_save_state_transition_data: bool,
@@ -87,7 +88,7 @@ impl<'a> ChainUpdate<'a> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing", height=block.header().height()).entered();
         Self::bandwidth_scheduler_state_sanity_check(&apply_results);
         for result in apply_results {
-            self.process_apply_chunk_result(block, result, should_save_state_transition_data)?;
+            self.process_apply_chunk_result(me, block, result, should_save_state_transition_data)?;
         }
         Ok(())
     }
@@ -95,6 +96,7 @@ impl<'a> ChainUpdate<'a> {
     /// Process results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
+        me: &Option<AccountId>,
         block: &Block,
         result: ShardUpdateResult,
         should_save_state_transition_data: bool,
@@ -152,6 +154,7 @@ impl<'a> ChainUpdate<'a> {
                     outcome_paths,
                 );
                 if should_save_state_transition_data {
+                    println!("Saving STD for {:?} {:?} {}", me, block_hash, shard_id);
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
                         shard_id,
@@ -182,6 +185,7 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                 if should_save_state_transition_data {
+                    println!("Saving STD for {:?} {:?} {}", me, block_hash, shard_uid.shard_id());
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
                         shard_uid.shard_id(),
@@ -223,6 +227,7 @@ impl<'a> ChainUpdate<'a> {
     )]
     pub(crate) fn postprocess_block(
         &mut self,
+        me: &Option<AccountId>,
         block: &Block,
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
@@ -235,7 +240,7 @@ impl<'a> ChainUpdate<'a> {
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
-        self.apply_chunk_postprocessing(block, results, should_save_state_transition_data)?;
+        self.apply_chunk_postprocessing(me, block, results, should_save_state_transition_data)?;
 
         let BlockPreprocessInfo {
             is_caught_up,

@@ -149,6 +149,7 @@ pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
     // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
     DBCol::DbVersion,
     DBCol::BlockMisc,
+    DBCol::BlockHeader,
     // Flat storage columns.
     DBCol::FlatState,
     DBCol::FlatStateChanges,
