@@ -196,6 +196,8 @@ extern "C" {
     fn burn_gas(gas: u64);
 }
 
+const TGAS: u64 = 1_000_000_000_000;
+
 macro_rules! ext_test {
     ($export_func:ident, $call_ext:expr) => {
         #[unsafe(no_mangle)]
@@ -1675,4 +1677,217 @@ pub unsafe fn do_function_call_with_args_of_size() {
         gas_fixed,
         gas_weight,
     );
+}
+
+/// Used by the `max_receipt_size_promise_return` test.
+/// Create promise DAG:
+/// A[self.max_receipt_size_promise_return_method2()] -then-> B[self.mark_test_completed()]
+#[no_mangle]
+pub unsafe fn max_receipt_size_promise_return_method1() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+
+    current_account_id(0);
+    let current_account = vec![0u8; register_len(0) as usize];
+    read_register(0, current_account.as_ptr() as _);
+
+    let method2 = b"max_receipt_size_promise_return_method2";
+    let promise_a = promise_create(
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        method2.len() as u64,
+        method2.as_ptr() as u64,
+        args.len() as u64, // Forward the args
+        args.as_ptr() as u64,
+        0,
+        200 * TGAS,
+    );
+
+    let empty_args: &[u8] = &[];
+    let test_completed_method = b"mark_test_completed";
+    let _promise_b = promise_then(
+        promise_a,
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        test_completed_method.len() as u64,
+        test_completed_method.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        0,
+        20 * TGAS,
+    );
+}
+
+/// Do a promise_return with a large receipt.
+/// The receipt has a single FunctionCall action with large args.
+/// Creates DAG:
+/// C[self.noop(large_args)] -then-> B[self.mark_test_completed()]
+#[no_mangle]
+pub unsafe fn max_receipt_size_promise_return_method2() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["args_size"].as_u64().unwrap();
+
+    current_account_id(0);
+    let current_account = vec![0u8; register_len(0) as usize];
+    read_register(0, current_account.as_ptr() as _);
+
+    let large_args = vec![0u8; args_size as usize];
+    let noop_method = b"noop";
+    let promise_c = promise_create(
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        noop_method.len() as u64,
+        noop_method.as_ptr() as u64,
+        large_args.len() as u64,
+        large_args.as_ptr() as u64,
+        0,
+        20 * TGAS,
+    );
+
+    promise_return(promise_c);
+}
+
+/// Mark a test as completed
+#[no_mangle]
+pub unsafe fn mark_test_completed() {
+    let key = b"test_completed";
+    let value = b"true";
+    storage_write(
+        key.len() as u64,
+        key.as_ptr() as u64,
+        value.len() as u64,
+        value.as_ptr() as u64,
+        0,
+    );
+}
+
+// Assert that the test has been marked as completed.
+// (Make sure that the method mark_test_completed was executed)
+#[no_mangle]
+pub unsafe fn assert_test_completed() {
+    let key = b"test_completed";
+    let read_res = storage_read(key.len() as u64, key.as_ptr() as u64, 0);
+    if read_res != 1 {
+        let panic_msg = b"assert_test_completed failed - can't read test_completed marker";
+        panic_utf8(panic_msg.len() as u64, panic_msg.as_ptr() as u64);
+    }
+
+    let value = vec![0u8; register_len(0) as usize];
+    read_register(0, value.as_ptr() as u64);
+    if value != b"true" {
+        let panic_msg = b"assert_test_completed failed - test_completed value is not true";
+        panic_utf8(panic_msg.len() as u64, panic_msg.as_ptr() as u64);
+    }
+}
+
+/// Returns a value of size "value_size".
+/// Accepts json args, e.g {"value_size": 1000}
+#[no_mangle]
+pub unsafe fn return_large_value() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["value_size"].as_u64().unwrap();
+
+    let large_value = vec![0u8; args_size as usize];
+    value_return(large_value.len() as u64, large_value.as_ptr() as u64);
+}
+
+/// Used in the `max_receipt_size_value_return` test.
+#[no_mangle]
+pub unsafe fn max_receipt_size_value_return_method() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+
+    current_account_id(0);
+    let current_account = vec![0u8; register_len(0) as usize];
+    read_register(0, current_account.as_ptr() as _);
+
+    let large_value_method = b"return_large_value";
+    let promise_a = promise_create(
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        large_value_method.len() as u64,
+        large_value_method.as_ptr() as u64,
+        args.len() as u64,
+        args.as_ptr() as u64,
+        0,
+        250 * TGAS,
+    );
+
+    let test_completed_method = b"mark_test_completed";
+    let empty_args: &[u8] = &[];
+    let _promise_b = promise_then(
+        promise_a,
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        test_completed_method.len() as u64,
+        test_completed_method.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        0,
+        20 * TGAS,
+    );
+}
+
+#[no_mangle]
+pub unsafe fn yield_with_large_args() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["args_size"].as_u64().unwrap();
+
+    let large_args = vec![0u8; args_size as usize];
+    let method_name = b"noop";
+    let data_id_register = 0;
+    promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        large_args.len() as u64,
+        large_args.as_ptr() as u64,
+        0,
+        1,
+        data_id_register,
+    );
+}
+
+#[no_mangle]
+pub unsafe fn resume_with_large_payload() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let payload_size = input_args_json["payload_size"].as_u64().unwrap();
+
+    let empty_args: &[u8] = &[];
+    let method_name = b"noop";
+    let data_id_register = 0;
+    promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        20 * TGAS,
+        0,
+        data_id_register,
+    );
+
+    let data_id = vec![0u8; register_len(data_id_register) as usize];
+    read_register(data_id_register, data_id.as_ptr() as u64);
+
+    let resolve_data = vec![0u8; payload_size as usize];
+    let success = promise_yield_resume(
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        resolve_data.len() as u64,
+        resolve_data.as_ptr() as u64,
+    );
+    assert_eq!(success, 1);
 }

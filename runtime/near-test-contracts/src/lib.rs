@@ -125,6 +125,10 @@ pub fn estimator_contract() -> &'static [u8] {
     include_bytes!(env!("CONTRACT_estimator_contract"))
 }
 
+pub fn congestion_control_test_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_congestion_control_test_contract"))
+}
+
 #[test]
 fn smoke_test() {
     assert!(!rs_contract().is_empty());
@@ -134,6 +138,7 @@ fn smoke_test() {
     assert!(!fuzzing_contract().is_empty());
     assert!(!backwards_compatible_rs_contract().is_empty());
     assert!(!ft_contract().is_empty());
+    assert!(!congestion_control_test_contract().is_empty());
 }
 
 pub struct LargeContract {

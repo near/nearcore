@@ -146,7 +146,7 @@ fn setup_account(
 /// it can be called successfully.
 fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
     let block = env.clients[0].chain.get_head_block().unwrap();
-    let contract = near_test_contracts::rs_contract();
+    let contract = near_test_contracts::congestion_control_test_contract();
 
     let signer_id: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
     let signer = InMemorySigner::test_signer(&signer_id);
@@ -787,8 +787,8 @@ fn measure_tx_limit(
     let congestion_level = congestion_info.localized_congestion_level(&config);
     // congestion should be non-trivial and below the upper limit
     assert!(
-        incoming_congestion > upper_limit_congestion / 4.0,
-        "{incoming_congestion} > {upper_limit_congestion} / 4 failed, {congestion_info:?}"
+        incoming_congestion > upper_limit_congestion / 2.0,
+        "{incoming_congestion} > {upper_limit_congestion} / 2 failed, {congestion_info:?}"
     );
     assert!(
         congestion_level < upper_limit_congestion,
