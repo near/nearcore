@@ -2,7 +2,7 @@
 # them at earliest convenience :)
 # Also in addition to this, the `nextest-integration` test is currently disabled on macos
 platform_excludes := if os() == "macos" {
-    "--exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
+    "--exclude runtime-params-estimator --exclude estimator-warehouse --exclude integration-tests"
 } else if os() == "windows" {
     "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse --exclude integration-tests"
 } else {
