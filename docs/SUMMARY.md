@@ -23,7 +23,7 @@
   - [Malicious producers and phase 2](./architecture/next/malicious_chunk_producer_and_phase2.md)
 - [Storage](./architecture/storage.md)
   - [Storage Request Flow](./architecture/storage/flow.md)
-  - [Trie](./architecture/storage/trie.md)
+  - [Trie Storage](./architecture/storage/trie_storage.md)
   - [Database Format](./architecture/storage/database.md)
   - [Flat Storage](./architecture/storage/flat_storage.md)
 - [Network](./architecture/network.md)
