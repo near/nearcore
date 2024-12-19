@@ -251,9 +251,12 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementV2
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
-            ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
+            ProtocolFeature::ExcludeContractCodeFromStateWitness
+            | ProtocolFeature::CurrentEpochStateSync
+            | ProtocolFeature::BandwidthScheduler => 73,
             ProtocolFeature::FixStakingThreshold
-            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 74,
+            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::SimpleNightshadeV4 => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -268,12 +271,9 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            ProtocolFeature::CurrentEpochStateSync => 144,
-            ProtocolFeature::SimpleNightshadeV4 => 145,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
             ProtocolFeature::RelaxedChunkValidation => 146,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
-            ProtocolFeature::BandwidthScheduler => 148,
             ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.
         }
