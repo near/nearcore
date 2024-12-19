@@ -968,7 +968,6 @@ fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_vers
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(base_shard_layout_version)
-        .allow_negative_refcount(true)
         .deploy_test_contract(receiver_account.clone())
         .limit_outgoing_gas(true)
         .add_loop_action(call_burn_gas_contract(
