@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use itertools::Itertools;
 use lru::LruCache;
@@ -65,7 +65,7 @@ pub struct PartialWitnessActor {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime: Arc<dyn RuntimeAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
-    partial_witness_tracker: PartialEncodedStateWitnessTracker,
+    partial_witness_tracker: Arc<Mutex<PartialEncodedStateWitnessTracker>>,
     partial_deploys_tracker: PartialEncodedContractDeploysTracker,
     /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
     state_witness_tracker: ChunkStateWitnessTracker,
@@ -169,8 +169,10 @@ impl PartialWitnessActor {
         compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
-        let partial_witness_tracker =
-            PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone());
+        let partial_witness_tracker = Arc::new(Mutex::new(PartialEncodedStateWitnessTracker::new(
+            client_sender,
+            epoch_manager.clone(),
+        )));
         Self {
             network_adapter,
             my_signer,
@@ -405,6 +407,7 @@ impl PartialWitnessActor {
         &mut self,
         partial_witness: PartialEncodedStateWitness,
     ) -> Result<(), Error> {
+        tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
         let signer = self.my_validator_signer()?;
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
@@ -429,18 +432,34 @@ impl PartialWitnessActor {
         let network_adapter = self.network_adapter.clone();
 
         self.partial_witness_spawner.spawn("handle_partial_encoded_state_witness", move || {
-            tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
-
             // Validate the partial encoded state witness and forward the part to all the chunk validators.
-            if validate_partial_encoded_state_witness(
+            let validation = validate_partial_encoded_state_witness(
                 epoch_manager.as_ref(),
                 &partial_witness,
                 &signer,
                 runtime_adapter.store(),
-            ).unwrap() {
-                forward_state_witness_part_v2(partial_witness,
-                    target_chunk_validators,
-                    network_adapter).unwrap();
+            );
+            match validation {
+                Ok(true) => {
+                    forward_state_witness_part_v2(
+                        partial_witness,
+                        target_chunk_validators,
+                        network_adapter,
+                    );
+                }
+                Ok(false) => {
+                    tracing::warn!(
+                        target: "client",
+                        "Received partial encoded state witness that is not valid"
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        target: "client",
+                        "Encountered error during validation: {}",
+                        err
+                    );
+                }
             }
         });
 
@@ -455,15 +474,42 @@ impl PartialWitnessActor {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
 
         let signer = self.my_validator_signer()?;
-        // Validate the partial encoded state witness and store the partial encoded state witness.
-        if validate_partial_encoded_state_witness(
-            self.epoch_manager.as_ref(),
-            &partial_witness,
-            &signer,
-            self.runtime.store(),
-        )? {
-            self.partial_witness_tracker.store_partial_encoded_state_witness(partial_witness)?;
-        }
+        let partial_witness_tracker = self.partial_witness_tracker.clone();
+        let epoch_manager = self.epoch_manager.clone();
+        let runtime_adapter = self.runtime.clone();
+        self.partial_witness_spawner.spawn(
+            "handle_partial_encoded_state_witness_forward",
+            move || {
+                // Validate the partial encoded state witness and store the partial encoded state witness.
+                let validation = validate_partial_encoded_state_witness(
+                    epoch_manager.as_ref(),
+                    &partial_witness,
+                    &signer,
+                    runtime_adapter.store(),
+                );
+                match validation {
+                    Ok(true) => {
+                        let mut partial_witness_tracker = partial_witness_tracker.lock().unwrap();
+                        partial_witness_tracker
+                            .store_partial_encoded_state_witness(partial_witness)
+                            .unwrap();
+                    }
+                    Ok(false) => {
+                        tracing::warn!(
+                            target: "client",
+                            "Received partial encoded state witness that is not valid"
+                        );
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "client",
+                            "Encountered error during validation: {}",
+                            err
+                        );
+                    }
+                }
+            },
+        );
 
         Ok(())
     }
@@ -605,8 +651,11 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
-        self.partial_witness_tracker
-            .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
+        {
+            let mut partial_witness_tracker = self.partial_witness_tracker.lock().unwrap();
+            partial_witness_tracker
+                .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
+        }
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager
@@ -774,7 +823,8 @@ impl PartialWitnessActor {
     ) -> Result<(), Error> {
         let key = response.chunk_production_key().clone();
         let contracts = response.decompress_contracts()?;
-        self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
+        let mut partial_witness_tracker = self.partial_witness_tracker.lock().unwrap();
+        partial_witness_tracker.store_accessed_contract_codes(key, contracts)
     }
 
     fn my_validator_signer(&self) -> Result<Arc<ValidatorSigner>, Error> {
@@ -834,12 +884,11 @@ fn forward_state_witness_part_v2(
     partial_witness: PartialEncodedStateWitness,
     target_chunk_validators: Vec<AccountId>,
     network_adapter: PeerManagerAdapter,
-) -> Result<(), Error> {
+) {
     network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
         NetworkRequests::PartialEncodedStateWitnessForward(
             target_chunk_validators,
             partial_witness,
         ),
     ));
-    Ok(())
 }
