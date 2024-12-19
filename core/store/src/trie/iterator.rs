@@ -32,7 +32,6 @@ impl Crumb {
             return;
         }
         self.status = match (&self.status, &self.node.node) {
-            (_, &TrieNode::Empty) => CrumbStatus::Exiting,
             (&CrumbStatus::Entering, _) => CrumbStatus::At,
             (&CrumbStatus::At, &TrieNode::Branch(_, _)) => CrumbStatus::AtChild(0),
             (&CrumbStatus::AtChild(x), &TrieNode::Branch(_, _)) if x < 15 => {
@@ -155,7 +154,6 @@ impl<'a> DiskTrieIterator<'a> {
             let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
             prev_prefix_boundary = prefix_boundary;
             match &node.node {
-                TrieNode::Empty => break,
                 TrieNode::Leaf(leaf_key, _) => {
                     let existing_key = NibbleSlice::from_encoded(leaf_key).0;
                     if !check_ext_key(&key, &existing_key) {
@@ -248,7 +246,6 @@ impl<'a> DiskTrieIterator<'a> {
                     TrieNode::Branch(_, _) => {
                         self.key_nibbles.pop();
                     }
-                    _ => {}
                 }
                 IterStep::PopTrail
             }
