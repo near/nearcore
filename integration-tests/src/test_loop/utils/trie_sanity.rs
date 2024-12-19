@@ -347,6 +347,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_sh
     assert_eq!(children_shard_uids.len(), 2);
 
     let store = client.chain.chain_store.store().trie_store();
+    let mut checked_any = false;
     for kv in store.store().iter_raw_bytes(DBCol::State) {
         let (key, value) = kv.unwrap();
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
@@ -355,6 +356,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_sh
         if shard_uid != parent_shard_uid {
             continue;
         }
+        checked_any = true;
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
         let (value, _) = decode_value_with_rc(&value);
         let parent_value = store.get(parent_shard_uid, &node_hash);
@@ -366,4 +368,5 @@ pub fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_sh
             assert_eq!(&child_value.unwrap()[..], value.unwrap());
         }
     }
+    assert!(checked_any);
 }
