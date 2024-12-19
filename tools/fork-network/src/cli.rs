@@ -903,7 +903,9 @@ impl ForkNetworkCommand {
         // This is based on the assumption that epoch length is part of genesis config and not epoch config.
         near_config.genesis.config.epoch_length = epoch_length;
 
-        let boundary_account = "part".parse::<AccountId>().unwrap();
+        // let boundary_account = "part".parse::<AccountId>().unwrap();
+        let boundary_account = "5urora".parse::<AccountId>().unwrap();
+
         let epoch_config = self.override_epoch_configs(
             genesis_protocol_version,
             num_seats,
