@@ -723,7 +723,7 @@ pub fn validate_chunk_state_witness(
                     // Get the congestion info based on the parent shard.
                     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
                     let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-                    let parent_congestion_info = congestion_info.clone();
+                    let parent_congestion_info = *congestion_info;
                     *congestion_info = ReshardingManager::get_child_congestion_info_not_finalized(
                         &parent_trie,
                         &parent_shard_layout,
