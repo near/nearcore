@@ -42,6 +42,20 @@ pub struct ChunkInclusionTracker {
     banned_chunk_producers: LruCache<(EpochId, AccountId), ()>,
 }
 
+enum ChunkExclusionReason {
+    ChunkUnavailable,
+    InsufficientEndorsement,
+}
+
+impl ChunkExclusionReason {
+    fn prometheus_label_value(&self) -> &'static str {
+        match self {
+            Self::ChunkUnavailable => "chunk_unavailable",
+            Self::InsufficientEndorsement => "insufficient_endorsement",
+        }
+    }
+}
+
 impl ChunkInclusionTracker {
     pub fn new() -> Self {
         Self {
@@ -208,12 +222,13 @@ impl ChunkInclusionTracker {
         Ok((chunk_info.chunk_producer.clone(), chunk_info.received_time))
     }
 
-    pub fn record_endorsement_metrics(&self, prev_block_hash: &CryptoHash) {
-        let Some(entry) = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash) else {
-            return;
-        };
-
-        for (shard_id, chunk_hash) in entry {
+    pub fn record_endorsement_metrics(&self, prev_block_hash: &CryptoHash, all_shards: &[ShardId]) {
+        let maybe_entry = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash);
+        for shard_id in all_shards {
+            let Some(chunk_hash) = maybe_entry.and_then(|entry| entry.get(shard_id)) else {
+                record_chunk_excluded_metric(ChunkExclusionReason::ChunkUnavailable, *shard_id);
+                continue;
+            };
             let Some(chunk_info) = self.chunk_hash_to_chunk_info.get(chunk_hash) else {
                 log_assert_fail!("Chunk info is missing for shard {shard_id} chunk {chunk_hash:?}");
                 continue;
@@ -234,10 +249,17 @@ impl ChunkInclusionTracker {
                         as f64,
                 );
             if !stats.is_endorsed {
-                metrics::BLOCK_PRODUCER_INSUFFICIENT_ENDORSEMENT_CHUNK_COUNT
-                    .with_label_values(label_values)
-                    .inc();
+                record_chunk_excluded_metric(
+                    ChunkExclusionReason::InsufficientEndorsement,
+                    *shard_id,
+                );
             }
         }
     }
+}
+
+fn record_chunk_excluded_metric(reason: ChunkExclusionReason, shard_id: ShardId) {
+    metrics::BLOCK_PRODUCER_EXCLUDED_CHUNKS_COUNT
+        .with_label_values(&[&shard_id.to_string(), reason.prometheus_label_value()])
+        .inc();
 }

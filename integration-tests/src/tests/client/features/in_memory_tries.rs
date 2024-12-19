@@ -50,7 +50,6 @@ fn slow_test_in_memory_trie_node_consistency() {
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
         .add_user_accounts_simple(&accounts, initial_balance)
-        .gas_prices_free()
         .gas_limit_one_petagas()
         .transaction_validity_period(100)
         .build();

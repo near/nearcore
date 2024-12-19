@@ -616,17 +616,17 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(prev_shard_ids)
     }
 
-    fn get_prev_shard_id(
+    fn get_prev_shard_id_from_prev_hash(
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardId, ShardIndex), Error> {
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         // This is not correct if there was a resharding event in between
         // the previous and current block.
         let prev_shard_id = shard_id;
         let prev_shard_index = shard_layout.get_shard_index(prev_shard_id)?;
-        Ok((prev_shard_id, prev_shard_index))
+        Ok((shard_layout, prev_shard_id, prev_shard_index))
     }
 
     fn get_shard_layout_from_prev_block(
@@ -897,12 +897,6 @@ impl EpochManagerAdapter for MockEpochManager {
         _signature: &Signature,
     ) -> Result<bool, Error> {
         Ok(true)
-    }
-
-    fn verify_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
-        let validator = self.get_block_producer(&header.epoch_id(), header.height())?;
-        let validator_stake = &self.validators[&validator];
-        Ok(header.verify_block_producer(validator_stake.public_key()))
     }
 
     fn verify_chunk_endorsement_signature(
