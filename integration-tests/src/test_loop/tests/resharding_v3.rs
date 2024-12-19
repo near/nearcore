@@ -823,6 +823,7 @@ fn test_resharding_v3() {
 
 #[test]
 // TODO(resharding) un-ignore the test if multiple reshardings are supported
+#[ignore]
 fn test_resharding_v3_twice() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().reshard_twice(true).build());
 }
