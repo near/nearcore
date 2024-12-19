@@ -990,7 +990,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
             // Temporary killswitch for the rare case there were issues with this network request.
             return;
         }
-        let store = self.client.chain.chain_store.store().clone();
+        let store = self.client.chain.chain_store.store();
         let network_adapter = self.client.network_adapter.clone();
         let requester_peer_id = msg.from_peer;
         let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
