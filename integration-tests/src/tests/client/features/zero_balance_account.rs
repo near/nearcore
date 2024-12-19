@@ -339,7 +339,7 @@ fn test_storage_usage_components() {
     let config = config_store.get_config(PROTOCOL_VERSION);
     let account_overhead = config.fees.storage_usage_config.num_bytes_account as usize;
     let record_overhead = config.fees.storage_usage_config.num_extra_bytes_record as usize;
-    // The NEP proposes to fit 4 full access keys + 2 fn access keys in an zero balance account
+    // The NEP proposes to fit 4 full access keys + 2 fn access keys in a zero balance account
     let full_access =
         PUBLIC_KEY_STORAGE_USAGE + FULL_ACCESS_PERMISSION_STORAGE_USAGE + record_overhead;
     let fn_access =
