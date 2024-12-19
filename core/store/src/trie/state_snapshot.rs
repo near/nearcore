@@ -81,7 +81,7 @@ pub struct StateSnapshot {
 impl StateSnapshot {
     /// Creates an object and also creates flat storage for the given shards.
     pub fn new(
-        store: TrieStoreAdapter,
+        snapshot_store: TrieStoreAdapter,
         prev_block_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
         shard_indexes_and_uids: &[(ShardIndex, ShardUId)],
@@ -120,7 +120,7 @@ impl StateSnapshot {
                 }
             }
         }
-        Self { prev_block_hash, store, flat_storage_manager, included_shard_uids }
+        Self { prev_block_hash, store: snapshot_store, flat_storage_manager, included_shard_uids }
     }
 
     /// Returns the UIds for the shards included in the snapshot.
@@ -218,13 +218,13 @@ impl ShardTries {
             // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
             Some(STATE_SNAPSHOT_COLUMNS),
         )?;
-        let store = storage.get_hot_store().trie_store();
+        let snapshot_store = storage.get_hot_store().trie_store();
         // It is fine to create a separate FlatStorageManager, because
         // it is used only for reading flat storage in the snapshot a
         // doesn't introduce memory overhead.
-        let flat_storage_manager = FlatStorageManager::new(store.flat_store());
+        let flat_storage_manager = FlatStorageManager::new(snapshot_store.flat_store());
         *state_snapshot_lock = Some(StateSnapshot::new(
-            store,
+            snapshot_store,
             prev_block_hash,
             flat_storage_manager,
             shard_indexes_and_uids,
