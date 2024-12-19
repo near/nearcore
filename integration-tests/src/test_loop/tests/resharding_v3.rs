@@ -25,6 +25,9 @@ use crate::test_loop::utils::receipts::{
     check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block,
     ReceiptKind,
 };
+use crate::test_loop::utils::setups::{
+    derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule,
+};
 use crate::test_loop::utils::sharding::{
     next_block_has_new_shard_layout, print_and_assert_shard_accounts,
 };
@@ -35,7 +38,6 @@ use crate::test_loop::utils::transactions::{
 use crate::test_loop::utils::trie_sanity::{
     check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
 };
-use crate::test_loop::utils::setups::{derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule};
 use crate::test_loop::utils::{get_node_data, retrieve_client_actor, LoopActionFn, ONE_NEAR, TGAS};
 use assert_matches::assert_matches;
 use near_crypto::Signer;
@@ -822,11 +824,7 @@ fn test_resharding_v3() {
 #[test]
 // TODO(resharding) un-ignore the test if multiple reshardings are supported
 fn test_resharding_v3_twice() {
-    test_resharding_v3_base(
-        TestReshardingParametersBuilder::default()
-        .reshard_twice(true)
-        .build(),
-    );
+    test_resharding_v3_base(TestReshardingParametersBuilder::default().reshard_twice(true).build());
 }
 
 #[test]

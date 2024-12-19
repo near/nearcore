@@ -61,7 +61,6 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .build()
 }
 
-
 pub fn derive_new_epoch_config_from_boundary(
     base_epoch_config: &EpochConfig,
     boundary_account: &AccountId,
@@ -74,12 +73,20 @@ pub fn derive_new_epoch_config_from_boundary(
     epoch_config
 }
 
-pub fn two_upgrades_voting_schedule(target_protocol_version: ProtocolVersion) -> ProtocolUpgradeVotingSchedule {
-    let past_datetime_1 = ProtocolUpgradeVotingSchedule::parse_datetime("1970-01-01 00:00:00").unwrap();
-    let past_datetime_2 = ProtocolUpgradeVotingSchedule::parse_datetime("1970-01-02 00:00:00").unwrap();
+pub fn two_upgrades_voting_schedule(
+    target_protocol_version: ProtocolVersion,
+) -> ProtocolUpgradeVotingSchedule {
+    let past_datetime_1 =
+        ProtocolUpgradeVotingSchedule::parse_datetime("1970-01-01 00:00:00").unwrap();
+    let past_datetime_2 =
+        ProtocolUpgradeVotingSchedule::parse_datetime("1970-01-02 00:00:00").unwrap();
     let voting_schedule = vec![
         (past_datetime_1, target_protocol_version - 1),
         (past_datetime_2, target_protocol_version),
     ];
-    ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(target_protocol_version, voting_schedule).unwrap()
+    ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(
+        target_protocol_version,
+        voting_schedule,
+    )
+    .unwrap()
 }
