@@ -3,7 +3,7 @@ use crate::flat::{
     BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
     POISONED_LOCK_ERR,
 };
-use crate::{DBCol, Store, StoreAdapter};
+use crate::{DBCol, StoreAdapter};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
@@ -38,21 +38,6 @@ pub struct FlatStorageManagerInner {
     /// Set to Some() when there's a state snapshot in progress. Used to signal to the resharding flat
     /// storage catchup code that it shouldn't advance past this block height
     want_snapshot: Mutex<Option<BlockHeight>>,
-}
-
-fn read_block_info(store: &Store, hash: &CryptoHash) -> Result<BlockInfo, StorageError> {
-    let header = store
-        .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_ref())
-        .map_err(|e| {
-            StorageError::StorageInconsistentState(format!(
-                "could not read block header {}: {:?}",
-                hash, e
-            ))
-        })?
-        .ok_or_else(|| {
-            StorageError::StorageInconsistentState(format!("block header {} not found", hash))
-        })?;
-    Ok(BlockInfo { hash: *header.hash(), prev_hash: *header.prev_hash(), height: header.height() })
 }
 
 impl FlatStorageManager {
@@ -114,15 +99,30 @@ impl FlatStorageManager {
         Ok(())
     }
 
+    fn read_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, StorageError> {
+        let header = self
+            .0
+            .store
+            .store_ref()
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_ref())
+            .map_err(|e| {
+                StorageError::StorageInconsistentState(format!(
+                    "could not read block header {}: {:?}",
+                    hash, e
+                ))
+            })?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState(format!("block header {} not found", hash))
+            })?;
+        Ok(BlockInfo {
+            hash: *header.hash(),
+            prev_hash: *header.prev_hash(),
+            height: header.height(),
+        })
+    }
+
     /// Sets the status to `Ready` if it's currently `Resharding(CatchingUp)`
-    /// At the moment, this function is only called on flat storages in snapshots,
-    /// so the `store` argument should be the main store that contains all data
-    /// so that we can look up any relevant block headers.
-    fn mark_flat_storage_ready(
-        &self,
-        store: &Store,
-        shard_uid: ShardUId,
-    ) -> Result<(), StorageError> {
+    fn mark_flat_storage_ready(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         // Don't use Self::get_flat_storage_status() because there's no need to panic if this fails, since this is used
         // during state snapshotting where an error isn't critical to node operation.
         let status = self.0.store.get_flat_storage_status(shard_uid)?;
@@ -138,7 +138,7 @@ impl FlatStorageManager {
                 )))
             }
         };
-        let flat_head = read_block_info(store, &catchup_flat_head)?;
+        let flat_head = self.read_block_info(&catchup_flat_head)?;
         let mut store_update = self.0.store.store_update();
         store_update.set_flat_storage_status(
             shard_uid,
@@ -154,10 +154,9 @@ impl FlatStorageManager {
     // should now be considered `Ready` in the state snapshot, even if not in the main DB.
     pub fn mark_ready_and_create_flat_storage(
         &self,
-        store: &Store,
         shard_uid: ShardUId,
     ) -> Result<(), StorageError> {
-        self.mark_flat_storage_ready(store, shard_uid)?;
+        self.mark_flat_storage_ready(shard_uid)?;
         self.create_flat_storage_for_shard(shard_uid)
     }
 
@@ -314,7 +313,7 @@ impl FlatStorageManager {
                 FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
                     catchup_flat_head,
                 )) => {
-                    let flat_head = read_block_info(self.0.store.store_ref(), &catchup_flat_head)?;
+                    let flat_head = self.read_block_info(&catchup_flat_head)?;
                     if let Some(Some(min_height)) = ret {
                         ret = Some(Some(std::cmp::min(min_height, flat_head.height)));
                     } else {
