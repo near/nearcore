@@ -756,7 +756,7 @@ fn process_peer_manager_message_default(
                 }
             }
         }
-        NetworkRequests::PartialEncodedStateWitness((account, partial_witness)) => {
+        NetworkRequests::PartialEncodedStateWitness(account, partial_witness) => {
             for (i, name) in validators.iter().enumerate() {
                 if name == account {
                     connectors[i]

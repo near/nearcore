@@ -348,7 +348,7 @@ fn network_message_to_partial_witness_handler(
             None
         }
 
-        NetworkRequests::PartialEncodedStateWitness((target, partial_witness)) => {
+        NetworkRequests::PartialEncodedStateWitness(target, partial_witness) => {
             shared_state
                 .senders_for_account(&target)
                 .partial_witness_sender

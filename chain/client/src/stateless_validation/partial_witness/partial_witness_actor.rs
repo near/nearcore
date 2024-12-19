@@ -268,26 +268,27 @@ impl PartialWitnessActor {
         let encoder = self.witness_encoders.entry(chunk_validators.len());
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
-        chunk_validators.iter().zip_eq(parts).enumerate().for_each(
-            |(part_ord, (chunk_validator, part))| {
-                // It's fine to unwrap part here as we just constructed the parts above and we expect
-                // all of them to be present.
-                let partial_witness = PartialEncodedStateWitness::new(
-                    epoch_id,
-                    chunk_header.clone(),
-                    part_ord,
-                    part.unwrap().to_vec(),
-                    encoded_length,
-                    signer,
-                );
-                let validator_witness_tuple = (chunk_validator.clone(), partial_witness);
+        for (part_ord, (chunk_validator, part)) in chunk_validators.iter().zip_eq(parts).enumerate()
+        {
+            // It's fine to unwrap part here as we just constructed the parts above and we expect
+            // all of them to be present.
+            let partial_witness = PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header.clone(),
+                part_ord,
+                part.unwrap().to_vec(),
+                encoded_length,
+                signer,
+            );
 
-                // Send the parts to the corresponding chunk validator owners.
-                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
-                ));
-            },
-        );
+            // Send the parts to the corresponding chunk validator owners.
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedStateWitness(
+                    chunk_validator.clone(),
+                    partial_witness,
+                ),
+            ));
+        }
 
         Ok(())
     }
@@ -344,7 +345,7 @@ impl PartialWitnessActor {
 
         // Record time taken to encode the state witness parts.
         let shard_id_label = chunk_header.shard_id().to_string();
-        let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
+        let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_AND_SEND_TIME
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
         self.generate_and_send_state_witness_parts(
