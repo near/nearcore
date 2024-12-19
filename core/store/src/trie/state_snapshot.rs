@@ -4,6 +4,7 @@ use crate::config::StateSnapshotType;
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::Mode;
 use crate::ShardTries;
+use crate::Store;
 use crate::StoreConfig;
 use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage};
 use near_primitives::block::Block;
@@ -81,6 +82,7 @@ pub struct StateSnapshot {
 impl StateSnapshot {
     /// Creates an object and also creates flat storage for the given shards.
     pub fn new(
+        store: &Store,
         snapshot_store: TrieStoreAdapter,
         prev_block_hash: CryptoHash,
         flat_storage_manager: FlatStorageManager,
@@ -90,7 +92,9 @@ impl StateSnapshot {
         tracing::debug!(target: "state_snapshot", ?shard_indexes_and_uids, ?prev_block_hash, "new StateSnapshot");
         let mut included_shard_uids = vec![];
         for &(shard_index, shard_uid) in shard_indexes_and_uids {
-            if let Err(err) = flat_storage_manager.mark_ready_and_create_flat_storage(shard_uid) {
+            if let Err(err) =
+                flat_storage_manager.mark_ready_and_create_flat_storage(store, shard_uid)
+            {
                 tracing::warn!(target: "state_snapshot", ?err, ?shard_uid, "Failed to create a flat storage for snapshot shard");
                 continue;
             }
@@ -207,7 +211,7 @@ impl ShardTries {
         let StateSnapshotConfig { home_dir, hot_store_path, state_snapshot_subdir, .. } =
             self.state_snapshot_config();
         let storage = checkpoint_hot_storage_and_cleanup_columns(
-            &self.store().store(),
+            self.store().store_ref(),
             &Self::get_state_snapshot_base_dir(
                 &prev_block_hash,
                 home_dir,
@@ -224,6 +228,7 @@ impl ShardTries {
         // doesn't introduce memory overhead.
         let flat_storage_manager = FlatStorageManager::new(snapshot_store.flat_store());
         *state_snapshot_lock = Some(StateSnapshot::new(
+            self.store().store_ref(),
             snapshot_store,
             prev_block_hash,
             flat_storage_manager,
@@ -354,6 +359,7 @@ impl ShardTries {
         let shard_indexes_and_uids = get_shard_indexes_and_uids_fn(snapshot_hash)?;
         let mut guard = self.state_snapshot().write().unwrap();
         *guard = Some(StateSnapshot::new(
+            self.store().store_ref(),
             store,
             snapshot_hash,
             flat_storage_manager,
