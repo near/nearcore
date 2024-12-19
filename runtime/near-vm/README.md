@@ -6,7 +6,7 @@ changed, but the documentation is not up-to-date yet.
 The philosophy of Wasmer was to be very modular by design. It's
 composed of a set of crates. We can group them as follows:
 
-* `api` — The public Rust API exposes everything a user needs to use Wasmer programatically through
+* `api` — The public Rust API exposes everything a user needs to use Wasmer programmatically through
   the `wasmer` crate,
 * `cache` — The traits and types to cache compiled WebAssembly modules,
 * `cli` — The Wasmer CLI itself,
