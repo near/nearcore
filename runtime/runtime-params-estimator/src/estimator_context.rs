@@ -453,12 +453,20 @@ impl Testbed<'_> {
         let verify_signature = true;
 
         let clock = GasCost::measure(metric);
+        let cost = node_runtime::validate_transaction(
+            &self.apply_state.config,
+            gas_price,
+            tx,
+            verify_signature,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected no validation error");
         node_runtime::verify_and_charge_transaction(
             &self.apply_state.config,
             &mut state_update,
             gas_price,
             tx,
-            verify_signature,
+            &cost,
             block_height,
             PROTOCOL_VERSION,
         )

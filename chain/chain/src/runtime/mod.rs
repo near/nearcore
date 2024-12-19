@@ -566,6 +566,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
 
+        let cost = match validate_transaction(
+            runtime_config,
+            gas_price,
+            transaction,
+            verify_signature,
+            current_protocol_version,
+        ) {
+            Ok(cost) => cost,
+            Err(e) => return Ok(Some(e)),
+        };
+
         if let Some(state_root) = state_root {
             let shard_uid =
                 self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
@@ -576,7 +587,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 &mut state_update,
                 gas_price,
                 transaction,
-                verify_signature,
+                &cost,
                 // here we do not know which block the transaction will be included
                 // and therefore skip the check on the nonce upper bound.
                 None,
@@ -586,17 +597,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Err(e) => Ok(Some(e)),
             }
         } else {
-            // Doing basic validation without a state root
-            match validate_transaction(
-                runtime_config,
-                gas_price,
-                transaction,
-                verify_signature,
-                current_protocol_version,
-            ) {
-                Ok(_) => Ok(None),
-                Err(e) => Ok(Some(e)),
-            }
+            // Without a state root, verification is skipped
+            Ok(None)
         }
     }
 
@@ -773,27 +775,42 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                // Verifying the validity of the transaction based on the current state.
-                match verify_and_charge_transaction(
+                let res = validate_transaction(
                     runtime_config,
-                    &mut state_update,
                     prev_block.next_gas_price,
                     &tx,
-                    false,
-                    Some(next_block_height),
+                    true,
                     protocol_version,
-                ) {
-                    Ok(verification_result) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
-                        state_update.commit(StateChangeCause::NotWritableToDisk);
-                        total_gas_burnt += verification_result.gas_burnt;
-                        total_size += tx.get_size();
-                        result.transactions.push(tx);
-                        // Take one transaction from this group, no more.
-                        break;
+                );
+                match res {
+                    Ok(cost) => {
+                        match verify_and_charge_transaction(
+                            runtime_config,
+                            &mut state_update,
+                            prev_block.next_gas_price,
+                            &tx,
+                            &cost,
+                            Some(next_block_height),
+                            protocol_version,
+                        ) {
+                            Ok(verification_result) => {
+                                tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                                state_update.commit(StateChangeCause::NotWritableToDisk);
+                                total_gas_burnt += verification_result.gas_burnt;
+                                total_size += tx.get_size();
+                                result.transactions.push(tx);
+                                // Take one transaction from this group, no more.
+                                break;
+                            }
+                            Err(err) => {
+                                tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed verification");
+                                rejected_invalid_tx += 1;
+                                state_update.rollback();
+                            }
+                        }
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed initial validation");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }

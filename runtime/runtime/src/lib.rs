@@ -11,7 +11,7 @@ pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
 use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
-use config::total_prepaid_send_fees;
+use config::{total_prepaid_send_fees, TransactionCost};
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
 use itertools::Itertools;
@@ -70,6 +70,7 @@ use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use pipelining::ReceiptPreparationPipeline;
+use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -289,6 +290,45 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
+    /// Parallel validation for all transactions with early short-circuit on first error.
+    ///
+    /// If all validations pass, returns a HashMap of tx_hash -> TransactionCost.
+    /// If any validation fails, returns the first InvalidTxError encountered.
+    fn parallel_validate_transactions(
+        config: &RuntimeConfig,
+        gas_price: Balance,
+        transactions: &[SignedTransaction],
+        current_protocol_version: ProtocolVersion,
+    ) -> Result<HashMap<CryptoHash, TransactionCost>, InvalidTxError> {
+        tracing::debug!(target: "runtime", "parallel validation: starting threads");
+
+        let results = transactions
+            .par_iter()
+            .try_fold(
+                || Vec::new(),
+                |mut acc, tx| {
+                    let cost = validate_transaction(
+                        config,
+                        gas_price,
+                        tx,
+                        true,
+                        current_protocol_version,
+                    )?;
+                    acc.push((tx.get_hash(), cost));
+                    Ok::<_, InvalidTxError>(acc)
+                },
+            )
+            .try_reduce(
+                || Vec::new(),
+                |mut acc1, mut acc2| {
+                    acc1.append(&mut acc2);
+                    Ok::<_, InvalidTxError>(acc1)
+                },
+            )?;
+
+        Ok(results.into_iter().collect())
+    }
+
     /// Takes one signed transaction, verifies it and converts it to a receipt.
     ///
     /// Add the produced receipt either to the new local receipts if the signer is the same
@@ -312,6 +352,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
+        transaction_cost: &TransactionCost,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
@@ -322,7 +363,7 @@ impl Runtime {
             state_update,
             apply_state.gas_price,
             signed_transaction,
-            true,
+            transaction_cost,
             Some(apply_state.block_height),
             apply_state.current_protocol_version,
         ) {
@@ -1589,11 +1630,21 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
+        let tx_costs = Self::parallel_validate_transactions(
+            &apply_state.config,
+            apply_state.gas_price,
+            &processing_state.transactions.transactions,
+            apply_state.current_protocol_version,
+        )
+        .map_err(RuntimeError::from)?;
+
         for signed_transaction in processing_state.transactions.iter_nonexpired_transactions() {
+            let cost = tx_costs.get(&signed_transaction.get_hash()).expect("Must have cost for tx");
             let tx_result = self.process_transaction(
                 state_update,
                 apply_state,
                 signed_transaction,
+                cost,
                 &mut processing_state.stats,
             );
             let (receipt, outcome_with_id) = match tx_result {
