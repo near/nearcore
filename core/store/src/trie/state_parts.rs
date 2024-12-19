@@ -344,7 +344,6 @@ impl Trie {
         *memory_skipped += node.node.memory_usage_direct();
 
         match &node.node {
-            TrieNode::Empty => Ok(false),
             TrieNode::Leaf(key, _) => {
                 let (slice, _) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
@@ -670,9 +669,6 @@ mod tests {
                     }
                 };
                 match &node.node {
-                    TrieNode::Empty => {
-                        continue;
-                    }
                     TrieNode::Leaf(_, value) => {
                         on_enter_value(value)?;
                         continue;
