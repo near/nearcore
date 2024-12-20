@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use itertools::Itertools;
 use lru::LruCache;
@@ -65,7 +65,7 @@ pub struct PartialWitnessActor {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime: Arc<dyn RuntimeAdapter>,
     /// Tracks the parts of the state witness sent from chunk producers to chunk validators.
-    partial_witness_tracker: Arc<Mutex<PartialEncodedStateWitnessTracker>>,
+    partial_witness_tracker: Arc<PartialEncodedStateWitnessTracker>,
     partial_deploys_tracker: PartialEncodedContractDeploysTracker,
     /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
     state_witness_tracker: ChunkStateWitnessTracker,
@@ -169,10 +169,8 @@ impl PartialWitnessActor {
         compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
-        let partial_witness_tracker = Arc::new(Mutex::new(PartialEncodedStateWitnessTracker::new(
-            client_sender,
-            epoch_manager.clone(),
-        )));
+        let partial_witness_tracker =
+            Arc::new(PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone()));
         Self {
             network_adapter,
             my_signer,
@@ -489,7 +487,6 @@ impl PartialWitnessActor {
                 );
                 match validation {
                     Ok(true) => {
-                        let mut partial_witness_tracker = partial_witness_tracker.lock().unwrap();
                         partial_witness_tracker
                             .store_partial_encoded_state_witness(partial_witness)
                             .unwrap();
@@ -651,11 +648,8 @@ impl PartialWitnessActor {
         if missing_contract_hashes.is_empty() {
             return Ok(());
         }
-        {
-            let mut partial_witness_tracker = self.partial_witness_tracker.lock().unwrap();
-            partial_witness_tracker
-                .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
-        }
+        self.partial_witness_tracker
+            .store_accessed_contract_hashes(key.clone(), missing_contract_hashes.clone())?;
         let random_chunk_producer = {
             let mut chunk_producers = self
                 .epoch_manager
@@ -823,8 +817,7 @@ impl PartialWitnessActor {
     ) -> Result<(), Error> {
         let key = response.chunk_production_key().clone();
         let contracts = response.decompress_contracts()?;
-        let mut partial_witness_tracker = self.partial_witness_tracker.lock().unwrap();
-        partial_witness_tracker.store_accessed_contract_codes(key, contracts)
+        self.partial_witness_tracker.store_accessed_contract_codes(key, contracts)
     }
 
     fn my_validator_signer(&self) -> Result<Arc<ValidatorSigner>, Error> {
