@@ -4,7 +4,7 @@ use crate::config_store::INITIAL_TESTNET_CONFIG;
 use crate::cost::RuntimeFeesConfig;
 use crate::parameter_table::ParameterTable;
 use near_account_id::AccountId;
-use near_primitives_core::types::{Balance, Gas};
+use near_primitives_core::types::{Balance, Gas, ProtocolVersion};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use std::sync::Arc;
 
@@ -49,8 +49,12 @@ impl RuntimeConfig {
     }
 
     pub fn test() -> Self {
+        Self::test_protocol_version(PROTOCOL_VERSION)
+    }
+
+    pub fn test_protocol_version(protocol_version: ProtocolVersion) -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let runtime_config = config_store.get_config(PROTOCOL_VERSION);
+        let runtime_config = config_store.get_config(protocol_version);
 
         let mut wasm_config = crate::vm::Config::clone(&runtime_config.wasm_config);
         // Lower the yield timeout length so that we can observe timeouts in integration tests.
@@ -245,4 +249,17 @@ pub struct WitnessConfig {
     pub combined_transactions_size_limit: usize,
     /// Soft size limit of storage proof used to validate new transactions in ChunkStateWitness.
     pub new_transactions_validation_state_size_soft_limit: usize,
+}
+
+impl WitnessConfig {
+    /// Creates a config that effectively disables ChunkStateWitness related limits by setting them
+    /// to max values. This can be useful for tests and benchmarks.
+    pub fn test_disabled() -> Self {
+        let max_value = usize::MAX;
+        Self {
+            main_storage_proof_size_soft_limit: max_value,
+            combined_transactions_size_limit: max_value,
+            new_transactions_validation_state_size_soft_limit: max_value,
+        }
+    }
 }

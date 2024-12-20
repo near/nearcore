@@ -4,7 +4,7 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::{IntoMultiSender, IntoSender};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -19,7 +19,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumShards};
+use near_primitives::types::{AccountId, NumShards, ShardIndex};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
@@ -204,7 +204,7 @@ impl TestEnvBuilder {
                 // this limit, we set the max_open_files config to 1000.
                 let mut store_config = StoreConfig::default();
                 store_config.max_open_files = 1000;
-                NodeStorage::opener(home_dir.as_path(), false, &store_config, None)
+                NodeStorage::opener(home_dir.as_path(), &store_config, None)
                     .open()
                     .unwrap()
                     .get_hot_store()
@@ -588,7 +588,7 @@ impl TestEnvBuilder {
                         None => TEST_SEED,
                     };
                     let tries = runtime.get_tries();
-                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _epoch_height, shard_uids: Vec<ShardUId>, block| {
+                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _min_chunk_prev_height, _epoch_height, shard_uids: Vec<(ShardIndex, ShardUId)>, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
                         tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
@@ -619,6 +619,7 @@ impl TestEnvBuilder {
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signer,
+                        noop().into_multi_sender(),
                     )
                 })
                 .collect();
@@ -646,7 +647,7 @@ impl TestEnvBuilder {
         }
     }
 
-    fn make_accounts(count: usize) -> Vec<AccountId> {
+    pub fn make_accounts(count: usize) -> Vec<AccountId> {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 

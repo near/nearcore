@@ -4,7 +4,7 @@ use crate::tests::client::process_blocks::deploy_test_contract;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction, TransactionV0};
@@ -42,8 +42,7 @@ fn test_nearvm_upgrade() {
         env
     };
 
-    let signer: Signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = TransactionV0 {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),

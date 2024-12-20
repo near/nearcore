@@ -33,6 +33,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 yansi.workspace = true
+indicatif.workspace = true
 
 near-time.workspace = true
 near-chain-configs.workspace = true
@@ -41,6 +42,7 @@ near-chain.workspace = true
 near-client.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
+near-jsonrpc.workspace = true
 near-network.workspace = true
 near-o11y.workspace = true
 near-primitives-core.workspace = true
@@ -71,6 +73,7 @@ nightly = [
   "near-chain/nightly",
   "near-client/nightly",
   "near-epoch-manager/nightly",
+  "near-jsonrpc/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
   "near-primitives-core/nightly",
@@ -87,6 +90,7 @@ nightly_protocol = [
   "near-chain/nightly_protocol",
   "near-client/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
+  "near-jsonrpc/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-primitives-core/nightly_protocol",

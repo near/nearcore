@@ -42,10 +42,7 @@ pub(crate) struct FlatStorageInner {
     flat_head: BlockInfo,
     /// Cached deltas for all blocks supported by this flat storage.
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
-    /// This flag enables skipping flat head moves, needed temporarily for FlatState
-    /// values inlining migration.
-    /// The flag has a numerical value and not a bool, to let us detect attempts
-    /// to disable move head multiple times.
+    /// Defines whether flat head can be moved forward or not.
     move_head_enabled: bool,
     metrics: FlatStorageMetrics,
 }
@@ -285,8 +282,7 @@ impl FlatStorage {
 
     /// Get sequence of blocks `target_block_hash` (inclusive) to flat head (exclusive)
     /// in backwards chain order. Returns an error if there is no path between them.
-    #[cfg(test)]
-    pub(crate) fn get_blocks_to_head(
+    pub fn get_blocks_to_head(
         &self,
         target_block_hash: &CryptoHash,
     ) -> Result<Vec<CryptoHash>, FlatStorageError> {
@@ -306,7 +302,7 @@ impl FlatStorage {
             let changes = guard.get_block_changes(block_hash)?;
             match changes.get(key) {
                 Some(value_ref) => {
-                    return Ok(value_ref.clone().map(|value_ref| FlatStateValue::Ref(value_ref)));
+                    return Ok((*value_ref).map(|value_ref| FlatStateValue::Ref(value_ref)));
                 }
                 None => {}
             };
@@ -478,7 +474,7 @@ impl FlatStorage {
     ) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_uid = guard.shard_uid;
-        store_update.remove_all(shard_uid);
+        store_update.remove_all_values(shard_uid);
         store_update.remove_all_deltas(shard_uid);
         store_update.set_flat_storage_status(shard_uid, FlatStorageStatus::Empty);
         guard.update_delta_metrics();
@@ -496,14 +492,9 @@ impl FlatStorage {
     }
 
     /// Updates `move_head_enabled` and returns whether the change was done.
-    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) -> bool {
+    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
-        if enabled != guard.move_head_enabled {
-            guard.move_head_enabled = enabled;
-            true
-        } else {
-            false
-        }
+        guard.move_head_enabled = enabled;
     }
 }
 

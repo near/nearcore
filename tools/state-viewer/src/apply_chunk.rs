@@ -5,13 +5,15 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::block::MaybeNew;
+use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -21,7 +23,7 @@ use near_store::DBCol;
 use near_store::Store;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::cli::StorageSource;
@@ -33,7 +35,7 @@ fn get_incoming_receipts(
     chain_store: &mut ChainStore,
     epoch_manager: &EpochManagerHandle,
     chunk_hash: &ChunkHash,
-    shard_id: u64,
+    shard_id: ShardId,
     target_height: u64,
     prev_hash: &CryptoHash,
     prev_height_included: u64,
@@ -71,11 +73,14 @@ fn get_incoming_receipts(
         receipt_proofs.shuffle(&mut rng);
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
     responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
         epoch_manager,
         shard_id,
+        &shard_layout,
         *prev_hash,
         prev_height_included,
+        ReceiptFilter::TargetShard,
     )?);
     Ok(collect_receipts_from_response(&responses))
 }
@@ -93,19 +98,58 @@ pub(crate) fn apply_chunk(
     let chunk = chain_store.get_chunk(&chunk_hash)?;
     let chunk_header = chunk.cloned_header();
 
+    // This doesn't work at resharding epoch boundary if there are missing chunks.
+    let shard_id = chunk_header.shard_id();
+
     let prev_block_hash = chunk_header.prev_block_hash();
-    let shard_id = chunk.shard_id();
     let prev_state_root = chunk.prev_state_root();
 
     let transactions = chunk.transactions();
     let prev_block =
         chain_store.get_block(prev_block_hash).context("Failed getting chunk's prev block")?;
-    let prev_height_included = prev_block.chunks()[shard_id as usize].height_included();
+    let prev_epoch_id = prev_block.header().epoch_id();
+    let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
+    let prev_shard_index = prev_shard_layout.get_shard_index(shard_id).unwrap();
+    let prev_height_included = prev_block.chunks()[prev_shard_index].height_included();
     let prev_height = prev_block.header().height();
     let target_height = match target_height {
         Some(h) => h,
         None => prev_height + 1,
     };
+
+    // Try to recover bandwidth requests and congestion info from the previous chunk extras.
+    // Normally they would be taken from the block that contains the applied chunk,
+    // but it's not available here.
+    // The chunk can still be applied with the wrong bandwidth requests and congestion info,
+    // but the resulting state root might end up being different.
+    let mut shards_bandwidth_requests = BTreeMap::new();
+    let mut shards_congestion_info = BTreeMap::new();
+    for prev_chunk in prev_block.chunks().iter() {
+        let shard_id = match prev_chunk {
+            MaybeNew::New(new_chunk) => new_chunk.shard_id(),
+            MaybeNew::Old(missing_chunk) => missing_chunk.shard_id(),
+        };
+        let shard_uid =
+            epoch_manager.shard_id_to_uid(shard_id, prev_block.header().epoch_id()).unwrap();
+        let Ok(chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) else {
+            continue;
+        };
+        if let Some(bandwidth_requests) = chunk_extra.bandwidth_requests() {
+            shards_bandwidth_requests.insert(shard_id, bandwidth_requests.clone());
+        }
+        if let Some(congestion_info) = chunk_extra.congestion_info() {
+            shards_congestion_info.insert(
+                shard_id,
+                near_primitives::congestion_info::ExtendedCongestionInfo {
+                    congestion_info: congestion_info,
+                    missed_chunks_count: 0, // Assume no missing chunks in this block
+                },
+            );
+        }
+    }
+    let block_bandwidth_requests = BlockBandwidthRequests { shards_bandwidth_requests };
+    let block_congestion_info = BlockCongestionInfo::new(shards_congestion_info);
+
     let prev_timestamp = prev_block.header().raw_timestamp();
     let gas_price = prev_block.header().next_gas_price();
     let receipts = get_incoming_receipts(
@@ -122,7 +166,7 @@ pub(crate) fn apply_chunk(
 
     if matches!(storage, StorageSource::FlatStorage) {
         let shard_uid =
-            epoch_manager.shard_id_to_uid(shard_id as u64, prev_block.header().epoch_id()).unwrap();
+            epoch_manager.shard_id_to_uid(shard_id, prev_block.header().epoch_id()).unwrap();
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
@@ -155,7 +199,8 @@ pub(crate) fn apply_chunk(
                 ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
-                congestion_info: prev_block.block_congestion_info(),
+                congestion_info: block_congestion_info,
+                bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
             transactions,
@@ -176,22 +221,25 @@ fn find_tx_or_receipt(
     chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
-    let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+    let chunk_hashes = block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
 
-    for (shard_id, chunk_hash) in chunk_hashes.iter().enumerate() {
+    let epoch_id = block.header().epoch_id();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+
+    for (shard_index, chunk_hash) in chunk_hashes.iter().enumerate() {
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
             chain_store.get_chunk(chunk_hash).context("Failed looking up canditate chunk")?;
         for tx in chunk.transactions() {
             if &tx.get_hash() == hash {
-                return Ok(Some((HashType::Tx, shard_id as ShardId)));
+                return Ok(Some((HashType::Tx, shard_id)));
             }
         }
         for receipt in chunk.prev_outgoing_receipts() {
             if &receipt.get_hash() == hash {
                 let shard_layout =
                     epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
-                let to_shard =
-                    shard_layout::account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
+                let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                 return Ok(Some((HashType::Receipt, to_shard)));
             }
         }
@@ -353,14 +401,7 @@ fn apply_receipt_in_chunk(
     id: &CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    if chain_store.get_receipt(id)?.is_none() {
-        // TODO: handle local/delayed receipts
-        return Err(anyhow!("receipt with ID {} not known. Is it a local or delayed receipt?", id));
-    }
-
-    println!(
-        "Receipt is known but doesn't seem to have been applied. Searching in chunks that haven't been applied..."
-    );
+    println!("Receipt is not indexed; searching in chunks that haven't been applied...");
 
     let head = chain_store.head()?.height;
     let protocol_version = chain_store.head_header()?.latest_protocol_version();
@@ -386,10 +427,7 @@ fn apply_receipt_in_chunk(
                     if receipt.get_hash() == *id {
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
-                        let to_shard = shard_layout::account_id_to_shard_id(
-                            receipt.receiver_id(),
-                            &shard_layout,
-                        );
+                        let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         to_apply.insert((height, to_shard));
                         println!(
                             "found receipt in chunk {}. Receiver is in shard {}",
@@ -465,14 +503,14 @@ pub(crate) fn apply_receipt(
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
     use near_chain::{ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{InMemorySigner, Signer};
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::utils::get_num_seats_per_shard;
     use near_store::genesis::initialize_genesis_state;
@@ -485,7 +523,7 @@ mod test {
 
     use crate::cli::StorageSource;
 
-    fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
+    fn send_txs(env: &mut TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
         for (i, signer) in signers.iter().enumerate() {
             let from = format!("test{}", i);
             let to = format!("test{}", (i + 1) % signers.len());
@@ -493,7 +531,7 @@ mod test {
                 height,
                 from.parse().unwrap(),
                 to.parse().unwrap(),
-                &signer.clone().into(),
+                &signer,
                 100,
                 hash,
             );
@@ -519,7 +557,7 @@ mod test {
         let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -530,7 +568,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -548,14 +586,17 @@ mod test {
             let block = env.clients[0].produce_block(height).unwrap().unwrap();
 
             let hash = *block.hash();
-            let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+            let chunk_hashes =
+                block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
             let epoch_id = *block.header().epoch_id();
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
             env.process_block(0, block, Provenance::PRODUCED);
 
-            let new_roots = (0..4)
-                .map(|i| {
-                    let shard_uid = epoch_manager.shard_id_to_uid(i, &epoch_id).unwrap();
+            let new_roots = shard_layout
+                .shard_ids()
+                .map(|shard_id| {
+                    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
                     *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
@@ -604,7 +645,7 @@ mod test {
         let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -615,7 +656,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -635,23 +676,26 @@ mod test {
             let block = env.clients[0].produce_block(height).unwrap().unwrap();
 
             let hash = *block.hash();
-            let prev_hash = *block.header().prev_hash();
-            let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+            let chunk_hashes =
+                block.chunks().iter_deprecated().map(|c| c.chunk_hash()).collect::<Vec<_>>();
             let epoch_id = *block.header().epoch_id();
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
             env.process_block(0, block, Provenance::PRODUCED);
 
-            let new_roots = (0..4)
-                .map(|i| {
-                    let shard_uid = epoch_manager.shard_id_to_uid(i, &epoch_id).unwrap();
+            let shard_ids = shard_layout.shard_ids().collect_vec();
+            let new_roots = shard_ids
+                .iter()
+                .map(|&shard_id| {
+                    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
                     *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
-            let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
 
             if height >= 2 {
-                for shard_id in 0..4 {
-                    let chunk = chain_store.get_chunk(&chunk_hashes[shard_id]).unwrap();
+                for &shard_id in shard_ids.iter() {
+                    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+                    let chunk = chain_store.get_chunk(&chunk_hashes[shard_index]).unwrap();
 
                     for tx in chunk.transactions() {
                         let results = crate::apply_chunk::apply_tx(
@@ -664,14 +708,13 @@ mod test {
                         )
                         .unwrap();
                         assert_eq!(results.len(), 1);
-                        assert_eq!(results[0].new_root, new_roots[shard_id as usize]);
+                        assert_eq!(results[0].new_root, new_roots[shard_index]);
                     }
 
                     for receipt in chunk.prev_outgoing_receipts() {
-                        let to_shard = shard_layout::account_id_to_shard_id(
-                            receipt.receiver_id(),
-                            &shard_layout,
-                        );
+                        let to_shard_id =
+                            shard_layout.account_id_to_shard_id(receipt.receiver_id());
+                        let to_shard_index = shard_layout.get_shard_index(to_shard_id).unwrap();
 
                         let results = crate::apply_chunk::apply_receipt(
                             genesis.config.genesis_height,
@@ -683,7 +726,7 @@ mod test {
                         )
                         .unwrap();
                         assert_eq!(results.len(), 1);
-                        assert_eq!(results[0].new_root, new_roots[to_shard as usize]);
+                        assert_eq!(results[0].new_root, new_roots[to_shard_index]);
                     }
                 }
             }

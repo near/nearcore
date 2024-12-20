@@ -203,6 +203,10 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 mem::PeerMessage::VersionedStateResponse(sri)
             }
             net::PeerMessage::SyncSnapshotHosts(ssh) => mem::PeerMessage::SyncSnapshotHosts(ssh),
+            net::PeerMessage::EpochSyncRequest => mem::PeerMessage::EpochSyncRequest,
+            net::PeerMessage::EpochSyncResponse(proof) => {
+                mem::PeerMessage::EpochSyncResponse(proof)
+            }
         })
     }
 }
@@ -256,6 +260,10 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::VersionedStateResponse(sri)
             }
             mem::PeerMessage::SyncSnapshotHosts(ssh) => net::PeerMessage::SyncSnapshotHosts(ssh),
+            mem::PeerMessage::EpochSyncRequest => net::PeerMessage::EpochSyncRequest,
+            mem::PeerMessage::EpochSyncResponse(proof) => {
+                net::PeerMessage::EpochSyncResponse(proof)
+            }
         }
     }
 }

@@ -15,6 +15,7 @@ use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::utils::compression::CompressedData;
 use protobuf::MessageField as MF;
 use std::sync::Arc;
 
@@ -332,6 +333,15 @@ impl From<&PeerMessage> for proto::PeerMessage {
                         ..Default::default()
                     })
                 }
+                PeerMessage::EpochSyncRequest => {
+                    ProtoMT::EpochSyncRequest(proto::EpochSyncRequest { ..Default::default() })
+                }
+                PeerMessage::EpochSyncResponse(esp) => {
+                    ProtoMT::EpochSyncResponse(proto::EpochSyncResponse {
+                        compressed_proof: esp.as_slice().to_vec(),
+                        ..Default::default()
+                    })
+                }
             }),
             ..Default::default()
         }
@@ -473,9 +483,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::Disconnect(d) => PeerMessage::Disconnect(Disconnect {
                 remove_from_connection_store: d.remove_from_connection_store,
             }),
-            ProtoMT::Challenge(c) => PeerMessage::Challenge(
+            ProtoMT::Challenge(c) => PeerMessage::Challenge(Box::new(
                 Challenge::try_from_slice(&c.borsh).map_err(Self::Error::Challenge)?,
-            ),
+            )),
             ProtoMT::StateRequestHeader(srh) => PeerMessage::StateRequestHeader(
                 srh.shard_id.into(),
                 try_from_required(&srh.sync_hash).map_err(Self::Error::BlockRequest)?,
@@ -490,6 +500,10 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::SyncSnapshotHosts(srh) => PeerMessage::SyncSnapshotHosts(
                 srh.try_into().map_err(Self::Error::SyncSnapshotHosts)?,
+            ),
+            ProtoMT::EpochSyncRequest(_) => PeerMessage::EpochSyncRequest,
+            ProtoMT::EpochSyncResponse(esr) => PeerMessage::EpochSyncResponse(
+                CompressedData::from_boxed_slice(esr.compressed_proof.clone().into_boxed_slice()),
             ),
         })
     }

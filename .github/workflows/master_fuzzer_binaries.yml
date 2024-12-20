@@ -39,10 +39,12 @@ jobs:
           crate: cargo-bolero
           # TODO: remove the below once https://github.com/camshaft/bolero/pull/195 is released on crates.io
           # and https://github.com/camshaft/bolero/pull/196 has a proper fix
-          git: https://github.com/Ekleog-NEAR/bolero
-          rev: 56da8e6d1d018519a30b36d85d3a53fe35a42eaf
+          git: https://github.com/near/bolero
+          rev: 1b43f78f25009695493b0e5fb72f9f82d1905845
 
-      - run: rustup target add --toolchain nightly wasm32-unknown-unknown
+      - run: | 
+          rustup target add --toolchain nightly wasm32-unknown-unknown
+          rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 
       - name: "Set up GCP SDK"
         uses: "google-github-actions/setup-gcloud@v1"
@@ -52,6 +54,5 @@ jobs:
       - name: "Compile fuzzers and upload to GCS"
         run: |
           NAME="nearcore-${{ github.ref_name }}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
-          # Our Clusterfuzz setup currently (2024-02) runs on Cascade Lake CPUs
-          RUSTFLAGS="--cfg fuzz -C target-cpu=cascadelake" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          RUSTFLAGS="--cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://nearone_fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"

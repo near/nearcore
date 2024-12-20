@@ -17,7 +17,7 @@ use near_primitives::sharding::{
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 struct OrphanWitnessTestEnv {
@@ -86,10 +86,12 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     // The `excluded_validator` will receive a chunk witness for the chunk in `block2`, but it won't
     // have `block1`, so it will become an orphaned chunk state witness.
     let tip = env.clients[0].chain.head().unwrap();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let block1_producer = env.get_block_producer_at_offset(&tip, 1);
     let block2_producer = env.get_block_producer_at_offset(&tip, 2);
-    let block2_chunk_producer = env.get_chunk_producer_at_offset(&tip, 2, 0);
+    let block2_chunk_producer = env.get_chunk_producer_at_offset(&tip, 2, shard_id);
 
     // The excluded validator shouldn't produce any blocks or chunks in the next two blocks.
     // There's 4 validators and at most 3 aren't a good candidate, so there's always at least
@@ -133,16 +135,13 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     let partial_witness_adapter =
         env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-        let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } = request;
+        let DistributeStateWitnessRequest { state_witness, .. } = request;
         let raw_witness_size = borsh_size(&state_witness);
+        let key = state_witness.chunk_production_key();
         let chunk_validators = env
             .client(&block2_chunk_producer)
             .epoch_manager
-            .get_chunk_validator_assignments(
-                &epoch_id,
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-            )
+            .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)
             .unwrap()
             .ordered_chunk_validators();
 
@@ -266,6 +265,7 @@ fn test_orphan_witness_far_from_head() {
         ShardChunkHeaderInner::V1(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V2(inner) => inner.height_created = bad_height,
         ShardChunkHeaderInner::V3(inner) => inner.height_created = bad_height,
+        ShardChunkHeaderInner::V4(inner) => inner.height_created = bad_height,
     });
 
     let outcome =
@@ -294,7 +294,11 @@ fn test_orphan_witness_not_fully_validated() {
         ChunkHash::default(),
         ReceiptProof(
             vec![],
-            ShardProof { from_shard_id: 100230230, to_shard_id: 383939, proof: vec![] },
+            ShardProof {
+                from_shard_id: ShardId::new(100230230),
+                to_shard_id: ShardId::new(383939),
+                proof: vec![],
+            },
         ),
     );
 

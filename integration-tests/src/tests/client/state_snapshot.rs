@@ -2,7 +2,7 @@ use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -77,7 +77,7 @@ fn test_maybe_open_state_snapshot_no_state_snapshot_key_entry() {
     let store = create_test_store();
     let test_env = set_up_test_env_for_state_snapshots(&store);
     let result =
-        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
+        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![(0, ShardUId::single_shard())]));
     assert!(result.is_err());
 }
 
@@ -92,7 +92,7 @@ fn test_maybe_open_state_snapshot_file_not_exist() {
     store_update.set_state_snapshot_hash(Some(snapshot_hash));
     store_update.commit().unwrap();
     let result =
-        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
+        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![(0, ShardUId::single_shard())]));
     assert!(result.is_err());
 }
 
@@ -124,7 +124,7 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
     file.write_all(&data).unwrap();
 
     let result =
-        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]));
+        test_env.shard_tries.maybe_open_state_snapshot(|_| Ok(vec![(0, ShardUId::single_shard())]));
     assert!(result.is_err());
 }
 
@@ -136,7 +136,7 @@ fn verify_make_snapshot(
     state_snapshot_test_env.shard_tries.delete_state_snapshot();
     state_snapshot_test_env.shard_tries.create_state_snapshot(
         block_hash,
-        &[ShardUId::single_shard()],
+        &[(0, ShardUId::single_shard())],
         block,
     )?;
     // check that make_state_snapshot does not panic or err out
@@ -150,7 +150,7 @@ fn verify_make_snapshot(
     // check that the snapshot just made can be opened
     state_snapshot_test_env
         .shard_tries
-        .maybe_open_state_snapshot(|_| Ok(vec![ShardUId::single_shard()]))?;
+        .maybe_open_state_snapshot(|_| Ok(vec![(0, ShardUId::single_shard())]))?;
     // check that the entry of STATE_SNAPSHOT_KEY is the latest block hash
     let db_state_snapshot_hash =
         state_snapshot_test_env.shard_tries.store().get_state_snapshot_hash()?;
@@ -161,7 +161,7 @@ fn verify_make_snapshot(
     }
     // check that the stored snapshot in file system is an actual snapshot
     let store_config = StoreConfig::default();
-    let opener = NodeStorage::opener(&snapshot_path, false, &store_config, None);
+    let opener = NodeStorage::opener(&snapshot_path, &store_config, None);
     let _storage = opener.open_in_mode(Mode::ReadOnly)?;
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
@@ -190,7 +190,7 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 // Runs a validator node.
 // Makes a state snapshot after processing every block. Each block contains a
 // transaction creating an account.
-fn test_make_state_snapshot() {
+fn slow_test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config)
@@ -200,8 +200,7 @@ fn test_make_state_snapshot() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer: Signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer: Signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
 

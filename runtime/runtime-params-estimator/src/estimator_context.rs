@@ -6,6 +6,8 @@ use genesis_populate::get_account_id;
 use genesis_populate::state_dump::StateDump;
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
+use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -68,7 +70,6 @@ impl<'c> EstimatorContext<'c> {
             &self.config.state_dump_path,
             workdir.path(),
             self.config.in_memory_db,
-            false,
         );
         // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");
@@ -170,7 +171,7 @@ impl<'c> EstimatorContext<'c> {
         let congestion_info = BlockCongestionInfo::new(congestion_info);
 
         ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::UpdateTrackedShard,
             // Put each runtime into a separate shard.
             block_height: 1,
             // Epoch length is long enough to avoid corner cases.
@@ -190,6 +191,7 @@ impl<'c> EstimatorContext<'c> {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
             congestion_info,
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         }
     }
 
@@ -385,6 +387,13 @@ impl Testbed<'_> {
                 .congestion_info
                 .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
         }
+        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(shard_uid.shard_id(), bandwidth_requests)]
+                    .into_iter()
+                    .collect(),
+            };
+        }
 
         let mut total_burnt_gas = 0;
         if !allow_failures {
@@ -403,11 +412,26 @@ impl Testbed<'_> {
     /// Returns the number of blocks required to reach quiescence
     fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
         let mut n = 0;
-        while !self.prev_receipts.is_empty() {
+        while self.has_unprocessed_receipts() {
             self.process_block_impl(&[], allow_failures);
             n += 1;
         }
         n
+    }
+
+    fn has_unprocessed_receipts(&self) -> bool {
+        if !self.prev_receipts.is_empty() {
+            return true;
+        }
+
+        // Check congestion info to see if there are any queued receipts.
+        for (_, extended_congestion_info) in self.apply_state.congestion_info.iter() {
+            if extended_congestion_info.congestion_info.receipt_bytes() > 0 {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Process just the verification of a transaction, without action execution.
@@ -451,7 +475,7 @@ impl Testbed<'_> {
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
-        let epoch_info_provider = MockEpochInfoProvider::new([].into_iter());
+        let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);
         let exec_result = node_runtime::estimator::apply_action_receipt(
             &mut state_update,

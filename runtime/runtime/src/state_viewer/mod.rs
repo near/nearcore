@@ -6,6 +6,8 @@ use crate::ApplyState;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
@@ -18,7 +20,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{get_access_key, get_account, get_code, TrieUpdate};
+use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -90,7 +92,7 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        get_code(state_update, account_id, Some(account.code_hash()))?.ok_or_else(|| {
+        state_update.get_code(account_id.clone(), account.code_hash())?.ok_or_else(|| {
             errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
             }
@@ -147,9 +149,9 @@ impl TrieViewer {
     ) -> Result<ViewStateResult, errors::ViewStateError> {
         match get_account(state_update, account_id)? {
             Some(account) => {
-                let code_len = get_code(state_update, account_id, Some(account.code_hash()))?
-                    .map(|c| c.code().len() as u64)
-                    .unwrap_or_default();
+                let code_len = state_update
+                    .get_code_len(account_id.clone(), account.code_hash())?
+                    .unwrap_or_default() as u64;
                 if let Some(limit) = self.state_size_limit {
                     if account.storage_usage().saturating_sub(code_len) > limit {
                         return Err(errors::ViewStateError::AccountStateTooLarge {
@@ -187,7 +189,7 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-        epoch_info_provider: &(dyn EpochInfoProvider),
+        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = *state_update.get_root();
@@ -204,7 +206,7 @@ impl TrieViewer {
         let config_store = RuntimeConfigStore::new(None);
         let config = config_store.get_config(PROTOCOL_VERSION);
         let apply_state = ApplyState {
-            apply_reason: None,
+            apply_reason: ApplyChunkReason::ViewTrackedShard,
             block_height: view_state.block_height,
             // Used for legacy reasons
             prev_block_hash: view_state.prev_block_hash,
@@ -223,6 +225,7 @@ impl TrieViewer {
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
             congestion_info: Default::default(),
+            bandwidth_requests: BlockBandwidthRequests::empty(),
         };
         let function_call = FunctionCallAction {
             method_name: method_name.to_string(),
@@ -249,7 +252,7 @@ impl TrieViewer {
             Arc::clone(config),
             apply_state.cache.as_ref().map(|v| v.handle()),
             apply_state.current_protocol_version,
-            state_update.contract_storage.clone(),
+            state_update.contract_storage(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
         let contract = pipeline.get_contract(&receipt, account.code_hash(), 0, view_config.clone());
@@ -263,6 +266,7 @@ impl TrieViewer {
             view_state.epoch_id,
             view_state.prev_block_hash,
             view_state.block_hash,
+            view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
         );

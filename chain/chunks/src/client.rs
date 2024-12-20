@@ -5,7 +5,7 @@ use itertools::Itertools;
 
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -15,6 +15,7 @@ use near_primitives::{
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
+#[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerResponse {
     /// Notifies the client that the ShardsManager has collected a complete chunk.
     /// Note that this does NOT mean that the chunk is fully constructed. If we are
@@ -74,6 +75,7 @@ impl ShardedTransactionPool {
     /// For better security we want the seed to different in each shard.
     /// For testing purposes we want it to be the reproducible and derived from the `self.rng_seed` and `shard_id`
     fn random_seed(base_seed: &RngSeed, shard_id: ShardId) -> RngSeed {
+        let shard_id: u16 = shard_id.into();
         let mut res = *base_seed;
         res[0] = shard_id as u8;
         res[1] = (shard_id / 256) as u8;
@@ -144,7 +146,7 @@ impl ShardedTransactionPool {
 
         for tx in transactions {
             let signer_id = tx.transaction.signer_id();
-            let new_shard_uid = account_id_to_shard_uid(&signer_id, new_shard_layout);
+            let new_shard_uid = new_shard_layout.account_id_to_shard_uid(&signer_id);
             self.insert_transaction(new_shard_uid, tx);
         }
     }
@@ -159,9 +161,9 @@ mod tests {
     use near_primitives::{
         epoch_info::RngSeed,
         hash::CryptoHash,
-        shard_layout::{account_id_to_shard_uid, ShardLayout},
+        shard_layout::ShardLayout,
         transaction::SignedTransaction,
-        types::{new_shard_id_tmp, shard_id_as_u32, AccountId, ShardId},
+        types::{AccountId, ShardId},
     };
     use near_store::ShardUId;
     use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -171,12 +173,11 @@ mod tests {
 
     #[test]
     fn test_random_seed_with_shard_id() {
-        let seed0 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(0));
-        let seed10 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(10));
-        let seed256 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(256));
-        let seed1000 = ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(1000));
-        let seed1000000 =
-            ShardedTransactionPool::random_seed(&TEST_SEED, new_shard_id_tmp(1_000_000));
+        let seed0 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(0));
+        let seed10 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(10));
+        let seed256 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(256));
+        let seed1000 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(1000));
+        let seed1000000 = ShardedTransactionPool::random_seed(&TEST_SEED, ShardId::new(1_000_000));
         assert_ne!(seed0, seed10);
         assert_ne!(seed0, seed256);
         assert_ne!(seed0, seed1000);
@@ -198,12 +199,12 @@ mod tests {
         let mut pool = ShardedTransactionPool::new(TEST_SEED, None);
 
         let mut shard_id_to_accounts: HashMap<ShardId, _> = HashMap::new();
-        shard_id_to_accounts.insert(new_shard_id_tmp(0), vec!["aaa", "abcd", "a-a-a-a-a"]);
-        shard_id_to_accounts.insert(new_shard_id_tmp(1), vec!["aurora"]);
-        shard_id_to_accounts.insert(new_shard_id_tmp(2), vec!["aurora-0", "bob", "kkk"]);
+        shard_id_to_accounts.insert(ShardId::new(0), vec!["aaa", "abcd", "a-a-a-a-a"]);
+        shard_id_to_accounts.insert(ShardId::new(1), vec!["aurora"]);
+        shard_id_to_accounts.insert(ShardId::new(2), vec!["aurora-0", "bob", "kkk"]);
         // this shard is split, make sure there are accounts for both shards 3' and 4'
         shard_id_to_accounts
-            .insert(new_shard_id_tmp(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
+            .insert(ShardId::new(3), vec!["mmm", "rrr", "sweat", "ttt", "www", "zzz"]);
 
         let deposit = 222;
 
@@ -231,15 +232,12 @@ mod tests {
                 nonce,
                 signer_id.clone(),
                 receiver_id.clone(),
-                &signer.into(),
+                &signer,
                 deposit,
                 CryptoHash::default(),
             );
 
-            let shard_uid = ShardUId {
-                shard_id: shard_id_as_u32(signer_shard_id),
-                version: old_shard_layout.version(),
-            };
+            let shard_uid = ShardUId::new(old_shard_layout.version(), signer_shard_id);
             pool.insert_transaction(shard_uid, tx);
         }
 
@@ -254,8 +252,7 @@ mod tests {
         {
             let shard_ids: Vec<_> = new_shard_layout.shard_ids().collect();
             for &shard_id in shard_ids.iter() {
-                let shard_id = shard_id_as_u32(shard_id);
-                let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
+                let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let pool = pool.pool_for_shard(shard_uid);
                 let pool_len = pool.len();
                 tracing::debug!("checking shard_uid {shard_uid:?}, the pool len is {pool_len}");
@@ -264,14 +261,13 @@ mod tests {
 
             let mut total = 0;
             for shard_id in shard_ids {
-                let shard_id = shard_id_as_u32(shard_id);
-                let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
+                let shard_uid = ShardUId::new(new_shard_layout.version(), shard_id);
                 let mut pool_iter = pool.get_pool_iterator(shard_uid).unwrap();
                 while let Some(group) = pool_iter.next() {
                     while let Some(tx) = group.next() {
                         total += 1;
                         let account_id = tx.transaction.signer_id();
-                        let tx_shard_uid = account_id_to_shard_uid(account_id, &new_shard_layout);
+                        let tx_shard_uid = new_shard_layout.account_id_to_shard_uid(account_id);
                         tracing::debug!("checking {account_id:?}:{tx_shard_uid} in {shard_uid}");
                         assert_eq!(shard_uid, tx_shard_uid);
                     }

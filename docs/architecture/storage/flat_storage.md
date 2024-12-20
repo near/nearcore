@@ -2,7 +2,7 @@
 
 When mainnet launched, the neard client stored all the chain's state in a single
 RocksDB column `DBCol::State`. This column embeds the entire [NEAR state
-trie](./trie.md) directly in the key-value database, using roughly
+trie](./trie_storage.md) directly in the key-value database, using roughly
 `hash(borsh_encode(trie_node))` as the key to store a `trie_node`. This gives a
 content-addressed storage system that can easily self-verify.
 
@@ -195,10 +195,6 @@ It holds all FlatStorages which NightshadeRuntime knows about and:
 
 Interface for getting ValueRefs from flat storage for some shard for some fixed block, supported
 by get_ref method.
-
-## FlatStorageCreator
-
-Creates flat storages for all tracked shards or initiates process of background flat storage creation if for some shard we have only Trie but not FlatStorage. Supports update_status which checks background job results and updates creation statuses and should create flat storage when all jobs are finished.
 
 ## Other notes
 

@@ -3,16 +3,17 @@
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_test_contracts::ArbitraryModule;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::errors::FunctionCallError;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::VMOutcome;
 use near_vm_runner::ContractCode;
-use near_vm_runner_fuzz::{create_context, find_entry_point, ArbitraryModule};
+use near_vm_runner_fuzz::{create_context, find_entry_point};
 use std::sync::Arc;
 
 libfuzzer_sys::fuzz_target!(|module: ArbitraryModule| {
-    let code = ContractCode::new(module.0.module.to_bytes(), None);
+    let code = ContractCode::new(module.0.to_bytes(), None);
     let near_vm = run_fuzz(&code, VMKind::NearVm);
     let wasmtime = run_fuzz(&code, VMKind::Wasmtime);
     assert_eq!(near_vm, wasmtime);

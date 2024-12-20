@@ -4,6 +4,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
@@ -104,7 +105,13 @@ impl ChunkTrackingStats {
         let created_by = epoch_manager
             .get_epoch_id_from_prev_block(&self.prev_block_hash)
             .and_then(|epoch_id| {
-                epoch_manager.get_chunk_producer(&epoch_id, self.height_created, self.shard_id)
+                epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id,
+                        height_created: self.height_created,
+                        shard_id: self.shard_id,
+                    })
+                    .map(|info| info.take_account_id())
             })
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {
@@ -150,7 +157,7 @@ impl BlocksDelayTracker {
             let height = block.header().height();
             let chunks = block
                 .chunks()
-                .iter()
+                .iter_deprecated()
                 .map(|chunk| {
                     if chunk.height_included() == height {
                         let chunk_hash = chunk.chunk_hash();
@@ -306,7 +313,10 @@ impl BlocksDelayTracker {
             for (shard_index, chunk_hash) in chunks.into_iter().enumerate() {
                 if let Some(chunk_hash) = chunk_hash {
                     if let Some(processed_chunk) = self.chunks.get(&chunk_hash) {
-                        let shard_id = shard_layout.get_shard_id(shard_index);
+                        let Ok(shard_id) = shard_layout.get_shard_id(shard_index) else {
+                            tracing::error!(target: "block_delay_tracker", ?shard_index, "invalid shard index");
+                            continue;
+                        };
                         self.update_chunk_metrics(processed_chunk, shard_id);
                     }
                 }

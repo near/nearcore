@@ -10,19 +10,16 @@ use near_primitives::types::{
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    GasPriceView, LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView,
-    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, SplitStorageInfoView,
-    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView, TxStatusView,
+    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, GasPriceView,
+    LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView, QueryRequest,
+    QueryResponse, ReceiptView, SplitStorageInfoView, StateChangesKindsView,
+    StateChangesRequestView, StateChangesView, StateSyncStatusView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
+use near_time::Duration;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use time::{Duration, OffsetDateTime as Utc};
 use tracing::debug_span;
-use yansi::Color::Magenta;
-use yansi::Style;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -45,58 +42,14 @@ impl From<near_primitives::errors::EpochError> for Error {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
-pub struct DownloadStatus {
-    pub start_time: Utc,
-    pub prev_update_time: Utc,
-    pub run_me: Arc<AtomicBool>,
-    pub error: bool,
-    pub done: bool,
-    pub state_requests_count: u64,
-    pub last_target: Option<PeerId>,
-}
-
-impl DownloadStatus {
-    pub fn new(now: Utc) -> Self {
-        Self {
-            start_time: now,
-            prev_update_time: now,
-            run_me: Arc::new(AtomicBool::new(true)),
-            error: false,
-            done: false,
-            state_requests_count: 0,
-            last_target: None,
-        }
-    }
-}
-
-impl Clone for DownloadStatus {
-    /// Clones an object, but it clones the value of `run_me` instead of the
-    /// `Arc` that wraps that value.
-    fn clone(&self) -> Self {
-        DownloadStatus {
-            start_time: self.start_time,
-            prev_update_time: self.prev_update_time,
-            // Creates a new `Arc` holding the same value.
-            run_me: Arc::new(AtomicBool::new(self.run_me.load(Ordering::SeqCst))),
-            error: self.error,
-            done: self.done,
-            state_requests_count: self.state_requests_count,
-            last_target: self.last_target.clone(),
-        }
-    }
-}
-
 /// Various status of syncing a specific shard.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub enum ShardSyncStatus {
     StateDownloadHeader,
     StateDownloadParts,
     StateApplyScheduling,
     StateApplyInProgress,
     StateApplyFinalizing,
-    ReshardingScheduling,
-    ReshardingApplying,
     StateSyncDone,
 }
 
@@ -108,9 +61,7 @@ impl ShardSyncStatus {
             ShardSyncStatus::StateApplyScheduling => 2,
             ShardSyncStatus::StateApplyInProgress => 3,
             ShardSyncStatus::StateApplyFinalizing => 4,
-            ShardSyncStatus::ReshardingScheduling => 5,
-            ShardSyncStatus::ReshardingApplying => 6,
-            ShardSyncStatus::StateSyncDone => 7,
+            ShardSyncStatus::StateSyncDone => 5,
         }
     }
 }
@@ -132,141 +83,26 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateApplyScheduling => "apply scheduling".to_string(),
             ShardSyncStatus::StateApplyInProgress => "apply in progress".to_string(),
             ShardSyncStatus::StateApplyFinalizing => "apply finalizing".to_string(),
-            ShardSyncStatus::ReshardingScheduling => "resharding scheduling".to_string(),
-            ShardSyncStatus::ReshardingApplying => "resharding applying".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
     }
 }
 
-impl From<&DownloadStatus> for DownloadStatusView {
-    fn from(status: &DownloadStatus) -> Self {
-        DownloadStatusView { done: status.done, error: status.error }
-    }
-}
-
-impl From<ShardSyncDownload> for ShardSyncDownloadView {
-    fn from(download: ShardSyncDownload) -> Self {
-        ShardSyncDownloadView {
-            downloads: download.downloads.iter().map(|x| x.into()).collect(),
-            status: download.status.to_string(),
-        }
-    }
-}
-
-/// Stores status of shard sync and statuses of downloading shards.
 #[derive(Clone, Debug)]
-pub struct ShardSyncDownload {
-    /// Stores all download statuses. If we are downloading state parts, its
-    /// length equals the number of state parts. Otherwise it is 1, since we
-    /// have only one piece of data to download, like shard state header. It
-    /// could be 0 when we are not downloading anything but rather splitting a
-    /// shard as part of resharding.
-    pub downloads: Vec<DownloadStatus>,
-    pub status: ShardSyncStatus,
-}
-
-impl ShardSyncDownload {
-    /// Creates a instance of self which includes initial statuses for shard state header download at the given time.
-    pub fn new_download_state_header(now: Utc) -> Self {
-        Self {
-            downloads: vec![DownloadStatus::new(now)],
-            status: ShardSyncStatus::StateDownloadHeader,
-        }
-    }
-
-    /// Creates a instance of self which includes initial statuses for shard state parts download at the given time.
-    pub fn new_download_state_parts(now: Utc, num_parts: u64) -> Self {
-        // Avoid using `vec![x; num_parts]`, because each element needs to have
-        // its own independent value of `response`.
-        let mut downloads = Vec::with_capacity(num_parts as usize);
-        for _ in 0..num_parts {
-            downloads.push(DownloadStatus::new(now));
-        }
-        Self { downloads, status: ShardSyncStatus::StateDownloadParts }
-    }
-
-    /// Get the header download status.
-    /// returns None if state sync status is not ShardSyncStatus::StateDownloadHeader
-    pub fn get_header_download_mut(&mut self) -> Option<&mut DownloadStatus> {
-        if self.status != ShardSyncStatus::StateDownloadHeader {
-            return None;
-        }
-        self.downloads.get_mut(0)
-    }
-}
-
-pub fn format_shard_sync_phase_per_shard(
-    new_shard_sync: &HashMap<ShardId, ShardSyncDownload>,
-    use_colour: bool,
-) -> Vec<(ShardId, String)> {
-    new_shard_sync
-        .iter()
-        .map(|(&shard_id, shard_progress)| {
-            (shard_id, format_shard_sync_phase(shard_progress, use_colour))
-        })
-        .collect::<Vec<(_, _)>>()
-}
-
-/// Applies style if `use_colour` is enabled.
-fn paint(s: &str, style: Style, use_style: bool) -> String {
-    if use_style {
-        style.paint(s).to_string()
-    } else {
-        s.to_string()
-    }
-}
-
-/// Formats the given ShardSyncDownload for logging.
-pub fn format_shard_sync_phase(
-    shard_sync_download: &ShardSyncDownload,
-    use_colour: bool,
-) -> String {
-    match &shard_sync_download.status {
-        ShardSyncStatus::StateDownloadHeader => format!(
-            "{} requests sent {}, last target {:?}",
-            paint("HEADER", Magenta.style().bold(), use_colour),
-            shard_sync_download.downloads.get(0).map_or(0, |x| x.state_requests_count),
-            shard_sync_download.downloads.get(0).map_or(None, |x| x.last_target.as_ref()),
-        ),
-        ShardSyncStatus::StateDownloadParts => {
-            let mut num_parts_done = 0;
-            let mut num_parts_not_done = 0;
-            for download in shard_sync_download.downloads.iter() {
-                if download.done {
-                    num_parts_done += 1;
-                } else {
-                    num_parts_not_done += 1;
-                }
-            }
-            format!("num_parts_done={num_parts_done} num_parts_not_done={num_parts_not_done}")
-        }
-        status => format!("{status:?}"),
-    }
-}
-
-#[derive(Clone)]
 pub struct StateSyncStatus {
     pub sync_hash: CryptoHash,
-    pub sync_status: HashMap<ShardId, ShardSyncDownload>,
+    pub sync_status: HashMap<ShardId, ShardSyncStatus>,
+    pub download_tasks: Vec<String>,
+    pub computation_tasks: Vec<String>,
 }
 
-/// If alternate flag was specified, write formatted sync_status per shard.
-impl std::fmt::Debug for StateSyncStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        if f.alternate() {
-            write!(
-                f,
-                "StateSyncStatus {{ sync_hash: {:?}, shard_sync: {:?} }}",
-                self.sync_hash,
-                format_shard_sync_phase_per_shard(&self.sync_status, false)
-            )
-        } else {
-            write!(
-                f,
-                "StateSyncStatus {{ sync_hash: {:?}, sync_status: {:?} }}",
-                self.sync_hash, self.sync_status
-            )
+impl StateSyncStatus {
+    pub fn new(sync_hash: CryptoHash) -> Self {
+        Self {
+            sync_hash,
+            sync_status: HashMap::new(),
+            download_tasks: Vec::new(),
+            computation_tasks: Vec::new(),
         }
     }
 }
@@ -372,14 +208,20 @@ impl From<SyncStatus> for SyncStatusView {
             SyncStatus::HeaderSync { start_height, current_height, highest_height } => {
                 SyncStatusView::HeaderSync { start_height, current_height, highest_height }
             }
-            SyncStatus::StateSync(state_sync_status) => SyncStatusView::StateSync(
-                state_sync_status.sync_hash,
-                state_sync_status
-                    .sync_status
-                    .into_iter()
-                    .map(|(shard_id, shard_sync)| (shard_id, shard_sync.into()))
-                    .collect(),
-            ),
+            SyncStatus::StateSync(state_sync_status) => {
+                SyncStatusView::StateSync(StateSyncStatusView {
+                    sync_hash: state_sync_status.sync_hash,
+                    shard_sync_status: state_sync_status
+                        .sync_status
+                        .iter()
+                        .map(|(shard_id, shard_sync_status)| {
+                            (*shard_id, shard_sync_status.to_string())
+                        })
+                        .collect(),
+                    download_tasks: state_sync_status.download_tasks,
+                    computation_tasks: state_sync_status.computation_tasks,
+                })
+            }
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
             SyncStatus::BlockSync { start_height, current_height, highest_height } => {
                 SyncStatusView::BlockSync { start_height, current_height, highest_height }

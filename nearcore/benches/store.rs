@@ -6,7 +6,7 @@ use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::types::StateRoot;
+use near_primitives::types::{ShardId, ShardIndex, StateRoot};
 use near_store::Mode;
 use nearcore::{get_default_home, load_config, NightshadeRuntime, NightshadeRuntimeExt};
 use std::time::{Duration, Instant};
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 /// took on avg 1.424615ms op per sec 701 items read 10000
 /// took on avg 1.416562ms op per sec 705 items read 10000
 /// ```
-fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
+fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: ShardId, mode: Mode) {
     init_integration_logger();
     let home_dir = get_default_home();
     let near_config = load_config(&home_dir, GenesisValidationMode::UnsafeFast)
@@ -31,9 +31,8 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
         tracing::info!(target: "neard", "{:?}", home_dir);
         let store = near_store::NodeStorage::opener(
             &home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            None,
+            near_config.config.archival_config(),
         )
         .open_in_mode(mode)
         .unwrap()
@@ -43,17 +42,17 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
             ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
 
         let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, None);
         let runtime = NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager)
             .unwrap_or_else(|e| panic!("could not create the transaction runtime: {e}"));
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =
-            last_block.chunks().iter().map(|chunk| chunk.prev_state_root()).collect();
+            last_block.chunks().iter_deprecated().map(|chunk| chunk.prev_state_root()).collect();
         let header = last_block.header();
 
         let trie = runtime
-            .get_trie_for_shard(shard_id as u64, header.prev_hash(), state_roots[shard_id], false)
+            .get_trie_for_shard(shard_id, header.prev_hash(), state_roots[shard_index], false)
             .unwrap();
         let start = Instant::now();
         let num_items_read = trie
@@ -80,13 +79,13 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
 /// Read first 10k trie items from shard 0.
 fn read_trie_items_10k(bench: &mut Bencher) {
-    read_trie_items(bench, 0, Mode::ReadWrite);
+    read_trie_items(bench, 0, ShardId::new(0), Mode::ReadWrite);
 }
 
 /// Read first 10k trie items from shard 0 in read-only mode.
 fn read_trie_items_10k_read_only(bench: &mut Bencher) {
     // Read trie items until 10k items found from shard 0.
-    read_trie_items(bench, 0, Mode::ReadOnly);
+    read_trie_items(bench, 0, ShardId::new(0), Mode::ReadOnly);
 }
 
 benchmark_group!(benches, read_trie_items_10k, read_trie_items_10k_read_only);

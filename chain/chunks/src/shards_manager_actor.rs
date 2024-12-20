@@ -96,6 +96,10 @@ use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
+use near_chain::signature_verification::{
+    verify_chunk_header_signature_with_epoch_manager,
+    verify_chunk_header_signature_with_epoch_manager_and_parts,
+};
 use near_chain::types::EpochManagerAdapter;
 use near_chain_configs::MutableValidatorSigner;
 pub use near_chunks_primitives::Error;
@@ -107,6 +111,7 @@ use near_network::types::{
 };
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_performance_metrics_macros::perf;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
@@ -119,6 +124,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ShardChunk, ShardChunkHeader,
     TransactionReceipt,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -439,11 +445,14 @@ impl ShardsManagerActor {
                 &self.shard_tracker,
             );
 
-        let chunk_producer_account_id = self.epoch_manager.as_ref().get_chunk_producer(
-            &self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
-            height,
-            shard_id,
-        )?;
+        let chunk_producer_account_id = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?,
+                height_created: height,
+                shard_id,
+            })?
+            .take_account_id();
 
         // In the following we compute which target accounts we should request parts and receipts from
         // First we choose a shard representative target which is either the original chunk producer
@@ -644,8 +653,14 @@ impl ShardsManagerActor {
                 return Ok(true);
             }
         }
-        let chunk_producer =
-            self.epoch_manager.get_chunk_producer(&epoch_id, next_chunk_height, shard_id)?;
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: next_chunk_height,
+                shard_id,
+            })?
+            .take_account_id();
         if &chunk_producer == me {
             return Ok(true);
         }
@@ -1042,12 +1057,15 @@ impl ShardsManagerActor {
         // Get outgoing receipts for the chunk and construct vector of their
         // proofs.
         let outgoing_receipts = chunk.prev_outgoing_receipts();
-        let present_receipts: HashMap<ShardId, _> = match make_outgoing_receipts_proofs(
+        let outgoing_receipts_proofs = make_outgoing_receipts_proofs(
             &header,
             &outgoing_receipts,
             self.view_epoch_manager.as_ref(),
-        ) {
-            Ok(receipts) => receipts.map(|receipt| (receipt.1.to_shard_id, receipt)).collect(),
+        );
+        let present_receipts: HashMap<ShardId, _> = match outgoing_receipts_proofs {
+            Ok(receipts) => {
+                receipts.into_iter().map(|receipt| (receipt.1.to_shard_id, receipt)).collect()
+            }
             Err(e) => {
                 warn!(target: "chunks", "Not sending {:?}, failed to make outgoing receipts proofs: {}", chunk.chunk_hash(), e);
                 return;
@@ -1205,10 +1223,11 @@ impl ShardsManagerActor {
 
         // check signature
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&forward.prev_block_hash)?;
-        let valid_signature = self.epoch_manager.verify_chunk_signature_with_header_parts(
+        let valid_signature = verify_chunk_header_signature_with_epoch_manager_and_parts(
+            self.epoch_manager.as_ref(),
             &forward.chunk_hash,
             &forward.signature,
-            &epoch_id,
+            epoch_id,
             &forward.prev_block_hash,
             forward.height_created,
             forward.shard_id,
@@ -1371,7 +1390,12 @@ impl ShardsManagerActor {
             }
         };
 
-        if !self.epoch_manager.verify_chunk_header_signature(header, &epoch_id, &ancestor_hash)? {
+        if !verify_chunk_header_signature_with_epoch_manager(
+            self.epoch_manager.as_ref(),
+            header,
+            &ancestor_hash,
+            epoch_id,
+        )? {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkSignature)
@@ -1397,7 +1421,7 @@ impl ShardsManagerActor {
 
         // 2. check protocol version
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        if header.valid_for(protocol_version) {
+        if header.validate_version(protocol_version).is_ok() {
             Ok(())
         } else if epoch_id_confirmed {
             Err(Error::InvalidChunkHeader)
@@ -1695,11 +1719,14 @@ impl ShardsManagerActor {
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry, me)?;
 
         let can_reconstruct = entry.parts.len() >= self.epoch_manager.num_data_parts();
-        let chunk_producer = self.epoch_manager.get_chunk_producer(
-            &epoch_id,
-            header.height_created(),
-            header.shard_id(),
-        )?;
+        let chunk_producer = self
+            .epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: header.height_created(),
+                shard_id: header.shard_id(),
+            })?
+            .take_account_id();
 
         if have_all_parts {
             if self.encoded_chunks.mark_chunk_for_inclusion(&chunk_hash) {
@@ -1859,11 +1886,14 @@ impl ShardsManagerActor {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
             accounts_forwarded_to.insert(me.clone());
-            let next_chunk_producer = self.epoch_manager.get_chunk_producer(
-                &epoch_id,
-                current_chunk_height + 1,
-                shard_id,
-            )?;
+            let next_chunk_producer = self
+                .epoch_manager
+                .get_chunk_producer_info(&ChunkProductionKey {
+                    epoch_id: *epoch_id,
+                    height_created: current_chunk_height + 1,
+                    shard_id,
+                })?
+                .take_account_id();
             for (bp, _) in block_producers {
                 let bp_account_id = bp.take_account_id();
 
@@ -1903,11 +1933,13 @@ impl ShardsManagerActor {
                 .shard_ids(&epoch_id)?
                 .into_iter()
                 .map(|shard_id| {
-                    self.epoch_manager.get_chunk_producer(
-                        &epoch_id,
-                        current_chunk_height + 1,
-                        shard_id,
-                    )
+                    self.epoch_manager
+                        .get_chunk_producer_info(&ChunkProductionKey {
+                            epoch_id: *epoch_id,
+                            height_created: current_chunk_height + 1,
+                            shard_id,
+                        })
+                        .map(|info| info.take_account_id())
                 })
                 .collect::<Result<HashSet<_>, _>>()?;
             next_chunk_producers.remove(me);
@@ -1994,6 +2026,7 @@ impl ShardsManagerActor {
         prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         congestion_info: Option<CongestionInfo>,
+        bandwidth_requests: Option<BandwidthRequests>,
         signer: &ValidatorSigner,
         rs: &ReedSolomon,
         protocol_version: ProtocolVersion,
@@ -2014,6 +2047,7 @@ impl ShardsManagerActor {
             prev_outgoing_receipts,
             prev_outgoing_receipts_root,
             congestion_info,
+            bandwidth_requests,
             signer,
             protocol_version,
         )
@@ -2057,6 +2091,7 @@ impl ShardsManagerActor {
             &outgoing_receipts,
             self.epoch_manager.as_ref(),
         )?
+        .into_iter()
         .map(Arc::new)
         .collect::<Vec<_>>();
         for (to_whom, part_ords) in block_producer_mapping {
@@ -2263,7 +2298,7 @@ mod test {
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::types::{new_shard_id_tmp, EpochId};
+    use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
     use std::sync::Arc;
@@ -2282,12 +2317,14 @@ mod test {
     /// should not request partial encoded chunk from self
     #[test]
     fn test_request_partial_encoded_chunk_from_self() {
+        let epoch_id = EpochId::default();
+        let next_epoch_id = EpochId::default();
         let mock_tip = Tip {
             height: 0,
             last_block_hash: CryptoHash::default(),
             prev_block_hash: CryptoHash::default(),
-            epoch_id: EpochId::default(),
-            next_epoch_id: EpochId::default(),
+            epoch_id,
+            next_epoch_id,
         };
         let store = create_test_store();
         let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
@@ -2298,6 +2335,8 @@ mod test {
             2,
         );
         let epoch_manager = Arc::new(epoch_manager.into_handle());
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        let shard_id = shard_layout.shard_ids().next().unwrap();
         let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
@@ -2322,7 +2361,7 @@ mod test {
                 height: 0,
                 ancestor_hash: Default::default(),
                 prev_block_hash: Default::default(),
-                shard_id: new_shard_id_tmp(0),
+                shard_id,
                 added,
                 last_requested: added,
             },

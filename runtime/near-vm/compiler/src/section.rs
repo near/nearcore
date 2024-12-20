@@ -11,12 +11,10 @@ use near_vm_types::entity::entity_impl;
 
 /// Index type of a Section defined inside a WebAssembly `Compilation`.
 #[derive(rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
-#[archive_attr(derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug))]
+#[rkyv(derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug))]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct SectionIndex(u32);
-
 entity_impl!(SectionIndex);
-
 entity_impl!(ArchivedSectionIndex);
 
 /// Custom section Protection.
@@ -73,9 +71,12 @@ impl<'a> From<&'a CustomSection> for CustomSectionRef<'a> {
 impl<'a> From<&'a ArchivedCustomSection> for CustomSectionRef<'a> {
     fn from(section: &'a ArchivedCustomSection) -> Self {
         CustomSectionRef {
-            protection: Result::<_, std::convert::Infallible>::unwrap(
-                rkyv::Deserialize::deserialize(&section.protection, &mut rkyv::Infallible),
-            ),
+            protection: match section.protection {
+                ArchivedCustomSectionProtection::Read => CustomSectionProtection::Read,
+                ArchivedCustomSectionProtection::ReadExecute => {
+                    CustomSectionProtection::ReadExecute
+                }
+            },
             bytes: &section.bytes.0[..],
         }
     }

@@ -51,7 +51,6 @@ wat.workspace = true
 near-vm-compiler-test-derive.workspace = true
 near-vm-wast.workspace = true
 test-log.workspace = true
-serial_test.workspace = true
 tracing-subscriber.workspace = true
 
 [build-dependencies]

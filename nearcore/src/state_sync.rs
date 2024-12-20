@@ -1,12 +1,14 @@
 use crate::metrics;
 
 use actix_rt::Arbiter;
+use anyhow::Context;
 use borsh::BorshSerialize;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use itertools::Itertools;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
+use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
     create_bucket_readwrite, external_storage_location, StateFileType,
@@ -15,18 +17,21 @@ use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
     ExternalConnection,
 };
-use near_client::sync::state::{StateSync, STATE_DUMP_ITERATION_TIME_LIMIT_SECS};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
+use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
-use near_store::DBCol;
+use near_primitives::version::PROTOCOL_VERSION;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+/// Time limit per state dump iteration.
+/// A node must check external storage for parts to dump again once time is up.
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
 pub struct StateSyncDumper {
     pub clock: Clock,
@@ -44,6 +49,35 @@ pub struct StateSyncDumper {
 }
 
 impl StateSyncDumper {
+    /// Returns all current ShardIDs, plus any that may belong to a future epoch after a protocol upgrade
+    /// For now we start a thread for each shard ID even if it won't be needed for a long time.
+    /// TODO(resharding): fix that, and handle the dynamic resharding case.
+    fn get_all_shard_ids(&self) -> anyhow::Result<HashSet<ShardId>> {
+        let chain = Chain::new_for_view_client(
+            self.clock.clone(),
+            self.epoch_manager.clone(),
+            self.shard_tracker.clone(),
+            self.runtime.clone(),
+            &self.chain_genesis,
+            DoomslugThresholdMode::TwoThirds,
+            false,
+        )
+        .context("failed creating Chain")?;
+        let epoch_id = chain.head().context("failed getting chain head")?.epoch_id;
+        let head_protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&epoch_id)
+            .context("failed getting epoch protocol version")?;
+
+        let mut shard_ids = HashSet::new();
+        for protocol_version in head_protocol_version..=PROTOCOL_VERSION {
+            let shard_layout =
+                self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+            shard_ids.extend(shard_layout.shard_ids());
+        }
+        Ok(shard_ids)
+    }
+
     /// Starts one a thread per tracked shard.
     /// Each started thread will be dumping state parts of a single epoch to external storage.
     pub fn start(&mut self) -> anyhow::Result<()> {
@@ -82,21 +116,7 @@ impl StateSyncDumper {
         };
 
         // Determine how many threads to start.
-        // TODO(resharding): Handle the case of changing the shard layout.
-        let shard_ids = {
-            // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
-            let chain = Chain::new_for_view_client(
-                self.clock.clone(),
-                self.epoch_manager.clone(),
-                self.shard_tracker.clone(),
-                self.runtime.clone(),
-                &self.chain_genesis,
-                DoomslugThresholdMode::TwoThirds,
-                false,
-            )?;
-            let epoch_id = chain.head()?.epoch_id;
-            self.epoch_manager.shard_ids(&epoch_id)
-        }?;
+        let shard_ids = self.get_all_shard_ids()?;
 
         let chain_id = self.client_config.chain_id.clone();
         let keep_running = Arc::new(AtomicBool::new(true));
@@ -106,6 +126,7 @@ impl StateSyncDumper {
             .map(|shard_id| {
                 let runtime = self.runtime.clone();
                 let chain_genesis = self.chain_genesis.clone();
+                // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
                 let chain = Chain::new_for_view_client(
                     self.clock.clone(),
                     self.epoch_manager.clone(),
@@ -119,7 +140,7 @@ impl StateSyncDumper {
                 (self.dump_future_runner)(
                     state_sync_dump(
                         self.clock.clone(),
-                        shard_id as ShardId,
+                        shard_id,
                         chain,
                         self.epoch_manager.clone(),
                         self.shard_tracker.clone(),
@@ -254,40 +275,38 @@ fn get_current_state(
         _ => None,
     };
 
-    let latest_epoch_info = get_latest_epoch(shard_id, &chain, epoch_manager.clone());
-    let LatestEpochInfo {
-        prev_epoch_id,
+    let maybe_latest_epoch_info = get_latest_epoch(shard_id, &chain, epoch_manager.clone());
+    let latest_epoch_info = match maybe_latest_epoch_info {
+        Ok(latest_epoch_info) => latest_epoch_info,
+        Err(err) => {
+            tracing::error!(target: "state_sync_dump", ?shard_id, ?err, "Failed to get the latest epoch");
+            return Err(err);
+        }
+    };
+    let Some(LatestEpochInfo {
         epoch_id: new_epoch_id,
         epoch_height: new_epoch_height,
         sync_hash: new_sync_hash,
-    } = latest_epoch_info.map_err(|err| {
-        tracing::error!(target: "state_sync_dump", ?shard_id, ?err, "Failed to get the latest epoch");
-        err
-    })?;
+    }) = latest_epoch_info
+    else {
+        return Ok(StateDumpAction::Wait);
+    };
 
     if Some(&new_epoch_id) == was_last_epoch_done.as_ref() {
-        tracing::debug!(target: "state_sync_dump", ?shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is done. No new epoch to dump. Idle");
-        Ok(StateDumpAction::Wait)
-    } else if epoch_manager.get_shard_layout(&prev_epoch_id)
-        != epoch_manager.get_shard_layout(&new_epoch_id)
+        return Ok(StateDumpAction::Wait);
+    }
+
+    let shard_layout = epoch_manager.get_shard_layout(&new_epoch_id)?;
+
+    if shard_layout.shard_ids().contains(shard_id)
+        && cares_about_shard(chain, shard_id, &new_sync_hash, &shard_tracker, &account_id)?
     {
-        tracing::debug!(target: "state_sync_dump", ?shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Shard layout change detected, will skip dumping for this epoch. Idle");
-        chain.chain_store().set_state_sync_dump_progress(
-            *shard_id,
-            Some(StateSyncDumpProgress::Skipped {
-                epoch_id: new_epoch_id,
-                epoch_height: new_epoch_height,
-            }),
-        )?;
-        Ok(StateDumpAction::Wait)
-    } else if cares_about_shard(chain, shard_id, &new_sync_hash, &shard_tracker, &account_id)? {
         Ok(StateDumpAction::Dump {
             epoch_id: new_epoch_id,
             epoch_height: new_epoch_height,
             sync_hash: new_sync_hash,
         })
     } else {
-        tracing::debug!(target: "state_sync_dump", ?shard_id, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Doesn't care about the shard in the current epoch. Idle");
         Ok(StateDumpAction::Wait)
     }
 }
@@ -459,15 +478,11 @@ async fn state_sync_dump(
                                     let (part_id, selected_idx) =
                                         select_random_part_id_with_index(&parts_to_dump);
 
-                                    let state_part = obtain_and_store_state_part(
-                                        runtime.as_ref(),
+                                    let state_part = runtime.obtain_state_part(
                                         shard_id,
-                                        sync_hash,
                                         &sync_prev_prev_hash,
                                         &state_root,
-                                        part_id,
-                                        num_parts,
-                                        &chain,
+                                        PartId::new(part_id, num_parts),
                                     );
                                     let state_part = match state_part {
                                         Ok(state_part) => state_part,
@@ -607,31 +622,6 @@ fn update_dumped_size_and_cnt_metrics(
         .set(num_parts as i64);
 }
 
-/// Obtains and then saves the part data.
-fn obtain_and_store_state_part(
-    runtime: &dyn RuntimeAdapter,
-    shard_id: ShardId,
-    sync_hash: CryptoHash,
-    sync_prev_prev_hash: &CryptoHash,
-    state_root: &StateRoot,
-    part_id: u64,
-    num_parts: u64,
-    chain: &Chain,
-) -> Result<Vec<u8>, Error> {
-    let state_part = runtime.obtain_state_part(
-        shard_id,
-        sync_prev_prev_hash,
-        state_root,
-        PartId::new(part_id, num_parts),
-    )?;
-
-    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-    let mut store_update = chain.chain_store().store().store_update();
-    store_update.set(DBCol::StateParts, &key, &state_part);
-    store_update.commit()?;
-    Ok(state_part)
-}
-
 fn cares_about_shard(
     chain: &Chain,
     shard_id: &ShardId,
@@ -645,7 +635,6 @@ fn cares_about_shard(
 }
 
 struct LatestEpochInfo {
-    prev_epoch_id: EpochId,
     epoch_id: EpochId,
     epoch_height: EpochHeight,
     sync_hash: CryptoHash,
@@ -656,19 +645,24 @@ fn get_latest_epoch(
     shard_id: &ShardId,
     chain: &Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> Result<LatestEpochInfo, Error> {
+) -> Result<Option<LatestEpochInfo>, Error> {
     let head = chain.head()?;
     tracing::debug!(target: "state_sync_dump", ?shard_id, "Check if a new complete epoch is available");
     let hash = head.last_block_hash;
     let header = chain.get_block_header(&hash)?;
     let final_hash = header.last_final_block();
-    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, final_hash)?;
+    if final_hash == &CryptoHash::default() {
+        return Ok(None);
+    }
+    let Some(sync_hash) = chain.get_sync_hash(final_hash)? else {
+        return Ok(None);
+    };
     let final_block_header = chain.get_block_header(&final_hash)?;
     let epoch_id = *final_block_header.epoch_id();
     let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(&head.prev_block_hash)?;
     let epoch_height = epoch_info.epoch_height();
+
     tracing::debug!(target: "state_sync_dump", ?final_hash, ?sync_hash, ?epoch_id, epoch_height, "get_latest_epoch");
 
-    Ok(LatestEpochInfo { prev_epoch_id, epoch_id, epoch_height, sync_hash })
+    Ok(Some(LatestEpochInfo { epoch_id, epoch_height, sync_hash }))
 }

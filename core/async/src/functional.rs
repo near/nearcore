@@ -1,4 +1,5 @@
 use crate::messaging::{CanSend, MessageWithCallback};
+use futures::FutureExt;
 use std::marker::PhantomData;
 
 /// Allows a Sender to be created from a raw function.
@@ -20,22 +21,25 @@ impl<M: 'static, F: Fn(M) + Send + Sync + 'static> CanSend<M> for SendFunction<M
 }
 
 /// Allows an AsyncSender to be created from a raw (synchronous) function.
-pub struct SendAsyncFunction<M: 'static, R: 'static, F: Fn(M) -> R + Send + Sync + 'static> {
+pub struct SendAsyncFunction<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static> {
     f: F,
     _phantom: PhantomData<fn(M, R)>,
 }
 
-impl<M: 'static, R: 'static, F: Fn(M) -> R + Send + Sync + 'static> SendAsyncFunction<M, R, F> {
+impl<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static>
+    SendAsyncFunction<M, R, F>
+{
     pub fn new(f: F) -> Self {
         Self { f, _phantom: PhantomData }
     }
 }
 
-impl<M: 'static, R: 'static, F: Fn(M) -> R + Send + Sync + 'static>
+impl<M: 'static, R: Send + 'static, F: Fn(M) -> R + Send + Sync + 'static>
     CanSend<MessageWithCallback<M, R>> for SendAsyncFunction<M, R, F>
 {
     fn send(&self, message: MessageWithCallback<M, R>) {
         let MessageWithCallback { message, callback: responder } = message;
-        responder(Ok((self.f)(message)));
+        let result = Ok((self.f)(message));
+        responder(async move { result }.boxed());
     }
 }

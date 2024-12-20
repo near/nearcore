@@ -57,15 +57,16 @@ impl Drop for GaugePoint {
 }
 
 pub struct Connection {
+    pub tier: tcp::Tier,
     pub type_: PeerType,
     pub encoding: Option<Encoding>,
 }
 
 impl Labels for Connection {
-    type Array = [&'static str; 2];
-    const NAMES: Self::Array = ["peer_type", "encoding"];
+    type Array = [&'static str; 3];
+    const NAMES: Self::Array = ["tier", "peer_type", "encoding"];
     fn values(&self) -> Self::Array {
-        [self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
+        [self.tier.into(), self.type_.into(), self.encoding.map(|e| e.into()).unwrap_or("unknown")]
     }
 }
 
@@ -292,6 +293,15 @@ pub(crate) static PEER_MANAGER_MESSAGES_TIME: LazyLock<HistogramVec> = LazyLock:
         "near_peer_manager_messages_time",
         "Time that PeerManagerActor spends on handling different types of messages",
         &["message"],
+        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
+    )
+    .unwrap()
+});
+pub(crate) static PEER_MANAGER_TIER3_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_peer_manager_tier3_request_time",
+        "Time that PeerManagerActor spends on handling tier3 requests",
+        &["request"],
         Some(exponential_buckets(0.0001, 2., 15).unwrap()),
     )
     .unwrap()

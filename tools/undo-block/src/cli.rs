@@ -23,16 +23,18 @@ impl UndoBlockCommand {
 
         let store_opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            None,
+            near_config.config.archival_config(),
         );
 
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
         let store = storage.get_hot_store();
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
 
         let mut chain_store = ChainStore::new(
             store,

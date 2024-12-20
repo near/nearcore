@@ -9,7 +9,7 @@ use rand::Rng;
 use tracing::error;
 
 use near_chain_configs::Genesis;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_primitives::types::AccountId;
 use nearcore::config::NearConfig;
 
@@ -113,10 +113,7 @@ impl ProcessNode {
         let mut rng = rand::thread_rng();
         let work_dir = env::temp_dir().join(format!("process_node_{}", rng.gen::<u64>()));
         let account_id = config.validator_signer.get().unwrap().validator_id().clone();
-        let signer = Arc::new(
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
-                .into(),
-        );
+        let signer = Arc::new(InMemorySigner::test_signer(&account_id));
         let result =
             ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer, account_id };
         result.reset_storage();

@@ -65,7 +65,7 @@ pub mod pending_events_sender;
 pub mod sender;
 
 use data::TestLoopData;
-use futures::{TestLoopAsyncComputationSpawner, TestLoopFututeSpawner};
+use futures::{TestLoopAsyncComputationSpawner, TestLoopFutureSpawner};
 use near_time::{Clock, Duration, FakeClock};
 use pending_events_sender::{CallbackEvent, PendingEventsSender};
 use sender::TestLoopSender;
@@ -216,7 +216,7 @@ impl TestLoopV2 {
     }
 
     /// Returns a FutureSpawner that can be used to spawn futures into the loop.
-    pub fn future_spawner(&self) -> TestLoopFututeSpawner {
+    pub fn future_spawner(&self) -> TestLoopFutureSpawner {
         self.pending_events_sender.clone()
     }
 
@@ -242,6 +242,20 @@ impl TestLoopV2 {
         callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
     ) {
         self.pending_events_sender.send(format!("Adhoc({})", description), Box::new(callback));
+    }
+
+    /// Sends any ad-hoc event to the loop, after some delay.
+    pub fn send_adhoc_event_with_delay(
+        &self,
+        description: String,
+        delay: Duration,
+        callback: impl FnOnce(&mut TestLoopData) + Send + 'static,
+    ) {
+        self.pending_events_sender.send_with_delay(
+            format!("Adhoc({})", description),
+            Box::new(callback),
+            delay,
+        );
     }
 
     /// Returns a clock that will always return the current virtual time.
@@ -292,7 +306,7 @@ impl TestLoopV2 {
     /// Takes a decider to determine whether to advance time, handle the next event, and/or to stop.
     fn advance_till_next_event(
         &mut self,
-        decider: &impl Fn(Option<Duration>, &mut TestLoopData) -> AdvanceDecision,
+        decider: &mut impl FnMut(Option<Duration>, &mut TestLoopData) -> AdvanceDecision,
     ) -> Option<EventInHeap> {
         loop {
             // New events may have been sent to the TestLoop from outside, and the previous
@@ -380,7 +394,7 @@ impl TestLoopV2 {
     /// the first call.
     pub fn run_for(&mut self, duration: Duration) {
         let deadline = self.current_time + duration;
-        while let Some(event) = self.advance_till_next_event(&|next_time, _| {
+        while let Some(event) = self.advance_till_next_event(&mut |next_time, _| {
             if let Some(next_time) = next_time {
                 if next_time <= deadline {
                     return AdvanceDecision::AdvanceToNextEvent;
@@ -399,11 +413,11 @@ impl TestLoopV2 {
     /// advance. If it returns true, execution stops before advancing the clock.
     pub fn run_until(
         &mut self,
-        condition: impl Fn(&mut TestLoopData) -> bool,
+        mut condition: impl FnMut(&mut TestLoopData) -> bool,
         maximum_duration: Duration,
     ) {
         let deadline = self.current_time + maximum_duration;
-        let decider = |next_time, data: &mut TestLoopData| {
+        let mut decider = move |next_time, data: &mut TestLoopData| {
             if condition(data) {
                 return AdvanceDecision::Stop;
             }
@@ -414,7 +428,7 @@ impl TestLoopV2 {
             }
             panic!("run_until did not fulfill the condition within the given deadline");
         };
-        while let Some(event) = self.advance_till_next_event(&decider) {
+        while let Some(event) = self.advance_till_next_event(&mut decider) {
             self.process_event(event);
         }
     }
@@ -434,6 +448,9 @@ impl Drop for TestLoopV2 {
     fn drop(&mut self) {
         self.queue_received_events();
         if let Some(event) = self.events.pop() {
+            // Drop any references that may be held by the event callbacks. This can help
+            // with destruction of the data.
+            self.events.clear();
             panic!(
                 "Event scheduled at {} is not handled at the end of the test: {}.
                  Consider calling `test.shutdown_and_drain_remaining_events(...)`.",

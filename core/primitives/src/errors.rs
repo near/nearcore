@@ -1,5 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -55,8 +56,7 @@ impl From<InvalidTxError> for TxExecutionError {
 pub enum RuntimeError {
     /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
     UnexpectedIntegerOverflow(String),
-    /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
-    /// and should be challenged.
+    /// An error happened during TX verification and account charging.
     InvalidTxError(InvalidTxError),
     /// Unexpected error which is typically related to the node storage corruption.
     /// It's possible the input state is invalid or malicious.
@@ -100,6 +100,17 @@ pub enum MissingTrieValueContext {
     TrieStorage,
 }
 
+impl MissingTrieValueContext {
+    pub fn metrics_label(&self) -> &str {
+        match self {
+            Self::TrieIterator => "trie_iterator",
+            Self::TriePrefetchingStorage => "trie_prefetching_storage",
+            Self::TrieMemoryPartialStorage => "trie_memory_partial_storage",
+            Self::TrieStorage => "trie_storage",
+        }
+    }
+}
+
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
 #[derive(
@@ -134,6 +145,9 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String),
     /// In-memory trie could not be loaded for some reason.
     MemTrieLoadingError(String),
+    /// Indicates that a resharding operation on flat storage is already in progress,
+    /// when it wasn't expected to be so.
+    FlatStorageReshardingAlreadyInProgress,
 }
 
 impl std::fmt::Display for StorageError {
@@ -1015,6 +1029,12 @@ impl Debug for EpochError {
 impl From<std::io::Error> for EpochError {
     fn from(error: std::io::Error) -> Self {
         EpochError::IOErr(error.to_string())
+    }
+}
+
+impl From<ShardLayoutError> for EpochError {
+    fn from(error: ShardLayoutError) -> Self {
+        EpochError::ShardingError(error.to_string())
     }
 }
 

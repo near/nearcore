@@ -32,14 +32,14 @@ fn main() {
 
     let store = near_store::NodeStorage::opener(
         home_dir,
-        near_config.config.archive,
         &near_config.config.store,
-        None,
+        near_config.config.archival_config(),
     )
     .open()
     .unwrap()
     .get_hot_store();
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let shard_tracker = ShardTracker::new(
         TrackedConfig::from_config(&near_config.client_config),
         epoch_manager.clone(),

@@ -601,7 +601,7 @@ mod tests {
 
     use super::*;
     use crate::near_primitives::trie_key::TrieKey;
-    use near_store::{set, set_code};
+    use near_store::set;
     use near_vm_runner::ContractCode;
 
     /// Initial balance used in tests.
@@ -640,10 +640,7 @@ mod tests {
         let root = MerkleHash::default();
 
         let account_id = alice_account();
-        let signer: Arc<Signer> = Arc::new(
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
-                .into(),
-        );
+        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         for (account_id, initial_balance, initial_locked, access_keys, has_contract, has_data) in
@@ -679,8 +676,7 @@ mod tests {
             if has_contract {
                 let code = vec![0; 100];
                 let code_hash = hash(&code);
-                set_code(
-                    &mut initial_state,
+                initial_state.set_code(
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
@@ -707,7 +703,7 @@ mod tests {
             set_account(&mut initial_state, account_id.clone(), &initial_account);
         }
         initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap().1;
+        let trie_changes = initial_state.finalize().unwrap().trie_changes;
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();

@@ -3,11 +3,54 @@
 ## [unreleased]
 
 ### Protocol Changes
+**No Changes**
+
+### Non-protocol Changes
+**No Changes**
+
+## [2.4.0]
+
+### Protocol Changes
+
+* Fixing invalid cost used for `wasm_yield_resume_byte`. [#12192](https://github.com/near/nearcore/pull/12192)
+* Relaxing Congestion Control to allow accepting and buffering more transactions. [#12241](https://github.com/near/nearcore/pull/12241) [#12430](https://github.com/near/nearcore/pull/12430)
+* Exclude contract code out of state witness and distribute it separately. [#11099](https://github.com/near/nearcore/issues/11099)
+
+### Non-protocol Changes
+* **Epoch Sync V4**: A capability to bootstrap a node from another active node. [#73](https://github.com/near/near-one-project-tracking/issues/73)
+* **Decentralized state sync**: Before, nodes that needed to download state
+(either because they're several epochs behind the chain or because they're going to start producing chunks for a shard they don't currently track)
+would download them from a centralized GCS bucket. Now, nodes will attempt to download pieces of the state from peers in the network,
+and only fallback to downloading from GCS if that fails. Please note that in order to participate in providing state parts to peers,
+your node may generate snapshots of the state. These snapshots should not take too much space,
+since they're hard links to database files that get cleaned up on every epoch. [#12004](https://github.com/near/nearcore/issues/12004)
+
+## [2.3.0]
+
+### Protocol Changes
 * Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
 
 ### Non-protocol Changes
 * Added [documentation](./docs/misc/archival_data_recovery.md) and a [reference](./scripts/recover_missing_archival_data.sh) script to recover the data lost in archival nodes at the beginning of 2024.
 * **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
+* Enabled state snapshots on every epoch to allow the nodes to take part in decentralized state sync in future releases.
+
+### 2.2.1
+
+This release patches a bug found in the 2.2.0 release
+
+# Non-protocol changes
+There was a bug in the integration between ethereum implicit accounts and the compiled contract cache which sometimes caused the nodes to get stuck. This would most often happen during state sync, but could also happen by itself. Please update your nodes to avoid getting stuck.
+
+A node that hits this bug will print an error about an `InvalidStateRoot` in the logs and then it'll be unable to sync.
+It's possible to recover a stalled node by clearing the compiled contract cache and rolling back one block:
+1. Stop the neard process
+2. Download the new version of neard
+3. Clear the compiled contract cache: rm -rf ~/.near/data/contracts
+4. Undo the last block: ./neard undo-block
+5. Start neard
+
+After that the node should be able to recover and sync with the rest of the network.
 
 ### 2.2.0
 

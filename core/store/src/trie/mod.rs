@@ -1,15 +1,12 @@
 use self::accounting_cache::TrieAccountingCache;
 use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
-use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
-use self::trie_recording::TrieRecorder;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use crate::trie::insert_delete::NodesStorage;
 use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
@@ -21,6 +18,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
+use mem::mem_trie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::mem_tries::MemTries;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
@@ -32,22 +30,32 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
+use ops::insert_delete::GenericTrieUpdateInsertDelete;
+#[cfg(test)]
+use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
+use ops::interface::{GenericTrieValue, UpdatedNodeId};
+use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
+use std::ops::DerefMut;
 use std::str;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
-pub use trie_recording::{SubtreeSize, TrieRecorderStats};
+pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
+use trie_storage_update::{
+    TrieStorageNodeWithSize, TrieStorageUpdate, UpdatedTrieStorageNodeWithSize,
+};
 
 pub mod accounting_cache;
 mod config;
 mod from_flat;
-mod insert_delete;
 pub mod iterator;
 pub mod mem;
 mod nibble_slice;
+pub mod ops;
+pub mod outgoing_metadata;
 mod prefetching_trie_storage;
 mod raw_node;
 pub mod receipts_column_helper;
@@ -57,6 +65,7 @@ mod state_parts;
 mod state_snapshot;
 mod trie_recording;
 mod trie_storage;
+pub mod trie_storage_update;
 #[cfg(test)]
 mod trie_tests;
 pub mod update;
@@ -72,8 +81,10 @@ pub struct PartialStorage {
 #[derive(Clone, Hash, Debug, Copy)]
 pub(crate) struct StorageHandle(usize);
 
+/// Stores index of value in the array of new values and its length for memory
+/// counting.
 #[derive(Clone, Hash, Debug, Copy)]
-pub(crate) struct StorageValueHandle(usize);
+pub(crate) struct StorageValueHandle(usize, usize);
 
 pub struct TrieCosts {
     pub byte_of_key: u64,
@@ -90,9 +101,9 @@ pub enum KeyLookupMode {
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
+// TODO(#12361): replace with `RawTrieNodeWithSize` fields.
 #[derive(Clone, Hash)]
 enum NodeHandle {
-    InMemory(StorageHandle),
     Hash(CryptoHash),
 }
 
@@ -100,7 +111,6 @@ impl NodeHandle {
     fn unwrap_hash(&self) -> &CryptoHash {
         match self {
             Self::Hash(hash) => hash,
-            Self::InMemory(_) => unreachable!(),
         }
     }
 }
@@ -109,13 +119,12 @@ impl std::fmt::Debug for NodeHandle {
     fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Hash(hash) => write!(fmtr, "{hash}"),
-            Self::InMemory(handle) => write!(fmtr, "@{}", handle.0),
         }
     }
 }
 
-#[derive(Clone, Hash)]
-enum ValueHandle {
+#[derive(Clone, Copy, Hash)]
+pub(crate) enum ValueHandle {
     InMemory(StorageValueHandle),
     HashAndSize(ValueRef),
 }
@@ -124,11 +133,12 @@ impl std::fmt::Debug for ValueHandle {
     fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::HashAndSize(value) => write!(fmtr, "{value:?}"),
-            Self::InMemory(StorageValueHandle(num)) => write!(fmtr, "@{num}"),
+            Self::InMemory(StorageValueHandle(num, _)) => write!(fmtr, "@{num}"),
         }
     }
 }
 
+// TODO(#12361): replace with `RawTrieNode`.
 #[derive(Clone, Hash)]
 enum TrieNode {
     /// Null trie node. Could be an empty root or an empty branch entry.
@@ -141,6 +151,7 @@ enum TrieNode {
     Extension(Vec<u8>, NodeHandle),
 }
 
+// TODO(#12361): replace with `RawTrieNodeWithSize`.
 #[derive(Clone, Debug)]
 pub struct TrieNodeWithSize {
     node: TrieNode,
@@ -154,10 +165,6 @@ impl TrieNodeWithSize {
 
     fn new(node: TrieNode, memory_usage: u64) -> TrieNodeWithSize {
         TrieNodeWithSize { node, memory_usage }
-    }
-
-    fn memory_usage(&self) -> u64 {
-        self.memory_usage
     }
 
     fn empty() -> TrieNodeWithSize {
@@ -181,23 +188,25 @@ impl TrieNode {
             RawTrieNode::Extension(key, child) => TrieNode::Extension(key, NodeHandle::Hash(child)),
         }
     }
+}
 
+impl UpdatedTrieStorageNodeWithSize {
     #[cfg(test)]
     fn print(
         &self,
         f: &mut dyn std::fmt::Write,
-        memory: &NodesStorage,
+        trie_update: &TrieStorageUpdate,
         spaces: &mut String,
     ) -> std::fmt::Result {
-        match self {
-            TrieNode::Empty => {
+        match &self.node {
+            GenericTrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
             }
-            TrieNode::Leaf(key, _value) => {
-                let slice = NibbleSlice::from_encoded(key);
+            GenericTrieNode::Leaf { extension, .. } => {
+                let slice = NibbleSlice::from_encoded(&extension);
                 write!(f, "{}Leaf({:?}, val)", spaces, slice.0)?;
             }
-            TrieNode::Branch(children, value) => {
+            GenericTrieNode::Branch { children, value } => {
                 writeln!(
                     f,
                     "{}Branch({}){{",
@@ -205,15 +214,18 @@ impl TrieNode {
                     if value.is_some() { "Some" } else { "None" }
                 )?;
                 spaces.push(' ');
-                for (idx, child) in children.iter() {
+                for (idx, child) in children.iter().enumerate() {
+                    let Some(child) = child else {
+                        continue;
+                    };
                     write!(f, "{}{:01x}->", spaces, idx)?;
                     match child {
-                        NodeHandle::Hash(hash) => {
+                        GenericNodeOrIndex::Old(hash) => {
                             write!(f, "{}", hash)?;
                         }
-                        NodeHandle::InMemory(handle) => {
-                            let child = &memory.node_ref(*handle).node;
-                            child.print(f, memory, spaces)?;
+                        GenericNodeOrIndex::Updated(id) => {
+                            let child = trie_update.get_node_ref(*id);
+                            child.print(f, trie_update, spaces)?;
                         }
                     }
                     writeln!(f)?;
@@ -221,17 +233,17 @@ impl TrieNode {
                 spaces.remove(spaces.len() - 1);
                 write!(f, "{}}}", spaces)?;
             }
-            TrieNode::Extension(key, child) => {
-                let slice = NibbleSlice::from_encoded(key);
+            GenericTrieNode::Extension { extension, child } => {
+                let slice = NibbleSlice::from_encoded(&extension);
                 writeln!(f, "{}Extension({:?})", spaces, slice)?;
                 spaces.push(' ');
                 match child {
-                    NodeHandle::Hash(hash) => {
+                    GenericNodeOrIndex::Old(hash) => {
                         write!(f, "{}{}", spaces, hash)?;
                     }
-                    NodeHandle::InMemory(handle) => {
-                        let child = &memory.node_ref(*handle).node;
-                        child.print(f, memory, spaces)?;
+                    GenericNodeOrIndex::Updated(id) => {
+                        let child = trie_update.get_node_ref(*id);
+                        child.print(f, trie_update, spaces)?;
                     }
                 }
                 writeln!(f)?;
@@ -241,6 +253,15 @@ impl TrieNode {
         Ok(())
     }
 
+    #[cfg(test)]
+    fn deep_to_string(&self, trie_update: &TrieStorageUpdate) -> String {
+        let mut buf = String::new();
+        self.print(&mut buf, trie_update, &mut "".to_string()).expect("printing failed");
+        buf
+    }
+}
+
+impl TrieNode {
     pub fn has_value(&self) -> bool {
         match self {
             Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
@@ -248,37 +269,23 @@ impl TrieNode {
         }
     }
 
-    #[cfg(test)]
-    fn deep_to_string(&self, memory: &NodesStorage) -> String {
-        let mut buf = String::new();
-        self.print(&mut buf, memory, &mut "".to_string()).expect("printing failed");
-        buf
-    }
-
     fn memory_usage_for_value_length(value_length: u64) -> u64 {
         value_length * TRIE_COSTS.byte_of_value + TRIE_COSTS.node_cost
     }
 
-    fn memory_usage_value(value: &ValueHandle, memory: Option<&NodesStorage>) -> u64 {
+    fn memory_usage_value(value: &ValueHandle) -> u64 {
         let value_length = match value {
-            ValueHandle::InMemory(handle) => memory
-                .expect("InMemory nodes exist, but storage is not provided")
-                .value_ref(*handle)
-                .len() as u64,
+            ValueHandle::InMemory(_) => {
+                panic!("InMemory nodes exist, but storage is not provided")
+            }
             ValueHandle::HashAndSize(value) => u64::from(value.length),
         };
         Self::memory_usage_for_value_length(value_length)
     }
 
-    fn memory_usage_direct_no_memory(&self) -> u64 {
-        self.memory_usage_direct_internal(None)
-    }
-
-    fn memory_usage_direct(&self, memory: &NodesStorage) -> u64 {
-        self.memory_usage_direct_internal(Some(memory))
-    }
-
-    fn memory_usage_direct_internal(&self, memory: Option<&NodesStorage>) -> u64 {
+    /// TODO(#12361): in particular, consider replacing with
+    /// `GenericUpdatedTrieNode::memory_usage_direct`.
+    fn memory_usage_direct(&self) -> u64 {
         match self {
             TrieNode::Empty => {
                 // DEVNOTE: empty nodes don't exist in storage.
@@ -289,11 +296,11 @@ impl TrieNode {
             TrieNode::Leaf(key, value) => {
                 TRIE_COSTS.node_cost
                     + (key.len() as u64) * TRIE_COSTS.byte_of_key
-                    + Self::memory_usage_value(value, memory)
+                    + Self::memory_usage_value(value)
             }
             TrieNode::Branch(_children, value) => {
                 TRIE_COSTS.node_cost
-                    + value.as_ref().map_or(0, |value| Self::memory_usage_value(value, memory))
+                    + value.as_ref().map_or(0, |value| Self::memory_usage_value(value))
             }
             TrieNode::Extension(key, _child) => {
                 TRIE_COSTS.node_cost + (key.len() as u64) * TRIE_COSTS.byte_of_key
@@ -527,8 +534,8 @@ pub struct MemTrieChanges {
     /// Node ids with hashes of updated nodes.
     /// Should be in the post-order traversal of the updated nodes.
     /// It implies that the root node is the last one in the list.
-    node_ids_with_hashes: Vec<(UpdatedMemTrieNodeId, CryptoHash)>,
-    updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
+    node_ids_with_hashes: Vec<(UpdatedNodeId, CryptoHash)>,
+    updated_nodes: Vec<Option<UpdatedMemTrieNodeWithSize>>,
 }
 
 ///
@@ -636,10 +643,19 @@ impl OptimizedValueRef {
         }
     }
 
+    /// Returns the length (in num bytes) of the value pointed by this reference.
     pub fn len(&self) -> usize {
         match self {
             Self::Ref(value_ref) => value_ref.len(),
             Self::AvailableValue(token) => token.value.len(),
+        }
+    }
+
+    /// Returns the hash of the value pointed by this reference.
+    pub fn value_hash(&self) -> CryptoHash {
+        match self {
+            OptimizedValueRef::Ref(value_ref) => value_ref.hash,
+            OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => hash(value.as_slice()),
         }
     }
 
@@ -687,6 +703,11 @@ impl Trie {
             accounting_cache,
             recorder: None,
         }
+    }
+
+    /// Returns `true` if this `Trie` is configured to use in memory tries.
+    pub fn has_memtries(&self) -> bool {
+        self.memtries.is_some()
     }
 
     /// Helper to simulate gas costs as if flat storage was present.
@@ -751,7 +772,7 @@ impl Trie {
         trie
     }
 
-    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// Get statistics about the recorded trie. Useful for observability and debugging.
     /// This scans all of the recorded data, so could potentially be expensive to run.
     pub fn recorder_stats(&self) -> Option<TrieRecorderStats> {
         self.recorder.as_ref().map(|recorder| recorder.borrow().get_stats(&self.root))
@@ -838,8 +859,13 @@ impl Trie {
     }
 
     #[cfg(test)]
-    fn memory_usage_verify(&self, memory: &NodesStorage, handle: NodeHandle) -> u64 {
+    fn memory_usage_verify(
+        &self,
+        trie_update: &TrieStorageUpdate,
+        handle: GenericNodeOrIndex<CryptoHash>,
+    ) -> u64 {
         // Cannot compute memory usage naively if given only partial storage.
+
         if self.storage.as_partial_storage().is_some() {
             return 0;
         }
@@ -849,23 +875,32 @@ impl Trie {
             return 0;
         }
 
-        let TrieNodeWithSize { node, memory_usage } = match handle {
-            NodeHandle::InMemory(h) => memory.node_ref(h).clone(),
-            NodeHandle::Hash(h) => self.retrieve_node(&h).expect("storage failure").1,
+        let UpdatedTrieStorageNodeWithSize { node, memory_usage } = match handle {
+            GenericNodeOrIndex::Updated(h) => trie_update.get_node_ref(h).clone(),
+            GenericNodeOrIndex::Old(h) => {
+                let raw_node = self
+                    .retrieve_raw_node(&h, false, false)
+                    .expect("storage failure")
+                    .expect("node cannot be Empty")
+                    .1;
+                TrieStorageNodeWithSize::from_raw_trie_node_with_size(raw_node).into()
+            }
         };
 
-        let mut memory_usage_naive = node.memory_usage_direct(memory);
+        let mut memory_usage_naive = node.memory_usage_direct();
         match &node {
-            TrieNode::Empty => {}
-            TrieNode::Leaf(_key, _value) => {}
-            TrieNode::Branch(children, _value) => {
+            GenericTrieNode::Empty => {}
+            GenericTrieNode::Leaf { .. } => {}
+            GenericTrieNode::Branch { children, .. } => {
                 memory_usage_naive += children
                     .iter()
-                    .map(|(_, handle)| self.memory_usage_verify(memory, handle.clone()))
+                    .filter_map(|handle| {
+                        handle.as_ref().map(|h| self.memory_usage_verify(trie_update, *h))
+                    })
                     .sum::<u64>();
             }
-            TrieNode::Extension(_key, child) => {
-                memory_usage_naive += self.memory_usage_verify(memory, child.clone());
+            GenericTrieNode::Extension { child, .. } => {
+                memory_usage_naive += self.memory_usage_verify(trie_update, *child);
             }
         };
         if memory_usage_naive != memory_usage {
@@ -873,34 +908,18 @@ impl Trie {
             eprintln!("Correct is {}", memory_usage_naive);
             eprintln!("Computed is {}", memory_usage);
             match handle {
-                NodeHandle::InMemory(h) => {
-                    eprintln!("TRIE!!!!");
-                    eprintln!("{}", memory.node_ref(h).node.deep_to_string(memory));
+                GenericNodeOrIndex::Updated(h) => {
+                    eprintln!("In-memory node:");
+                    let node = trie_update.get_node_ref(h);
+                    eprintln!("{}", node.deep_to_string(trie_update));
                 }
-                NodeHandle::Hash(_h) => {
+                GenericNodeOrIndex::Old(_h) => {
                     eprintln!("Bad node in storage!");
                 }
             };
             assert_eq!(memory_usage_naive, memory_usage);
         }
         memory_usage
-    }
-
-    fn delete_value(
-        &self,
-        memory: &mut NodesStorage,
-        value: &ValueHandle,
-    ) -> Result<(), StorageError> {
-        match value {
-            ValueHandle::HashAndSize(value) => {
-                self.internal_retrieve_trie_node(&value.hash, true, true)?;
-                memory.refcount_changes.subtract(value.hash, 1);
-            }
-            ValueHandle::InMemory(_) => {
-                // do nothing
-            }
-        }
-        Ok(())
     }
 
     /// Prints the trie nodes starting from `hash`, up to `max_depth` depth. The node hash can be any node in the trie.
@@ -1226,16 +1245,17 @@ impl Trie {
         }
     }
 
-    fn move_node_to_mutable(
+    pub(crate) fn move_node_to_mutable(
         &self,
-        memory: &mut NodesStorage,
+        trie_update: &mut TrieStorageUpdate,
         hash: &CryptoHash,
     ) -> Result<StorageHandle, StorageError> {
         match self.retrieve_raw_node(hash, true, true)? {
-            None => Ok(memory.store(TrieNodeWithSize::empty())),
+            None => Ok(trie_update.store(UpdatedTrieStorageNodeWithSize::empty())),
             Some((_, node)) => {
-                let result = memory.store(TrieNodeWithSize::from_raw(node));
-                memory.refcount_changes.subtract(*hash, 1);
+                let result = trie_update
+                    .store(TrieStorageNodeWithSize::from_raw_trie_node_with_size(node).into());
+                trie_update.refcount_changes.subtract(*hash, 1);
                 Ok(result)
             }
         }
@@ -1566,6 +1586,25 @@ impl Trie {
         }
     }
 
+    /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
+    ///
+    /// This method is similar to `get_optimized` but has no side effects (not charging gas or recording trie nodes).
+    fn get_optimized_ref_no_side_effects(
+        &self,
+        key: &[u8],
+        mode: KeyLookupMode,
+    ) -> Result<Option<OptimizedValueRef>, StorageError> {
+        if self.memtries.is_some() {
+            self.lookup_from_memory(&key, false, false, |v| v.to_optimized_value_ref())
+        } else if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
+            self.lookup_from_flat_storage(&key, false)
+        } else {
+            Ok(self
+                .lookup_from_state_column(NibbleSlice::new(&key), false, false)?
+                .map(OptimizedValueRef::Ref))
+        }
+    }
+
     /// Dereferences an `OptimizedValueRef` into the full value, and properly
     /// accounts for the gas, caching, and recording (if enabled). This may or
     /// may not incur a on-disk lookup, depending on whether the
@@ -1615,71 +1654,46 @@ impl Trie {
 
         match &self.memtries {
             Some(memtries) => {
-                // If we have in-memory tries, use it to construct the changes entirely (for
-                // both in-memory and on-disk updates) because it's much faster.
                 let guard = memtries.read().unwrap();
-                let mut trie_update = guard.update(self.root, true)?;
+                let mut recorder = self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
+                let tracking_mode = match &mut recorder {
+                    Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+                    None => TrackingMode::Refcounts,
+                };
+
+                let mut trie_update = guard.update(self.root, tracking_mode)?;
                 for (key, value) in changes {
                     match value {
-                        Some(arr) => trie_update.insert(&key, arr),
-                        None => trie_update.delete(&key),
-                    }
-                }
-                let (trie_changes, trie_accesses) = trie_update.to_trie_changes();
-
-                // Sanity check for tests: all modified trie items must be
-                // present in ever accessed trie items.
-                #[cfg(test)]
-                {
-                    for t in trie_changes.deletions.iter() {
-                        let hash = t.trie_node_or_value_hash;
-                        assert!(
-                            trie_accesses.values.contains_key(&hash)
-                                || trie_accesses.nodes.contains_key(&hash),
-                            "Hash {} is not present in trie accesses",
-                            hash
-                        );
+                        Some(arr) => trie_update.insert(&key, arr)?,
+                        None => trie_update.generic_delete(0, &key)?,
                     }
                 }
 
-                // Retroactively record all accessed trie items which are
-                // required to process trie update but were not recorded at
-                // processing lookups.
-                // The main case is a branch with two children, one of which
-                // got removed, so we need to read another one and squash it
-                // together with parent.
-                if let Some(recorder) = &self.recorder {
-                    for (node_hash, serialized_node) in trie_accesses.nodes {
-                        recorder.borrow_mut().record(&node_hash, serialized_node);
-                    }
-                    for (value_hash, value) in trie_accesses.values {
-                        let value = match value {
-                            FlatStateValue::Ref(_) => {
-                                self.storage.retrieve_raw_bytes(&value_hash)?
-                            }
-                            FlatStateValue::Inlined(value) => value.into(),
-                        };
-                        recorder.borrow_mut().record(&value_hash, value);
-                    }
-                }
-                Ok(trie_changes)
+                Ok(trie_update.to_trie_changes())
             }
             None => {
-                let mut memory = NodesStorage::new();
-                let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
+                let mut trie_update = TrieStorageUpdate::new(&self);
+                let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
                 for (key, value) in changes {
-                    let key = NibbleSlice::new(&key);
-                    root_node = match value {
-                        Some(arr) => self.insert(&mut memory, root_node, key, arr),
-                        None => self.delete(&mut memory, root_node, key),
-                    }?;
+                    match value {
+                        Some(arr) => trie_update.generic_insert(
+                            root_node.0,
+                            &key,
+                            GenericTrieValue::MemtrieAndDisk(arr),
+                        )?,
+                        None => trie_update.generic_delete(0, &key)?,
+                    };
                 }
 
                 #[cfg(test)]
                 {
-                    self.memory_usage_verify(&memory, NodeHandle::InMemory(root_node));
+                    self.memory_usage_verify(
+                        &trie_update,
+                        GenericNodeOrIndex::Updated(root_node.0),
+                    );
                 }
-                Trie::flatten_nodes(&self.root, memory, root_node)
+
+                trie_update.flatten_nodes(&self.root, root_node.0)
             }
         }
     }
@@ -1718,6 +1732,26 @@ impl Trie {
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.accounting_cache.borrow().get_trie_nodes_count()
     }
+
+    /// Splits the trie, separating entries by the boundary account.
+    /// Leaves the left or right part of the trie, depending on the retain mode.
+    ///
+    /// Returns the new root hash of the trie.
+    pub fn retain_split_shard(
+        &self,
+        boundary_account: &AccountId,
+        retain_mode: RetainMode,
+    ) -> Result<StateRoot, StorageError> {
+        let mut trie_update = TrieStorageUpdate::new(&self);
+        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
+        trie_update.retain_split_shard(boundary_account, retain_mode);
+        #[cfg(test)]
+        {
+            self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
+        }
+        let result = trie_update.flatten_nodes(&self.root, root_node.0)?;
+        Ok(result.new_root)
+    }
 }
 
 /// A wrapper around `Trie`, but holding a read lock on memtries if they are present.
@@ -1745,16 +1779,11 @@ impl TrieAccess for Trie {
     }
 
     fn get_no_side_effects(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let key = key.to_vec();
-        let node = if self.memtries.is_some() {
-            self.lookup_from_memory(&key, false, false, |v| v.to_optimized_value_ref())?
-        } else if self.flat_storage_chunk_view.is_some() {
-            self.lookup_from_flat_storage(&key, false)?
-        } else {
-            self.lookup_from_state_column(NibbleSlice::new(&key), false, false)?
-                .map(OptimizedValueRef::Ref)
-        };
-        match node {
+        match Trie::get_optimized_ref_no_side_effects(
+            self,
+            &key.to_vec(),
+            KeyLookupMode::FlatStorage,
+        )? {
             Some(optimized_ref) => Ok(Some(match &optimized_ref {
                 OptimizedValueRef::Ref(value_ref) => {
                     let bytes = self.internal_retrieve_trie_node(&value_ref.hash, false, false)?;
@@ -1818,6 +1847,7 @@ pub mod estimator {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;
 
     use crate::test_utils::{
@@ -1854,8 +1884,10 @@ mod tests {
     #[test]
     fn test_basic_trie() {
         // test trie version > 0
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
-        let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let trie = tries.get_trie_for_shard(shard_uid, Trie::EMPTY_ROOT);
         assert_eq!(trie.get(&[122]), Ok(None));
         let changes = vec![
@@ -1874,8 +1906,10 @@ mod tests {
 
     #[test]
     fn test_trie_iter() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
-        let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let pairs = vec![
             (b"a".to_vec(), Some(b"111".to_vec())),
             (b"b".to_vec(), Some(b"222".to_vec())),
@@ -1908,8 +1942,10 @@ mod tests {
 
     #[test]
     fn test_trie_leaf_into_branch() {
-        let tries = TestTriesBuilder::new().with_shard_layout(SHARD_VERSION, 2).build();
-        let shard_uid = ShardUId { version: SHARD_VERSION, shard_id: 0 };
+        let shard_layout = ShardLayout::multi_shard(2, SHARD_VERSION);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
+
+        let tries = TestTriesBuilder::new().with_shard_layout(shard_layout).build();
         let changes = vec![
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"dog2".to_vec(), Some(b"puppy".to_vec())),
@@ -2227,8 +2263,8 @@ mod tests {
             let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
-            // record extension, branch and both leaves (one with value)
-            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 5);
+            // record extension, branch and both leaves, but not the value.
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {

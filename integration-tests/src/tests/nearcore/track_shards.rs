@@ -8,12 +8,12 @@ use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::ShardId;
 
 use crate::tests::nearcore::node_cluster::NodeCluster;
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn track_shards() {
+fn ultra_slow_test_track_shards() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -30,8 +30,8 @@ fn track_shards() {
         wait_or_timeout(100, 30000, || async {
             let bh = *last_block_hash.read().unwrap();
             if let Some(block_hash) = bh {
-                let res =
-                    view_client.send(GetChunk::BlockHash(block_hash, 3).with_span_context()).await;
+                let msg = GetChunk::BlockHash(block_hash, ShardId::new(3));
+                let res = view_client.send(msg.with_span_context()).await;
                 match &res {
                     Ok(Ok(_)) => {
                         return ControlFlow::Break(());

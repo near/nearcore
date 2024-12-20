@@ -1,4 +1,4 @@
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -52,20 +52,19 @@ impl Genesis {
         let mut validators = vec![];
         let mut records = vec![];
         for (i, account) in accounts.into_iter().enumerate() {
-            let signer =
-                InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_ref());
+            let signer = InMemorySigner::test_signer(&account);
             let i = i as u64;
             if i < num_validator_seats {
                 validators.push(AccountInfo {
                     account_id: account.clone(),
-                    public_key: signer.public_key.clone(),
+                    public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
             add_account_with_key(
                 &mut records,
                 account,
-                &signer.public_key.clone(),
+                &signer.public_key(),
                 TESTING_INIT_BALANCE - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
                 if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
                 CryptoHash::default(),
@@ -73,7 +72,7 @@ impl Genesis {
         }
         add_protocol_account(&mut records);
         let epoch_config =
-            Self::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
+            Genesis::test_epoch_config(num_validator_seats, shard_layout, FAST_EPOCH_LENGTH);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
@@ -107,24 +106,14 @@ impl Genesis {
             online_min_threshold: epoch_config.online_min_threshold,
             online_max_threshold: epoch_config.online_max_threshold,
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
-            num_chunk_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_producer_seats,
-            num_chunk_validator_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_validator_seats,
-            num_chunk_only_producer_seats: epoch_config
-                .validator_selection_config
-                .num_chunk_only_producer_seats,
-            minimum_validators_per_shard: epoch_config
-                .validator_selection_config
-                .minimum_validators_per_shard,
-            minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            num_chunk_producer_seats: epoch_config.num_chunk_producer_seats,
+            num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
+            minimum_stake_ratio: epoch_config.minimum_stake_ratio,
             chunk_producer_assignment_changes_limit: epoch_config
-                .validator_selection_config
                 .chunk_producer_assignment_changes_limit,
             shuffle_shard_assignment_for_chunk_producers: epoch_config
-                .validator_selection_config
                 .shuffle_shard_assignment_for_chunk_producers,
 
             ..Default::default()
@@ -138,7 +127,7 @@ impl Genesis {
             accounts,
             num_validator_seats,
             vec![num_validator_seats],
-            ShardLayout::v0_single_shard(),
+            ShardLayout::single_shard(),
         )
     }
 
@@ -154,7 +143,7 @@ impl Genesis {
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
-            ShardLayout::v0(num_shards, 0),
+            ShardLayout::multi_shard(num_shards, 0),
         )
     }
 
@@ -169,21 +158,17 @@ impl Genesis {
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
-            ShardLayout::v0(num_shards, 1),
+            ShardLayout::multi_shard(num_shards, 1),
         )
     }
 }
 
 pub fn add_protocol_account(records: &mut Vec<StateRecord>) {
-    let signer = InMemorySigner::from_seed(
-        PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
-        KeyType::ED25519,
-        PROTOCOL_TREASURY_ACCOUNT,
-    );
+    let signer = InMemorySigner::test_signer(&PROTOCOL_TREASURY_ACCOUNT.parse().unwrap());
     add_account_with_key(
         records,
         PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
-        &signer.public_key,
+        &signer.public_key(),
         TESTING_INIT_BALANCE,
         0,
         CryptoHash::default(),

@@ -220,13 +220,13 @@ mod tests {
         time::Clock,
     };
     use near_primitives::{
+        bandwidth_scheduler::BandwidthRequests,
         congestion_info::CongestionInfo,
         hash::hash,
         sharding::{
-            PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderInnerV3,
-            ShardChunkHeaderV3,
+            shard_chunk_header_inner::ShardChunkHeaderInnerV4, PartialEncodedChunkV2,
+            ShardChunkHeaderInner, ShardChunkHeaderV3,
         },
-        types::new_shard_id_tmp,
         validator_signer::EmptyValidatorSigner,
     };
     use std::{collections::HashMap, convert::Infallible, future::Future};
@@ -310,8 +310,8 @@ mod tests {
 
         // When chunks are known by the client, the shards manager
         // is told to process the chunk directly
-        let known_chunk_1 = mock_shard_chunk(1, new_shard_id_tmp(0));
-        let known_chunk_2 = mock_shard_chunk(2, new_shard_id_tmp(0));
+        let known_chunk_1 = mock_shard_chunk(1, ShardId::new(0));
+        let known_chunk_2 = mock_shard_chunk(2, ShardId::new(0));
         client.publish_chunk(&known_chunk_1).now_or_never();
         client.publish_chunk(&known_chunk_2).now_or_never();
         let blocks_missing_chunks = vec![BlockMissingChunks {
@@ -399,7 +399,7 @@ mod tests {
         let mut mock_hashes = MockHashes::new(prev_block_hash);
 
         let signer = EmptyValidatorSigner::default().into();
-        let header_inner = ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+        let header_inner = ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
             prev_block_hash,
             prev_state_root: mock_hashes.next().unwrap(),
             prev_outcome_root: mock_hashes.next().unwrap(),
@@ -414,6 +414,7 @@ mod tests {
             tx_root: mock_hashes.next().unwrap(),
             prev_validator_proposals: Vec::new(),
             congestion_info: CongestionInfo::default(),
+            bandwidth_requests: BandwidthRequests::empty(),
         });
         let header = ShardChunkHeaderV3::from_inner(header_inner, &signer);
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {

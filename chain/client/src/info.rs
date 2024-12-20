@@ -152,7 +152,7 @@ impl InfoHelper {
         let me = validator_signer.as_ref().map(|x| x.validator_id());
         for shard_id in shard_layout.shard_ids() {
             let tracked =
-                client.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
+                client.shard_tracker.care_about_shard(me, &head.prev_block_hash, shard_id, true);
             metrics::TRACKED_SHARDS.with_label_values(&[&shard_id.to_string()]).set(if tracked {
                 1
             } else {
@@ -251,7 +251,7 @@ impl InfoHelper {
             });
 
             for shard_id in shard_ids {
-                let shard_index = shard_layout.get_shard_index(shard_id);
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
                 let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
@@ -521,14 +521,17 @@ impl InfoHelper {
                     metrics::VALIDATORS_CHUNKS_EXPECTED
                         .with_label_values(&[stats.account_id.as_str()])
                         .set(stats.num_expected_chunks as i64);
-                    for i in 0..stats.shards.len() {
-                        let shard = stats.shards[i];
+                    for i in 0..stats.shards_produced.len() {
+                        let shard = stats.shards_produced[i];
                         metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_chunks_per_shard[i] as i64);
                         metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_produced_chunks_per_shard[i] as i64);
+                    }
+                    for i in 0..stats.shards_endorsed.len() {
+                        let shard = stats.shards_endorsed[i];
                         metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_endorsements_per_shard[i] as i64);
@@ -612,12 +615,14 @@ impl InfoHelper {
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
+
+        let mut json = serde_json::to_value(info).expect("Telemetry must serialize to JSON");
         // Sign telemetry if there is a signer present.
         if let Some(signer) = signer {
-            signer.sign_telemetry(&info)
-        } else {
-            serde_json::to_value(&info).expect("Telemetry must serialize to json")
+            let content = serde_json::to_string(&json).expect("Telemetry must serialize to JSON");
+            json["signature"] = signer.sign_bytes(content.as_bytes()).to_string().into();
         }
+        json
     }
 
     fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
@@ -745,13 +750,25 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::StateSync(StateSyncStatus { sync_hash, sync_status: shard_statuses }) => {
+        SyncStatus::StateSync(StateSyncStatus {
+            sync_hash,
+            sync_status: shard_statuses,
+            download_tasks,
+            computation_tasks,
+        }) => {
             let mut res = format!("State {:?}", sync_hash);
             let mut shard_statuses: Vec<_> = shard_statuses.iter().collect();
             shard_statuses.sort_by_key(|(shard_id, _)| *shard_id);
             for (shard_id, shard_status) in shard_statuses {
-                write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
+                write!(res, "[{}: {}]", shard_id, shard_status.to_string(),).unwrap();
             }
+            write!(
+                res,
+                " ({} downloads, {} computations)",
+                download_tasks.len(),
+                computation_tasks.len()
+            )
+            .unwrap();
             if let SyncConfig::Peers = state_sync_config {
                 tracing::warn!(
                     target: "stats",
@@ -897,7 +914,10 @@ struct ValidatorProductionStats {
     num_expected_blocks: NumBlocks,
     num_produced_chunks: NumBlocks,
     num_expected_chunks: NumBlocks,
-    shards: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk producer in the current epoch.
+    shards_produced: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk validator in the current epoch.
+    shards_endorsed: Vec<ShardId>,
     num_produced_chunks_per_shard: Vec<NumBlocks>,
     num_expected_chunks_per_shard: Vec<NumBlocks>,
     num_produced_endorsements_per_shard: Vec<NumBlocks>,
@@ -909,13 +929,24 @@ impl ValidatorProductionStatus {
         Self::Kickout(kickout.account_id)
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
+        debug_assert_eq!(
+            info.shards_produced.len(),
+            info.num_expected_chunks_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
+        debug_assert_eq!(
+            info.shards_endorsed.len(),
+            info.num_expected_endorsements_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
         Self::Validator(ValidatorProductionStats {
             account_id: info.account_id,
             num_produced_blocks: info.num_produced_blocks,
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
-            shards: info.shards,
+            shards_produced: info.shards_produced,
+            shards_endorsed: info.shards_endorsed,
             num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
             num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,
@@ -943,7 +974,7 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_async::messaging::{noop, IntoSender};
+    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
@@ -988,7 +1019,7 @@ mod tests {
         genesis.config.epoch_length = 123;
         let tempdir = tempfile::tempdir().unwrap();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime =
             NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
@@ -1005,6 +1036,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             validator.clone(),
+            noop().into_multi_sender(),
         )
         .unwrap();
 

@@ -26,6 +26,8 @@ use near_primitives::views::{
 
 use crate::user::User;
 
+use super::CommitError;
+
 pub struct RpcUser {
     account_id: AccountId,
     signer: Arc<Signer>,
@@ -136,7 +138,7 @@ impl User for RpcUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, ServerError> {
+    ) -> Result<FinalExecutionOutcomeView, CommitError> {
         let bytes = borsh::to_vec(&transaction).unwrap();
         let result = self.actix(move |client| client.broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
@@ -146,7 +148,9 @@ impl User for RpcUser {
         }
         match result {
             Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
-            Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),
+            Err(err) => Err(CommitError::Server(
+                serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap(),
+            )),
         }
     }
 
@@ -188,7 +192,7 @@ impl User for RpcUser {
         unimplemented!()
     }
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> Option<FinalExecutionOutcomeView> {
         let request = RpcTransactionStatusRequest {
             transaction_info: TransactionInfo::TransactionId {
                 tx_hash: *hash,
@@ -199,8 +203,7 @@ impl User for RpcUser {
         self.actix(move |client| client.tx(request))
             .unwrap()
             .final_execution_outcome
-            .unwrap()
-            .into_outcome()
+            .map(|o| o.into_outcome())
     }
 
     fn get_state_root(&self) -> CryptoHash {

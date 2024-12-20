@@ -846,7 +846,6 @@ def init_cluster(
     genesis_config_changes: GenesisConfigChanges,
     client_config_changes: ClientConfigChanges,
     prefix="test",
-    initialize_cold_storage=True,
     extra_state_dumper=False,
 ) -> typing.Tuple[str, typing.List[str]]:
     """
@@ -928,9 +927,8 @@ def init_cluster(
 
     # apply config changes for nodes marked as archival node.
     # for now, we do this only for local nodes (eg. nayduck tests).
-    if initialize_cold_storage:
-        for i, node_dir in enumerate(node_dirs):
-            configure_cold_storage_for_archival_node(node_dir)
+    for i, node_dir in enumerate(node_dirs):
+        configure_cold_storage_for_archival_node(node_dir)
 
     return near_root, node_dirs
 
@@ -1006,11 +1004,15 @@ def apply_config_changes(node_dir: str,
     # when None.
     allowed_missing_configs = (
         'archive', 'consensus.block_fetch_horizon',
+        'consensus.block_header_fetch_horizon',
         'consensus.min_block_production_delay',
         'consensus.max_block_production_delay',
-        'consensus.max_block_wait_delay', 'consensus.state_sync_timeout',
-        'expected_shutdown', 'log_summary_period', 'max_gas_burnt_view',
-        'rosetta_rpc', 'save_trie_changes', 'split_storage', 'state_sync',
+        'consensus.max_block_wait_delay',
+        'consensus.state_sync_external_timeout',
+        'consensus.state_sync_external_backoff',
+        'consensus.state_sync_p2p_timeout', 'expected_shutdown',
+        'log_summary_period', 'max_gas_burnt_view', 'rosetta_rpc',
+        'save_trie_changes', 'split_storage', 'state_sync',
         'state_sync_enabled', 'store.state_snapshot_enabled',
         'store.state_snapshot_config.state_snapshot_type',
         'tracked_shard_schedule', 'cold_store',

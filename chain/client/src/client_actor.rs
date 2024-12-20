@@ -7,30 +7,30 @@
 
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
-use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
+use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
 use crate::info::{display_sync_status, InfoHelper};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
-use crate::sync::adapter::{SyncMessage, SyncShardInfo};
-use crate::sync::state::{StateSync, StateSyncResult};
+use crate::sync::state::chain_requests::{
+    ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
+};
+use crate::sync::state::StateSyncResult;
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
-use crate::{metrics, StatusResponse, SyncAdapter};
+use crate::{metrics, StatusResponse};
 use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
-use near_async::futures::{
-    ActixArbiterHandleFutureSpawner, DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner,
-};
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{self, CanSend, Handler, IntoMultiSender, LateBoundSender, Sender};
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{
-    ApplyChunksDoneMessage, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, ChunkStateWitnessMessage, LoadMemtrieRequest, LoadMemtrieResponse,
+    ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -40,7 +40,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, MutableValidatorSigner, ReshardingHandle};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -53,7 +53,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage, ProcessTxRequest,
-    ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponse,
+    ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -65,21 +65,19 @@ use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
-use near_store::ShardUId;
 use near_telemetry::TelemetryEvent;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
-use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
@@ -130,7 +128,7 @@ pub fn start_client(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     node_id: PeerId,
-    state_sync_adapter: Arc<RwLock<SyncAdapter>>,
+    state_sync_future_spawner: Arc<dyn FutureSpawner>,
     network_adapter: PeerManagerAdapter,
     shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: MutableValidatorSigner,
@@ -142,18 +140,20 @@ pub fn start_client(
     partial_witness_adapter: PartialWitnessSenderForClient,
     enable_doomslug: bool,
     seed: Option<RngSeed>,
+    resharding_sender: ReshardingSender,
 ) -> StartClientResult {
     let client_arbiter = actix::Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
 
     wait_until_genesis(&chain_genesis.time);
+
+    let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
     let client = Client::new(
         clock.clone(),
         client_config,
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker,
-        state_sync_adapter,
         runtime.clone(),
         network_adapter.clone(),
         shards_manager_adapter,
@@ -163,13 +163,17 @@ pub fn start_client(
         snapshot_callbacks,
         Arc::new(RayonAsyncComputationSpawner),
         partial_witness_adapter,
+        resharding_sender,
+        state_sync_future_spawner,
+        chain_sender_for_state_sync.as_multi_sender(),
+        PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
 
     let client_sender_for_sync_jobs = LateBoundSender::<ClientSenderForSyncJobs>::new();
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
-    let (sync_jobs_actor_addr, sync_jobs_arbiter) = sync_jobs_actor.spawn_actix_actor();
+    let sync_jobs_actor_addr = sync_jobs_actor.spawn_actix_actor();
 
     let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let client_sender_for_client_clone = client_sender_for_client.clone();
@@ -185,7 +189,6 @@ pub fn start_client(
             adv,
             config_updater,
             sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
-            Box::new(ActixArbiterHandleFutureSpawner(sync_jobs_arbiter)),
         )
         .unwrap();
         ActixWrapper::new(client_actor_inner)
@@ -194,6 +197,8 @@ pub fn start_client(
     client_sender_for_sync_jobs
         .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
     client_sender_for_client.bind(client_addr.clone().with_auto_span_context().into_multi_sender());
+    chain_sender_for_state_sync
+        .bind(client_addr.clone().with_auto_span_context().into_multi_sender());
 
     StartClientResult { client_actor: client_addr, client_arbiter_handle, resharding_handle }
 }
@@ -205,8 +210,6 @@ pub struct ClientSenderForClient {
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
 pub struct SyncJobsSenderForClient {
-    pub apply_state_parts: Sender<ApplyStatePartsRequest>,
-    pub load_memtrie: Sender<LoadMemtrieRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
 }
 
@@ -254,7 +257,6 @@ pub struct ClientActorInner {
     sync_timer_next_attempt: near_async::time::Utc,
     sync_started: bool,
     sync_jobs_sender: SyncJobsSenderForClient,
-    state_parts_future_spawner: Box<dyn FutureSpawner>,
 
     #[cfg(feature = "sandbox")]
     fastforward_delta: near_primitives::types::BlockHeightDelta,
@@ -347,7 +349,6 @@ impl ClientActorInner {
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
         sync_jobs_sender: SyncJobsSenderForClient,
-        state_parts_future_spawner: Box<dyn FutureSpawner>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &client.validator_signer.get() {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -387,7 +388,6 @@ impl ClientActorInner {
             shutdown_signal,
             config_updater,
             sync_jobs_sender,
-            state_parts_future_spawner,
         })
     }
 }
@@ -399,6 +399,29 @@ pub enum AdvProduceChunksMode {
     Valid,
     // Stop producing chunks.
     StopProduce,
+}
+
+#[cfg(feature = "test_features")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum AdvProduceBlockHeightSelection {
+    /// Place the new block on top of the latest known block. Block's height will be the next
+    /// integer.
+    NextHeightOnLatestKnown,
+    /// Place the new block on top of the latest known block. Block height is arbitrary.
+    SelectedHeightOnLatestKnown { produced_block_height: BlockHeight },
+    /// Place the new block on top of the current head. Block's height will be the next integer.
+    NextHeightOnCurrentHead,
+    /// Place the new block on top of current head. Block height is arbitrary.
+    SelectedHeightOnCurrentHead { produced_block_height: BlockHeight },
+    /// Place the new block on top of an existing block at height `base_block_height`. Block's
+    /// height will be the next integer.
+    NextHeightOnSelectedBlock { base_block_height: BlockHeight },
+    /// Place the new block on top of an existing block at height `base_block_height`. Block height
+    /// is arbitrary.
+    SelectedHeightOnSelectedBlock {
+        produced_block_height: BlockHeight,
+        base_block_height: BlockHeight,
+    },
 }
 
 #[cfg(feature = "test_features")]
@@ -431,38 +454,11 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 None
             }
             NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
-                info!(target: "adversary", num_blocks, "Starting adversary blocks production");
-                if only_valid {
-                    self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
-                } else {
-                    self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
-                }
-                let start_height =
-                    self.client.chain.mut_chain_store().get_latest_known().unwrap().height + 1;
-                let signer = self.client.validator_signer.get();
-                let mut blocks_produced = 0;
-                for height in start_height.. {
-                    let block =
-                        self.client.produce_block(height).expect("block should be produced");
-                    if only_valid && block == None {
-                        continue;
-                    }
-                    let block = block.expect("block should exist after produced");
-                    info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::Block { block: block.clone() },
-                    ));
-                    let _ = self.client.start_process_block(
-                        block.into(),
-                        Provenance::PRODUCED,
-                        Some(self.myself_sender.apply_chunks_done.clone()),
-                        &signer,
-                    );
-                    blocks_produced += 1;
-                    if blocks_produced == num_blocks {
-                        break;
-                    }
-                }
+                self.adv_produce_blocks_on(
+                    num_blocks,
+                    only_valid,
+                    AdvProduceBlockHeightSelection::NextHeightOnLatestKnown,
+                );
                 None
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
@@ -592,9 +588,9 @@ impl Handler<BlockApproval> for ClientActorInner {
 
 /// StateResponse is used during StateSync and catchup.
 /// It contains either StateSync header information (that tells us how many parts there are etc) or a single part.
-impl Handler<StateResponse> for ClientActorInner {
-    fn handle(&mut self, msg: StateResponse) {
-        let StateResponse(state_response_info) = msg;
+impl Handler<StateResponseReceived> for ClientActorInner {
+    fn handle(&mut self, msg: StateResponseReceived) {
+        let StateResponseReceived { peer_id, state_response_info } = msg;
         let shard_id = state_response_info.shard_id();
         let hash = state_response_info.sync_hash();
         let state_response = state_response_info.take_state_response();
@@ -607,39 +603,31 @@ impl Handler<StateResponse> for ClientActorInner {
         // Get the download that matches the shard_id and hash
 
         // ... It could be that the state was requested by the state sync
-        if let SyncStatus::StateSync(StateSyncStatus {
-            sync_hash,
-            sync_status: shards_to_download,
-        }) = &mut self.client.sync_status
+        if let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) =
+            &mut self.client.sync_status
         {
             if hash == *sync_hash {
-                if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                    self.client.state_sync.update_download_on_state_response_message(
-                        shard_download,
-                        hash,
-                        shard_id,
-                        state_response,
-                        &mut self.client.chain,
-                    );
-                    return;
+                if let Err(err) = self.client.state_sync.apply_peer_message(
+                    peer_id,
+                    shard_id,
+                    *sync_hash,
+                    state_response,
+                ) {
+                    tracing::error!(?err, "Error applying state sync response");
                 }
+                return;
             }
         }
 
         // ... Or one of the catchups
-        if let Some((state_sync, shards_to_download, _)) =
+        if let Some(CatchupState { state_sync, .. }) =
             self.client.catchup_state_syncs.get_mut(&hash)
         {
-            if let Some(shard_download) = shards_to_download.get_mut(&shard_id) {
-                state_sync.update_download_on_state_response_message(
-                    shard_download,
-                    hash,
-                    shard_id,
-                    state_response,
-                    &mut self.client.chain,
-                );
-                return;
+            if let Err(err) = state_sync.apply_peer_message(peer_id, shard_id, hash, state_response)
+            {
+                tracing::error!(?err, "Error applying catchup state sync response");
             }
+            return;
         }
 
         error!(target: "sync", "State sync received hash {} that we're not expecting, potential malicious peer or a very delayed response.", hash);
@@ -923,8 +911,6 @@ impl fmt::Display for SyncRequirement {
 
 impl ClientActorInner {
     pub fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        self.start_flat_storage_creation(ctx);
-
         // Start syncing job.
         self.start_sync(ctx);
 
@@ -981,15 +967,10 @@ impl ClientActorInner {
             debug!(target: "client", "Sending announce account for {}", signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
-            let signature =
-                signer.sign_account_announce(signer.validator_id(), &self.node_id, &next_epoch_id);
+            let announce_account =
+                AnnounceAccount::new(signer.as_ref(), self.node_id.clone(), next_epoch_id);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }),
+                NetworkRequests::AnnounceAccount(announce_account),
             ));
         }
     }
@@ -1151,8 +1132,8 @@ impl ClientActorInner {
                     .client
                     .chunk_inclusion_tracker
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
-                let have_all_chunks = head.height == 0
-                    || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
+                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+                let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
 
                 if self.client.doomslug.ready_to_produce_block(
                     height,
@@ -1161,7 +1142,7 @@ impl ClientActorInner {
                 ) {
                     self.client
                         .chunk_inclusion_tracker
-                        .record_endorsement_metrics(&head.last_block_hash);
+                        .record_endorsement_metrics(&head.last_block_hash, &shard_ids);
                     if let Err(err) = self.produce_block(height, signer) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", height, "Block production failed: {}", err);
@@ -1393,7 +1374,7 @@ impl ClientActorInner {
 
     fn send_chunks_metrics(&mut self, block: &Block) {
         let chunks = block.chunks();
-        for (chunk, &included) in chunks.iter().zip(block.header().chunk_mask().iter()) {
+        for (chunk, &included) in chunks.iter_deprecated().zip(block.header().chunk_mask().iter()) {
             if included {
                 self.info_helper.chunk_processed(
                     chunk.shard_id(),
@@ -1408,7 +1389,8 @@ impl ClientActorInner {
 
     fn send_block_metrics(&mut self, block: &Block) {
         let chunks_in_block = block.header().chunk_mask().iter().filter(|&&m| m).count();
-        let gas_used = Block::compute_gas_used(block.chunks().iter(), block.header().height());
+        let gas_used =
+            Block::compute_gas_used(block.chunks().iter_deprecated(), block.header().height());
 
         let last_final_hash = block.header().last_final_block();
         let last_final_ds_hash = block.header().last_ds_final_block();
@@ -1536,29 +1518,6 @@ impl ClientActorInner {
         }
     }
 
-    fn start_flat_storage_creation(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        if !self.client.config.flat_storage_creation_enabled {
-            return;
-        }
-        match self.client.run_flat_storage_creation_step() {
-            Ok(false) => {}
-            Ok(true) => {
-                return;
-            }
-            Err(err) => {
-                error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
-            }
-        }
-
-        ctx.run_later(
-            "ClientActor start_flat_storage_creation",
-            self.client.config.flat_storage_creation_period,
-            move |act, ctx| {
-                act.start_flat_storage_creation(ctx);
-            },
-        );
-    }
-
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
         // Wait for connections reach at least minimum peers unless skipping sync.
@@ -1584,22 +1543,22 @@ impl ClientActorInner {
     ///
     /// The selected block will always be the first block on a new epoch:
     /// <https://github.com/nearprotocol/nearcore/issues/2021#issuecomment-583039862>.
-    fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
+    fn find_sync_hash(&self) -> Result<Option<CryptoHash>, near_chain::Error> {
         let header_head = self.client.chain.header_head()?;
-        let sync_hash = header_head.last_block_hash;
-        let epoch_start_sync_hash =
-            StateSync::get_epoch_start_sync_hash(&mut self.client.chain, &sync_hash)?;
+        let sync_hash = match self.client.chain.get_sync_hash(&header_head.last_block_hash)? {
+            Some(h) => h,
+            None => return Ok(None),
+        };
 
         let genesis_hash = self.client.chain.genesis().hash();
         tracing::debug!(
             target: "sync",
             ?header_head,
             ?sync_hash,
-            ?epoch_start_sync_hash,
             ?genesis_hash,
             "find_sync_hash");
-        assert_ne!(&epoch_start_sync_hash, genesis_hash);
-        Ok(epoch_start_sync_hash)
+        assert_ne!(&sync_hash, genesis_hash);
+        Ok(Some(sync_hash))
     }
 
     /// Runs catchup on repeat, if this client is a validator.
@@ -1611,11 +1570,8 @@ impl ClientActorInner {
             let validator_signer = self.client.validator_signer.get();
             if let Err(err) = self.client.run_catchup(
                 &self.network_info.highest_height_peers,
-                &self.sync_jobs_sender.apply_state_parts,
-                &self.sync_jobs_sender.load_memtrie,
                 &self.sync_jobs_sender.block_catch_up,
                 Some(self.myself_sender.apply_chunks_done.clone()),
-                self.state_parts_future_spawner.as_ref(),
                 &validator_signer,
             ) {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", validator_signer.as_ref().map(|vs| vs.validator_id()), err);
@@ -1739,17 +1695,17 @@ impl ClientActorInner {
             return;
         }
         let update_sync_status_result = self.update_sync_status();
-        let notify_start_sync = unwrap_and_report_state_sync_result!(update_sync_status_result);
+        unwrap_and_report_state_sync_result!(update_sync_status_result);
 
         let sync_hash = match &self.client.sync_status {
             SyncStatus::StateSync(s) => s.sync_hash,
-            _ => unreachable!("Sync status should have been StateSync!"),
+            // sync hash isn't known yet. Return and try again later.
+            _ => return,
         };
 
         let me = signer.as_ref().map(|x| x.validator_id().clone());
         let block_header = self.client.chain.get_block_header(&sync_hash);
         let block_header = unwrap_and_report_state_sync_result!(block_header);
-        let epoch_id = *block_header.epoch_id();
         let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
             me.as_ref(),
             true,
@@ -1757,13 +1713,6 @@ impl ClientActorInner {
             &self.client.shard_tracker,
             self.client.epoch_manager.as_ref(),
         );
-
-        let use_colour = matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
-
-        // Notify each shard to sync.
-        if notify_start_sync {
-            self.notify_start_sync(epoch_id, sync_hash, &shards_to_sync);
-        }
 
         let have_block = self.request_sync_blocks(block_header);
         let have_block = unwrap_and_report_state_sync_result!(have_block);
@@ -1781,18 +1730,10 @@ impl ClientActorInner {
         }
 
         let state_sync_result = self.client.state_sync.run(
-            &me,
             sync_hash,
-            &mut state_sync_status.sync_status,
-            &mut self.client.chain,
-            self.client.epoch_manager.as_ref(),
+            state_sync_status,
             &self.network_info.highest_height_peers,
-            shards_to_sync,
-            &self.sync_jobs_sender.apply_state_parts,
-            &self.sync_jobs_sender.load_memtrie,
-            self.state_parts_future_spawner.as_ref(),
-            use_colour,
-            self.client.runtime_adapter.clone(),
+            &shards_to_sync,
         );
         let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
         match state_sync_result {
@@ -1835,7 +1776,7 @@ impl ClientActorInner {
 
         let mut needed_block_hashes = vec![prev_hash, sync_hash];
         let mut extra_block_hashes = self.get_extra_sync_block_hashes(prev_hash);
-        tracing::debug!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
+        tracing::trace!(target: "sync", ?needed_block_hashes, ?extra_block_hashes, "request_sync_blocks: block hashes for state sync");
         needed_block_hashes.append(&mut extra_block_hashes);
 
         for hash in needed_block_hashes.clone().into_iter() {
@@ -1862,7 +1803,7 @@ impl ClientActorInner {
             self.client.request_block(hash, peer_id);
         }
 
-        tracing::debug!(target: "sync", ?have_all, "request_sync_blocks: done");
+        tracing::trace!(target: "sync", ?have_all, "request_sync_blocks: done");
 
         Ok(have_all)
     }
@@ -1882,7 +1823,8 @@ impl ClientActorInner {
             return vec![];
         };
 
-        let min_height_included = block.chunks().iter().map(|chunk| chunk.height_included()).min();
+        let min_height_included =
+            block.chunks().iter_deprecated().map(|chunk| chunk.height_included()).min();
         let Some(min_height_included) = min_height_included else {
             tracing::warn!(target: "sync", ?block_hash, "get_extra_sync_block_hashes: Cannot find the min block height");
             return vec![];
@@ -1908,37 +1850,17 @@ impl ClientActorInner {
         extra_block_hashes
     }
 
-    fn notify_start_sync(
-        &mut self,
-        epoch_id: EpochId,
-        sync_hash: CryptoHash,
-        shards_to_sync: &Vec<ShardId>,
-    ) {
-        let shard_layout =
-            self.client.epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout");
-        for &shard_id in shards_to_sync {
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-            match self.client.state_sync_adapter.clone().read() {
-                Ok(sync_adapter) => sync_adapter.send_sync_message(
-                    shard_uid,
-                    SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
-                ),
-                Err(_) => {
-                    error!(target:"client", "State sync adapter lock is poisoned.")
-                }
-            }
-        }
-    }
-
     /// Update sync status to StateSync and reset data if needed.
-    /// Returns true if this is the first time we run state sync and we should
-    /// notify shards to start syncing.
-    fn update_sync_status(&mut self) -> Result<bool, near_chain::Error> {
+    fn update_sync_status(&mut self) -> Result<(), near_chain::Error> {
         if let SyncStatus::StateSync(_) = self.client.sync_status {
-            return Ok(false);
+            return Ok(());
         }
 
-        let sync_hash = self.find_sync_hash()?;
+        let sync_hash = if let Some(sync_hash) = self.find_sync_hash()? {
+            sync_hash
+        } else {
+            return Ok(());
+        };
         if !self.client.config.archive {
             self.client.chain.mut_chain_store().reset_data_pre_state_sync(
                 sync_hash,
@@ -1946,12 +1868,11 @@ impl ClientActorInner {
                 self.client.epoch_manager.clone(),
             )?;
         }
-        let new_state_sync_status = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
+        let new_state_sync_status = StateSyncStatus::new(sync_hash);
         let new_sync_status = SyncStatus::StateSync(new_state_sync_status);
         self.client.sync_status.update(new_sync_status);
         self.client.last_time_sync_block_requested.clear();
-        // This is the first time we run state sync.
-        return Ok(true);
+        Ok(())
     }
 
     /// This method returns whether we should move on to state sync. It may run
@@ -1971,6 +1892,31 @@ impl ClientActorInner {
             highest_height.saturating_sub(self.client.config.block_header_fetch_horizon);
         if header_head.height < min_header_height {
             return Ok(false);
+        }
+
+        if let Some(epoch_sync_boundary_block_header) =
+            self.client.epoch_sync.my_own_epoch_sync_boundary_block_header()
+        {
+            let current_epoch_start =
+                self.client.epoch_manager.get_epoch_start_height(&header_head.last_block_hash)?;
+            if &header_head.epoch_id == epoch_sync_boundary_block_header.epoch_id() {
+                // We do not want to state sync into the same epoch that epoch sync bootstrapped us with,
+                // because we're missing block headers before this epoch. Wait till we have a header in
+                // the next epoch before starting state sync. (This is not a long process; epoch sync
+                // should have picked an old enough epoch so that there is a new epoch already available;
+                // we just need to download more headers.)
+                return Ok(false);
+            }
+            if epoch_sync_boundary_block_header.height()
+                + self.client.chain.transaction_validity_period
+                > current_epoch_start
+            {
+                // We also do not want to state sync, if by doing so we would not have enough headers to
+                // perform transaction validity checks. Again, epoch sync should have picked an old
+                // enough epoch to ensure that we would have enough headers if we just continued with
+                // header sync.
+                return Ok(false);
+            }
         }
 
         let block_sync_result = self.client.block_sync.run(
@@ -2007,7 +1953,7 @@ impl ClientActorInner {
         if block_exists {
             return Ok((false, true));
         }
-        let timeout = self.client.config.state_sync_timeout;
+        let timeout = self.client.config.state_sync_external_timeout;
         let timeout = near_async::time::Duration::try_from(timeout);
         let timeout = timeout.unwrap();
 
@@ -2063,10 +2009,6 @@ impl ClientActorInner {
 
         let block: MaybeValidated<Block> = (*block).clone().into();
         let block_hash = *block.hash();
-        if let Err(err) = self.client.chain.validate_block(&block) {
-            byzantine_assert!(false);
-            error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
-        }
 
         let extra_block_hashes = self.get_extra_sync_block_hashes(*header.prev_hash());
         tracing::trace!(target: "sync", ?extra_block_hashes, "maybe_receive_state_sync_blocks: Extra block hashes for state sync");
@@ -2079,6 +2021,10 @@ impl ClientActorInner {
 
         if block_hash == sync_hash {
             // The first block of the new epoch.
+            if let Err(err) = self.client.chain.validate_block(&block) {
+                byzantine_assert!(false);
+                error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+            }
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save sync hash block");
             self.client.chain.save_orphan(block, Provenance::NONE, false);
             return true;
@@ -2086,6 +2032,10 @@ impl ClientActorInner {
 
         if &block_hash == header.prev_hash() {
             // The last block of the previous epoch.
+            if let Err(err) = self.client.chain.validate_block(&block) {
+                byzantine_assert!(false);
+                error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+            }
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save prev hash block");
             // Prev sync block will have its refcount increased later when processing sync block.
             if let Err(err) = self.client.chain.save_block(block) {
@@ -2095,6 +2045,10 @@ impl ClientActorInner {
         }
 
         if extra_block_hashes.contains(&block_hash) {
+            if let Err(err) = self.client.chain.validate_block(&block) {
+                byzantine_assert!(false);
+                error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+            }
             // Extra blocks needed when there are missing chunks.
             tracing::debug!(target: "sync", block_hash=?block.hash(), "maybe_receive_state_sync_blocks - save extra block");
             if let Err(err) = self.client.chain.save_block(block) {
@@ -2109,16 +2063,86 @@ impl ClientActorInner {
         }
         true
     }
-}
 
-impl Handler<ApplyStatePartsResponse> for ClientActorInner {
-    fn handle(&mut self, msg: ApplyStatePartsResponse) {
-        tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
-            // We are doing catchup
-            sync.set_apply_result(msg.shard_id, msg.apply_result);
+    /// Produces `num_blocks` number of blocks.
+    ///
+    /// The parameter `height_selection` governs the produced blocks' heights and what base block
+    /// height they are placed.
+    #[cfg(feature = "test_features")]
+    pub fn adv_produce_blocks_on(
+        &mut self,
+        num_blocks: BlockHeight,
+        only_valid: bool,
+        height_selection: AdvProduceBlockHeightSelection,
+    ) {
+        use AdvProduceBlockHeightSelection::*;
+
+        info!(target: "adversary", num_blocks, "Starting adversary blocks production");
+        if only_valid {
+            self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
         } else {
-            self.client.state_sync.set_apply_result(msg.shard_id, msg.apply_result);
+            self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
+        }
+        let (start_height, prev_block_height) = match height_selection {
+            NextHeightOnLatestKnown => {
+                let latest_height =
+                    self.client.chain.mut_chain_store().get_latest_known().unwrap().height;
+                (latest_height + 1, latest_height)
+            }
+            SelectedHeightOnLatestKnown { produced_block_height } => (
+                produced_block_height,
+                self.client.chain.mut_chain_store().get_latest_known().unwrap().height,
+            ),
+            NextHeightOnCurrentHead => {
+                let head_height = self.client.chain.mut_chain_store().head().unwrap().height;
+                (head_height + 1, head_height)
+            }
+            SelectedHeightOnCurrentHead { produced_block_height } => {
+                (produced_block_height, self.client.chain.mut_chain_store().head().unwrap().height)
+            }
+            NextHeightOnSelectedBlock { base_block_height } => {
+                (base_block_height + 1, base_block_height)
+            }
+            SelectedHeightOnSelectedBlock { produced_block_height, base_block_height } => {
+                (produced_block_height, base_block_height)
+            }
+        };
+        let is_based_on_current_head =
+            prev_block_height == self.client.chain.mut_chain_store().head().unwrap().height;
+        let signer = self.client.validator_signer.get();
+        let mut blocks_produced = 0;
+        for height in start_height.. {
+            let block: Option<Block> = if is_based_on_current_head {
+                self.client.produce_block(height).expect("block should be produced")
+            } else {
+                let prev_block_hash = self
+                    .client
+                    .chain
+                    .chain_store()
+                    .get_block_hash_by_height(prev_block_height)
+                    .expect("prev block should exist");
+                self.client
+                    .produce_block_on(height, prev_block_hash)
+                    .expect("block should be produced")
+            };
+            if only_valid && block == None {
+                continue;
+            }
+            let block = block.expect("block should exist after produced");
+            info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
+            let _ = self.client.start_process_block(
+                block.into(),
+                Provenance::PRODUCED,
+                Some(self.myself_sender.apply_chunks_done.clone()),
+                &signer,
+            );
+            blocks_produced += 1;
+            if blocks_produced == num_blocks {
+                break;
+            }
         }
     }
 }
@@ -2126,34 +2150,16 @@ impl Handler<ApplyStatePartsResponse> for ClientActorInner {
 impl Handler<BlockCatchUpResponse> for ClientActorInner {
     fn handle(&mut self, msg: BlockCatchUpResponse) {
         tracing::debug!(target: "client", ?msg);
-        if let Some((_, _, blocks_catch_up_state)) =
+        if let Some(CatchupState { catchup, .. }) =
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
-            assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-            blocks_catch_up_state.processed_blocks.insert(
+            assert!(catchup.scheduled_blocks.remove(&msg.block_hash));
+            catchup.processed_blocks.insert(
                 msg.block_hash,
                 msg.results.into_iter().map(|res| res.1).collect::<Vec<_>>(),
             );
         } else {
             panic!("block catch up processing result from unknown sync hash");
-        }
-    }
-}
-
-impl Handler<LoadMemtrieResponse> for ClientActorInner {
-    // The memtrie was loaded as a part of catchup or state-sync,
-    // (see https://github.com/near/nearcore/blob/master/docs/architecture/how/sync.md#basics).
-    // Here we save the result of loading memtrie to the appropriate place,
-    // depending on whether it was catch-up or state sync.
-    #[perf]
-    fn handle(&mut self, msg: LoadMemtrieResponse) {
-        tracing::debug!(target: "client", ?msg);
-        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
-            // We are doing catchup
-            sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
-        } else {
-            // We are doing state sync
-            self.client.state_sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
         }
     }
 }
@@ -2178,7 +2184,9 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 chunk_header,
                 chunk_producer,
             } => {
-                self.client.mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                self.client
+                    .chunk_inclusion_tracker
+                    .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }
@@ -2189,14 +2197,6 @@ impl Handler<GetClientConfig> for ClientActorInner {
         tracing::debug!(target: "client", ?msg);
 
         Ok(self.client.config.clone())
-    }
-}
-
-impl Handler<SyncMessage> for ClientActorInner {
-    fn handle(&mut self, msg: SyncMessage) {
-        tracing::debug!(target: "client", ?msg);
-        // TODO
-        // process messages from SyncActors
     }
 }
 
@@ -2216,8 +2216,22 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
 impl Handler<ChunkEndorsementMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
-        if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
+        if let Err(err) = self.client.chunk_endorsement_tracker.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }
+    }
+}
+
+impl Handler<StateHeaderValidationRequest> for ClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: StateHeaderValidationRequest) -> Result<(), near_chain::Error> {
+        self.client.chain.set_state_header(msg.shard_id, msg.sync_hash, msg.header)
+    }
+}
+
+impl Handler<ChainFinalizationRequest> for ClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: ChainFinalizationRequest) -> Result<(), near_chain::Error> {
+        self.client.chain.set_state_finalize(msg.shard_id, msg.sync_hash)
     }
 }

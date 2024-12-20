@@ -1,7 +1,7 @@
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction};
@@ -41,15 +41,15 @@ fn test_deploy_cost_increased() {
             .build()
     };
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let actions = vec![Action::DeployContract(DeployContractAction { code: test_contract })];
 
-    let tx = env.tx_from_actions(actions.clone(), &signer, signer.account_id.clone());
+    let tx = env.tx_from_actions(actions.clone(), &signer, signer.get_account_id());
     let old_outcome = env.execute_tx(tx).unwrap();
 
     env.upgrade_protocol_to_latest_version();
 
-    let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
+    let tx = env.tx_from_actions(actions, &signer, signer.get_account_id());
     let new_outcome = env.execute_tx(tx).unwrap();
 
     assert_matches!(old_outcome.status, FinalExecutionStatus::SuccessValue(_));

@@ -3,7 +3,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_client_primitives::types::Error;
-use near_crypto::InMemorySigner;
+use near_crypto::Signer;
 use near_epoch_manager::EpochManager;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
@@ -54,7 +54,7 @@ impl Scenario {
         };
         let home_dir = tempdir.as_ref().map(|d| d.path());
         initialize_genesis_state(store.clone(), &genesis, home_dir);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let home_dir = home_dir.unwrap_or_else(|| Path::new("."));
         let contract_cache = FilesystemContractRuntimeCache::new(home_dir, None::<&str>)
             .expect("filesystem contract cache")
@@ -149,7 +149,7 @@ pub struct TransactionConfig {
     pub nonce: Nonce,
     pub signer_id: AccountId,
     pub receiver_id: AccountId,
-    pub signer: InMemorySigner,
+    pub signer: Signer,
     pub actions: Vec<Action>,
 }
 
@@ -183,7 +183,7 @@ impl TransactionConfig {
             self.nonce,
             self.signer_id.clone(),
             self.receiver_id.clone(),
-            &self.signer.clone().into(),
+            &self.signer,
             self.actions.clone(),
             *last_block.hash(),
             0,
