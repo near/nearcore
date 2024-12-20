@@ -1,4 +1,4 @@
--- Setting defaul values to enable `not null` by filling values for existing
+-- Setting default values to enable `not null` by filling values for existing
 -- rows.
 alter table ft_transfers
 add column initiator text not null default 'crt-benchmarks',
