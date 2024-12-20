@@ -22,12 +22,11 @@ where
     fn encode(uncompressed: &T) -> std::io::Result<(Self, usize)> {
         // Flow of data: Original --> Borsh serialization --> Counting write --> zstd compression --> Bytes.
         // CountingWrite will count the number of bytes for the Borsh-serialized data, before compression.
-        let mut counting_write =
-            CountingWrite::new(zstd::stream::Encoder::new(Vec::new().writer(), COMPRESSION_LEVEL)?);
+        let mut counting_write = CountingWrite::new(Vec::new().writer());
         borsh::to_writer(&mut counting_write, uncompressed)?;
 
         let borsh_bytes_len = counting_write.bytes_written();
-        let encoded_bytes = counting_write.into_inner().finish()?.into_inner();
+        let encoded_bytes = counting_write.into_inner().into_inner();
 
         Ok((Self::from(encoded_bytes.into()), borsh_bytes_len.as_u64() as usize))
     }
@@ -44,10 +43,7 @@ where
     fn decode_with_limit(&self, limit: ByteSize) -> std::io::Result<(T, usize)> {
         // Flow of data: Bytes --> zstd decompression --> Counting read --> Borsh deserialization --> Original.
         // CountingRead will count the number of bytes for the Borsh-deserialized data, after decompression.
-        let mut counting_read = CountingRead::new_with_limit(
-            zstd::stream::Decoder::new(self.as_ref().reader())?,
-            limit,
-        );
+        let mut counting_read = CountingRead::new_with_limit(self.as_ref().reader(), limit);
 
         match borsh::from_reader(&mut counting_read) {
             Err(err) => {
