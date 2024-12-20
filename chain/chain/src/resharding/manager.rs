@@ -15,6 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
+use near_store::flat::BlockInfo;
 use near_store::trie::mem::mem_trie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::TrieRecorder;
@@ -83,8 +84,13 @@ impl ReshardingManager {
             return Ok(());
         }
 
+        let block_info = BlockInfo {
+            hash: *block.hash(),
+            height: block.header().height(),
+            prev_hash: *block.header().prev_hash(),
+        };
         let resharding_event_type =
-            ReshardingEventType::from_shard_layout(&next_shard_layout, *block_hash)?;
+            ReshardingEventType::from_shard_layout(&next_shard_layout, block_info)?;
         match resharding_event_type {
             Some(ReshardingEventType::SplitShard(split_shard_event)) => {
                 self.split_shard(
