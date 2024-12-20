@@ -30,6 +30,14 @@ where
         self.inner.lock().unwrap().is_empty()
     }
 
+    pub fn contains(&self, key: &K) -> bool {
+        self.inner.lock().unwrap().contains(key)
+    }
+
+    pub fn push(&self, key: K, value: V) -> Option<(K, V)> {
+        self.inner.lock().unwrap().push(key, value)
+    }
+
     /// Return the value of they key in the cache otherwise computes the value and inserts it into
     /// the cache. If the key is already in the cache, they get moved to the head of
     /// the LRU list.

@@ -72,9 +72,9 @@ impl DumpWitnessesCmd {
             println!(
                 "#{} (height: {}, shard_id: {}, epoch_id: {:?})",
                 i,
-                witness.chunk_header.height_created(),
-                witness.chunk_header.shard_id(),
-                witness.epoch_id
+                witness.inner.chunk_header.height_created(),
+                witness.inner.chunk_header.shard_id(),
+                witness.inner.epoch_id
             );
             match self.mode {
                 DumpWitnessesMode::Pretty => {
@@ -84,9 +84,9 @@ impl DumpWitnessesCmd {
                 DumpWitnessesMode::Binary { ref output_dir } => {
                     let file_name = format!(
                         "witness_{}_{}_{}_{}.bin",
-                        witness.chunk_header.height_created(),
-                        witness.chunk_header.shard_id(),
-                        witness.epoch_id.0,
+                        witness.inner.chunk_header.height_created(),
+                        witness.inner.chunk_header.shard_id(),
+                        witness.inner.epoch_id.0,
                         i
                     );
                     let file_path = output_dir.join(file_name);
