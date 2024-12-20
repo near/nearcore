@@ -373,12 +373,13 @@ fn select_chunk_producers(
     num_shards: u64,
     protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
-    select_validators(
-        all_proposals,
-        max_num_selected,
-        min_stake_ratio * Ratio::new(1, num_shards as u128),
-        protocol_version,
-    )
+    let min_stake_ratio =
+        if checked_feature!("stable", FixChunkProducerStakingThreshold, protocol_version) {
+            min_stake_ratio
+        } else {
+            min_stake_ratio * Ratio::new(1, num_shards as u128)
+        };
+    select_validators(all_proposals, max_num_selected, min_stake_ratio, protocol_version)
 }
 
 // Takes the top N proposals (by stake), or fewer if there are not enough or the

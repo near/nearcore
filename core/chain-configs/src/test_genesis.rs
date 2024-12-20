@@ -139,7 +139,7 @@ impl Default for TestEpochConfigBuilder {
             fishermen_threshold: FISHERMEN_THRESHOLD,
             protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
             minimum_stake_divisor: 10,
-            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            minimum_stake_ratio: Rational32::new(16i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             // consider them ineffective
@@ -628,6 +628,20 @@ pub struct GenesisAndEpochConfigParams<'a> {
 
 /// Handy factory for building test genesis and epoch config store. Use it if it is enough to have
 /// one epoch config for your test. Otherwise, just use builders directly.
+///
+/// ```
+/// let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+///     GenesisAndEpochConfigParams {
+///         protocol_version,
+///         epoch_length,
+///         accounts: &accounts,
+///         shard_layout,
+///         validators_spec,
+///     },
+///     |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
+///     |epoch_config_builder| epoch_config_builder.shuffle_shard_assignment_for_chunk_producers(true),
+/// );
+/// ```
 pub fn build_genesis_and_epoch_config_store<'a>(
     params: GenesisAndEpochConfigParams<'a>,
     customize_genesis_builder: impl FnOnce(TestGenesisBuilder) -> TestGenesisBuilder,
