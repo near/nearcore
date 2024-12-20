@@ -12,7 +12,7 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
 
-fn base64(s: &[u8]) -> String {
+pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
@@ -101,6 +101,32 @@ pub struct DeployContractAction {
 impl fmt::Debug for DeployContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployContractAction")
+            .field("code", &format_args!("{}", base64(&self.code)))
+            .finish()
+    }
+}
+
+/// Deploy global contract action
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+pub struct DeployGlobalContractAction {
+    /// WebAssembly binary
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+}
+
+impl fmt::Debug for DeployGlobalContractAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeployGlobalContractAction")
             .field("code", &format_args!("{}", base64(&self.code)))
             .finish()
     }
@@ -216,6 +242,7 @@ pub enum Action {
     DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
+    DeployGlobalContract(DeployGlobalContractAction),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     /// Makes a non-refundable transfer for storage allowance.
     /// Only possible during new account creation.
