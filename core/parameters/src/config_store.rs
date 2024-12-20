@@ -457,6 +457,6 @@ mod tests {
     fn test_benchmarknet_config() {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
-        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, 999_999_999_999_999);
+        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, usize::MAX);
     }
 }
