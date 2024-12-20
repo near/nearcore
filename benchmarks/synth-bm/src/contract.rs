@@ -12,13 +12,15 @@ use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
+use rand::distributions::{Alphanumeric, DistString};
+use rand::rngs::ThreadRng;
+use rand::{thread_rng, Rng};
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time;
 
 #[derive(Args, Debug)]
 pub struct BenchmarkMpcSignArgs {
-    /// TODO try to have single arg for all commands
     #[arg(long)]
     pub rpc_url: String,
     #[arg(long)]
@@ -55,6 +57,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     let client = JsonRpcClient::connect(&args.rpc_url);
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
+    let mut rng = thread_rng();
 
     // Before a request is made, a permit to send into the channel is awaited. Hence buffer size
     // limits the number of outstanding requests. This helps to avoid congestion.
@@ -82,15 +85,6 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
         let sender_idx = usize::try_from(i).unwrap() / accounts.len();
         let sender = &accounts[sender_idx];
 
-        // TODO randomize
-        let payload: [u8; 32] = [0; 32];
-        let path = "/foo/bar";
-        let fn_call_args = json!({
-            "payload": payload,
-            "path": path,
-            "key_version": args.key_version,
-        });
-
         let transaction = SignedTransaction::call(
             sender.nonce,
             sender.id.clone(),
@@ -98,7 +92,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
             &sender.as_signer(),
             args.deposit,
             "sign".to_string(),
-            fn_call_args.to_string().into_bytes(),
+            new_random_mpc_sign_args(&mut rng, args.key_version).to_string().into_bytes(),
             args.gas,
             block_service.get_block_hash(),
         );
@@ -143,4 +137,15 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     }
 
     Ok(())
+}
+
+fn new_random_mpc_sign_args(rng: &mut ThreadRng, key_version: u32) -> serde_json::Value {
+    let mut payload: [u8; 32] = [0; 32];
+    rng.fill(&mut payload);
+
+    json!({
+        "payload": payload,
+        "path": Alphanumeric.sample_string(rng, 16),
+        "key_version": key_version,
+    })
 }
