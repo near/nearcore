@@ -5,6 +5,7 @@ use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_client::Query;
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{
@@ -251,6 +252,8 @@ fn fork_before_resharding_block(double_signing: bool) -> LoopActionFn {
     )
 }
 
+/// Returns a loop action that sends money transfers to random accounts at
+/// every block height.
 fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
     const NUM_TRANSFERS_PER_BLOCK: usize = 20;
 
@@ -301,6 +304,90 @@ fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopActionFn {
                 );
                 submit_tx(&node_datas, &client_account_id, tx);
             }
+        },
+    )
+}
+
+/// Returns a loop action that makes storage read and write at every block
+/// height.
+fn execute_storage_operations(sender_id: AccountId, receiver_id: AccountId) -> LoopActionFn {
+    const TX_CHECK_DEADLINE: u64 = 5;
+    let latest_height = Cell::new(0);
+    let txs = Cell::new(vec![]);
+    let nonce = Cell::new(102);
+
+    Box::new(
+        move |node_datas: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            let mut remaining_txs = vec![];
+            for (tx, tx_height) in txs.take() {
+                if tx_height + TX_CHECK_DEADLINE >= tip.height {
+                    remaining_txs.push((tx, tx_height));
+                    continue;
+                }
+
+                let tx_outcome = client_actor.client.chain.get_partial_transaction_result(&tx);
+                let status = tx_outcome.as_ref().map(|o| o.status.clone());
+                assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
+            }
+            txs.set(remaining_txs);
+
+            let clients = node_datas
+                .iter()
+                .map(|test_data| {
+                    &test_loop_data.get(&test_data.client_sender.actor_handle()).client
+                })
+                .collect_vec();
+
+            // Send transaction which reads a key and writes a key-value pair
+            // to the contract storage.
+            let anchor_hash = get_anchor_hash(&clients);
+            let gas = 20 * TGAS;
+            let salt = 2 * tip.height;
+            nonce.set(nonce.get() + 1);
+            let tx = SignedTransaction::from_actions(
+                nonce.get(),
+                sender_id.clone(),
+                receiver_id.clone(),
+                &create_user_test_signer(&sender_id).into(),
+                vec![
+                    Action::FunctionCall(Box::new(FunctionCallAction {
+                        args: near_primitives::test_utils::encode(&[salt]),
+                        method_name: "read_value".to_string(),
+                        gas,
+                        deposit: 0,
+                    })),
+                    Action::FunctionCall(Box::new(FunctionCallAction {
+                        args: near_primitives::test_utils::encode(&[salt + 1, salt * 10]),
+                        method_name: "write_key_value".to_string(),
+                        gas,
+                        deposit: 0,
+                    })),
+                ],
+                anchor_hash,
+                0,
+            );
+
+            store_and_submit_tx(
+                &node_datas,
+                &client_account_id,
+                &txs,
+                &sender_id,
+                &receiver_id,
+                tip.height,
+                tx,
+            );
         },
     )
 }
@@ -754,6 +841,15 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             }
             trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
             latest_block_height.set(tip.height);
+            let shard_layout =
+                client.epoch_manager.get_epoch_config(&tip.epoch_id).unwrap().shard_layout;
+            println!(
+                "Block: {:?} {} {:?}",
+                tip.last_block_hash,
+                tip.height,
+                block_header.chunk_mask()
+            );
+            println!("Shard IDs: {:?}", shard_layout.shard_ids().collect_vec());
             if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
                 assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
             }
@@ -912,6 +1008,24 @@ fn test_resharding_v3_shard_shuffling_intense() {
         .add_loop_action(execute_money_transfers(
             TestReshardingParametersBuilder::compute_initial_accounts(8),
         ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+/// Executes storage operations at every block height.
+/// In particular, checks that storage gas costs are computed correctly during
+/// resharding. Caught a bug with invalid storage costs computed during flat
+/// storage resharding.
+#[test]
+fn test_resharding_v3_storage_operations() {
+    let sender_account: AccountId = "account1".parse().unwrap();
+    let account_in_parent: AccountId = "account4".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_contract(account_in_parent.clone())
+        .add_loop_action(execute_storage_operations(sender_account, account_in_parent))
+        .all_chunks_expected(true)
+        .delay_flat_state_resharding(2)
+        .epoch_length(13)
         .build();
     test_resharding_v3_base(params);
 }
