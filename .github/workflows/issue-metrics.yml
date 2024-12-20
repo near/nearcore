@@ -40,3 +40,4 @@ jobs:
         title: Monthly issue metrics report
         token: ${{ secrets.GITHUB_TOKEN }}
         content-filepath: ./issue_metrics.md
+
