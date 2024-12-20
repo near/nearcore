@@ -432,7 +432,7 @@ impl PartialEncodedStateWitnessTracker {
 
                 // Merge accessed contracts into the main transition's partial state.
                 let PartialState::TrieValues(values) =
-                    &mut witness.main_state_transition.base_state;
+                    &mut witness.inner.main_state_transition.base_state;
                 values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
                 tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
