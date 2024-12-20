@@ -1954,6 +1954,7 @@ impl From<Receipt> for ReceiptView {
                         is_promise_resume,
                     }
                 }
+                ReceiptEnum::GlobalContractDitribution(_) => todo!("#12639"),
             },
             priority,
         }

@@ -88,7 +88,7 @@ pub fn total_send_fees(
                     + fees.fee(ActionCosts::deploy_contract_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
-            DeployGlobalContract(DeployGlobalContractAction{ code }) => {
+            DeployGlobalContract(DeployGlobalContractAction { code }) => {
                 let num_bytes = code.len() as u64;
                 // TODO(#12639): introduce separate fees for global contracts
                 fees.fee(ActionCosts::deploy_contract_base).send_fee(sender_is_receiver)

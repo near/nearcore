@@ -461,12 +461,7 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
-                action_deploy_global_contract(
-                    state_update,
-                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
-                    account_id,
-                    deploy_global_contract,
-                )?;
+                action_deploy_global_contract(account_id, deploy_global_contract, &mut result)?;
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
@@ -1207,6 +1202,10 @@ impl Runtime {
                     // ignore all but the first.
                     return Ok(None);
                 }
+            }
+            ReceiptEnum::GlobalContractDitribution(_global_contract_data) => {
+                // TODO(#12639): save global contract to the state
+                return Ok(None);
             }
         };
         // We didn't trigger execution, so we need to commit the state.
@@ -2683,6 +2682,9 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                         return false;
                     };
                     return handle_receipt(mgr, state_update, receiver, account_id, &yr);
+                }
+                ReceiptEnum::GlobalContractDitribution(_) => {
+                    return false;
                 }
             }
         }
