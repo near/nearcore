@@ -27,7 +27,7 @@ use std::sync::Arc;
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-fn test_state_dump() {
+fn slow_test_state_dump() {
     init_test_logger();
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

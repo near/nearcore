@@ -12,7 +12,6 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::account_id_to_shard_uid;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -360,7 +359,7 @@ impl TestReshardingEnv {
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         for shard_id in shard_layout.shard_ids() {
             // get hash of the last block that we need to check that it has empty chunks for the shard
-            // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
+            // if `get_next_block_hash_with_new_chunk` returns None, that would be the latest block
             // on chain, otherwise, that would be the block before the `block_hash` that the function
             // call returns
             let next_block_hash_with_new_chunk =
@@ -444,7 +443,7 @@ impl TestReshardingEnv {
             let id = &tx.get_hash();
 
             let signer_account_id = tx.transaction.signer_id();
-            let shard_uid = account_id_to_shard_uid(signer_account_id, &shard_layout);
+            let shard_uid = shard_layout.account_id_to_shard_uid(signer_account_id);
 
             tracing::trace!(target: "test", tx=?id, ?signer_account_id, ?shard_uid, "checking tx");
 
@@ -522,7 +521,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     let prev_hash = block.header().prev_hash();
     let shard_layout =
         env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
-    let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
+    let shard_uid = shard_layout.account_id_to_shard_uid(account_id);
     let shard_id = shard_uid.shard_id();
     let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     for (i, me) in env.validators.iter().enumerate() {

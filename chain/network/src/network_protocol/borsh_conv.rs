@@ -171,7 +171,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(Box::new(RoutedMessageV2 {
                 msg: *r,
                 created_at: None,
-                num_hops: Some(0),
+                num_hops: 0,
             })),
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect(mem::Disconnect {
                 // This flag is used by the disconnecting peer to advise the other peer that there
