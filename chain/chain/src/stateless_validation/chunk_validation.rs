@@ -19,7 +19,7 @@ use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -33,6 +33,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
+use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
 use std::collections::HashMap;
@@ -202,7 +203,7 @@ fn get_state_witness_block_range(
 
         if let Some(transition) = get_resharding_transition(
             epoch_manager,
-            prev_hash,
+            position.prev_block.header(),
             shard_uid,
             position.num_new_chunks_seen,
         )? {
@@ -272,7 +273,7 @@ fn get_state_witness_block_range(
 /// so, returns the corresponding resharding transition parameters.
 fn get_resharding_transition(
     epoch_manager: &dyn EpochManagerAdapter,
-    prev_hash: &CryptoHash,
+    prev_header: &BlockHeader,
     shard_uid: ShardUId,
     num_new_chunks_seen: u32,
 ) -> Result<Option<ImplicitTransitionParams>, Error> {
@@ -282,17 +283,22 @@ fn get_resharding_transition(
         return Ok(None);
     }
 
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
-    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(prev_hash)?;
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_header.hash())?;
+    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(prev_header.hash())?;
     let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
-    let block_has_new_shard_layout =
-        epoch_manager.is_next_block_epoch_start(prev_hash)? && shard_layout != prev_shard_layout;
+    let block_has_new_shard_layout = epoch_manager.is_next_block_epoch_start(prev_header.hash())?
+        && shard_layout != prev_shard_layout;
 
     if !block_has_new_shard_layout {
         return Ok(None);
     }
 
-    let params = match ReshardingEventType::from_shard_layout(&shard_layout, *prev_hash)? {
+    let block_info = BlockInfo {
+        hash: *prev_header.hash(),
+        height: prev_header.height(),
+        prev_hash: *prev_header.prev_hash(),
+    };
+    let params = match ReshardingEventType::from_shard_layout(&shard_layout, block_info)? {
         Some(ReshardingEventType::SplitShard(params)) => params,
         None => return Ok(None),
     };
