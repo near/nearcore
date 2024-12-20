@@ -15,7 +15,7 @@ Prerequisites:
 
 In order to set up and launch replay, we take the following steps:
 
-Make sure you have the right enviroment variables:
+Make sure you have the right environment variables:
 ```shell
 export PYTHONPATH=./pytest/lib
 ```
