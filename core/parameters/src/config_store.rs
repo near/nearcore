@@ -1,4 +1,4 @@
-use crate::config::{CongestionControlConfig, RuntimeConfig};
+use crate::config::{CongestionControlConfig, RuntimeConfig, WitnessConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
@@ -147,11 +147,8 @@ impl RuntimeConfigStore {
             near_primitives_core::chains::BENCHMARKNET => {
                 let mut config_store = Self::new(None);
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
-                config.congestion_control_config.max_tx_gas = 10u64.pow(16);
-                config.congestion_control_config.min_tx_gas = 10u64.pow(16);
-                config.witness_config.main_storage_proof_size_soft_limit = 999_999_999_999_999;
-                config.witness_config.new_transactions_validation_state_size_soft_limit =
-                    999_999_999_999_999;
+                config.congestion_control_config = CongestionControlConfig::test_disabled();
+                config.witness_config = WitnessConfig::test_disabled();
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
                 wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
                 config.wasm_config = Arc::new(wasm_config);
@@ -460,6 +457,6 @@ mod tests {
     fn test_benchmarknet_config() {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
-        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, 999_999_999_999_999);
+        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, usize::MAX);
     }
 }
