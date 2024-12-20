@@ -39,7 +39,7 @@ fn slow_test_fix_cp_stake_threshold() {
         AccountInfo {
             account_id: accounts[2].clone(),
             public_key: create_test_signer(accounts[2].as_str()).public_key(),
-            // cp min stake ratio was (1 / 62500) / num_shards before the fix
+            // cp min stake ratio was `(1 / 62500) / num_shards` before the fix
             // stake is right at threshold, and proposal should not be approved
             amount: ((30 + 30) * 62500 / 62500 / num_shards) as u128 * ONE_NEAR,
         },
@@ -109,7 +109,7 @@ fn slow_test_fix_cp_stake_threshold() {
                 .unwrap();
             let protocol_version =
                 client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
-            // exits when protocol version catches up the fix
+            // exits when protocol version catches up with the fix
             protocol_version >= ProtocolFeature::FixChunkProducerStakingThreshold.protocol_version()
         },
         Duration::seconds(4 * epoch_length as i64),
@@ -126,9 +126,8 @@ fn slow_test_fix_cp_stake_threshold() {
             // ensure loop is exited because of condition is met
             assert!(epoch_height < 5);
 
-            // after the fix, threshold is raised to approximately 6x of the previous in this case
-            // (reason of "approximately 6x": ./fix_stake_threshold.rs, but it's irrelevant here)
-            // so test3's proposal will not be approved
+            // threshold is raised to approximately 6x of the previous in this case as threshold is
+            // no longer divided by num_shards (6), so test3's proposal won't be approved
             let validators = get_epoch_all_validators(client);
             if validators.len() == 2 {
                 assert_eq!(validators, vec![String::from("test0"), String::from("test1")]);

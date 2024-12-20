@@ -1038,10 +1038,10 @@ mod tests {
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
         let expected_assignments = vec![
-            vec![(4, 56), (1, 168), (2, 300), (3, 84), (0, 364)],
-            vec![(3, 70), (1, 300), (4, 42), (2, 266), (0, 308)],
-            vec![(4, 42), (1, 238), (3, 42), (0, 450), (2, 196)],
-            vec![(2, 238), (1, 294), (3, 64), (0, 378)],
+            vec![(2, 192), (0, 396), (1, 280)],
+            vec![(1, 216), (2, 264), (0, 396)],
+            vec![(0, 396), (2, 288), (1, 192)],
+            vec![(2, 256), (1, 312), (0, 312)],
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
     }

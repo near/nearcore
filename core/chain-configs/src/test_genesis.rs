@@ -630,6 +630,28 @@ pub struct GenesisAndEpochConfigParams<'a> {
 /// one epoch config for your test. Otherwise, just use builders directly.
 ///
 /// ```
+/// use near_chain_configs::test_genesis::build_genesis_and_epoch_config_store;
+/// use near_chain_configs::test_genesis::GenesisAndEpochConfigParams;
+/// use near_chain_configs::test_genesis::ValidatorsSpec;
+/// use near_primitives::shard_layout::ShardLayout;
+/// use near_primitives::test_utils::create_test_signer;
+/// use near_primitives::types::AccountId;
+/// use near_primitives::types::AccountInfo;
+///
+/// const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+///
+/// let protocol_version = 73;
+/// let epoch_length = 10;
+/// let accounts = (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+/// let shard_layout = ShardLayout::multi_shard(6, 1);
+/// let validators = vec![
+///     AccountInfo {
+///         account_id: accounts[0].clone(),
+///         public_key: create_test_signer(accounts[0].as_str()).public_key(),
+///         amount: 62500 * ONE_NEAR,
+///     },
+/// ];
+/// let validators_spec = ValidatorsSpec::raw(validators, 3, 3, 3);
 /// let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
 ///     GenesisAndEpochConfigParams {
 ///         protocol_version,
