@@ -17,7 +17,7 @@ use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::dec_format;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
@@ -122,7 +122,6 @@ struct SetValidatorsCmd {
     /// will be used.
     #[arg(long)]
     pub protocol_version: Option<ProtocolVersion>,
-    /// Number of validator seats.
     #[clap(long)]
     pub num_seats: Option<NumSeats>,
 }
@@ -538,6 +537,7 @@ impl ForkNetworkCommand {
         &self,
         first_version: ProtocolVersion,
         num_seats: &Option<NumSeats>,
+        new_boundary_account: &AccountId,
         home_dir: &Path,
     ) -> anyhow::Result<EpochConfig> {
         let epoch_config_dir = home_dir.join("epoch_configs");
@@ -559,11 +559,19 @@ impl ForkNetworkCommand {
                 config.num_chunk_producer_seats = *num_seats;
                 config.num_chunk_validator_seats = *num_seats;
             }
+            config.block_producer_kickout_threshold = 0;
+            config.chunk_producer_kickout_threshold = 0;
+            config.chunk_validator_only_kickout_threshold = 0;
+            if version == PROTOCOL_VERSION {
+                config.shard_layout = ShardLayout::derive_shard_layout(
+                    &config.shard_layout,
+                    new_boundary_account.clone(),
+                );
+            }
             new_epoch_configs.insert(version, Arc::new(config));
         }
         let first_config = new_epoch_configs.get(&first_version).unwrap().as_ref().clone();
         let epoch_config_store = EpochConfigStore::test(new_epoch_configs);
-
         epoch_config_store.dump_epoch_configs_between(
             &first_version,
             &PROTOCOL_VERSION,
@@ -895,8 +903,15 @@ impl ForkNetworkCommand {
         // This is based on the assumption that epoch length is part of genesis config and not epoch config.
         near_config.genesis.config.epoch_length = epoch_length;
 
-        let epoch_config =
-            self.override_epoch_configs(genesis_protocol_version, num_seats, home_dir)?;
+        // let boundary_account = "part".parse::<AccountId>().unwrap();
+        let boundary_account = "5urora".parse::<AccountId>().unwrap();
+
+        let epoch_config = self.override_epoch_configs(
+            genesis_protocol_version,
+            num_seats,
+            &boundary_account,
+            home_dir,
+        )?;
 
         let original_config = near_config.genesis.config.clone();
 

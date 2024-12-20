@@ -514,7 +514,7 @@ impl ShardsManagerActor {
 
         let shards_to_fetch_receipts =
         // TODO: only keep shards for which we don't have receipts yet
-            if request_full { HashSet::new() } else { self.get_tracking_shards(ancestor_hash, me) };
+            if request_full { HashSet::new() } else { self.get_tracking_shards(ancestor_hash, height, me) };
 
         // The loop below will be sending PartialEncodedChunkRequestMsg to various block producers.
         // We need to send such a message to the original chunk producer if we do not have the receipts
@@ -609,9 +609,13 @@ impl ShardsManagerActor {
     fn get_tracking_shards(
         &self,
         parent_hash: &CryptoHash,
+        height: BlockHeight,
         me: Option<&AccountId>,
     ) -> HashSet<ShardId> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let config = self.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+        let epoch_length = config.epoch_length;
+        let epoch_start_height = self.epoch_manager.get_epoch_start_height(parent_hash).unwrap();
         self.epoch_manager
             .shard_ids(&epoch_id)
             .unwrap()
@@ -1981,6 +1985,10 @@ impl ShardsManagerActor {
         me: Option<&AccountId>,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let config = self.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+        let epoch_length = config.epoch_length;
+        let epoch_start_height =
+            self.epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if !chunk_entry.receipts.contains_key(&shard_id) {
                 if need_receipt(prev_block_hash, shard_id, me, &self.shard_tracker) {
@@ -2094,6 +2102,10 @@ impl ShardsManagerActor {
         .into_iter()
         .map(Arc::new)
         .collect::<Vec<_>>();
+        let config = self.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+        let epoch_length = config.epoch_length;
+        let epoch_start_height =
+            self.epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
         for (to_whom, part_ords) in block_producer_mapping {
             let part_receipt_proofs = receipt_proofs
                 .iter()

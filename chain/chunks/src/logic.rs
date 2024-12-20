@@ -138,6 +138,9 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
         true,
         shard_tracker,
     );
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
+    let config = epoch_manager.get_epoch_config(&epoch_id).unwrap();
+    let epoch_start_height = epoch_manager.get_epoch_start_height(prev_block_hash).unwrap();
     let parts = parts
         .filter(|entry| {
             cares_about_shard
