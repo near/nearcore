@@ -11,13 +11,14 @@
 
 ## Reference implementation of NEAR Protocol
 
-![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851)
+[![Buildkite](https://img.shields.io/buildkite/0eae07525f8e44a19b48fa937813e2c21ee04aa351361cd851)][buildkite]
 ![Stable Status][stable-release]
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
 [![Discord chat][discord-badge]][discord-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
+[buildkite]: https://github.com/near/nearcore/actions
 [stable-release]: https://img.shields.io/github/v/release/nearprotocol/nearcore?label=stable
 [prerelease]: https://img.shields.io/github/v/release/nearprotocol/nearcore?include_prereleases&label=prerelease
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
