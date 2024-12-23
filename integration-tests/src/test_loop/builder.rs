@@ -503,6 +503,7 @@ impl TestLoopBuilder {
         let genesis = self.genesis.as_ref().unwrap();
         let epoch_config_store = self.epoch_config_store.as_ref().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
+        client_config.epoch_length = genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
         client_config.state_sync_external_timeout = Duration::milliseconds(100);
