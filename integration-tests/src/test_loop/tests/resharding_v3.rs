@@ -25,6 +25,9 @@ use crate::test_loop::utils::receipts::{
     check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block,
     ReceiptKind,
 };
+use crate::test_loop::utils::setups::{
+    derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule,
+};
 use crate::test_loop::utils::sharding::{
     next_block_has_new_shard_layout, print_and_assert_shard_accounts,
 };
@@ -101,6 +104,8 @@ struct TestReshardingParameters {
     // TODO(resharding) Remove this when negative refcounts are properly handled.
     /// Whether to allow negative refcount being a result of the database update.
     allow_negative_refcount: bool,
+    /// Make two reshardings in a row.
+    reshard_twice: bool,
 }
 
 impl TestReshardingParametersBuilder {
@@ -190,6 +195,7 @@ impl TestReshardingParametersBuilder {
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
             allow_negative_refcount: self.allow_negative_refcount.unwrap_or(false),
+            reshard_twice: self.reshard_twice.unwrap_or(false),
         }
     }
 
@@ -611,19 +617,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     let base_shard_layout = get_base_shard_layout(params.base_shard_layout_version);
     base_epoch_config.shard_layout = base_shard_layout.clone();
+    let mut new_boundary_account = "account6".parse().unwrap();
+    let epoch_config =
+        derive_new_epoch_config_from_boundary(&base_epoch_config, &new_boundary_account);
 
-    let new_boundary_account = "account6".parse().unwrap();
-    let parent_shard_uid = base_shard_layout.account_id_to_shard_uid(&new_boundary_account);
-    let mut epoch_config = base_epoch_config.clone();
-    epoch_config.shard_layout =
-        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account.clone());
-    tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
-
-    let expected_num_shards = epoch_config.shard_layout.num_shards();
-    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![
-        (base_protocol_version, Arc::new(base_epoch_config)),
-        (base_protocol_version + 1, Arc::new(epoch_config)),
-    ]));
+    let mut epoch_configs = vec![
+        (base_protocol_version, Arc::new(base_epoch_config.clone())),
+        (base_protocol_version + 1, Arc::new(epoch_config.clone())),
+    ];
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&builder.clock())
@@ -636,6 +637,19 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         ))
         .add_user_accounts_simple(&params.accounts, params.initial_balance)
         .build();
+
+    if params.reshard_twice {
+        new_boundary_account = "account7".parse().unwrap();
+        let second_resharding_epoch_config =
+            derive_new_epoch_config_from_boundary(&epoch_config, &new_boundary_account);
+        epoch_configs.push((base_protocol_version + 2, Arc::new(second_resharding_epoch_config)));
+        let upgrade_schedule = two_upgrades_voting_schedule(base_protocol_version + 2);
+        builder = builder.protocol_upgrade_schedule(upgrade_schedule);
+    }
+    let expected_num_shards = epoch_configs.last().unwrap().1.shard_layout.num_shards();
+    let parent_shard_uid =
+        base_epoch_config.shard_layout.account_id_to_shard_uid(&new_boundary_account);
+    let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
 
     if params.track_all_shards {
         builder = builder.track_all_shards();
@@ -805,6 +819,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 #[test]
 fn test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
+}
+
+#[test]
+// TODO(resharding) un-ignore the test if multiple reshardings are supported
+#[ignore]
+fn test_resharding_v3_twice() {
+    test_resharding_v3_base(TestReshardingParametersBuilder::default().reshard_twice(true).build());
 }
 
 #[test]
