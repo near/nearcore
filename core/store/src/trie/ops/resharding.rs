@@ -14,7 +14,7 @@ use super::interface::{
 };
 use super::squash::GenericTrieUpdateSquash;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 /// Whether to retain left or right part of trie after shard split.
 pub enum RetainMode {
     Left,
