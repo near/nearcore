@@ -981,6 +981,8 @@ fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_vers
             vec![account_in_left_child],
             ReceiptKind::Buffered,
         ))
+        // TODO(resharding): test should work without changes to track_all_shards
+        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
