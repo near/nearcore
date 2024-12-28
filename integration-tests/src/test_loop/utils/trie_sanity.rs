@@ -118,7 +118,7 @@ impl TrieSanityCheck {
         check_shard_uids
     }
 
-    // Check trie sanity and keep track of which shards were succesfully fully checked
+    // Check trie sanity and keep track of which shards were successfully fully checked
     pub fn assert_state_sanity(&mut self, clients: &[&Client], new_num_shards: NumShards) {
         for client in clients {
             let signer = client.validator_signer.get();
