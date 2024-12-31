@@ -2,12 +2,12 @@ use crate::config::Mode;
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StatsValue};
 use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature};
 use ::rocksdb::{
-    BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
+    properties, BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions,
+    WriteBatch, DB,
 };
 use anyhow::Context;
 use itertools::Itertools;
 use std::io;
-use std::ops::Deref;
 use std::path::Path;
 use std::sync::LazyLock;
 use strum::IntoEnumIterator;
@@ -19,28 +19,23 @@ pub(crate) mod snapshot;
 /// List of integer RocskDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
-static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
-    use ::rocksdb::properties;
-    let mut ret = Vec::new();
-    ret.extend_from_slice(
-        &[
-            properties::LIVE_SST_FILES_SIZE,
-            properties::ESTIMATE_LIVE_DATA_SIZE,
-            properties::COMPACTION_PENDING,
-            properties::NUM_RUNNING_COMPACTIONS,
-            properties::ESTIMATE_PENDING_COMPACTION_BYTES,
-            properties::ESTIMATE_TABLE_READERS_MEM,
-            properties::BLOCK_CACHE_CAPACITY,
-            properties::BLOCK_CACHE_USAGE,
-            properties::CUR_SIZE_ACTIVE_MEM_TABLE,
-            properties::SIZE_ALL_MEM_TABLES,
-        ]
-        .map(std::ffi::CStr::to_owned),
-    );
-    for level in 0..=6 {
-        ret.push(properties::num_files_at_level(level));
-    }
-    ret
+static CF_PROPERTY_NAMES: LazyLock<Vec<properties::PropertyName>> = LazyLock::new(|| {
+    [
+        properties::LIVE_SST_FILES_SIZE,
+        properties::ESTIMATE_LIVE_DATA_SIZE,
+        properties::COMPACTION_PENDING,
+        properties::NUM_RUNNING_COMPACTIONS,
+        properties::ESTIMATE_PENDING_COMPACTION_BYTES,
+        properties::ESTIMATE_TABLE_READERS_MEM,
+        properties::BLOCK_CACHE_CAPACITY,
+        properties::BLOCK_CACHE_USAGE,
+        properties::CUR_SIZE_ACTIVE_MEM_TABLE,
+        properties::SIZE_ALL_MEM_TABLES,
+    ]
+    .into_iter()
+    .map(properties::PropName::to_owned)
+    .chain((0..7).map(properties::num_files_at_level))
+    .collect()
 });
 
 pub struct RocksDB {
@@ -668,7 +663,7 @@ impl RocksDB {
 
     /// Gets every int property in CF_PROPERTY_NAMES for every column in DBCol.
     fn get_cf_statistics(&self, result: &mut StoreStatistics) {
-        for prop_name in CF_PROPERTY_NAMES.deref() {
+        for prop_name in CF_PROPERTY_NAMES.iter() {
             let values = self
                 .cf_handles()
                 .filter_map(|(col, handle)| {
@@ -677,10 +672,7 @@ impl RocksDB {
                 })
                 .collect::<Vec<_>>();
             if !values.is_empty() {
-                // TODO(mina86): Once const_str_from_utf8 is stabilised we might
-                // be able convert this runtime UTF-8 validation into const.
-                let stat_name = prop_name.to_str().unwrap();
-                result.data.push((stat_name.to_string(), values));
+                result.data.push((prop_name.as_str().into(), values));
             }
         }
     }
