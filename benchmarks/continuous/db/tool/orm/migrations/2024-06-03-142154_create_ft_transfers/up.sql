@@ -29,7 +29,7 @@ create table ft_transfers (
     -- Size of the synthetic state at the beginning of the run in bytes.
     size_state_bytes integer not null,
 
-    -- Bencmark results.
+    -- Benchmark results.
 
     -- FT transfer transactions per second aggregated over the run of the
     -- benchmark.
