@@ -20,7 +20,9 @@ use near_network::state_witness::{
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_parameters::RuntimeConfig;
 use near_performance_metrics_macros::perf;
-use near_primitives::reed_solomon::{ReedSolomonEncoder, ReedSolomonEncoderCache};
+use near_primitives::reed_solomon::{
+    IncrementalEncoder, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonEncoderSerialize,
+};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ChunkContractDeploys, CodeBytes, CodeHash, ContractCodeRequest,
@@ -200,7 +202,7 @@ impl PartialWitnessActor {
 
         tracing::debug!(
             target: "client",
-            chunk_hash=?state_witness.chunk_header.chunk_hash(),
+            chunk_hash=?state_witness.inner.chunk_header.chunk_hash(),
             "distribute_chunk_state_witness",
         );
 
@@ -224,7 +226,7 @@ impl PartialWitnessActor {
                 key.clone(),
                 contract_accesses,
                 MainTransitionKey {
-                    block_hash: state_witness.main_state_transition.block_hash,
+                    block_hash: state_witness.inner.main_state_transition.block_hash,
                     shard_id: main_transition_shard_id,
                 },
                 &chunk_validators,
@@ -235,7 +237,7 @@ impl PartialWitnessActor {
         let witness_bytes = compress_witness(&state_witness)?;
         self.send_state_witness_parts(
             key.epoch_id,
-            &state_witness.chunk_header,
+            &state_witness.inner.chunk_header,
             witness_bytes,
             &chunk_validators,
             &signer,
@@ -249,7 +251,36 @@ impl PartialWitnessActor {
     }
 
     // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
-    fn generate_state_witness_parts(
+    fn generate_next_state_witness_part(
+        &mut self,
+        epoch_id: EpochId,
+        chunk_header: &ShardChunkHeader,
+        chunk_validator: &AccountId,
+        part_ord: usize,
+        signer: &ValidatorSigner,
+        incremental_encoder: &mut IncrementalEncoder,
+    ) -> Option<(AccountId, PartialEncodedStateWitness)> {
+        tracing::debug!(
+            target: "client",
+            chunk_hash=?chunk_header.chunk_hash(),
+            ?chunk_validator,
+            "generate_next_state_witness_part",
+        );
+        incremental_encoder.encode_next().map(|part| {
+            let partial_witness = PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header.clone(),
+                part_ord,
+                part.into_vec(),
+                incremental_encoder.encoded_length(),
+                signer,
+            );
+            (chunk_validator.clone(), partial_witness)
+        })
+    }
+
+    // Function to generate the parts of the state witness and return them as a tuple of chunk_validator and part.
+    fn _generate_state_witness_parts(
         &mut self,
         epoch_id: EpochId,
         chunk_header: &ShardChunkHeader,
@@ -338,32 +369,60 @@ impl PartialWitnessActor {
         let chunk_hash = chunk_header.chunk_hash();
         let witness_size_in_bytes = witness_bytes.size_bytes();
 
-        // Record time taken to encode the state witness parts.
-        let shard_id_label = chunk_header.shard_id().to_string();
-        let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
-            .with_label_values(&[shard_id_label.as_str()])
-            .start_timer();
-        let validator_witness_tuple = self.generate_state_witness_parts(
-            epoch_id,
-            chunk_header,
-            witness_bytes,
-            chunk_validators,
-            signer,
-        )?;
-        encode_timer.observe_duration();
-
         // Record the witness in order to match the incoming acks for measuring round-trip times.
         // See process_chunk_state_witness_ack for the handling of the ack messages.
         self.state_witness_tracker.record_witness_sent(
             chunk_hash,
             witness_size_in_bytes,
-            validator_witness_tuple.len(),
+            chunk_validators.len(),
         );
 
-        // Send the parts to the corresponding chunk validator owners.
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
-        ));
+        // Record time taken to encode and send the state witness parts.
+        let shard_id_label = chunk_header.shard_id().to_string();
+        let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
+            .with_label_values(&[shard_id_label.as_str()])
+            .start_timer();
+
+        let encoder = self.witness_encoders.entry(chunk_validators.len());
+        if let Ok(mut incremental_encoder) = encoder.incremental_encoder(&witness_bytes) {
+            for (part_ord, chunk_validator) in chunk_validators.iter().enumerate() {
+                let validator_witness_tuple = self
+                    .generate_next_state_witness_part(
+                        epoch_id,
+                        chunk_header,
+                        chunk_validator,
+                        part_ord,
+                        signer,
+                        &mut incremental_encoder,
+                    )
+                    .unwrap();
+
+                // Send the part to the corresponding chunk validator owner.
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
+                ));
+            }
+        } else {
+            let bytes = witness_bytes.serialize_single_part().unwrap();
+            let size = bytes.len();
+            let partial_witness = PartialEncodedStateWitness::new(
+                epoch_id,
+                chunk_header.clone(),
+                0,
+                bytes,
+                size,
+                signer,
+            );
+            // Send the part to the corresponding chunk validator owner.
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::PartialEncodedStateWitness((
+                    chunk_validators[0].clone(),
+                    partial_witness,
+                )),
+            ));
+        };
+        encode_timer.observe_duration();
+
         Ok(())
     }
 
@@ -598,7 +657,7 @@ impl PartialWitnessActor {
 
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
-    /// which will receive the state witness for the new chunk.  
+    /// which will receive the state witness for the new chunk.
     fn send_contract_accesses_to_chunk_validators(
         &self,
         key: ChunkProductionKey,
@@ -776,7 +835,7 @@ impl PartialWitnessActor {
 }
 
 fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
-    let shard_id_label = witness.chunk_header.shard_id().to_string();
+    let shard_id_label = witness.inner.chunk_header.shard_id().to_string();
     let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
