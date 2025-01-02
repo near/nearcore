@@ -200,7 +200,7 @@ impl PartialWitnessActor {
 
         tracing::debug!(
             target: "client",
-            chunk_hash=?state_witness.chunk_header.chunk_hash(),
+            chunk_hash=?state_witness.inner.chunk_header.chunk_hash(),
             "distribute_chunk_state_witness",
         );
 
@@ -224,7 +224,7 @@ impl PartialWitnessActor {
                 key.clone(),
                 contract_accesses,
                 MainTransitionKey {
-                    block_hash: state_witness.main_state_transition.block_hash,
+                    block_hash: state_witness.inner.main_state_transition.block_hash,
                     shard_id: main_transition_shard_id,
                 },
                 &chunk_validators,
@@ -235,7 +235,7 @@ impl PartialWitnessActor {
         let witness_bytes = compress_witness(&state_witness)?;
         self.send_state_witness_parts(
             key.epoch_id,
-            &state_witness.chunk_header,
+            &state_witness.inner.chunk_header,
             witness_bytes,
             &chunk_validators,
             &signer,
@@ -598,7 +598,7 @@ impl PartialWitnessActor {
 
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
-    /// which will receive the state witness for the new chunk.  
+    /// which will receive the state witness for the new chunk.
     fn send_contract_accesses_to_chunk_validators(
         &self,
         key: ChunkProductionKey,
@@ -776,7 +776,7 @@ impl PartialWitnessActor {
 }
 
 fn compress_witness(witness: &ChunkStateWitness) -> Result<EncodedChunkStateWitness, Error> {
-    let shard_id_label = witness.chunk_header.shard_id().to_string();
+    let shard_id_label = witness.inner.chunk_header.shard_id().to_string();
     let encode_timer = near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
         .with_label_values(&[shard_id_label.as_str()])
         .start_timer();
