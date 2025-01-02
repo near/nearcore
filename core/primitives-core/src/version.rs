@@ -121,6 +121,9 @@ pub enum ProtocolFeature {
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
     FixStakingThreshold,
+    /// In case not all validator seats are occupied, the minimum seat price of a chunk producer
+    /// used to depend on the number of existing shards, which is no longer the case.
+    FixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
@@ -253,7 +256,8 @@ impl ProtocolFeature {
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold
-            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 74,
+            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::FixChunkProducerStakingThreshold => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later

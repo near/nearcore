@@ -8,7 +8,7 @@
 //!     `observe()` method to record durations (e.g., block processing time).
 //! - `IncCounter`: used to represent an ideally ever-growing, never-shrinking
 //!     integer (e.g., number of block processing requests).
-//! - `IntGauge`: used to represent an varying integer (e.g., number of
+//! - `IntGauge`: used to represent a varying integer (e.g., number of
 //!     attestations per block).
 //!
 //! ## Important

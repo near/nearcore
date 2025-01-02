@@ -316,6 +316,7 @@ fn call_burn_gas_contract(
     receiver_ids: Vec<AccountId>,
     gas_burnt_per_call: Gas,
 ) -> LoopActionFn {
+    // Must be less than epoch length, otherwise transactions won't be checked.
     const TX_CHECK_BLOCKS_AFTER_RESHARDING: u64 = 5;
     const CALLS_PER_BLOCK_HEIGHT: usize = 5;
 
@@ -954,8 +955,7 @@ fn test_resharding_v3_delayed_receipts_right_child() {
             ReceiptKind::Delayed,
         ))
         .allow_negative_refcount(true)
-        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
-        .num_rpcs(0)
+        // TODO(resharding): test should work without changes to track_all_shards
         .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
@@ -983,8 +983,7 @@ fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_vers
             vec![account_in_left_child],
             ReceiptKind::Buffered,
         ))
-        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
-        .num_rpcs(0)
+        // TODO(resharding): test should work without changes to track_all_shards
         .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
@@ -1073,8 +1072,7 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
             vec![receiver_account],
             5 * TGAS,
         ))
-        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
-        .num_rpcs(0)
+        // TODO(resharding): test should work without changes to track_all_shards
         .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
@@ -1148,8 +1146,7 @@ fn test_resharding_v3_yield_resume() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        // TODO(resharding): test should work without changes to num_rpcs and track_all_shards
-        .num_rpcs(0)
+        // TODO(resharding): test should work without changes to track_all_shards
         .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);

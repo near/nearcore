@@ -2514,13 +2514,13 @@ fn test_epoch_validators_cache() {
 #[test]
 fn test_chunk_producers() {
     let amount_staked = 1_000_000;
-    // Make sure that last validator has at least 160/1'000'000  / num_shards of stake.
+    // Make sure that last validator has at least 160/1'000'000 of stake.
     // We're running with 2 shards and test1 + test2 has 2'000'000 tokens - so chunk_only should have over 160.
     let validators = vec![
         ("test1".parse().unwrap(), amount_staked),
         ("test2".parse().unwrap(), amount_staked),
-        ("chunk_only".parse().unwrap(), 200),
-        ("not_enough_producer".parse().unwrap(), 100),
+        ("chunk_only".parse().unwrap(), 321),
+        ("not_enough_producer".parse().unwrap(), 320),
     ];
 
     // There are 2 shards, and 2 block producers seats.
