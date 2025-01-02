@@ -460,7 +460,11 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             print_and_assert_shard_accounts(&clients, &tip);
         }
 
-        check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
+        check_state_shard_uid_mapping_after_resharding(
+            &client,
+            parent_shard_uid,
+            params.allow_negative_refcount,
+        );
 
         // Return false if garbage collection window has not passed yet since resharding.
         if epoch_height <= new_layout_epoch_height.get().unwrap() + gc_num_epochs_to_keep {
@@ -504,6 +508,7 @@ fn test_resharding_v3_drop_chunks_before() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .chunk_ranges_to_drop(chunk_ranges_to_drop)
+            .epoch_length(INCREASED_EPOCH_LENGTH)
             .build(),
     );
 }
@@ -524,6 +529,7 @@ fn test_resharding_v3_drop_chunks_before_and_after() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .chunk_ranges_to_drop(chunk_ranges_to_drop)
+            .epoch_length(INCREASED_EPOCH_LENGTH)
             .build(),
     );
 }

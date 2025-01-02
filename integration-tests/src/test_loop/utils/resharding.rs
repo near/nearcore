@@ -1,5 +1,4 @@
 use std::cell::Cell;
-use std::rc::Rc;
 
 use assert_matches::assert_matches;
 use itertools::Itertools;
@@ -30,8 +29,7 @@ use crate::test_loop::utils::{get_node_data, retrieve_client_actor, ONE_NEAR, TG
 pub(crate) fn fork_before_resharding_block(double_signing: bool) -> LoopAction {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
 
-    let done = Rc::new(Cell::new(false));
-    let succeeded = done.clone();
+    let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
@@ -74,8 +72,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
     let seed = rand::thread_rng().gen::<u64>();
     println!("Random seed: {}", seed);
 
-    let ran_transfers = Rc::new(Cell::new(false));
-    let succeeded = ran_transfers.clone();
+    let (ran_transfers, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
@@ -146,8 +143,7 @@ pub(crate) fn call_burn_gas_contract(
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
-    let checked_transactions = Rc::new(Cell::new(false));
-    let succeeded = checked_transactions.clone();
+    let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
         move |node_datas: &[TestData],
@@ -241,8 +237,7 @@ pub(crate) fn call_promise_yield(
     let promise_txs_sent = Cell::new(false);
     let nonce = Cell::new(102);
     let yield_payload = vec![];
-    let checked_transactions = Rc::new(Cell::new(false));
-    let succeeded = checked_transactions.clone();
+    let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
         move |node_datas: &[TestData],
@@ -356,9 +351,9 @@ pub(crate) fn call_promise_yield(
     LoopAction::new(action_fn, succeeded)
 }
 
-// After resharding and gc-period, assert the deleted `account_id`
-// is still accessible through archival node view client (if available),
-// and it is not accessible through a regular, RPC node.
+/// After resharding and gc-period, assert the deleted `account_id`
+/// is still accessible through archival node view client (if available),
+/// and it is not accessible through a regular, RPC node.
 fn check_deleted_account_availability(
     node_datas: &[TestData],
     test_loop_data: &mut TestLoopData,
@@ -394,9 +389,11 @@ fn check_deleted_account_availability(
     }
 }
 
-// Loop action testing a scenario where a temporary account is deleted after resharding.
-// After `gc_num_epochs_to_keep epochs` we assert that the account
-// is not accesible through RPC node but it is still accesible through archival node.
+/// Loop action testing a scenario where a temporary account is deleted after resharding.
+/// After `gc_num_epochs_to_keep epochs` we assert that the account
+/// is not accesible through RPC node but it is still accesible through archival node.
+///
+/// The `temporary_account_id` must be a subaccount of the `originator_id`.
 pub(crate) fn temporary_account_during_resharding(
     archival_id: Option<AccountId>,
     rpc_id: AccountId,
@@ -410,8 +407,7 @@ pub(crate) fn temporary_account_during_resharding(
     let delete_account_tx_hash = Cell::new(None);
     let checked_deleted_account = Cell::new(false);
 
-    let done = Rc::new(Cell::new(false));
-    let succeeded = done.clone();
+    let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
