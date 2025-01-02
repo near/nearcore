@@ -36,6 +36,11 @@ fn try_main() -> Result<(), Error> {
         &["--features", &test_contract_features_string],
         "test_contract_rs",
     )?;
+    build_contract(
+        "./congestion-control-test-contract",
+        &["--features", &test_contract_features_string],
+        "congestion_control_test_contract",
+    )?;
 
     test_contract_features.push("nightly");
     let test_contract_features_string = test_contract_features.join(",");
