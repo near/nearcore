@@ -373,12 +373,13 @@ fn select_chunk_producers(
     num_shards: u64,
     protocol_version: ProtocolVersion,
 ) -> (Vec<ValidatorStake>, BinaryHeap<OrderedValidatorStake>, Balance) {
-    select_validators(
-        all_proposals,
-        max_num_selected,
-        min_stake_ratio * Ratio::new(1, num_shards as u128),
-        protocol_version,
-    )
+    let min_stake_ratio =
+        if checked_feature!("stable", FixChunkProducerStakingThreshold, protocol_version) {
+            min_stake_ratio
+        } else {
+            min_stake_ratio * Ratio::new(1, num_shards as u128)
+        };
+    select_validators(all_proposals, max_num_selected, min_stake_ratio, protocol_version)
 }
 
 // Takes the top N proposals (by stake), or fewer if there are not enough or the
@@ -1037,10 +1038,10 @@ mod tests {
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
         let expected_assignments = vec![
-            vec![(4, 56), (1, 168), (2, 300), (3, 84), (0, 364)],
-            vec![(3, 70), (1, 300), (4, 42), (2, 266), (0, 308)],
-            vec![(4, 42), (1, 238), (3, 42), (0, 450), (2, 196)],
-            vec![(2, 238), (1, 294), (3, 64), (0, 378)],
+            vec![(2, 192), (0, 396), (1, 280)],
+            vec![(1, 216), (2, 264), (0, 396)],
+            vec![(0, 396), (2, 288), (1, 192)],
+            vec![(2, 256), (1, 312), (0, 312)],
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
     }

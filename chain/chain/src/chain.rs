@@ -3915,7 +3915,7 @@ impl Chain {
     }
 
     /// Function to check whether we need to create a new snapshot while processing the current block
-    /// Note that this functions is called as a part of block preprocesing, so the head is not updated to current block
+    /// Note that this functions is called as a part of block preprocessing, so the head is not updated to current block
     fn should_make_or_delete_snapshot(&mut self) -> Result<SnapshotAction, Error> {
         // head value is that of the previous block, i.e. curr_block.prev_hash
         let head = self.head()?;

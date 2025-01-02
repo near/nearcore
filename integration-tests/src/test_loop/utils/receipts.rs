@@ -1,5 +1,6 @@
+use super::loop_action::LoopAction;
+use super::retrieve_client_actor;
 use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_layout};
-use super::{retrieve_client_actor, LoopActionFn};
 use crate::test_loop::env::TestData;
 use crate::test_loop::utils::sharding::get_memtrie_for_shard;
 use near_async::test_loop::data::TestLoopData;
@@ -26,8 +27,9 @@ pub enum ReceiptKind {
 pub fn check_receipts_presence_at_resharding_block(
     accounts: Vec<AccountId>,
     kind: ReceiptKind,
-) -> LoopActionFn {
-    Box::new(
+) -> LoopAction {
+    let (checked_receipts, succeeded) = LoopAction::shared_success_flag();
+    let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
@@ -42,8 +44,10 @@ pub fn check_receipts_presence_at_resharding_block(
             accounts.iter().for_each(|account| {
                 check_receipts_at_block(client_actor, &account, &kind, tip.clone())
             });
+            checked_receipts.set(true);
         },
-    )
+    );
+    LoopAction::new(action_fn, succeeded)
 }
 
 /// Checks that the shards containing `accounts` have a non empty set of receipts
@@ -51,8 +55,9 @@ pub fn check_receipts_presence_at_resharding_block(
 pub fn check_receipts_presence_after_resharding_block(
     accounts: Vec<AccountId>,
     kind: ReceiptKind,
-) -> LoopActionFn {
-    Box::new(
+) -> LoopAction {
+    let (checked_receipts, succeeded) = LoopAction::shared_success_flag();
+    let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
@@ -67,8 +72,10 @@ pub fn check_receipts_presence_after_resharding_block(
             accounts.iter().for_each(|account| {
                 check_receipts_at_block(client_actor, &account, &kind, tip.clone())
             });
+            checked_receipts.set(true);
         },
-    )
+    );
+    LoopAction::new(action_fn, succeeded)
 }
 
 /// Asserts the presence of any receipt of type `kind` at the provided chain `tip`.
