@@ -17,12 +17,11 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
-use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::loop_action::LoopAction;
+use crate::test_loop::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::test_loop::utils::receipts::{
     check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block,
     ReceiptKind,
@@ -47,7 +46,13 @@ use near_primitives::views::{FinalExecutionStatus, QueryRequest};
 
 /// Default and minimal epoch length used in resharding tests.
 const DEFAULT_EPOCH_LENGTH: u64 = 6;
-/// Increased epoch length that has to be used in some tests due to the delay caused by shard shuffling.
+
+/// Increased epoch length that has to be used in some tests due to the delay caused by catch up.
+///
+/// With shorter epoch length, a chunk producer might not finish catch up on time,
+/// before it is supposed to accept transactions for the next epoch.
+/// That would result in chunk producer rejecting a transaction
+/// and later we would hit the `DBNotFoundErr("Transaction ...)` error in tests.
 const INCREASED_EPOCH_LENGTH: u64 = 8;
 
 #[derive(derive_builder::Builder)]
@@ -223,8 +228,7 @@ fn fork_before_resharding_block(double_signing: bool) -> LoopAction {
     use crate::test_loop::utils::retrieve_client_actor;
     use near_client::client_actor::AdvProduceBlockHeightSelection;
 
-    let done = Rc::new(Cell::new(false));
-    let succeeded = done.clone();
+    let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
@@ -267,8 +271,7 @@ fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction {
     let seed = rand::thread_rng().gen::<u64>();
     println!("Random seed: {}", seed);
 
-    let ran_transfers = Rc::new(Cell::new(false));
-    let succeeded = ran_transfers.clone();
+    let (ran_transfers, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
@@ -339,8 +342,7 @@ fn call_burn_gas_contract(
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]);
     let latest_height = Cell::new(0);
-    let checked_transactions = Rc::new(Cell::new(false));
-    let succeeded = checked_transactions.clone();
+    let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
         move |node_datas: &[TestData],
@@ -434,8 +436,7 @@ fn call_promise_yield(
     let promise_txs_sent = Cell::new(false);
     let nonce = Cell::new(102);
     let yield_payload = vec![];
-    let checked_transactions = Rc::new(Cell::new(false));
-    let succeeded = checked_transactions.clone();
+    let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
         move |node_datas: &[TestData],
@@ -797,7 +798,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         println!("State after resharding:");
         print_and_assert_shard_accounts(&clients, &tip);
         check_state_shard_uid_mapping_after_resharding(&client, parent_shard_uid);
-        assert!(params.loop_actions.iter().all(|action| action.has_succeeded()));
+        for loop_action in &params.loop_actions {
+            assert_matches!(loop_action.get_status(), LoopActionStatus::Succeeded);
+        }
         return true;
     };
 

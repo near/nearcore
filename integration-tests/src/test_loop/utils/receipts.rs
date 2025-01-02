@@ -1,6 +1,3 @@
-use std::cell::Cell;
-use std::rc::Rc;
-
 use super::loop_action::LoopAction;
 use super::retrieve_client_actor;
 use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_layout};
@@ -31,8 +28,7 @@ pub fn check_receipts_presence_at_resharding_block(
     accounts: Vec<AccountId>,
     kind: ReceiptKind,
 ) -> LoopAction {
-    let checked_receipts = Rc::new(Cell::new(false));
-    let succeeded = checked_receipts.clone();
+    let (checked_receipts, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
@@ -60,8 +56,7 @@ pub fn check_receipts_presence_after_resharding_block(
     accounts: Vec<AccountId>,
     kind: ReceiptKind,
 ) -> LoopAction {
-    let checked_receipts = Rc::new(Cell::new(false));
-    let succeeded = checked_receipts.clone();
+    let (checked_receipts, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
