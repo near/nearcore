@@ -2591,7 +2591,7 @@ mod tests {
         let mut store_update = flat_store.store_update();
         let test_value = Some(FlatStateValue::Inlined(vec![0]));
         let key = TrieKey::Account { account_id: account!("ab") };
-        store_update.set(parent_shard, key.to_vec(), test_value.clone());
+        store_update.set(parent_shard, key.to_vec(), test_value);
         store_update.commit().unwrap();
 
         // Perform resharding.
