@@ -338,7 +338,11 @@ fn should_assert_state_sanity(
 }
 
 /// Asserts that all parent shard State is accessible via parent and children shards.
-pub fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_uid: ShardUId) {
+pub fn check_state_shard_uid_mapping_after_resharding(
+    client: &Client,
+    parent_shard_uid: ShardUId,
+    allow_negative_refcount: bool,
+) {
     let tip = client.chain.head().unwrap();
     let epoch_id = tip.epoch_id;
     let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
@@ -356,7 +360,18 @@ pub fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_sh
             continue;
         }
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
-        let (value, _) = decode_value_with_rc(&value);
+        let (value, rc) = decode_value_with_rc(&value);
+        // It is possible we have delayed receipts leftovers on disk,
+        // that would result it `MissingTrieValue` if we attempt to read them through the Trie interface.
+        // TODO(resharding) Remove this when negative refcounts are properly handled.
+        if rc <= 0 {
+            assert!(allow_negative_refcount);
+            // That can only be -1, because delayed receipt can be removed at most twice (by both children).
+            assert_eq!(rc, -1);
+            // In case of negative refcount, we only store the refcount, and the value is empty.
+            assert!(value.is_none());
+            continue;
+        }
         let parent_value = store.get(parent_shard_uid, &node_hash);
         // Parent shard data must still be accessible using parent ShardUId.
         assert_eq!(&parent_value.unwrap()[..], value.unwrap());

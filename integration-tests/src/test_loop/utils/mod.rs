@@ -7,6 +7,7 @@ pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;
 pub(crate) mod network;
 pub(crate) mod receipts;
+pub(crate) mod resharding;
 pub(crate) mod setups;
 pub(crate) mod sharding;
 pub(crate) mod transactions;

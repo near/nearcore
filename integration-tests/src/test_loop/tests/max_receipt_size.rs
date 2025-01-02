@@ -31,7 +31,7 @@ fn slow_test_max_receipt_size() {
         &account0,
         vec![0u8; 2_000_000],
         account0_signer,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     let large_tx_exec_res =
         execute_tx(&mut env.test_loop, &rpc_id, large_tx, &env.datas, Duration::seconds(5));
@@ -43,7 +43,7 @@ fn slow_test_max_receipt_size() {
         &account0,
         near_test_contracts::rs_contract().into(),
         &account0_signer,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(5));
 
@@ -59,7 +59,7 @@ fn slow_test_max_receipt_size() {
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 3000000}"#.into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, large_receipt_tx, &env.datas, Duration::seconds(5));
 
@@ -73,7 +73,7 @@ fn slow_test_max_receipt_size() {
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 5000000}"#.into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     let too_large_receipt_tx_exec_res = execute_tx(
         &mut env.test_loop,
@@ -115,7 +115,7 @@ fn slow_test_max_receipt_size() {
         "sum_n".into(),
         5_u64.to_le_bytes().to_vec(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     let sum_4_res = run_tx(&mut env.test_loop, &rpc_id, sum_4_tx, &env.datas, Duration::seconds(5));
     assert_eq!(sum_4_res, 10u64.to_le_bytes().to_vec());

@@ -143,7 +143,7 @@ fn deploy_contracts(
         contracts.push(contract);
     }
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop, &env.datas, rpc_id, &txs);
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &txs);
     contracts
 }
 
@@ -175,5 +175,5 @@ fn call_contracts(
         }
     }
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop, &env.datas, &rpc_id, &txs);
+    check_txs(&env.test_loop.data, &env.datas, &rpc_id, &txs);
 }
