@@ -4,6 +4,7 @@ use near_client::client_actor::ClientActorInner;
 use near_primitives::types::AccountId;
 
 pub(crate) mod contract_distribution;
+pub(crate) mod loop_action;
 pub(crate) mod network;
 pub(crate) mod receipts;
 pub(crate) mod setups;
@@ -21,9 +22,6 @@ pub(crate) fn get_head_height(env: &mut TestLoopEnv) -> u64 {
     let client = &env.test_loop.data.get(&client_handle).client;
     client.chain.head().unwrap().height
 }
-
-/// Signature of functions callable from inside the inner loop of a test loop test.
-pub(crate) type LoopActionFn = Box<dyn Fn(&[TestData], &mut TestLoopData, AccountId)>;
 
 /// Returns the test data of for the node with the given account id.
 pub(crate) fn get_node_data<'a>(
