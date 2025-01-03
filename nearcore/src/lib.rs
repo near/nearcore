@@ -435,7 +435,7 @@ pub fn start_with_config_and_synchronization(
         runtime,
         validator: config.validator_signer.clone(),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
-        future_spawner: state_sync_spawner.clone(),
+        future_spawner: state_sync_spawner,
         handle: None,
     };
     state_sync_dumper.start()?;

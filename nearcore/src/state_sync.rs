@@ -118,8 +118,8 @@ impl StateSyncDumper {
                 self.epoch_manager.clone(),
                 self.shard_tracker.clone(),
                 self.runtime.clone(),
-                chain_id.clone(),
-                external.clone(),
+                chain_id,
+                external,
                 dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
                 self.validator.clone(),
                 keep_running.clone(),
@@ -767,7 +767,7 @@ impl StateDumper {
                         external: self.external.clone(),
                         runtime: self.runtime.clone(),
                         chain_id: self.chain_id.clone(),
-                        epoch_id: dump.epoch_id.clone(),
+                        epoch_id: dump.epoch_id,
                         epoch_height: dump.epoch_height,
                         sync_prev_prev_hash: dump.sync_prev_prev_hash,
                         shard_id: *shard_id,
@@ -791,7 +791,6 @@ impl StateDumper {
         assert_eq!(senders.len(), uploaders.len());
 
         let mut tasks = uploaders
-            .clone()
             .iter()
             .map(|u| (0..u.num_parts).map(|part_id| (u.clone(), part_id)))
             .flatten()
