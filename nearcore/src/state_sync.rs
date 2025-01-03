@@ -216,6 +216,9 @@ struct ShardDump {
     header_to_dump: Option<Vec<u8>>,
     num_parts: u64,
     parts_dumped: Arc<AtomicI64>,
+    // This is the set of parts who have an associated file stored in the ExternalConnection,
+    // meaning they've already been dumped. We periodically check this (since other processes/machines
+    // might have uploaded parts that we didn't) and avoid duplicating work for those parts that have already been updated.
     parts_missing: Arc<RwLock<HashSet<u64>>>,
     // This will give Ok(()) when they're all done, or Err() when one gives an error
     // For now the tasks never fail, since we just retry all errors like the old implementation did,
@@ -236,6 +239,8 @@ struct DumpState {
 }
 
 impl DumpState {
+    /// For each shard, checks the filenames that exist in `external` and sets the corresponding `parts_missing` fields
+    /// to contain the parts that haven't yet been uploaded, so that we only try to generate those.
     async fn set_missing_parts(&self, external: &ExternalConnection, chain_id: &str) {
         for (shard_id, s) in self.dump_state.iter() {
             match get_missing_part_ids_for_epoch(
@@ -274,6 +279,18 @@ enum NewDump {
 }
 
 /// State associated with dumps for all shards responsible for checking when we need to dump for a new epoch
+/// The basic flow is as follows:
+///
+/// At startup or when we enter a new epoch, we initialize the `current_dump` field to represent the current epoch's state dump.
+/// Then for each shard that we track and want to dump state for, we'll have one `ShardDump` struct representing it stored in the
+/// `DumpState` struct that holds the global state. First we upload headers if they're not already present in the external storage, and
+/// then we start the part uploading by calling `start_upload_parts()`. This initializes one `PartUploader` struct for each shard_id and part_id,
+/// and spawns a PartUploader::upload_state_part() future for each, that will be responsible for generating and uploading that part if it's not
+/// already uploaded. When all the parts for a shard have been uploaded, we'll be notified by the `upload_parts` field of the associated
+/// `ShardDump` struct, which we check in `check_parts_upload()`.
+///
+/// Separately, every so often we check whether there's a new epoch to dump state for (in `check_head()`) and whether other processes
+/// have uploaded some state parts that we can therfore skip (in `check_stored_parts()`).
 struct StateDumper {
     clock: Clock,
     chain_id: String,
@@ -312,6 +329,7 @@ struct PartUploader {
 }
 
 impl PartUploader {
+    /// Increment the STATE_SYNC_DUMP_NUM_PARTS_DUMPED metric
     fn inc_parts_dumped(&self) {
         match self.parts_dumped.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
             if prev >= 0 {
@@ -329,6 +347,10 @@ impl PartUploader {
         };
     }
 
+    /// Attempt to generate the state part for `self.epoch_id`, `self.shard_id` and `part_idx`, and upload it to
+    /// the external storage. The state part generation is limited by the number of permits allocated to the `obtain_parts`
+    /// Semaphore. For now, this always returns OK(()) (loops forever retrying in case of errors), but this should be changed
+    /// to return Err() if the error is not going to be retriable.
     async fn upload_state_part(self: Arc<Self>, part_idx: u64) -> anyhow::Result<()> {
         if !self.parts_missing.read().unwrap().contains(&part_idx) {
             self.inc_parts_dumped();
@@ -420,6 +442,9 @@ struct HeaderUploader {
 }
 
 impl HeaderUploader {
+    /// Attempt to generate the state header for `self.epoch_id` and `self.shard_id`, and upload it to
+    /// the external storage. For now, this always returns OK(()) (loops forever retrying in case of errors),
+    /// but this should be changed to return Err() if the error is not going to be retriable.
     async fn upload_header(self: Arc<Self>, shard_id: ShardId, header: Option<Vec<u8>>) {
         let Some(header) = header else {
             return;
@@ -453,6 +478,8 @@ impl HeaderUploader {
         }
     }
 
+    /// Returns whether the state sync header for `self.epoch_id` and `self.shard_id` is already uploaded to the
+    /// external storage
     async fn header_stored(self: Arc<Self>, shard_id: ShardId) -> bool {
         match self
             .external
@@ -504,6 +531,9 @@ impl StateDumper {
         self.chain.get_block_header(hash).with_context(|| format!("Failed getting header {}", hash))
     }
 
+    /// Reads the DB entries starting with `STATE_SYNC_DUMP_KEY`, and checks which ShardIds and EpochIds are indicated as
+    /// already having been fully dumped. For each shard ID whose state for `epoch_id` has already been dumped, we remove it
+    /// from `dump` and `senders` so that we don't start the state dump logic for it.
     fn check_old_progress(
         &mut self,
         epoch_id: &EpochId,
@@ -526,6 +556,7 @@ impl StateDumper {
         Ok(())
     }
 
+    /// Returns the `sync_hash` header corresponding to the latest final block if it's already known.
     fn latest_sync_header(&self) -> anyhow::Result<Option<BlockHeader>> {
         let head = self.chain.head().context("Failed getting chain head")?;
         let header = self.get_block_header(&head.last_block_hash)?;
@@ -543,6 +574,8 @@ impl StateDumper {
         self.get_block_header(&sync_hash).map(Some)
     }
 
+    /// Generates the state sync header for the shard and initializes the `ShardDump` struct which
+    /// will be used to keep track of what's been dumped so far for this shard.
     fn get_shard_dump(
         &self,
         shard_id: ShardId,
@@ -574,6 +607,10 @@ impl StateDumper {
         ))
     }
 
+    /// Initializes a `NewDump` struct, which is a helper return value that either returns `NoTrackedShards`
+    /// if we're not tracking anything, or a `DumpState` struct, which holds one `ShardDump` initialized by `get_shard_dump()`
+    /// for each shard that we track. This, and the associated oneshot::Senders will then hold all the state related to the
+    /// progress of dumping the current epoch's state. This is to be called at startup and also upon each new epoch.
     fn get_dump_state(&mut self, sync_header: &BlockHeader) -> anyhow::Result<NewDump> {
         let epoch_info = self
             .epoch_manager
@@ -634,6 +671,8 @@ impl StateDumper {
         ))
     }
 
+    /// For each shard we're dumping state for, check whether the state sync header is already stored in the external storage,
+    /// and set `header_to_dump` to None if so, so we don't waste time uploading it again.
     async fn check_stored_headers(&mut self, dump: &mut DumpState) -> anyhow::Result<()> {
         let uploader = Arc::new(HeaderUploader {
             clock: self.clock.clone(),
@@ -670,6 +709,7 @@ impl StateDumper {
         Ok(())
     }
 
+    /// try to upload the state sync header for each shard we're dumping state for
     async fn store_headers(&mut self, dump: &mut DumpState) -> anyhow::Result<()> {
         let uploader = Arc::new(HeaderUploader {
             clock: self.clock.clone(),
@@ -697,6 +737,10 @@ impl StateDumper {
         Ok(())
     }
 
+    /// Start uploading state parts. For each shard we're dumping state for and each state part in that shard, this
+    /// starts one PartUploader::upload_state_part() future. It also starts one future that will examine the results
+    /// of those futures as they finish, and that will send on `senders` either the first error that occurs or Ok(())
+    /// when all parts have been uploaded for the shard.
     async fn start_upload_parts(
         &mut self,
         senders: HashMap<ShardId, oneshot::Sender<anyhow::Result<()>>>,
@@ -787,6 +831,8 @@ impl StateDumper {
         self.future_spawner.spawn_boxed("upload_parts", fut.boxed());
     }
 
+    /// Sets the in-memory and on-disk state to reflect that we're currently dumping state for a new epoch,
+    /// with the info and progress represented in `dump`.
     fn new_dump(&mut self, dump: DumpState, sync_hash: CryptoHash) -> anyhow::Result<()> {
         for (shard_id, _) in dump.dump_state.iter() {
             self.chain
@@ -882,6 +928,9 @@ impl StateDumper {
         dump.set_missing_parts(&self.external, &self.chain_id).await;
     }
 
+    /// Check whether there's a new epoch to dump state for. In that case, we start dumping
+    /// state for the new epoch whether or not we've finished with the old one, since other nodes
+    /// will be interested in the latest state.
     async fn check_head(&mut self) -> anyhow::Result<()> {
         let Some(sync_header) = self.latest_sync_header()? else {
             return Ok(());
@@ -918,6 +967,8 @@ impl StateDumper {
     }
 }
 
+/// Main entry point into the state dumper. Initializes the state dumper and starts a loop that periodically
+/// checks whether there's a new epoch to dump state for.
 async fn state_sync_dump(
     clock: Clock,
     chain: Chain,
