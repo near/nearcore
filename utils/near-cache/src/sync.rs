@@ -30,10 +30,14 @@ where
         self.inner.lock().unwrap().is_empty()
     }
 
+    /// Returns true if the cache contains the key and false otherwise.
     pub fn contains(&self, key: &K) -> bool {
         self.inner.lock().unwrap().contains(key)
     }
 
+    /// Pushes a key-value pair into the cache. If an entry with key `k` already exists in
+    /// the cache or another cache entry is removed (due to the lru's capacity),
+    /// then it returns the old entry's key-value pair. Otherwise, returns `None`.
     pub fn push(&self, key: K, value: V) -> Option<(K, V)> {
         self.inner.lock().unwrap().push(key, value)
     }
