@@ -2,7 +2,6 @@ use super::downloader::StateSyncDownloader;
 use super::task_tracker::TaskTracker;
 use crate::metrics;
 use crate::sync::state::chain_requests::ChainFinalizationRequest;
-use crate::sync::state::util::query_epoch_id_and_height_for_block;
 use futures::{StreamExt, TryStreamExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::AsyncSender;
@@ -162,9 +161,7 @@ pub(super) async fn run_state_sync_for_shard(
 
     return_if_cancelled!(cancel);
     // Create flat storage.
-    let (epoch_id, _) = query_epoch_id_and_height_for_block(&store, sync_hash)?;
     {
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let chunk = header.cloned_chunk();
         let block_hash = chunk.prev_block();
 
