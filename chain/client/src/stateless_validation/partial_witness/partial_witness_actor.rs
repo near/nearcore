@@ -39,6 +39,7 @@ use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
 use rand::Rng;
+use rayon::{iter::ParallelIterator, prelude::*};
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::metrics;
@@ -267,9 +268,10 @@ impl PartialWitnessActor {
         let encoder = self.witness_encoders.entry(chunk_validators.len());
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
+        let mut generated_parts = vec![];
         chunk_validators
-            .iter()
-            .zip_eq(parts)
+            .par_iter()
+            .zip_eq(parts.into_par_iter())
             .enumerate()
             .map(|(part_ord, (chunk_validator, part))| {
                 // It's fine to unwrap part here as we just constructed the parts above and we expect
@@ -278,13 +280,15 @@ impl PartialWitnessActor {
                     epoch_id,
                     chunk_header.clone(),
                     part_ord,
-                    part.unwrap().to_vec(),
+                    part.unwrap().into_vec(),
                     encoded_length,
                     signer,
                 );
                 (chunk_validator.clone(), partial_witness)
             })
-            .collect_vec()
+            .collect_into_vec(&mut generated_parts);
+
+        generated_parts
     }
 
     fn generate_contract_deploys_parts(
@@ -596,7 +600,7 @@ impl PartialWitnessActor {
 
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
-    /// which will receive the state witness for the new chunk.  
+    /// which will receive the state witness for the new chunk.
     fn send_contract_accesses_to_chunk_validators(
         &self,
         key: ChunkProductionKey,
