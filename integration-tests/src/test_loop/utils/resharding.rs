@@ -1,16 +1,25 @@
 use std::cell::Cell;
+use std::collections::HashSet;
+use std::num::NonZero;
 
 use assert_matches::assert_matches;
+use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
+use near_chain::ChainStoreAccess;
+use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockId, BlockReference, Gas};
+use near_primitives::types::{AccountId, BlockId, BlockReference, Gas, ShardId};
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
+use near_store::adapter::StoreAdapter;
+use near_store::db::refcount::decode_value_with_rc;
+use near_store::{DBCol, ShardUId};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -23,6 +32,14 @@ use crate::test_loop::utils::transactions::{
     check_txs, delete_account, get_anchor_hash, get_next_nonce, store_and_submit_tx, submit_tx,
 };
 use crate::test_loop::utils::{get_node_data, retrieve_client_actor, ONE_NEAR, TGAS};
+
+/// A config to tell what shards will be tracked by the client at the given index.
+/// For more details, see `TrackedConfig::Schedule`.
+#[derive(Clone, Debug)]
+pub(crate) struct TrackedShardSchedule {
+    pub client_index: usize,
+    pub schedule: Vec<Vec<ShardId>>,
+}
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
@@ -476,6 +493,103 @@ pub(crate) fn temporary_account_during_resharding(
                 &temporary_account_id,
                 resharding_height.get().unwrap(),
             );
+            done.set(true);
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
+}
+
+/// Removes from State column all entries where key does not start with `the_only_shard_uid` ShardUId prefix.
+fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
+    let store = client.chain.chain_store.store().trie_store();
+    let mut store_update = store.store_update();
+    for kv in store.store().iter_raw_bytes(DBCol::State) {
+        let (key, value) = kv.unwrap();
+        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
+        if shard_uid == the_only_shard_uid {
+            continue;
+        }
+        let (_, rc) = decode_value_with_rc(&value);
+        assert!(rc > 0);
+        let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
+        store_update.decrement_refcount_by(shard_uid, &node_hash, NonZero::new(rc as u32).unwrap());
+    }
+    store_update.commit().unwrap();
+}
+
+/// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.
+fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
+    let store = client.chain.chain_store.store().trie_store();
+    let mut shard_uid_prefixes = HashSet::new();
+    for kv in store.store().iter_raw_bytes(DBCol::State) {
+        let (key, _) = kv.unwrap();
+        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
+        shard_uid_prefixes.insert(shard_uid);
+    }
+    let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
+    assert_eq!(shard_uid_prefixes, [the_only_shard_uid]);
+}
+
+// Loop action testing state cleanup after resharding.
+// It assumes single shard tracking and it waits for gc after resharding.
+// Then it checks whether the last shard tracked by the client
+// is the only ShardUId prefix for nodes in the State column.
+pub(crate) fn check_state_cleanup_after_resharding(
+    tracked_shard_schedule: TrackedShardSchedule,
+) -> LoopAction {
+    let client_index = tracked_shard_schedule.client_index;
+    let latest_height = Cell::new(0);
+    let target_height = Cell::new(None);
+
+    let (done, succeeded) = LoopAction::shared_success_flag();
+    let action_fn = Box::new(
+        move |node_datas: &[TestData], test_loop_data: &mut TestLoopData, _: AccountId| {
+            if done.get() {
+                return;
+            }
+
+            let client_handle = node_datas[client_index].client_sender.actor_handle();
+            let client = &test_loop_data.get_mut(&client_handle).client;
+            let tip = client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+
+            let epoch_height = client
+                .epoch_manager
+                .get_epoch_height_from_prev_block(&tip.prev_block_hash)
+                .unwrap();
+            let [tracked_shard_id] =
+                tracked_shard_schedule.schedule[epoch_height as usize].clone().try_into().unwrap();
+            let tracked_shard_uid =
+                client.epoch_manager.shard_id_to_uid(tracked_shard_id, &tip.epoch_id).unwrap();
+
+            if latest_height.get() == 0 {
+                // This is beginning of the test, and the first epoch after genesis has height 1.
+                assert_eq!(epoch_height, 1);
+                // Get rid of the part of the Genesis State other than the shard we initially track.
+                retain_the_only_shard_state(client, tracked_shard_uid);
+            }
+            latest_height.set(tip.height);
+
+            if target_height.get().is_none() {
+                if !this_block_has_new_shard_layout(client.epoch_manager.as_ref(), &tip) {
+                    return;
+                }
+                // Just resharded. Set the target height high enough so that gc will kick in.
+                let epoch_length = client.config.epoch_length;
+                let gc_num_epochs_to_keep = client.config.gc.gc_num_epochs_to_keep;
+                target_height
+                    .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
+            }
+
+            if latest_height.get() < target_height.get().unwrap() {
+                return;
+            }
+            // At this point, we should only have State from the last tracked shard.
+            check_has_the_only_shard_state(&client, tracked_shard_uid);
             done.set(true);
         },
     );
