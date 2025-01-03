@@ -300,11 +300,11 @@ impl CongestionInfo {
         Ok(())
     }
 
-    pub fn remove_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
+    pub fn remove_buffered_receipt_gas(&mut self, gas: u128) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
                 inner.buffered_receipts_gas =
-                    inner.buffered_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                    inner.buffered_receipts_gas.checked_sub(gas).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow(
                             "remove_buffered_receipt_gas".into(),
                         )
@@ -730,7 +730,8 @@ mod tests {
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
 
         // remove halve the congestion
-        info.remove_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
+        let gas_diff = config.max_congestion_outgoing_gas / 2;
+        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.5, control.congestion_level());
         assert_eq!(
@@ -741,7 +742,8 @@ mod tests {
         assert!(control.shard_accepts_transactions().is_no());
 
         // reduce congestion to 1/8
-        info.remove_buffered_receipt_gas(3 * config.max_congestion_outgoing_gas / 8).unwrap();
+        let gas_diff = 3 * config.max_congestion_outgoing_gas / 8;
+        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.125, control.congestion_level());
         assert_eq!(

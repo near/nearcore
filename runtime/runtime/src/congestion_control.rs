@@ -258,17 +258,27 @@ impl ReceiptSinkV2 {
             parent_shard_ids.intersection(&shard_ids.clone().into_iter().collect()).count() == 0
         );
 
+        let mut all_buffers_empty = true;
+
         // First forward any receipts that may still be in the outgoing buffers
         // of the parent shards.
         for &shard_id in &parent_shard_ids {
             self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
+            let is_buffer_empty = self.outgoing_buffers.to_shard(shard_id).len() == 0;
+            all_buffers_empty &= is_buffer_empty;
         }
 
         // Then forward receipts from the outgoing buffers of the shard in the
         // current shard layout.
         for &shard_id in &shard_ids {
             self.forward_from_buffer_to_shard(shard_id, state_update, apply_state, &shard_layout)?;
+            let is_buffer_empty = self.outgoing_buffers.to_shard(shard_id).len() == 0;
+            all_buffers_empty &= is_buffer_empty;
         }
+
+        // Assert that empty buffers match zero buffered gas.
+        assert_eq!(all_buffers_empty, self.own_congestion_info.buffered_receipts_gas() == 0);
+
         Ok(())
     }
 
@@ -311,7 +321,7 @@ impl ReceiptSinkV2 {
             )? {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
-                    self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
+                    self.own_congestion_info.remove_buffered_receipt_gas(gas.into())?;
                     if should_update_outgoing_metadatas {
                         // Can't update metadatas immediately because state_update is borrowed by iterator.
                         outgoing_metadatas_updates.push((ByteSize::b(size), gas));

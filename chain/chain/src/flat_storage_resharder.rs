@@ -1000,7 +1000,10 @@ fn shard_split_handle_key_value(
         | col::BANDWIDTH_SCHEDULER_STATE => {
             copy_kv_to_all_children(&split_params, key, value, store_update)
         }
-        col::BUFFERED_RECEIPT_INDICES | col::BUFFERED_RECEIPT => {
+        col::BUFFERED_RECEIPT_INDICES
+        | col::BUFFERED_RECEIPT
+        | col::BUFFERED_RECEIPT_GROUPS_QUEUE_DATA
+        | col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM => {
             copy_kv_to_left_child(&split_params, key, value, store_update)
         }
         _ => unreachable!("key: {:?} should not appear in flat store!", key),

@@ -958,6 +958,16 @@ pub mod chunk_extra {
         }
 
         #[inline]
+        pub fn congestion_info_mut(&mut self) -> Option<&mut CongestionInfo> {
+            match self {
+                Self::V1(_) => None,
+                Self::V2(_) => None,
+                Self::V3(v3) => Some(&mut v3.congestion_info),
+                Self::V4(v4) => Some(&mut v4.congestion_info),
+            }
+        }
+
+        #[inline]
         pub fn bandwidth_requests(&self) -> Option<&BandwidthRequests> {
             match self {
                 Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
