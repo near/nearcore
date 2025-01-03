@@ -3126,8 +3126,8 @@ impl Chain {
                         }
                         blocks_catch_up_state.done_blocks.push(queued_block);
                     }
-                    Err(_) => {
-                        error!("Error processing block during catch up, retrying");
+                    Err(err) => {
+                        error!(target: "chain", ?err, "Error processing block during catch up, retrying");
                         blocks_catch_up_state.pending_blocks.push(queued_block);
                     }
                 }
