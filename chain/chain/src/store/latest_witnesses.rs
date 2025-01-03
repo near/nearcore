@@ -112,8 +112,8 @@ impl ChainStore {
         let _span = tracing::info_span!(
             target: "client",
             "save_latest_chunk_state_witness",
-            witness_height = witness.chunk_header.height_created(),
-            witness_shard = ?witness.chunk_header.shard_id(),
+            witness_height = witness.inner.chunk_header.height_created(),
+            witness_shard = ?witness.inner.chunk_header.shard_id(),
         )
         .entered();
 
@@ -172,9 +172,9 @@ impl ChainStore {
         let mut random_uuid = [0u8; 16];
         OsRng.fill_bytes(&mut random_uuid);
         let key = LatestWitnessesKey {
-            height: witness.chunk_header.height_created(),
-            shard_id: witness.chunk_header.shard_id().into(),
-            epoch_id: witness.epoch_id,
+            height: witness.inner.chunk_header.height_created(),
+            shard_id: witness.inner.chunk_header.shard_id().into(),
+            epoch_id: witness.inner.epoch_id,
             witness_size: serialized_witness_size,
             random_uuid,
         };
@@ -195,7 +195,7 @@ impl ChainStore {
 
         let store_commit_time = start_time.elapsed().saturating_sub(store_update_time);
 
-        let shard_id_str = witness.chunk_header.shard_id().to_string();
+        let shard_id_str = witness.inner.chunk_header.shard_id().to_string();
         stateless_validation::metrics::SAVE_LATEST_WITNESS_GENERATE_UPDATE_TIME
             .with_label_values(&[shard_id_str.as_str()])
             .observe(store_update_time.as_secs_f64());

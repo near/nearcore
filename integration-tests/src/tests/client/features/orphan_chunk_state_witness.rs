@@ -175,7 +175,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         "There should be no missing chunks."
     );
     let witness = witness_opt.unwrap();
-    assert_eq!(witness.chunk_header.chunk_hash(), block2.chunks()[0].chunk_hash());
+    assert_eq!(witness.inner.chunk_header.chunk_hash(), block2.chunks()[0].chunk_hash());
 
     for client_idx in clients_without_excluded {
         let blocks_processed = env.clients[client_idx]
@@ -290,7 +290,7 @@ fn test_orphan_witness_not_fully_validated() {
         setup_orphan_witness_test();
 
     // Make the witness invalid in a way that won't be detected during orphan witness validation
-    witness.source_receipt_proofs.insert(
+    witness.inner.source_receipt_proofs.insert(
         ChunkHash::default(),
         ReceiptProof(
             vec![],
@@ -316,7 +316,7 @@ fn modify_witness_header_inner(
     witness: &mut ChunkStateWitness,
     f: impl FnOnce(&mut ShardChunkHeaderV3),
 ) {
-    match &mut witness.chunk_header {
+    match &mut witness.inner.chunk_header {
         ShardChunkHeader::V3(header) => {
             f(header);
         }
