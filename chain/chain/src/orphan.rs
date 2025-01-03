@@ -66,7 +66,7 @@ impl Orphan {
 /// 2) size of the pool exceeds MAX_ORPHAN_SIZE and the orphan was added a long time ago
 ///    or the height is high
 pub struct OrphanBlockPool {
-    /// A map from block hash to a orphan block
+    /// A map from block hash to an orphan block
     orphans: HashMap<CryptoHash, Orphan>,
     /// A set that contains all orphans for which we have requested missing chunks for them
     /// An orphan can be added to this set when it was first added to the pool, or later
