@@ -338,7 +338,6 @@ impl ReshardingManager {
 
             let bytes = receipt_groups.total_size();
             let gas = receipt_groups.total_gas();
-            let gas = gas.try_into().expect("ReceiptGroup gas must fit in u64");
 
             congestion_info
                 .remove_buffered_receipt_gas(gas)
@@ -366,6 +365,14 @@ impl ReshardingManager {
             .get_shard_index(own_shard)?
             .try_into()
             .expect("ShardIndex must fit in u64");
+        // Please note that the congestion seed used during resharding is
+        // different than the one used during normal operation. In runtime the
+        // seed is set to the sum of shard index and block height. The block
+        // height isn't easily available on all call sites which is why the
+        // simplified seed is used. This is valid because it's deterministic and
+        // resharding is a very rare event. However in a perfect world it should
+        // be the same.
+        // TODO - Use proper congestion control seed during resharding.
         let congestion_seed = own_shard_index;
         congestion_info.finalize_allowed_shard(own_shard, &all_shards, congestion_seed);
         Ok(())

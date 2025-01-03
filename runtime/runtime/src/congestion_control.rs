@@ -321,7 +321,7 @@ impl ReceiptSinkV2 {
             )? {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
-                    self.own_congestion_info.remove_buffered_receipt_gas(gas)?;
+                    self.own_congestion_info.remove_buffered_receipt_gas(gas.into())?;
                     if should_update_outgoing_metadatas {
                         // Can't update metadatas immediately because state_update is borrowed by iterator.
                         outgoing_metadatas_updates.push((ByteSize::b(size), gas));
