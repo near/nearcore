@@ -56,7 +56,7 @@ pub(super) struct DbMetadata {
 
 impl DbMetadata {
     /// Reads metadata from the database. This method enforces the invariant
-    /// that version and kind must alwasy be set.
+    /// that version and kind must always be set.
     ///
     /// If the database version is not present, returns an error.  Similarly, if
     /// database version is ≥ [`DB_VERSION_WITH_KIND`] but the kind is not

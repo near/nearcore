@@ -1,3 +1,4 @@
+use crate::adapter::trie_store::get_shard_uid_mapping;
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
@@ -57,8 +58,7 @@ struct BatchTransaction {
 }
 
 /// Updates provided cold database from provided hot store with information about block at `height`.
-/// Returns if the block was copied (false only if height is not present in `hot_store`).
-/// Block as `height` has to be final.
+/// Block at `height` has to be final and present in `hot_store`.
 ///
 /// First, we read from hot store information necessary
 /// to determine all the keys that need to be updated in cold db.
@@ -80,14 +80,11 @@ pub fn update_cold_db(
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
+    is_last_block_in_epoch: bool,
     num_threads: usize,
-) -> io::Result<bool> {
+) -> io::Result<()> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
     let _timer = metrics::COLD_COPY_DURATION.start_timer();
-
-    if hot_store.get_for_cold(DBCol::BlockHeight, &height.to_le_bytes())?.is_none() {
-        return Ok(false);
-    }
 
     let height_key = height.to_le_bytes();
     let block_hash_vec = hot_store.get_or_err_for_cold(DBCol::BlockHeight, &height_key)?;
@@ -95,7 +92,17 @@ pub fn update_cold_db(
 
     let key_type_to_keys =
         get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
-    let cold_columns = DBCol::iter().filter(|col| col.is_cold()).collect::<Vec<DBCol>>();
+    let columns_to_update = DBCol::iter()
+        .filter(|col| {
+            if !col.is_cold() {
+                return false;
+            }
+            if col == &DBCol::StateShardUIdMapping && !is_last_block_in_epoch {
+                return false;
+            }
+            true
+        })
+        .collect::<Vec<DBCol>>();
 
     // Create new thread pool with `num_threads`.
     rayon::ThreadPoolBuilder::new()
@@ -103,8 +110,8 @@ pub fn update_cold_db(
         .build()
         .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to create rayon pool"))?
         .install(|| {
-            cold_columns
-                .into_par_iter() // Process every cold column as a separate task in thread pool in parallel.
+            columns_to_update
+                .into_par_iter() // Process cold columns to update as a separate task in thread pool in parallel.
                 // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
@@ -127,8 +134,7 @@ pub fn update_cold_db(
                     },
                 )
         })?;
-
-    Ok(true)
+    Ok(())
 }
 
 // Correctly set the key and value on DBTransaction, taking reference counting
@@ -189,9 +195,10 @@ fn copy_state_from_store(
 
         let Some(trie_changes) = trie_changes else { continue };
         total_keys += trie_changes.insertions().len();
+        let mapped_shard_uid_key = get_shard_uid_mapping(hot_store, shard_uid).to_bytes();
         for op in trie_changes.insertions() {
-            // TODO(reshardingV3) Handle shard_uid not mapped there
-            let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
+            // TODO(resharding) Test it properly. Currently this path is not triggered in testloop.
+            let key = join_two_keys(&mapped_shard_uid_key, op.hash().as_bytes());
             let value = op.payload().to_vec();
 
             total_size += value.len();
@@ -343,7 +350,7 @@ pub fn copy_all_data_to_cold(
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
-                // TODO(reshardingV3) Should do mapping here?
+                // TODO(resharding) Should do mapping here?
                 let (key, value) = result?;
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
