@@ -1030,7 +1030,8 @@ fn copy_kv_to_child(
 
         // TODO(resharding): add a debug assertion once the root cause is fixed. The current
         // hypothesis is that flat storage might contain keys with account_id outside of the shard's
-        // boundary due to either a bug in traffic forwarding or corrupted state in mainnet.
+        // boundary due to either a bug in the state generation for forknet or corrupted state in
+        // mainnet.
 
         // Do not fail resharding. Just skip this entry.
         return Ok(());
