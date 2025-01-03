@@ -1647,3 +1647,32 @@ pub unsafe fn generate_large_receipt() {
         total_size_to_send = total_size_to_send.checked_sub(args_size).unwrap();
     }
 }
+
+/// Produces a function_call receipt to another account with the given method
+/// and arguments of the given size. Used to send large receipts between shards.
+/// Attaches only 1 Gas to the receipt to minimize congestion.
+#[unsafe(no_mangle)]
+pub unsafe fn do_function_call_with_args_of_size() {
+    input(0);
+    let data = vec![0u8; register_len(0) as usize];
+    read_register(0, data.as_ptr() as u64);
+    let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+    let account_id = input_args["account_id"].as_str().unwrap().as_bytes();
+    let method_name = input_args["method_name"].as_str().unwrap().as_bytes();
+    let args_size = input_args["args_size"].as_u64().unwrap();
+    let args = vec![0u8; args_size as usize];
+    let amount = 0u128;
+    let gas_fixed = 1; // Attach only 1 Gas to the receipt to keep congestion low
+    let gas_weight = 0;
+    let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+    promise_batch_action_function_call_weight(
+        promise_idx,
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        args_size,
+        args.as_ptr() as u64,
+        &amount as *const u128 as u64,
+        gas_fixed,
+        gas_weight,
+    );
+}

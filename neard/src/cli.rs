@@ -255,6 +255,7 @@ pub(super) enum NeardSubCommand {
     ReplayArchive(ReplayArchiveCommand),
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone)]
 enum FirstProtocolVersion {
     Since(ProtocolVersion),
@@ -320,10 +321,6 @@ pub(super) struct InitCmd {
     /// from genesis configuration will be taken.
     #[clap(long)]
     max_gas_burnt_view: Option<Gas>,
-    /// Dump epoch config from the given protocol version onwards.
-    /// Can be a number or the word "latest".
-    #[clap(long)]
-    dump_epoch_config: Option<FirstProtocolVersion>,
 }
 
 /// Warns if unsupported build of the executable is used on mainnet or testnet.
@@ -381,11 +378,6 @@ impl InitCmd {
             None
         };
 
-        let dump_epoch_config = self.dump_epoch_config.map(|first| match first {
-            FirstProtocolVersion::Since(version) => version,
-            FirstProtocolVersion::Latest => near_primitives::version::PROTOCOL_VERSION,
-        });
-
         nearcore::init_configs(
             home_dir,
             self.chain_id,
@@ -401,7 +393,6 @@ impl InitCmd {
             self.download_config_url.as_deref(),
             self.boot_nodes.as_deref(),
             self.max_gas_burnt_view,
-            dump_epoch_config,
         )
         .context("Failed to initialize configs")
     }
@@ -468,6 +459,7 @@ impl RunCmd {
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
         check_release_build(&near_config.client_config.chain_id);
+        check_kernel_params();
 
         // Set current version in client config.
         near_config.client_config.version = crate::neard_version();
@@ -815,6 +807,62 @@ impl ValidateConfigCommand {
         nearcore::config::load_config(home_dir, genesis_validation)?;
         Ok(())
     }
+}
+
+#[cfg(target_os = "linux")]
+fn normalize_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Checks the provided kernel parameter  from /proc/sys
+/// and prints an error if it is not set to the expected value.
+#[cfg(target_os = "linux")]
+fn check_kernel_param(param_name: &str, expected_value: &str) {
+    // Convert the dotted param_name into a path under /proc/sys
+    // For example, "net.core.rmem_max" -> "/proc/sys/net/core/rmem_max"
+    let mut path = PathBuf::from("/proc/sys");
+    for part in param_name.split('.') {
+        path.push(part);
+    }
+
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => {
+            let actual = contents.trim();
+            let actual_normalized = normalize_whitespace(actual);
+            let expected_normalized = normalize_whitespace(expected_value);
+
+            if actual_normalized != expected_normalized {
+                error!(
+                    "ERROR: {} is set to {}, expected {}. Please run `scripts/set_kernel_params.sh`.",
+                    param_name, actual_normalized, expected_normalized
+                );
+            } else {
+                info!("OK: {} is set to expected value {}", param_name, expected_normalized);
+            }
+        }
+        Err(e) => {
+            error!("ERROR: failed to read parameter {} from {}: {}", param_name, path.display(), e);
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn check_kernel_params() {}
+
+/// Checks if the system has the expected values for the sysctl parameters for optimal networking performance.
+#[cfg(target_os = "linux")]
+fn check_kernel_params() {
+    let expected_rmem_max = "8388608";
+    let expected_wmem_max = "8388608";
+    let expected_tcp_rmem = "4096 87380 8388608";
+    let expected_tcp_wmem = "4096 16384 8388608";
+    let expected_slow_start = "0";
+
+    check_kernel_param("net.core.rmem_max", expected_rmem_max);
+    check_kernel_param("net.core.wmem_max", expected_wmem_max);
+    check_kernel_param("net.ipv4.tcp_rmem", expected_tcp_rmem);
+    check_kernel_param("net.ipv4.tcp_wmem", expected_tcp_wmem);
+    check_kernel_param("net.ipv4.tcp_slow_start_after_idle", expected_slow_start);
 }
 
 #[cfg(test)]

@@ -7,9 +7,7 @@ use crate::Error;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{
-    GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP,
-};
+use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
@@ -24,7 +22,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
@@ -38,7 +36,6 @@ use near_primitives::views::{
     QueryResponseKind, ViewStateResult,
 };
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
-use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
@@ -46,7 +43,7 @@ use near_store::{
     TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::ContractCode;
-use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
+use near_vm_runner::{precompile_contract, ContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
@@ -54,13 +51,13 @@ use node_runtime::{
     ValidatorAccountsUpdate,
 };
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument};
 
 pub mod errors;
 mod metrics;
 pub mod migrations;
+pub mod test_utils;
 #[cfg(test)]
 mod tests;
 
@@ -134,82 +131,6 @@ impl NightshadeRuntime {
         })
     }
 
-    pub fn test_with_runtime_config_store(
-        home_dir: &Path,
-        store: Store,
-        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
-        genesis_config: &GenesisConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-        runtime_config_store: RuntimeConfigStore,
-        state_snapshot_type: StateSnapshotType,
-    ) -> Arc<Self> {
-        Self::new(
-            store,
-            compiled_contract_cache,
-            genesis_config,
-            epoch_manager,
-            None,
-            None,
-            Some(runtime_config_store),
-            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            Default::default(),
-            StateSnapshotConfig {
-                state_snapshot_type,
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
-        )
-    }
-
-    pub fn test_with_trie_config(
-        home_dir: &Path,
-        store: Store,
-        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
-        genesis_config: &GenesisConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-        runtime_config_store: Option<RuntimeConfigStore>,
-        trie_config: TrieConfig,
-        state_snapshot_type: StateSnapshotType,
-    ) -> Arc<Self> {
-        Self::new(
-            store,
-            compiled_contract_cache,
-            genesis_config,
-            epoch_manager,
-            None,
-            None,
-            runtime_config_store,
-            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            trie_config,
-            StateSnapshotConfig {
-                state_snapshot_type,
-                home_dir: home_dir.to_path_buf(),
-                hot_store_path: PathBuf::from("data"),
-                state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            },
-        )
-    }
-
-    pub fn test(
-        home_dir: &Path,
-        store: Store,
-        genesis_config: &GenesisConfig,
-        epoch_manager: Arc<EpochManagerHandle>,
-    ) -> Arc<Self> {
-        Self::test_with_runtime_config_store(
-            home_dir,
-            store,
-            FilesystemContractRuntimeCache::with_memory_cache(home_dir, None::<&str>, 1)
-                .expect("filesystem contract cache")
-                .handle(),
-            genesis_config,
-            epoch_manager,
-            RuntimeConfigStore::test(),
-            StateSnapshotType::ForReshardingOnly,
-        )
-    }
-
     fn get_shard_uid_from_prev_hash(
         &self,
         shard_id: ShardId,
@@ -238,7 +159,7 @@ impl NightshadeRuntime {
     ) -> Result<ShardUId, Error> {
         let epoch_manager = self.epoch_manager.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+        let shard_id = shard_layout.account_id_to_shard_id(account_id);
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
@@ -283,7 +204,7 @@ impl NightshadeRuntime {
             let mut slashing_info: HashMap<_, _> = challenges_result
                 .iter()
                 .filter_map(|s| {
-                    if account_id_to_shard_id(&s.account_id, &shard_layout) == shard_id
+                    if shard_layout.account_id_to_shard_id(&s.account_id) == shard_id
                         && !s.is_double_sign
                     {
                         Some((s.account_id.clone(), None))
@@ -299,17 +220,17 @@ impl NightshadeRuntime {
                 let stake_info = stake_info
                     .into_iter()
                     .filter(|(account_id, _)| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     })
                     .collect();
                 let validator_rewards = validator_reward
                     .into_iter()
                     .filter(|(account_id, _)| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     })
                     .collect();
                 let last_proposals = last_validator_proposals
-                    .filter(|v| account_id_to_shard_id(v.account_id(), &shard_layout) == shard_id)
+                    .filter(|v| shard_layout.account_id_to_shard_id(v.account_id()) == shard_id)
                     .fold(HashMap::new(), |mut acc, v| {
                         let (account_id, stake) = v.account_and_stake();
                         acc.insert(account_id, stake);
@@ -318,7 +239,7 @@ impl NightshadeRuntime {
                 let double_sign_slashing_info: HashMap<_, _> = double_sign_slashing_info
                     .into_iter()
                     .filter(|(account_id, _)| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     })
                     .map(|(account_id, stake)| (account_id, Some(stake)))
                     .collect();
@@ -331,7 +252,7 @@ impl NightshadeRuntime {
                         self.genesis_config.protocol_treasury_account.clone(),
                     )
                     .filter(|account_id| {
-                        account_id_to_shard_id(account_id, &shard_layout) == shard_id
+                        shard_layout.account_id_to_shard_id(account_id) == shard_id
                     }),
                     slashing_info,
                 })
@@ -1278,14 +1199,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         genesis_config.protocol_upgrade_stake_threshold =
             epoch_config.protocol_upgrade_stake_threshold;
         genesis_config.shard_layout = epoch_config.shard_layout;
-        genesis_config.num_chunk_only_producer_seats =
-            epoch_config.validator_selection_config.num_chunk_only_producer_seats;
-        genesis_config.minimum_validators_per_shard =
-            epoch_config.validator_selection_config.minimum_validators_per_shard;
-        genesis_config.minimum_stake_ratio =
-            epoch_config.validator_selection_config.minimum_stake_ratio;
+        genesis_config.num_chunk_only_producer_seats = epoch_config.num_chunk_only_producer_seats;
+        genesis_config.minimum_validators_per_shard = epoch_config.minimum_validators_per_shard;
+        genesis_config.minimum_stake_ratio = epoch_config.minimum_stake_ratio;
         genesis_config.shuffle_shard_assignment_for_chunk_producers =
-            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers;
+            epoch_config.shuffle_shard_assignment_for_chunk_producers;
 
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();

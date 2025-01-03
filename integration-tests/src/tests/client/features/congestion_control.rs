@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::{TestEnv, TestEnvBuilder};
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountId;
@@ -12,7 +12,7 @@ use near_primitives::errors::{
     ActionErrorKind, FunctionCallError, InvalidTxError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{EpochId, ShardId};
@@ -120,7 +120,7 @@ fn setup_account(
     let block_hash = block.hash();
 
     let signer_id = account_parent_id.clone();
-    let signer = InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_str());
+    let signer = InMemorySigner::test_signer(&signer_id);
 
     let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
     let amount = 10 * 10u128.pow(24);
@@ -132,7 +132,7 @@ fn setup_account(
         account_id.clone(),
         amount,
         public_key,
-        &signer.into(),
+        &signer,
         *block_hash,
     );
 
@@ -149,7 +149,7 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
     let contract = near_test_contracts::rs_contract();
 
     let signer_id: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
-    let signer = InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_str());
+    let signer = InMemorySigner::test_signer(&signer_id);
 
     *nonce += 1;
     let create_contract_tx = SignedTransaction::create_contract(
@@ -159,7 +159,7 @@ fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
         contract.to_vec(),
         10 * 10u128.pow(24),
         PublicKey::from_seed(KeyType::ED25519, CONTRACT_ID),
-        &signer.clone().into(),
+        &signer,
         *block.hash(),
     );
     // this adds the tx to the pool and then produces blocks until the tx result is available
@@ -196,7 +196,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
 
     let shard_layout = client.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
     let contract_id = CONTRACT_ID.parse().unwrap();
-    let contract_shard_id = account_id_to_shard_id(&contract_id, &shard_layout);
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
 
     for height in genesis_height..head_height + 1 {
         let block = client.chain.get_block_by_height(height);
@@ -350,7 +350,7 @@ fn slow_test_protocol_upgrade_under_congestion() {
     let mut nonce = 10;
     setup_contract(&mut env, &mut nonce);
 
-    let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
+    let signer = InMemorySigner::test_signer(&sender_id);
     // Now, congest the network with ~100 Pgas, enough to have some left after the protocol upgrade.
     let n = 1000;
     submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
@@ -466,7 +466,7 @@ fn check_old_protocol(env: &TestEnv) {
 /// Create a function call that has 100 Tgas attached and will burn it all.
 fn new_fn_call_100tgas(
     nonce_source: &mut u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
     let hundred_tgas = 100 * 10u64.pow(12);
@@ -475,9 +475,9 @@ fn new_fn_call_100tgas(
     *nonce_source += 1;
     SignedTransaction::call(
         nonce,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         CONTRACT_ID.parse().unwrap(),
-        &signer.clone().into(),
+        &signer,
         deposit,
         // easy way to burn all attached gas
         "loop_forever".to_owned(),
@@ -491,7 +491,7 @@ fn new_fn_call_100tgas(
 /// executed. It has only 1 Tgas attached.
 fn new_cheap_fn_call(
     nonce_source: &mut u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     receiver: AccountId,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
@@ -501,9 +501,9 @@ fn new_cheap_fn_call(
     *nonce_source += 1;
     SignedTransaction::call(
         nonce,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         receiver,
-        &signer.clone().into(),
+        &signer,
         deposit,
         "foo_does_not_exists".to_owned(),
         vec![],
@@ -514,12 +514,7 @@ fn new_cheap_fn_call(
 
 /// Submit N transaction containing a function call action with 100 Tgas
 /// attached that will all be burned when called.
-fn submit_n_100tgas_fns(
-    env: &mut TestEnv,
-    n: u32,
-    nonce: &mut u64,
-    signer: &InMemorySigner,
-) -> u32 {
+fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &Signer) -> u32 {
     let mut included = 0;
     let block = env.clients[0].chain.get_head_block().unwrap();
     for _ in 0..n {
@@ -542,7 +537,7 @@ fn submit_n_cheap_fns(
     env: &mut TestEnv,
     n: u32,
     nonce: &mut u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     receiver: &AccountId,
 ) {
     let block = env.clients[0].chain.get_head_block().unwrap();
@@ -698,9 +693,9 @@ fn measure_remote_tx_limit(
 
     let tip = env.clients[0].chain.head().unwrap();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let contract_shard_id = account_id_to_shard_id(&contract_id, &shard_layout);
-    let remote_shard_id = account_id_to_shard_id(&remote_id, &shard_layout);
-    let dummy_shard_id = account_id_to_shard_id(&dummy_id, &shard_layout);
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
+    let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
+    let dummy_shard_id = shard_layout.account_id_to_shard_id(&dummy_id);
 
     // For a clean test setup, ensure we use 3 different shards.
     assert_ne!(remote_shard_id, contract_shard_id);
@@ -734,14 +729,12 @@ fn measure_tx_limit(
         setup_account(&mut env, &mut nonce, &remote_id, &ACCOUNT_PARENT_ID.parse().unwrap());
     }
 
-    let remote_signer =
-        InMemorySigner::from_seed(remote_id.clone(), KeyType::ED25519, remote_id.as_str());
-    let local_signer =
-        InMemorySigner::from_seed(contract_id.clone(), KeyType::ED25519, contract_id.as_str());
+    let remote_signer = InMemorySigner::test_signer(&remote_id);
+    let local_signer = InMemorySigner::test_signer(&contract_id);
     let tip = env.clients[0].chain.head().unwrap();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let remote_shard_id = account_id_to_shard_id(&remote_id, &shard_layout);
-    let contract_shard_id = account_id_to_shard_id(&contract_id, &shard_layout);
+    let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
 
     // put in enough transactions to create up to
     // `reject_tx_congestion_threshold` incoming congestion
@@ -831,7 +824,7 @@ fn test_rpc_client_rejection() {
     let mut nonce = 10;
     setup_contract(&mut env, &mut nonce);
 
-    let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
+    let signer = InMemorySigner::test_signer(&sender_id);
 
     // Check we can send transactions at the start.
     let fn_tx = new_fn_call_100tgas(

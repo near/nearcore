@@ -32,8 +32,8 @@ impl ChunkEndorsement {
             epoch_id,
             height_created: chunk_header.height_created(),
         };
-        let signature = signer.sign_chunk_endorsement(&inner);
-        let metadata_signature = signer.sign_chunk_endorsement_metadata(&metadata);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
+        let metadata_signature = signer.sign_bytes(&borsh::to_vec(&metadata).unwrap());
         let endorsement = ChunkEndorsementV2 { inner, signature, metadata, metadata_signature };
         ChunkEndorsement::V2(endorsement)
     }

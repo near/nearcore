@@ -6,7 +6,6 @@ use near_cache::SyncLruCache;
 use near_chain_configs::ClientConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 
 #[derive(Clone)]
@@ -83,7 +82,7 @@ impl ShardTracker {
                         let mut tracking_mask =
                             shard_layout.shard_ids().map(|_| false).collect_vec();
                         for account_id in tracked_accounts {
-                            let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+                            let shard_id = shard_layout.account_id_to_shard_id(account_id);
                             let shard_index = shard_layout.get_shard_index(shard_id)?;
                             tracking_mask[shard_index] = true;
                         }
@@ -211,7 +210,7 @@ impl ShardTracker {
 
 #[cfg(test)]
 mod tests {
-    use super::{account_id_to_shard_id, ShardTracker};
+    use super::ShardTracker;
     use crate::shard_tracker::TrackedConfig;
     use crate::test_utils::hash_range;
     use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
@@ -253,7 +252,13 @@ mod tests {
             minimum_stake_divisor: 1,
             protocol_upgrade_stake_threshold: Ratio::new(80, 100),
             shard_layout: ShardLayout::multi_shard(num_shards, 0),
-            validator_selection_config: Default::default(),
+            num_chunk_producer_seats: 100,
+            num_chunk_validator_seats: 300,
+            num_chunk_only_producer_seats: 300,
+            minimum_validators_per_shard: 1,
+            minimum_stake_ratio: Ratio::new(160i32, 1_000_000i32),
+            chunk_producer_assignment_changes_limit: 5,
+            shuffle_shard_assignment_for_chunk_producers: false,
             validator_max_kickout_stake_perc: 100,
         };
         let reward_calculator = RewardCalculator {
@@ -349,10 +354,8 @@ mod tests {
         let tracker =
             ShardTracker::new(TrackedConfig::Accounts(tracked_accounts), Arc::new(epoch_manager));
         let mut total_tracked_shards = HashSet::new();
-        total_tracked_shards
-            .insert(account_id_to_shard_id(&"test1".parse().unwrap(), &shard_layout));
-        total_tracked_shards
-            .insert(account_id_to_shard_id(&"test2".parse().unwrap(), &shard_layout));
+        total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test1".parse().unwrap()));
+        total_tracked_shards.insert(shard_layout.account_id_to_shard_id(&"test2".parse().unwrap()));
 
         assert_eq!(
             get_all_shards_care_about(&tracker, &shard_ids, &CryptoHash::default()),
@@ -483,10 +486,10 @@ mod tests {
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
 
             for account_id in tracked_accounts.iter() {
-                let shard_id = account_id_to_shard_id(account_id, &shard_layout);
+                let shard_id = shard_layout.account_id_to_shard_id(account_id);
                 total_tracked_shards.insert(shard_id);
 
-                let next_shard_id = account_id_to_shard_id(account_id, &next_shard_layout);
+                let next_shard_id = next_shard_layout.account_id_to_shard_id(account_id);
                 total_next_tracked_shards.insert(next_shard_id);
             }
 

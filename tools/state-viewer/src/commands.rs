@@ -21,7 +21,9 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
+use near_chain::{
+    Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, ReceiptFilter,
+};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
@@ -88,6 +90,7 @@ pub(crate) fn apply_block(
                 &shard_layout,
                 block_hash,
                 prev_block.chunks()[shard_index].height_included(),
+                ReceiptFilter::TargetShard,
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
@@ -115,7 +118,7 @@ pub(crate) fn apply_block(
                 ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
-                    prev_block.block_congestion_info(),
+                    block.block_congestion_info(),
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
@@ -993,7 +996,7 @@ pub(crate) fn print_epoch_analysis(
             // chain/epoch-manager/src/validator_selection.rs:227:13.
             // Probably has something to do with extreme case where all
             // proposals are selected.
-            next_next_epoch_config.validator_selection_config.num_chunk_validator_seats = 100;
+            next_next_epoch_config.num_chunk_validator_seats = 100;
         }
     }
 
@@ -1520,7 +1523,7 @@ mod tests {
     use near_chain::types::RuntimeAdapter;
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_client::test_utils::TestEnv;
-    use near_crypto::{InMemorySigner, KeyFile, KeyType};
+    use near_crypto::{InMemorySigner, KeyFile};
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::types::chunk_extra::ChunkExtra;
@@ -1562,7 +1565,7 @@ mod tests {
             .runtimes(runtimes)
             .build();
 
-        let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+        let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
         assert_eq!(env.send_money(0), near_client::ProcessTxResponse::ValidTx);
 
         // It takes 2 blocks to record a transaction on chain and apply the receipts.
@@ -1587,7 +1590,7 @@ mod tests {
         let near_config = NearConfig::new(
             Config::default(),
             genesis,
-            KeyFile::from(&signer),
+            KeyFile::from(signer),
             MutableConfigValue::new(None, "validator_signer"),
         )
         .unwrap();

@@ -103,6 +103,20 @@ pub static STATE_PART_ELAPSED: LazyLock<HistogramVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+pub static STATE_PART_CACHE_HIT: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_state_part_cache_hit",
+        "Total number of state parts served from db cache",
+    )
+    .unwrap()
+});
+pub static STATE_PART_CACHE_MISS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_state_part_cache_miss",
+        "Total number of state parts built on-demand",
+    )
+    .unwrap()
+});
 pub static NUM_INVALID_BLOCKS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     try_create_int_gauge_vec("near_num_invalid_blocks", "Number of invalid blocks", &["error"])
         .unwrap()

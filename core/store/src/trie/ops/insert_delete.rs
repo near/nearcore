@@ -3,8 +3,8 @@ use near_primitives::errors::StorageError;
 use crate::NibbleSlice;
 
 use super::interface::{
-    GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedNodeId,
-    GenericUpdatedTrieNode, GenericUpdatedTrieNodeWithSize, HasValueLength,
+    GenericNodeOrIndex, GenericTrieUpdate, GenericTrieValue, GenericUpdatedTrieNode,
+    GenericUpdatedTrieNodeWithSize, HasValueLength, UpdatedNodeId,
 };
 use super::squash::GenericTrieUpdateSquash;
 
@@ -16,10 +16,10 @@ where
 {
     fn calc_memory_usage_and_store(
         &mut self,
-        node_id: GenericUpdatedNodeId,
+        node_id: UpdatedNodeId,
         children_memory_usage: u64,
         new_node: GenericUpdatedTrieNode<N, V>,
-        old_child: Option<GenericUpdatedNodeId>,
+        old_child: Option<UpdatedNodeId>,
     ) {
         let new_memory_usage =
             children_memory_usage.saturating_add(new_node.memory_usage_direct()).saturating_sub(
@@ -38,7 +38,7 @@ where
     /// created nodes - that's done at the end.
     fn generic_insert(
         &mut self,
-        mut node_id: GenericUpdatedNodeId,
+        mut node_id: UpdatedNodeId,
         key: &[u8],
         value: GenericTrieValue,
     ) -> Result<(), StorageError> {
@@ -304,7 +304,7 @@ where
     /// Deleting a non-existent key is allowed, and is a no-op.
     fn generic_delete(
         &mut self,
-        mut node_id: GenericUpdatedNodeId,
+        mut node_id: UpdatedNodeId,
         key: &[u8],
     ) -> Result<(), StorageError> {
         let mut partial = NibbleSlice::new(key);

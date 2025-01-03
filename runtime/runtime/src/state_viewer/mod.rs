@@ -189,7 +189,7 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-        epoch_info_provider: &(dyn EpochInfoProvider),
+        epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Vec<u8>, errors::CallFunctionError> {
         let now = Instant::now();
         let root = *state_update.get_root();
@@ -266,6 +266,7 @@ impl TrieViewer {
             view_state.epoch_id,
             view_state.prev_block_hash,
             view_state.block_hash,
+            view_state.block_height,
             epoch_info_provider,
             view_state.current_protocol_version,
         );

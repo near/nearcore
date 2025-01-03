@@ -22,6 +22,7 @@ fn slow_test_max_receipt_size() {
 
     let account0: AccountId = "account0".parse().unwrap();
     let account0_signer = &create_user_test_signer(&account0).into();
+    let rpc_id = "account4".parse().unwrap();
 
     // We can't test receipt limit by submitting large transactions because we hit the transaction size limit
     // before hitting the receipt size limit.
@@ -30,10 +31,10 @@ fn slow_test_max_receipt_size() {
         &account0,
         vec![0u8; 2_000_000],
         account0_signer,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     let large_tx_exec_res =
-        execute_tx(&mut env.test_loop, large_tx, &env.datas, Duration::seconds(5));
+        execute_tx(&mut env.test_loop, &rpc_id, large_tx, &env.datas, Duration::seconds(5));
     assert_matches!(large_tx_exec_res, Err(InvalidTxError::TransactionSizeExceeded { .. }));
 
     // Let's test it by running a contract that generates a large receipt.
@@ -42,9 +43,9 @@ fn slow_test_max_receipt_size() {
         &account0,
         near_test_contracts::rs_contract().into(),
         &account0_signer,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
-    run_tx(&mut env.test_loop, deploy_contract_tx, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(5));
 
     // Calling generate_large_receipt({"account_id": "account0", "method_name": "noop", "total_args_size": 3000000})
     // will generate a receipt that has ~3_000_000 bytes. It'll be a single receipt with multiple FunctionCall actions.
@@ -58,9 +59,9 @@ fn slow_test_max_receipt_size() {
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 3000000}"#.into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
-    run_tx(&mut env.test_loop, large_receipt_tx, &env.datas, Duration::seconds(5));
+    run_tx(&mut env.test_loop, &rpc_id, large_receipt_tx, &env.datas, Duration::seconds(5));
 
     // Generating a receipt that is 5 MB should fail, it's above the receipt size limit.
     let too_large_receipt_tx = SignedTransaction::call(
@@ -72,11 +73,16 @@ fn slow_test_max_receipt_size() {
         "generate_large_receipt".into(),
         r#"{"account_id": "account0", "method_name": "noop", "total_args_size": 5000000}"#.into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
-    let too_large_receipt_tx_exec_res =
-        execute_tx(&mut env.test_loop, too_large_receipt_tx, &env.datas, Duration::seconds(5))
-            .unwrap();
+    let too_large_receipt_tx_exec_res = execute_tx(
+        &mut env.test_loop,
+        &rpc_id,
+        too_large_receipt_tx,
+        &env.datas,
+        Duration::seconds(5),
+    )
+    .unwrap();
 
     match too_large_receipt_tx_exec_res.status {
         FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) => {
@@ -109,9 +115,9 @@ fn slow_test_max_receipt_size() {
         "sum_n".into(),
         5_u64.to_le_bytes().to_vec(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
-    let sum_4_res = run_tx(&mut env.test_loop, sum_4_tx, &env.datas, Duration::seconds(5));
+    let sum_4_res = run_tx(&mut env.test_loop, &rpc_id, sum_4_tx, &env.datas, Duration::seconds(5));
     assert_eq!(sum_4_res, 10u64.to_le_bytes().to_vec());
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));

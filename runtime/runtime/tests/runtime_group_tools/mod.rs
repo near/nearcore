@@ -1,5 +1,5 @@
 use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
@@ -40,18 +40,18 @@ pub struct StandaloneRuntime {
     pub apply_state: ApplyState,
     pub runtime: Runtime,
     pub tries: ShardTries,
-    pub signer: InMemorySigner,
+    pub signer: Signer,
     pub root: CryptoHash,
     pub epoch_info_provider: MockEpochInfoProvider,
 }
 
 impl StandaloneRuntime {
     pub fn account_id(&self) -> AccountId {
-        self.signer.account_id.clone()
+        self.signer.get_account_id()
     }
 
     pub fn new(
-        signer: InMemorySigner,
+        signer: Signer,
         state_records: &[StateRecord],
         tries: ShardTries,
         validators: Vec<AccountInfo>,
@@ -141,7 +141,7 @@ impl StandaloneRuntime {
         &mut self,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
+    ) -> ProcessBlockOutcome {
         // TODO - the shard id is correct but the shard version is hardcoded. It
         // would be better to store the shard layout in self and read the uid
         // from there.
@@ -166,7 +166,27 @@ impl StandaloneRuntime {
         store_update.commit().unwrap();
         self.apply_state.block_height += 1;
 
-        (apply_result.outgoing_receipts, apply_result.outcomes)
+        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(shard_id, bandwidth_requests)].into_iter().collect(),
+            }
+        }
+
+        let mut has_queued_receipts = false;
+        if let Some(congestion_info) = apply_result.congestion_info {
+            has_queued_receipts = congestion_info.receipt_bytes() > 0;
+
+            self.apply_state.congestion_info.insert(
+                shard_id,
+                ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
+            );
+        }
+
+        ProcessBlockOutcome {
+            outgoing_receipts: apply_result.outgoing_receipts,
+            execution_outcomes: apply_result.outcomes,
+            has_queued_receipts,
+        }
     }
 }
 
@@ -182,11 +202,17 @@ impl RuntimeMailbox {
     }
 }
 
+pub struct ProcessBlockOutcome {
+    outgoing_receipts: Vec<Receipt>,
+    execution_outcomes: Vec<ExecutionOutcomeWithId>,
+    has_queued_receipts: bool,
+}
+
 #[derive(Default)]
 pub struct RuntimeGroup {
     pub mailboxes: (Mutex<HashMap<AccountId, RuntimeMailbox>>, Condvar),
     pub state_records: Arc<Vec<StateRecord>>,
-    pub signers: Vec<InMemorySigner>,
+    pub signers: Vec<Signer>,
     pub validators: Vec<AccountInfo>,
 
     /// Account id of the runtime on which the transaction was executed mapped to the transactions.
@@ -211,7 +237,7 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.signers.push(signer.clone());
-            res.mailboxes.0.lock().unwrap().insert(signer.account_id, Default::default());
+            res.mailboxes.0.lock().unwrap().insert(signer.get_account_id(), Default::default());
         }
         res.validators = validators;
         Arc::new(res)
@@ -229,17 +255,13 @@ impl RuntimeGroup {
         account_ids: Vec<AccountId>,
         num_existing_accounts: u64,
         contract_code: &[u8],
-    ) -> (Vec<StateRecord>, Vec<InMemorySigner>, Vec<AccountInfo>) {
+    ) -> (Vec<StateRecord>, Vec<Signer>, Vec<AccountInfo>) {
         let code_hash = hash(contract_code);
         let mut state_records = vec![];
         let mut signers = vec![];
         let mut validators = vec![];
         for (i, account_id) in account_ids.into_iter().enumerate() {
-            let signer = InMemorySigner::from_seed(
-                account_id.clone(),
-                KeyType::ED25519,
-                account_id.as_ref(),
-            );
+            let signer = InMemorySigner::test_signer(&account_id);
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.clone(),
@@ -254,14 +276,14 @@ impl RuntimeGroup {
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.clone(),
+                    public_key: signer.public_key(),
                     access_key: AccessKey::full_access(),
                 });
                 state_records
                     .push(StateRecord::Contract { account_id, code: contract_code.to_vec() });
                 validators.push(AccountInfo {
-                    account_id: signer.account_id.clone(),
-                    public_key: signer.public_key.clone(),
+                    account_id: signer.get_account_id(),
+                    public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
@@ -340,15 +362,26 @@ impl RuntimeGroup {
                     .or_insert_with(Vec::new)
                     .extend(mailbox.incoming_transactions.clone());
 
-                let (new_receipts, transaction_results) = runtime
+                let ProcessBlockOutcome {
+                    mut outgoing_receipts,
+                    mut execution_outcomes,
+                    mut has_queued_receipts,
+                } = runtime
                     .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
+                while has_queued_receipts {
+                    let process_outcome = runtime.process_block(&[], &[]);
+                    outgoing_receipts.extend(process_outcome.outgoing_receipts);
+                    execution_outcomes.extend(process_outcome.execution_outcomes);
+                    has_queued_receipts = process_outcome.has_queued_receipts;
+                }
+
                 mailbox.incoming_receipts.clear();
                 mailbox.incoming_transactions.clear();
-                group.transaction_logs.lock().unwrap().extend(transaction_results);
-                for new_receipt in new_receipts {
+                group.transaction_logs.lock().unwrap().extend(execution_outcomes);
+                for outgoing_receipts in outgoing_receipts {
                     let locked_other_mailbox =
-                        mailboxes.get_mut(new_receipt.receiver_id()).unwrap();
-                    locked_other_mailbox.incoming_receipts.push(new_receipt);
+                        mailboxes.get_mut(outgoing_receipts.receiver_id()).unwrap();
+                    locked_other_mailbox.incoming_receipts.push(outgoing_receipts);
                 }
                 group.mailboxes.1.notify_all();
             }

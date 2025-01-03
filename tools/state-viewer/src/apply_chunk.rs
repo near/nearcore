@@ -5,15 +5,15 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::MaybeNew;
+use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -80,6 +80,7 @@ fn get_incoming_receipts(
         &shard_layout,
         *prev_hash,
         prev_height_included,
+        ReceiptFilter::TargetShard,
     )?);
     Ok(collect_receipts_from_response(&responses))
 }
@@ -116,12 +117,13 @@ pub(crate) fn apply_chunk(
         None => prev_height + 1,
     };
 
-    // Try to recover bandwidth requests from the previous chunk extras.
+    // Try to recover bandwidth requests and congestion info from the previous chunk extras.
     // Normally they would be taken from the block that contains the applied chunk,
     // but it's not available here.
-    // The chunk can be applied with the wrong bandwidth requests, but the bandwidth scheduler state
-    // will end up different from what it would normally be.
+    // The chunk can still be applied with the wrong bandwidth requests and congestion info,
+    // but the resulting state root might end up being different.
     let mut shards_bandwidth_requests = BTreeMap::new();
+    let mut shards_congestion_info = BTreeMap::new();
     for prev_chunk in prev_block.chunks().iter() {
         let shard_id = match prev_chunk {
             MaybeNew::New(new_chunk) => new_chunk.shard_id(),
@@ -135,8 +137,18 @@ pub(crate) fn apply_chunk(
         if let Some(bandwidth_requests) = chunk_extra.bandwidth_requests() {
             shards_bandwidth_requests.insert(shard_id, bandwidth_requests.clone());
         }
+        if let Some(congestion_info) = chunk_extra.congestion_info() {
+            shards_congestion_info.insert(
+                shard_id,
+                near_primitives::congestion_info::ExtendedCongestionInfo {
+                    congestion_info: congestion_info,
+                    missed_chunks_count: 0, // Assume no missing chunks in this block
+                },
+            );
+        }
     }
     let block_bandwidth_requests = BlockBandwidthRequests { shards_bandwidth_requests };
+    let block_congestion_info = BlockCongestionInfo::new(shards_congestion_info);
 
     let prev_timestamp = prev_block.header().raw_timestamp();
     let gas_price = prev_block.header().next_gas_price();
@@ -187,7 +199,7 @@ pub(crate) fn apply_chunk(
                 ),
                 gas_price,
                 random_seed: hash("random seed".as_ref()),
-                congestion_info: prev_block.block_congestion_info(),
+                congestion_info: block_congestion_info,
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
@@ -227,8 +239,7 @@ fn find_tx_or_receipt(
             if &receipt.get_hash() == hash {
                 let shard_layout =
                     epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
-                let to_shard =
-                    shard_layout::account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
+                let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                 return Ok(Some((HashType::Receipt, to_shard)));
             }
         }
@@ -390,14 +401,7 @@ fn apply_receipt_in_chunk(
     id: &CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    if chain_store.get_receipt(id)?.is_none() {
-        // TODO: handle local/delayed receipts
-        return Err(anyhow!("receipt with ID {} not known. Is it a local or delayed receipt?", id));
-    }
-
-    println!(
-        "Receipt is known but doesn't seem to have been applied. Searching in chunks that haven't been applied..."
-    );
+    println!("Receipt is not indexed; searching in chunks that haven't been applied...");
 
     let head = chain_store.head()?.height;
     let protocol_version = chain_store.head_header()?.latest_protocol_version();
@@ -423,10 +427,7 @@ fn apply_receipt_in_chunk(
                     if receipt.get_hash() == *id {
                         let shard_layout =
                             epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
-                        let to_shard = shard_layout::account_id_to_shard_id(
-                            receipt.receiver_id(),
-                            &shard_layout,
-                        );
+                        let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         to_apply.insert((height, to_shard));
                         println!(
                             "found receipt in chunk {}. Receiver is in shard {}",
@@ -507,10 +508,9 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{InMemorySigner, Signer};
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::utils::get_num_seats_per_shard;
     use near_store::genesis::initialize_genesis_state;
@@ -523,7 +523,7 @@ mod test {
 
     use crate::cli::StorageSource;
 
-    fn send_txs(env: &mut TestEnv, signers: &[InMemorySigner], height: u64, hash: CryptoHash) {
+    fn send_txs(env: &mut TestEnv, signers: &[Signer], height: u64, hash: CryptoHash) {
         for (i, signer) in signers.iter().enumerate() {
             let from = format!("test{}", i);
             let to = format!("test{}", (i + 1) % signers.len());
@@ -531,7 +531,7 @@ mod test {
                 height,
                 from.parse().unwrap(),
                 to.parse().unwrap(),
-                &signer.clone().into(),
+                &signer,
                 100,
                 hash,
             );
@@ -568,7 +568,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -656,7 +656,7 @@ mod test {
         let signers = (0..4)
             .map(|i| {
                 let acc = format!("test{}", i);
-                InMemorySigner::from_seed(acc.parse().unwrap(), KeyType::ED25519, &acc)
+                InMemorySigner::test_signer(&acc.parse().unwrap())
             })
             .collect::<Vec<_>>();
 
@@ -712,10 +712,8 @@ mod test {
                     }
 
                     for receipt in chunk.prev_outgoing_receipts() {
-                        let to_shard_id = shard_layout::account_id_to_shard_id(
-                            receipt.receiver_id(),
-                            &shard_layout,
-                        );
+                        let to_shard_id =
+                            shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         let to_shard_index = shard_layout.get_shard_index(to_shard_id).unwrap();
 
                         let results = crate::apply_chunk::apply_receipt(

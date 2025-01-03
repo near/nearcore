@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::num::ParseIntError;
 use std::ops::Add;
 use std::str::FromStr;
@@ -55,7 +54,7 @@ pub type ProtocolVersion = u32;
 /// used instead.
 pub type ShardIndex = usize;
 
-/// The shard identifier. It may be a arbitrary number - it does not need to be
+/// The shard identifier. It may be an arbitrary number - it does not need to be
 /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
 /// sequential or contiguous.
 ///
@@ -71,7 +70,6 @@ pub type ShardIndex = usize;
     Hash,
     Clone,
     Copy,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -123,7 +121,13 @@ impl ShardId {
     }
 }
 
-impl Display for ShardId {
+impl std::fmt::Debug for ShardId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::fmt::Display for ShardId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }

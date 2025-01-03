@@ -56,14 +56,15 @@ async fn download_file_impl(
         bar.set_style(
             ProgressStyle::default_bar().template(
                 "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} [{bytes_per_sec}] ({eta})"
-            ).progress_chars("#>-")
+            ).unwrap().progress_chars("#>-")
         );
         bar
     } else {
         let bar = ProgressBar::new_spinner();
         bar.set_style(
             ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]"),
+                .template("{spinner:.green} [{elapsed_precise}] {bytes} [{bytes_per_sec}]")
+                .unwrap(),
         );
         bar
     };

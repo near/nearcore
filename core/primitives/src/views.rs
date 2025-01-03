@@ -2076,22 +2076,18 @@ pub struct CurrentEpochValidatorInfo {
     /// Each entry in the array corresponds to the shard in the `shards_produced` array.
     #[serde(default)]
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
-    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    #[serde(default)]
     pub num_produced_endorsements: NumBlocks,
-    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    #[serde(default)]
     pub num_expected_endorsements: NumBlocks,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
     /// Number of chunks this validator was expected to validate and endorse in each shard.
     /// Each entry in the array corresponds to the shard in the `shards_endorsed` array.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
     /// Shards this validator is assigned to as chunk validator in the current epoch.
     pub shards_endorsed: Vec<ShardId>,
-}
-
-fn num_blocks_is_zero(n: &NumBlocks) -> bool {
-    n == &0
 }
 
 #[derive(
@@ -2429,8 +2425,13 @@ impl From<CongestionInfoV1> for CongestionInfoView {
 }
 
 impl From<CongestionInfoView> for CongestionInfo {
-    fn from(_: CongestionInfoView) -> Self {
-        CongestionInfo::default()
+    fn from(congestion_info: CongestionInfoView) -> Self {
+        CongestionInfo::V1(CongestionInfoV1 {
+            delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+            buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+            receipt_bytes: congestion_info.receipt_bytes,
+            allowed_shard: congestion_info.allowed_shard,
+        })
     }
 }
 

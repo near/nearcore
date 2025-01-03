@@ -7,7 +7,7 @@ use crate::Chain;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::error::Error;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::flat::FlatStorageError;
@@ -82,7 +82,7 @@ fn get_checked_account_id_to_shard_uid_fn(
 ) -> impl Fn(&AccountId) -> ShardUId {
     let split_shard_ids: HashSet<_> = new_shards.into_iter().collect();
     move |account_id: &AccountId| {
-        let new_shard_uid = account_id_to_shard_uid(account_id, &next_epoch_shard_layout);
+        let new_shard_uid = next_epoch_shard_layout.account_id_to_shard_uid(account_id);
         // check that all accounts in the shard are mapped the shards that this shard will split
         // to according to shard layout
         assert!(

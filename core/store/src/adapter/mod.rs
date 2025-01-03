@@ -85,7 +85,11 @@ impl Into<StoreUpdate> for StoreUpdateHolder<'static> {
 /// Simple adapter wrapper on top of Store to provide a more ergonomic interface for different store types.
 /// We provide simple inter-convertibility between different store types like FlatStoreAdapter and TrieStoreAdapter.
 pub trait StoreAdapter {
-    fn store(&self) -> Store;
+    fn store_ref(&self) -> &Store;
+
+    fn store(&self) -> Store {
+        self.store_ref().clone()
+    }
 
     fn trie_store(&self) -> trie_store::TrieStoreAdapter {
         trie_store::TrieStoreAdapter::new(self.store())

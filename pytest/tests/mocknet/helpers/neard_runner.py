@@ -386,8 +386,6 @@ class NeardRunner:
         config['consensus']['min_block_production_delay']['nanos'] = 300000000
         config['consensus']['max_block_production_delay']['secs'] = 3
         config['consensus']['max_block_production_delay']['nanos'] = 0
-        if self.is_traffic_generator():
-            config['archive'] = True
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
@@ -1082,12 +1080,19 @@ class NeardRunner:
             self.set_state(TestState.AMEND_GENESIS)
         else:
             cmd = [
-                self.data['binaries'][0]['system_path'], '--home',
-                self.target_near_home_path(), 'fork-network', 'set-validators',
+                self.data['binaries'][0]['system_path'],
+                '--home',
+                self.target_near_home_path(),
+                'fork-network',
+                'set-validators',
                 '--validators',
-                self.home_path('validators.json'), '--epoch-length',
-                str(n['epoch_length']), '--genesis-time',
-                str(n['genesis_time'])
+                self.home_path('validators.json'),
+                '--epoch-length',
+                str(n['epoch_length']),
+                '--genesis-time',
+                str(n['genesis_time']),
+                '--num-seats',
+                str(n['num_seats']),
             ]
             if new_chain_id is not None:
                 cmd.append('--chain-id')

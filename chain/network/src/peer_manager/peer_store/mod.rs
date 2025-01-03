@@ -1,3 +1,12 @@
+//! The PeerStore is an in-memory cache of known peer states. It is used to:
+//!     - Store information about known peers in the network. Peers may be discovered
+//!       by connecting to them directly or by learning about them from other peers.
+//!     - Respond to requests from other peers for known peers (see PeerStore::healthy_peers).
+//!     - Select peers to which we may try to connect directly (see PeerStore::unconnected_peer).
+//!
+//! Contents of the PeerStore are not persisted to the database. Upon starting a node,
+//! the PeerStore is initialized from the boot nodes in its config.
+
 use crate::blacklist;
 use crate::network_protocol::PeerInfo;
 use crate::types::{KnownPeerState, KnownPeerStatus, ReasonForBan};
@@ -18,15 +27,6 @@ use std::ops::Not;
 mod testonly;
 #[cfg(test)]
 mod tests;
-
-/// The PeerStore is an in-memory cache of known peer states. It is used to:
-///     - Store information about known peers in the network. Peers may be discovered
-///       by connecting to them directly or by learning about them from other peers.
-///     - Respond to requests from other peers for known peers (see PeerStore::healthy_peers).
-///     - Select peers to which we may try to connect directly (see PeerStore::unconnected_peer).
-///
-/// Contents of the PeerStore are not persisted to the database. Upon starting a node,
-/// the PeerStore is initialized from the boot nodes in its config.
 
 /// Level of trust we have about a new (PeerId, Addr) pair.
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]

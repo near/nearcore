@@ -2,7 +2,7 @@ use super::partial_witness::partial_witness_actor::DistributeStateWitnessRequest
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use crate::Client;
 use near_async::messaging::{CanSend, IntoSender};
-use near_chain::{BlockHeader, Chain, ChainStoreAccess};
+use near_chain::{BlockHeader, Chain, ChainStoreAccess, ReceiptFilter};
 use near_chain_primitives::Error;
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
@@ -67,8 +67,9 @@ impl Client {
         let shard_id = chunk_header.shard_id();
         let _span = tracing::debug_span!(target: "client", "send_chunk_state_witness", chunk_hash=?chunk_header.chunk_hash(), ?shard_id).entered();
 
-        let my_signer =
-            validator_signer.as_ref().ok_or(Error::NotAValidator(format!("send state witness")))?;
+        let my_signer = validator_signer
+            .as_ref()
+            .ok_or_else(|| Error::NotAValidator(format!("send state witness")))?;
         let CreateWitnessResult { state_witness, main_transition_shard_id, contract_updates } =
             self.create_state_witness(
                 my_signer.validator_id().clone(),
@@ -209,8 +210,10 @@ impl Client {
             }
 
             let current_epoch_id = *header.epoch_id();
-            let current_shard_id =
-                self.epoch_manager.get_prev_shard_id(&current_block_hash, next_shard_id)?.0;
+            let current_shard_id = self
+                .epoch_manager
+                .get_prev_shard_id_from_prev_hash(&current_block_hash, next_shard_id)?
+                .1;
             if current_shard_id != next_shard_id {
                 // If shard id changes, we need to get implicit state
                 // transition from current shard id to the next shard id.
@@ -375,6 +378,7 @@ impl Client {
             &shard_layout,
             *prev_chunk_original_block.hash(),
             prev_prev_chunk_header.height_included(),
+            ReceiptFilter::All,
         )?;
 
         // Convert to the right format (from [block_hash -> Vec<ReceiptProof>] to [chunk_hash -> ReceiptProof])
@@ -389,7 +393,7 @@ impl Client {
                 let from_chunk_hash = from_block
                     .chunks()
                     .get(from_shard_index)
-                    .ok_or_else(|| Error::InvalidShardId(proof.1.from_shard_id))?
+                    .ok_or(Error::InvalidShardId(proof.1.from_shard_id))?
                     .chunk_hash();
                 let insert_res =
                     source_receipt_proofs.insert(from_chunk_hash.clone(), proof.clone());

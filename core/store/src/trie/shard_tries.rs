@@ -11,6 +11,7 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage};
 use crate::{Trie, TrieChanges, TrieUpdate};
+use itertools::Itertools;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -19,7 +20,7 @@ use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
@@ -445,21 +446,35 @@ impl ShardTries {
     /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
     /// but which exact shards to load depends on configuration. This may only be called when flat
     /// storage is ready.
+    ///
+    /// The `shard_uids_pending_resharding` parameter is used to load memtries
+    /// for shards that are not configured to be loaded but should be loaded
+    /// anyway. This is used when a shard is about to be resharded and we need
+    /// to have the memtries loaded for it.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
+        shard_uids_pending_resharding: &HashSet<ShardUId>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
         let shard_uids_to_load = tracked_shards
             .iter()
-            .copied()
             .filter(|shard_uid| {
                 trie_config.load_mem_tries_for_tracked_shards
                     || trie_config.load_mem_tries_for_shards.contains(shard_uid)
+                    || shard_uids_pending_resharding.contains(shard_uid)
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
 
+        tracing::debug!(
+            target: "memtrie",
+            ?tracked_shards,
+            load_mem_tries_for_tracked_shards=?trie_config.load_mem_tries_for_tracked_shards,
+            load_mem_tries_for_shards=?trie_config.load_mem_tries_for_shards,
+            ?shard_uids_pending_resharding,
+            "Loading tries config"
+        );
         info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
         shard_uids_to_load
             .par_iter()

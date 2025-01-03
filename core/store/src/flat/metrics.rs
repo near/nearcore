@@ -1,8 +1,7 @@
+use super::{FlatStorageManager, FlatStorageStatus};
 use crate::metrics::flat_state_metrics;
-use near_o11y::metrics::{IntCounter, IntGauge};
+use near_o11y::metrics::IntGauge;
 use near_primitives::{shard_layout::ShardUId, types::BlockHeight};
-
-use super::FlatStorageStatus;
 
 pub(crate) struct FlatStorageMetrics {
     flat_head_height: IntGauge,
@@ -53,32 +52,96 @@ impl FlatStorageMetrics {
     }
 }
 
-/// Metrics reporting about flat storage creation progress on each status update.
-pub struct FlatStorageCreationMetrics {
-    status: IntGauge,
-    flat_head_height: IntGauge,
-    remaining_state_parts: IntGauge,
-    fetched_state_parts: IntCounter,
-    fetched_state_items: IntCounter,
-    threads_used: IntGauge,
+/// Metrics for flat storage resharding.
+///
+/// This struct is a collection of metrics to monitor the operation of splitting a shard.
+pub struct FlatStorageReshardingShardSplitMetrics {
+    parent_shard: ShardUId,
+    left_child_shard: ShardUId,
+    right_child_shard: ShardUId,
+    parent_status: IntGauge,
+    left_child_status: IntGauge,
+    right_child_status: IntGauge,
+    split_shard_processed_batches: IntGauge,
+    split_shard_batch_size: IntGauge,
+    split_shard_processed_bytes: IntGauge,
 }
 
-impl FlatStorageCreationMetrics {
-    pub fn new(shard_uid: ShardUId) -> Self {
-        let shard_uid_label = shard_uid.to_string();
+impl FlatStorageReshardingShardSplitMetrics {
+    pub fn new(
+        parent_shard: ShardUId,
+        left_child_shard: ShardUId,
+        right_child_shard: ShardUId,
+    ) -> Self {
+        use flat_state_metrics::*;
+        let parent_shard_label = parent_shard.to_string();
+        let left_child_shard_label = left_child_shard.to_string();
+        let right_child_shard_label = right_child_shard.to_string();
         Self {
-            status: flat_state_metrics::FLAT_STORAGE_CREATION_STATUS
-                .with_label_values(&[&shard_uid_label]),
-            flat_head_height: flat_state_metrics::FLAT_STORAGE_HEAD_HEIGHT
-                .with_label_values(&[&shard_uid_label]),
-            remaining_state_parts: flat_state_metrics::FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS
-                .with_label_values(&[&shard_uid_label]),
-            fetched_state_parts: flat_state_metrics::FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS
-                .with_label_values(&[&shard_uid_label]),
-            fetched_state_items: flat_state_metrics::FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS
-                .with_label_values(&[&shard_uid_label]),
-            threads_used: flat_state_metrics::FLAT_STORAGE_CREATION_THREADS_USED
-                .with_label_values(&[&shard_uid_label]),
+            parent_shard,
+            left_child_shard,
+            right_child_shard,
+            parent_status: resharding::STATUS.with_label_values(&[&parent_shard_label]),
+            left_child_status: resharding::STATUS.with_label_values(&[&left_child_shard_label]),
+            right_child_status: resharding::STATUS.with_label_values(&[&right_child_shard_label]),
+            split_shard_processed_batches: resharding::SPLIT_SHARD_PROCESSED_BATCHES
+                .with_label_values(&[&parent_shard_label]),
+            split_shard_batch_size: resharding::SPLIT_SHARD_BATCH_SIZE.clone(),
+            split_shard_processed_bytes: resharding::SPLIT_SHARD_PROCESSED_BYTES
+                .with_label_values(&[&parent_shard_label]),
+        }
+    }
+
+    pub fn set_parent_status(&self, status: &FlatStorageStatus) {
+        self.parent_status.set(status.into());
+    }
+
+    pub fn set_left_child_status(&self, status: &FlatStorageStatus) {
+        self.left_child_status.set(status.into());
+    }
+
+    pub fn set_right_child_status(&self, status: &FlatStorageStatus) {
+        self.right_child_status.set(status.into());
+    }
+
+    pub fn set_split_shard_processed_batches(&self, num_batches: usize) {
+        self.split_shard_processed_batches.set(num_batches as i64);
+    }
+
+    pub fn update_shards_status(&self, manager: &FlatStorageManager) {
+        self.set_parent_status(&manager.get_flat_storage_status(self.parent_shard));
+        self.set_left_child_status(&manager.get_flat_storage_status(self.left_child_shard));
+        self.set_right_child_status(&manager.get_flat_storage_status(self.right_child_shard));
+    }
+
+    pub fn set_split_shard_batch_size(&self, batch_size: usize) {
+        self.split_shard_batch_size.set(batch_size as i64);
+    }
+
+    pub fn set_split_shard_processed_bytes(&self, bytes: usize) {
+        self.split_shard_processed_bytes.set(bytes as i64);
+    }
+
+    pub fn inc_split_shard_processed_bytes_by(&self, processed_bytes: usize) {
+        self.split_shard_processed_bytes.add(processed_bytes as i64);
+    }
+}
+
+/// Metrics for flat storage resharding.
+///
+/// This struct is a collection of metrics to monitor the catch up phase of a new shard.
+pub struct FlatStorageReshardingShardCatchUpMetrics {
+    status: IntGauge,
+    head_height: IntGauge,
+}
+
+impl FlatStorageReshardingShardCatchUpMetrics {
+    pub fn new(shard_uid: &ShardUId) -> Self {
+        use flat_state_metrics::*;
+        let shard_label = shard_uid.to_string();
+        Self {
+            status: resharding::STATUS.with_label_values(&[&shard_label]),
+            head_height: FLAT_STORAGE_HEAD_HEIGHT.with_label_values(&[&shard_label]),
         }
     }
 
@@ -86,20 +149,7 @@ impl FlatStorageCreationMetrics {
         self.status.set(status.into());
     }
 
-    pub fn set_flat_head_height(&self, height: u64) {
-        self.flat_head_height.set(height as i64);
-    }
-
-    pub fn set_remaining_state_parts(&self, remaining_parts: u64) {
-        self.remaining_state_parts.set(remaining_parts as i64);
-    }
-
-    pub fn threads_used(&self) -> IntGauge {
-        self.threads_used.clone()
-    }
-
-    pub fn inc_fetched_state(&self, num_items: u64) {
-        self.fetched_state_items.inc_by(num_items);
-        self.fetched_state_parts.inc();
+    pub fn set_head_height(&self, height: u64) {
+        self.head_height.set(height as i64);
     }
 }

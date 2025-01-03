@@ -7,7 +7,7 @@ use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
-use near_crypto::{InMemorySigner, KeyType, SecretKey};
+use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -52,9 +52,8 @@ fn test_transaction_hash_collision() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
-    let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-    let signer1 =
-        InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+    let signer0 = InMemorySigner::test_signer(&"test0".parse().unwrap());
+    let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
     let send_money_tx = SignedTransaction::send_money(
         1,
         "test1".parse().unwrap(),
@@ -91,7 +90,7 @@ fn test_transaction_hash_collision() {
         "test1".parse().unwrap(),
         NEAR_BASE,
         signer1.public_key(),
-        &signer0.into(),
+        &signer0,
         *genesis_block.hash(),
     );
     assert_eq!(
@@ -114,7 +113,7 @@ fn test_transaction_hash_collision() {
 /// should fail since the protocol upgrade.
 fn get_status_of_tx_hash_collision_for_near_implicit_account(
     protocol_version: ProtocolVersion,
-    near_implicit_account_signer: InMemorySigner,
+    near_implicit_account_signer: Signer,
 ) -> ProcessTxResponse {
     let epoch_length = 100;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -125,10 +124,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let deposit_for_account_creation = 10u128.pow(23);
     let mut height = 1;
     let blocks_number = 5;
-    let signer1 =
-        InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
-    let near_implicit_account_id = near_implicit_account_signer.account_id.clone();
-    let near_implicit_account_signer = near_implicit_account_signer.into();
+    let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
+    let near_implicit_account_id = near_implicit_account_signer.get_account_id();
 
     // Send money to NEAR-implicit account, invoking its creation.
     let send_money_tx = SignedTransaction::send_money(
@@ -239,12 +236,12 @@ fn test_chunk_transaction_validity() {
     genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = SignedTransaction::send_money(
         1,
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
-        &signer.into(),
+        &signer,
         100,
         *genesis_block.hash(),
     );
@@ -285,13 +282,13 @@ fn test_transaction_nonce_too_large() {
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let large_nonce = AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
     let tx = SignedTransaction::send_money(
         large_nonce,
         "test1".parse().unwrap(),
         "test0".parse().unwrap(),
-        &signer.into(),
+        &signer,
         100,
         *genesis_block.hash(),
     );

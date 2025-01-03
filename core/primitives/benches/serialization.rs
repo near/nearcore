@@ -61,6 +61,7 @@ fn create_block() -> Block {
     Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         10,
         genesis.header().block_ordinal() + 1,
@@ -76,7 +77,7 @@ fn create_block() -> Block {
         Some(0),
         vec![],
         vec![],
-        &signer.into(),
+        &signer,
         CryptoHash::default(),
         CryptoHash::default(),
         Clock::real(),

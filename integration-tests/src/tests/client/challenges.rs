@@ -6,7 +6,7 @@ use near_chain_configs::Genesis;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::types::NetworkRequests;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::challenge::{
@@ -95,6 +95,7 @@ fn test_verify_block_double_sign_challenge() {
     let mut block_merkle_tree = PartialMerkleTree::default();
     block_merkle_tree.insert(*genesis.hash());
     let b2 = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         genesis.header(),
@@ -239,8 +240,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -276,8 +276,7 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
-    let signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
@@ -340,7 +339,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator_signer = create_test_signer("test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     env.produce_block(0, 1);
@@ -350,7 +349,7 @@ fn test_verify_chunk_invalid_state_challenge() {
                 1,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 1000,
                 genesis_hash,
             ),
@@ -423,6 +422,7 @@ fn test_verify_chunk_invalid_state_challenge() {
     let endorsement =
         ChunkEndorsement::new(EpochId::default(), &invalid_chunk.cloned_header(), signer.as_ref());
     let block = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         last_block.header(),

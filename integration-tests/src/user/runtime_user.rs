@@ -29,7 +29,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -82,7 +82,7 @@ impl RuntimeUser {
 
     pub fn apply_all(
         &self,
-        apply_state: ApplyState,
+        mut apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
         use_flat_storage: bool,
@@ -144,24 +144,42 @@ impl RuntimeUser {
             }
             update.commit().unwrap();
             client.state_root = apply_result.state_root;
-            if apply_result.outgoing_receipts.is_empty() {
-                return Ok(());
-            }
             for receipt in apply_result.outgoing_receipts.iter() {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
+
+            if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+                apply_state.bandwidth_requests = BlockBandwidthRequests {
+                    shards_bandwidth_requests: [(apply_state.shard_id, bandwidth_requests)]
+                        .into_iter()
+                        .collect(),
+                };
+            }
+            let mut have_queued_receipts = false;
+            if let Some(congestion_info) = apply_result.congestion_info {
+                if congestion_info.receipt_bytes() > 0 {
+                    have_queued_receipts = true;
+                }
+                apply_state.congestion_info.insert(
+                    apply_state.shard_id,
+                    ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
+                );
+            }
+            if receipts.is_empty() && !have_queued_receipts {
+                return Ok(());
+            }
         }
     }
 
     fn apply_state(&self) -> ApplyState {
-        // TODO(congestion_control) - Set shard id somehow.
-        let shard_id = ShardId::new(0);
-        // TODO(congestion_control) - Set other shard ids somehow.
-        let all_shard_ids = [0, 1, 2, 3, 4, 5].into_iter().map(ShardId::new).collect_vec();
+        let shard_layout = ShardLayout::single_shard();
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+        let shard_id = *shard_ids.first().unwrap();
+
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
+            shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
         } else {
             Default::default()
         };

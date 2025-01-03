@@ -14,7 +14,7 @@ use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -160,17 +160,13 @@ fn run_chunk_validation_test(
 
         let sender_account = accounts[round % num_accounts].clone();
         let receiver_account = accounts[(round + 1) % num_accounts].clone();
-        let signer = InMemorySigner::from_seed(
-            sender_account.clone(),
-            KeyType::ED25519,
-            sender_account.as_ref(),
-        );
+        let signer = InMemorySigner::test_signer(&sender_account);
         if round > 1 {
             let tx = SignedTransaction::send_money(
                 round as u64,
                 sender_account,
                 receiver_account,
-                &signer.into(),
+                &signer,
                 ONE_NEAR,
                 tip.last_block_hash,
             );
@@ -356,7 +352,7 @@ fn get_accounts_and_shard_layout(
     // The number of accounts in each shard.
     let mut shard_account_count: HashMap<ShardId, u32> = HashMap::new();
     for account in &accounts[..num_validators] {
-        let shard_id = account_id_to_shard_id(account, &shard_layout);
+        let shard_id = shard_layout.account_id_to_shard_id(account);
         *shard_account_count.entry(shard_id).or_default() += 1;
     }
     for shard_id in shard_layout.shard_ids() {
@@ -427,7 +423,7 @@ fn test_eth_implicit_accounts() {
     let alice_init_balance = 3 * ONE_NEAR;
     let create_alice_tx = SignedTransaction::send_money(
         1,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         alice_eth_account.clone(),
         &signer.clone().into(),
         alice_init_balance,
@@ -437,7 +433,7 @@ fn test_eth_implicit_accounts() {
     let bob_init_balance = 0;
     let create_bob_tx = SignedTransaction::send_money(
         2,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         bob_eth_account.clone(),
         &signer.clone().into(),
         bob_init_balance,
@@ -459,9 +455,9 @@ fn test_eth_implicit_accounts() {
     assert_eq!(view_balance(&env, &bob_eth_account), bob_init_balance);
 
     // 2. Add function call access key to one eth-implicit account
-    let relayer_account_id = signer.account_id.clone();
+    let relayer_account_id = signer.get_account_id();
     let mut relayer_signer = NearSigner { account_id: &relayer_account_id, signer };
-    let relayer_pk = relayer_signer.signer.public_key.clone();
+    let relayer_pk = relayer_signer.signer.public_key();
     let action = Action::AddKey(Box::new(AddKeyAction {
         public_key: relayer_pk,
         access_key: AccessKey {

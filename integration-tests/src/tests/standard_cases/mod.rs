@@ -715,7 +715,7 @@ pub fn test_swap_key(node: impl Node) {
         .swap_key(
             eve_dot_alice_account(),
             node.signer().public_key(),
-            signer2.public_key.clone(),
+            signer2.public_key(),
             AccessKey::full_access(),
         )
         .unwrap();
@@ -727,7 +727,7 @@ pub fn test_swap_key(node: impl Node) {
     assert!(node_user
         .get_access_key(&eve_dot_alice_account(), &node.signer().public_key())
         .is_err());
-    assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key()).is_ok());
 }
 
 pub fn test_add_key(node: impl Node) {
@@ -1213,9 +1213,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
 pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     let mut node_user = node.user();
     let account_id = bob_account();
-    let signer = Arc::new(
-        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref()).into(),
-    );
+    let signer = Arc::new(InMemorySigner::test_signer(&account_id));
     node_user.set_signer(signer);
     node_user.send_money(account_id, alice_account(), 10).unwrap_err();
 }

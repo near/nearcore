@@ -1,12 +1,11 @@
-/// Utilties for generating vectors of nibbles from human-readable strings.
-///
+//! Utilties for generating vectors of nibbles from human-readable strings.
+
 /// Input for a single vector is a hex string, e.g. 5da3593f.
 /// It has even length, as tries support only keys in bytes, thus keys of
 /// odd nibble length do not occur.
 /// Each symbol is interpreted as a nibble (half-byte).
 /// Result is a vector of decoded hexes as nibbles, e.g.
 /// [5, 13, 10, 3, 5, 9, 3, 15].
-
 pub(crate) fn hex_to_nibbles(hex: &str) -> Vec<u8> {
     if hex == "_" {
         return vec![];

@@ -120,12 +120,14 @@ pub enum ProtocolFeature {
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
-    #[cfg(feature = "protocol_feature_fix_staking_threshold")]
     FixStakingThreshold,
+    /// In case not all validator seats are occupied, the minimum seat price of a chunk producer
+    /// used to depend on the number of existing shards, which is no longer the case.
+    FixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
-    #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
+    /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
     /// Allows creating an account with a non refundable balance to cover storage costs.
     /// NEP: <https://github.com/near/NEPs/pull/491>
@@ -192,6 +194,8 @@ pub enum ProtocolFeature {
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
+    /// Use the block height instead of the block hash to calculate the receipt ID.
+    BlockHeightForReceiptId,
 }
 
 impl ProtocolFeature {
@@ -251,6 +255,9 @@ impl ProtocolFeature {
             | ProtocolFeature::ChunkEndorsementsInBlockHeader
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
+            ProtocolFeature::FixStakingThreshold
+            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::FixChunkProducerStakingThreshold => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -258,12 +265,8 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeTestonly => 100,
 
             // Nightly features:
-            #[cfg(feature = "protocol_feature_fix_staking_threshold")]
-            ProtocolFeature::FixStakingThreshold => 126,
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
-            #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
-            ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonrefundableStorage => 140,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
@@ -275,6 +278,7 @@ impl ProtocolFeature {
             ProtocolFeature::RelaxedChunkValidation => 146,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
             ProtocolFeature::BandwidthScheduler => 148,
+            ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -285,10 +289,10 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 73;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 148;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {

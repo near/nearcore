@@ -763,19 +763,17 @@ fn get_chunk_from_block(
     let epoch_id = block.header().epoch_id();
     let shard_layout = chain.epoch_manager.get_shard_layout(epoch_id)?;
     let shard_index = shard_layout.get_shard_index(shard_id)?;
-    let chunk_header = block
-        .chunks()
-        .get(shard_index)
-        .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
-        .clone();
+    let chunk_header =
+        block.chunks().get(shard_index).ok_or(near_chain::Error::InvalidShardId(shard_id))?.clone();
     let chunk_hash = chunk_header.chunk_hash();
     let chunk = chain.get_chunk(&chunk_hash)?;
-    let res = ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or(
-        near_chain::Error::Other(format!(
-            "Mismatched versions for chunk with hash {}",
-            chunk_hash.0
-        )),
-    )?;
+    let res =
+        ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or_else(|| {
+            near_chain::Error::Other(format!(
+                "Mismatched versions for chunk with hash {}",
+                chunk_hash.0
+            ))
+        })?;
     Ok(res)
 }
 

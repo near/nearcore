@@ -157,7 +157,7 @@ pub type AccountKeys = HashMap<AccountId, HashSet<PublicKey>>;
 #[derive(Debug, Clone)]
 pub struct ChainInfo {
     pub tracked_shards: Vec<ShardId>,
-    // The lastest block on chain.
+    // The latest block on chain.
     pub block: Block,
     // Public keys of accounts participating in the BFT consensus
     // It currently includes "block producers", "chunk producers" and "approvers".

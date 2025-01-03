@@ -69,7 +69,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -166,6 +166,7 @@ pub fn start_client(
         resharding_sender,
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
+        PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
@@ -910,8 +911,6 @@ impl fmt::Display for SyncRequirement {
 
 impl ClientActorInner {
     pub fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        self.start_flat_storage_creation(ctx);
-
         // Start syncing job.
         self.start_sync(ctx);
 
@@ -968,15 +967,10 @@ impl ClientActorInner {
             debug!(target: "client", "Sending announce account for {}", signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
-            let signature =
-                signer.sign_account_announce(signer.validator_id(), &self.node_id, &next_epoch_id);
+            let announce_account =
+                AnnounceAccount::new(signer.as_ref(), self.node_id.clone(), next_epoch_id);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }),
+                NetworkRequests::AnnounceAccount(announce_account),
             ));
         }
     }
@@ -1138,8 +1132,8 @@ impl ClientActorInner {
                     .client
                     .chunk_inclusion_tracker
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
-                let have_all_chunks = head.height == 0
-                    || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
+                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+                let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
 
                 if self.client.doomslug.ready_to_produce_block(
                     height,
@@ -1148,7 +1142,7 @@ impl ClientActorInner {
                 ) {
                     self.client
                         .chunk_inclusion_tracker
-                        .record_endorsement_metrics(&head.last_block_hash);
+                        .record_endorsement_metrics(&head.last_block_hash, &shard_ids);
                     if let Err(err) = self.produce_block(height, signer) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", height, "Block production failed: {}", err);
@@ -1522,29 +1516,6 @@ impl ClientActorInner {
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
             }
         }
-    }
-
-    fn start_flat_storage_creation(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        if !self.client.config.flat_storage_creation_enabled {
-            return;
-        }
-        match self.client.run_flat_storage_creation_step() {
-            Ok(false) => {}
-            Ok(true) => {
-                return;
-            }
-            Err(err) => {
-                error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
-            }
-        }
-
-        ctx.run_later(
-            "ClientActor start_flat_storage_creation",
-            self.client.config.flat_storage_creation_period,
-            move |act, ctx| {
-                act.start_flat_storage_creation(ctx);
-            },
-        );
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.

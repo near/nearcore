@@ -9,6 +9,7 @@ use crate::total_prepaid_exec_fees;
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::account::AccessKey;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
@@ -23,7 +24,7 @@ use near_primitives::errors::{ActionErrorKind, FunctionCallError, TxExecutionErr
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
 use near_primitives::transaction::{
@@ -32,7 +33,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    AccountId, Balance, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
+    AccountId, Balance, EpochId, EpochInfoProvider, Gas, MerkleHash, ShardId, StateChangeCause,
 };
 use near_primitives::utils::create_receipt_id_from_transaction;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
@@ -57,13 +58,19 @@ fn setup_runtime(
     initial_locked: Balance,
     gas_limit: Gas,
 ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
-    setup_runtime_for_shard(
+    let epoch_info_provider = MockEpochInfoProvider::default();
+    let shard_layout = epoch_info_provider.shard_layout(&EpochId::default()).unwrap();
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let (runtime, tries, state_root, apply_state, signers) = setup_runtime_for_shard(
         initial_accounts,
         initial_balance,
         initial_locked,
         gas_limit,
-        ShardUId::single_shard(),
-    )
+        shard_uid,
+        &shard_layout,
+    );
+
+    (runtime, tries, state_root, apply_state, signers, epoch_info_provider)
 }
 
 fn setup_runtime_for_shard(
@@ -72,17 +79,15 @@ fn setup_runtime_for_shard(
     initial_locked: Balance,
     gas_limit: Gas,
     shard_uid: ShardUId,
-) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>, impl EpochInfoProvider) {
+    shard_layout: &ShardLayout,
+) -> (Runtime, ShardTries, CryptoHash, ApplyState, Vec<Arc<Signer>>) {
     let tries = TestTriesBuilder::new().build();
     let root = MerkleHash::default();
     let runtime = Runtime::new();
     let mut signers = vec![];
     let mut initial_state = tries.new_trie_update(shard_uid, root);
     for account_id in initial_accounts.into_iter() {
-        let signer: Arc<Signer> = Arc::new(
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref())
-                .into(),
-        );
+        let signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&account_id));
         let mut initial_account = account_new(initial_balance, CryptoHash::default());
         // For the account and a full access key
         initial_account.set_storage_usage(182);
@@ -103,7 +108,8 @@ fn setup_runtime_for_shard(
     store_update.commit().unwrap();
     let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
     let shards_congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-        [(ShardId::new(0), ExtendedCongestionInfo::default())].into()
+        let shard_ids = shard_layout.shard_ids();
+        shard_ids.map(|shard_id| (shard_id, ExtendedCongestionInfo::default())).collect()
     } else {
         [].into()
     };
@@ -130,7 +136,7 @@ fn setup_runtime_for_shard(
         bandwidth_requests: BlockBandwidthRequests::empty(),
     };
 
-    (runtime, tries, root, apply_state, signers, MockEpochInfoProvider::default())
+    (runtime, tries, root, apply_state, signers)
 }
 
 #[test]
@@ -194,13 +200,14 @@ fn test_apply_refund_receipts() {
 
     let n = 10;
     let receipts = generate_refund_receipts(small_transfer, n);
+    let shard_uid = ShardUId::single_shard();
 
     // Checking n receipts delayed
     for i in 1..=n + 3 {
         let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                tries.get_trie_for_shard(shard_uid, root),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -209,8 +216,8 @@ fn test_apply_refund_receipts() {
                 Default::default(),
             )
             .unwrap();
-        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
-        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        let state = tries.new_trie_update(shard_uid, root);
         let account = get_account(&state, &alice_account()).unwrap().unwrap();
         let capped_i = std::cmp::min(i, n);
         assert_eq!(
@@ -237,13 +244,14 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
 
     let n = 10;
     let receipts = generate_receipts(small_transfer, n);
+    let shard_uid = ShardUId::single_shard();
 
     // Checking n receipts delayed by 1 + 3 extra
     for i in 1..=n + 3 {
         let prev_receipts: &[Receipt] = if i == 1 { &receipts } else { &[] };
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                tries.get_trie_for_shard(shard_uid, root),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -252,9 +260,9 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
                 Default::default(),
             )
             .unwrap();
-        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
 
-        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let state = tries.new_trie_update(shard_uid, root);
         let account = get_account(&state, &alice_account()).unwrap().unwrap();
         let capped_i = std::cmp::min(i, n);
         assert_eq!(
@@ -281,13 +289,14 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
     let n = 40;
     let receipts = generate_receipts(small_transfer, n);
     let mut receipt_chunks = receipts.chunks_exact(4);
+    let shard_uid = ShardUId::single_shard();
 
     // Every time we'll process 3 receipts, so we need n / 3 rounded up. Then we do 3 extra.
     for i in 1..=n / 3 + 3 {
         let prev_receipts: &[Receipt] = receipt_chunks.next().unwrap_or_default();
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                tries.get_trie_for_shard(shard_uid, root),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -296,8 +305,8 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
                 Default::default(),
             )
             .unwrap();
-        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
-        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        let state = tries.new_trie_update(shard_uid, root);
         let account = get_account(&state, &alice_account()).unwrap().unwrap();
         let capped_i = std::cmp::min(i * 3, n);
         assert_eq!(
@@ -323,6 +332,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
     let n = 120;
     let receipts = generate_receipts(small_transfer, n);
     let mut receipt_chunks = receipts.chunks_exact(4);
+    let shard_uid = ShardUId::single_shard();
 
     let mut num_receipts_given = 0;
     let mut num_receipts_processed = 0;
@@ -339,7 +349,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
         num_receipts_given += prev_receipts.len() as u64;
         let apply_result = runtime
             .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard(), root),
+                tries.get_trie_for_shard(shard_uid, root),
                 &None,
                 &apply_state,
                 prev_receipts,
@@ -348,8 +358,8 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
                 Default::default(),
             )
             .unwrap();
-        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
-        let state = tries.new_trie_update(ShardUId::single_shard(), root);
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
+        let state = tries.new_trie_update(shard_uid, root);
         num_receipts_processed += apply_result.outcomes.len() as u64;
         let account = get_account(&state, &alice_account()).unwrap().unwrap();
         assert_eq!(
@@ -417,11 +427,7 @@ fn generate_delegate_actions(deposit: u128, n: u64) -> Vec<Receipt> {
     let relayer_id = alice_account();
     let sender_id = alice_account();
     let receiver_id = bob_account();
-    let signer = Arc::new(InMemorySigner::from_seed(
-        sender_id.clone(),
-        KeyType::ED25519,
-        sender_id.as_ref(),
-    ));
+    let signer = Arc::new(InMemorySigner::test_signer(&sender_id));
     (0..n)
         .map(|i| {
             let inner_actions = [Action::FunctionCall(Box::new(FunctionCallAction {
@@ -482,6 +488,7 @@ fn test_apply_delayed_receipts_local_tx() {
 
     let num_receipts = 6;
     let receipts = generate_receipts(small_transfer, num_receipts);
+    let shard_uid = ShardUId::single_shard();
 
     let num_transactions = 9;
     let local_transactions = (0..num_transactions)
@@ -503,7 +510,7 @@ fn test_apply_delayed_receipts_local_tx() {
     // The new delayed queue is TX#3, R#0, R#1.
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(shard_uid, root),
             &None,
             &apply_state,
             &receipts[0..2],
@@ -512,7 +519,7 @@ fn test_apply_delayed_receipts_local_tx() {
             Default::default(),
         )
         .unwrap();
-    root = commit_apply_result(&apply_result, &mut apply_state, &tries);
+    root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
 
     assert_eq!(
         apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
@@ -525,19 +532,22 @@ fn test_apply_delayed_receipts_local_tx() {
                 PROTOCOL_VERSION,
                 &local_transactions[0],
                 &apply_state.prev_block_hash,
-                &apply_state.block_hash
+                &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 0
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[1],
                 &apply_state.prev_block_hash,
-                &apply_state.block_hash
+                &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 1
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[2],
                 &apply_state.prev_block_hash,
-                &apply_state.block_hash
+                &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 2
         ],
         "STEP #1 failed",
@@ -549,7 +559,7 @@ fn test_apply_delayed_receipts_local_tx() {
     // The new delayed queue is R#1, R#2
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(shard_uid, root),
             &None,
             &apply_state,
             &receipts[2..3],
@@ -559,8 +569,7 @@ fn test_apply_delayed_receipts_local_tx() {
         )
         .unwrap();
     let mut store_update = tries.store_update();
-    let root =
-        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
 
     assert_eq!(
@@ -572,12 +581,14 @@ fn test_apply_delayed_receipts_local_tx() {
                 &local_transactions[4],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 4
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[3],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 3
             *receipts[0].receipt_id(),        // receipt #0
         ],
@@ -590,7 +601,7 @@ fn test_apply_delayed_receipts_local_tx() {
     // The new delayed queue is R#1, R#2, TX#8, R#3
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(shard_uid, root),
             &None,
             &apply_state,
             &receipts[3..4],
@@ -600,8 +611,7 @@ fn test_apply_delayed_receipts_local_tx() {
         )
         .unwrap();
     let mut store_update = tries.store_update();
-    let root =
-        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
 
     assert_eq!(
@@ -616,18 +626,21 @@ fn test_apply_delayed_receipts_local_tx() {
                 &local_transactions[5],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 5
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[6],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 6
             create_receipt_id_from_transaction(
                 PROTOCOL_VERSION,
                 &local_transactions[7],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 7
         ],
         "STEP #3 failed",
@@ -639,7 +652,7 @@ fn test_apply_delayed_receipts_local_tx() {
     // The new delayed queue is R#3, R#4
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(shard_uid, root),
             &None,
             &apply_state,
             &receipts[4..5],
@@ -649,8 +662,7 @@ fn test_apply_delayed_receipts_local_tx() {
         )
         .unwrap();
     let mut store_update = tries.store_update();
-    let root =
-        tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
+    let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
 
     assert_eq!(
@@ -663,6 +675,7 @@ fn test_apply_delayed_receipts_local_tx() {
                 &local_transactions[8],
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
             ), // receipt for tx 8
         ],
         "STEP #4 failed",
@@ -673,7 +686,7 @@ fn test_apply_delayed_receipts_local_tx() {
     // The new delayed queue is empty.
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(shard_uid, root),
             &None,
             &apply_state,
             &receipts[5..6],
@@ -988,6 +1001,8 @@ fn test_compute_usage_limit() {
     let (runtime, tries, mut root, mut apply_state, signers, epoch_info_provider) =
         setup_runtime(vec![alice_account()], to_yocto(1_000_000), to_yocto(500_000), 1);
 
+    let shard_uid = ShardUId::single_shard();
+
     let sha256_cost = set_sha256_cost(&mut apply_state, 1_000_000u64, 10_000_000_000_000u64);
     // This allows us to execute 1 receipt with a function call per apply.
     apply_state.gas_limit = Some(sha256_cost.compute);
@@ -1024,7 +1039,7 @@ fn test_compute_usage_limit() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(shard_uid, root),
             &None,
             &apply_state,
             &[
@@ -1037,7 +1052,7 @@ fn test_compute_usage_limit() {
             Default::default(),
         )
         .unwrap();
-    root = commit_apply_result(&apply_result, &mut apply_state, &tries);
+    root = commit_apply_result(&apply_result, &mut apply_state, &tries, shard_uid);
 
     // Only first two receipts should fit into the chunk due to the compute usage limit.
     assert_eq!(apply_result.delayed_receipts_count, 1);
@@ -1052,7 +1067,7 @@ fn test_compute_usage_limit() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            tries.get_trie_for_shard(shard_uid, root),
             &None,
             &apply_state,
             &[],
@@ -2116,7 +2131,7 @@ fn test_contract_accesses_when_validating_chunk() {
     assert_eq!(apply_result.contract_updates.contract_accesses, HashSet::new());
 }
 
-/// Tests that the existing contract is not recorded in the state witness for a deply-contract action.
+/// Tests that the existing contract is not recorded in the state witness for a deploy-contract action.
 /// For this, it deploys two contracts to the same account and checks the storage proof size after the second deploy action.
 #[test]
 fn test_exclude_existing_contract_code_for_deploy_action() {
@@ -2222,14 +2237,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
     // Information about the test account (of predecessor "alice.near") that will be used for create, deploy, and delete actions.
     let test_account_id: AccountId =
         ("fake.".to_owned() + alice_account().as_str()).as_str().parse().unwrap();
-    let test_account_signer: Arc<Signer> = Arc::new(
-        InMemorySigner::from_seed(
-            test_account_id.clone(),
-            KeyType::ED25519,
-            test_account_id.as_ref(),
-        )
-        .into(),
-    );
+    let test_account_signer: Arc<Signer> = Arc::new(InMemorySigner::test_signer(&test_account_id));
 
     // Choose a contract size that is much more than rest of the storage proof size so that we can show that
     // the contract code is not included in the storage proof at the end of the test.
@@ -2348,7 +2356,7 @@ fn test_empty_apply() {
     if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
         assert!(
             root_before != root_after,
-            "state root not changed - did the bandwdith scheduler run?"
+            "state root not changed - did the bandwidth scheduler run?"
         );
     } else {
         assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
@@ -2411,34 +2419,44 @@ fn test_congestion_buffering() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    // In the test setup with he MockEpochInfoProvider, all accounts are on
-    // shard 0. Hence all receipts will be forwarded to shard 0. We don't
-    // want local forwarding in the test, hence we need to use a different
-    // shard id.
-    let local_shard = ShardId::new(1);
-    let local_shard_uid = ShardUId::new(0, local_shard);
-    let receiver_shard = ShardId::new(0);
+
+    init_test_logger();
+
+    // In the test setup with MockEpochInfoProvider, bob_account is on shard 0 while alice_account
+    // is on shard 1. Hence all receipts will be forwarded from shard 1 to shard 0. We don't want local
+    // forwarding in the test, hence we need to use a different shard id.
+    let version = 3;
+
+    let accounts = vec![alice_account(), bob_account()];
+    let shard_layout = ShardLayout::multi_shard_custom(accounts.clone(), version);
+    let local_shard = shard_layout.account_id_to_shard_id(&alice_account());
+    let local_shard_uid = ShardUId::new(version, local_shard);
+    let receiver_shard = shard_layout.account_id_to_shard_id(&bob_account());
+    assert_ne!(local_shard, receiver_shard);
 
     let initial_balance = to_yocto(1_000_000);
     let initial_locked = to_yocto(500_000);
     let deposit = to_yocto(10_000);
     // execute a single receipt per chunk
     let gas_limit = 1;
-    let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
-        setup_runtime_for_shard(
-            vec![alice_account(), bob_account()],
-            initial_balance,
-            initial_locked,
-            gas_limit,
-            local_shard_uid,
-        );
+    let (runtime, tries, mut root, mut apply_state, _) = setup_runtime_for_shard(
+        accounts,
+        initial_balance,
+        initial_locked,
+        gas_limit,
+        local_shard_uid,
+        &shard_layout,
+    );
 
+    // Set account_id_to_shard_id for alice_account delayed receipts handling to work properly
+    // setup_runtime_for_shard sets up account for alice on `local_shard_uid`.
+    let epoch_info_provider = MockEpochInfoProvider::new(shard_layout);
     apply_state.shard_id = local_shard;
 
-    // Mark shard 0 as congested. Which method we use doesn't matter, this
-    // test only checks that receipt buffering works. Unit tests
-    // congestion_info.rs test that the congestion level is picked up for
-    // all possible congestion conditions.
+    // Mark receiver shard as congested. Which method we use doesn't matter,
+    // this test only checks that receipt buffering works. Unit tests
+    // congestion_info.rs test that the congestion level is picked up for all
+    // possible congestion conditions.
     let max_congestion_incoming_gas: Gas =
         apply_state.config.congestion_control_config.max_congestion_incoming_gas;
     apply_state
@@ -2448,13 +2466,13 @@ fn test_congestion_buffering() {
         .congestion_info
         .add_delayed_receipt_gas(max_congestion_incoming_gas)
         .unwrap();
-    // set allowed shard of shard 0 to 0 to prevent shard 1 from forwarding
+    // set allowed shard of the receiver shard to itself to prevent local shard from forwarding
     apply_state
         .congestion_info
         .get_mut(&receiver_shard)
         .unwrap()
         .congestion_info
-        .set_allowed_shard(0);
+        .set_allowed_shard(receiver_shard.into());
     apply_state.congestion_info.insert(local_shard, Default::default());
 
     // We need receipts that produce an outgoing receipt. Function calls and
@@ -2538,7 +2556,7 @@ fn test_congestion_buffering() {
                 Default::default(),
             )
             .unwrap();
-        root = commit_apply_result(&apply_result, &mut apply_state, &tries);
+        root = commit_apply_result(&apply_result, &mut apply_state, &tries, local_shard_uid);
 
         let state = tries.get_trie_for_shard(local_shard_uid, root);
         let buffers = ShardsOutgoingReceiptBuffer::load(&state).unwrap();
@@ -2567,14 +2585,13 @@ fn commit_apply_result(
     apply_result: &ApplyResult,
     apply_state: &mut ApplyState,
     tries: &ShardTries,
+    shard_uid: ShardUId,
 ) -> CryptoHash {
     // congestion control requires an update on
-    let shard_id = apply_state.shard_id;
-    let shard_uid = ShardUId::new(0, shard_id);
+    assert_eq!(shard_uid.shard_id(), apply_state.shard_id);
     if let Some(congestion_info) = apply_result.congestion_info {
-        apply_state
-            .congestion_info
-            .insert(shard_id, ExtendedCongestionInfo::new(congestion_info, 0));
+        let extended = ExtendedCongestionInfo::new(congestion_info, 0);
+        apply_state.congestion_info.insert(shard_uid.shard_id(), extended);
     }
     let mut store_update = tries.store_update();
     let root = tries.apply_all(&apply_result.trie_changes, shard_uid, &mut store_update);

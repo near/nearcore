@@ -18,6 +18,8 @@ use near_primitives::types::{EpochId, ShardId};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
+use rand::prelude::SliceRandom;
+use rand::thread_rng;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -82,20 +84,46 @@ pub(super) async fn run_state_sync_for_shard(
 
     return_if_cancelled!(cancel);
     *status.lock().unwrap() = ShardSyncStatus::StateDownloadParts;
-    tokio_stream::iter(0..num_parts)
-        .map(|part_id| {
-            let future = downloader.ensure_shard_part_downloaded(
-                shard_id,
-                sync_hash,
-                part_id,
-                header.clone(),
-                cancel.clone(),
-            );
-            respawn_for_parallelism(&*future_spawner, "state sync download part", future)
-        })
-        .buffer_unordered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
-        .try_collect::<Vec<_>>()
-        .await?;
+    let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
+    {
+        // Peer selection is designed such that different nodes downloading the same part will tend
+        // to send the requests to the same host. It allows the host to benefit from caching the part.
+        //
+        // At the start of an epoch, a number of nodes begin state sync at the same time. If we
+        // don't randomize the order in which the parts are requested, the nodes will request the
+        // parts in roughly the same order, producing spikes of traffic to the same hosts.
+        let mut rng = thread_rng();
+        parts_to_download.shuffle(&mut rng);
+    }
+    let mut attempt_count = 0;
+    while !parts_to_download.is_empty() {
+        return_if_cancelled!(cancel);
+        let results = tokio_stream::iter(parts_to_download.clone())
+            .map(|part_id| {
+                let future = downloader.ensure_shard_part_downloaded_single_attempt(
+                    shard_id,
+                    sync_hash,
+                    state_root,
+                    num_parts,
+                    part_id,
+                    attempt_count,
+                    cancel.clone(),
+                );
+                respawn_for_parallelism(&*future_spawner, "state sync download part", future)
+            })
+            .buffered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+            .collect::<Vec<_>>()
+            .await;
+        attempt_count += 1;
+        // Update the list of parts_to_download retaining only the ones that failed
+        parts_to_download = results
+            .iter()
+            .enumerate()
+            .filter_map(|(task_index, res)| {
+                res.as_ref().err().map(|_| parts_to_download[task_index])
+            })
+            .collect();
+    }
 
     return_if_cancelled!(cancel);
     *status.lock().unwrap() = ShardSyncStatus::StateApplyInProgress;

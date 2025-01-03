@@ -9,7 +9,7 @@ use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
 use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
@@ -28,7 +28,7 @@ use std::sync::Arc;
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-fn test_state_dump() {
+fn slow_test_state_dump() {
     init_test_logger();
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -143,9 +143,9 @@ fn run_state_sync_with_dumped_parts(
         .nightshade_runtimes(&genesis)
         .build();
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator = MutableConfigValue::new(
-        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
+        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()))),
         "validator_signer",
     );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -186,7 +186,6 @@ fn run_state_sync_with_dumped_parts(
         account_creation_at_epoch_height * epoch_length + 1
     };
 
-    let signer: Signer = signer.into();
     for i in 1..=dump_node_head_height {
         if i == account_creation_at_height {
             let tx = SignedTransaction::create_account(

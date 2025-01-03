@@ -7,7 +7,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_chain_configs::Genesis;
 use near_client::{GetBlock, ProcessTxRequest};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, WaitOrTimeoutActor};
 use near_o11y::testonly::init_integration_logger;
@@ -48,10 +48,7 @@ fn ultra_slow_test_sync_state_stake_change() {
                 start_with_config(dir1.path(), near1.clone()).expect("start_with_config");
 
             let genesis_hash = *genesis_block(&genesis).hash();
-            let signer = Arc::new(
-                InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1")
-                    .into(),
-            );
+            let signer = Arc::new(InMemorySigner::test_signer(&"test1".parse().unwrap()));
             let unstake_transaction = SignedTransaction::stake(
                 1,
                 "test1".parse().unwrap(),

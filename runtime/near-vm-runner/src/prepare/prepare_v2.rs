@@ -247,6 +247,7 @@ impl<'a> PrepareContext<'a> {
             maximum: Some(u64::from(self.config.limit_config.max_memory_pages)),
             memory64: false,
             shared: false,
+            page_size_log2: None,
         })
     }
 

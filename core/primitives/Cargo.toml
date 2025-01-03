@@ -20,10 +20,15 @@ bytesize.workspace = true
 bytes.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = [
+  "as_ref",
+  "from",
+  "into",
+  "deref",
+] }
 easy-ext.workspace = true
 hex.workspace = true
-itertools = { workspace = true, optional = true }
+itertools.workspace = true
 num-rational.workspace = true
 ordered-float.workspace = true
 primitive-types.workspace = true
@@ -52,17 +57,12 @@ near-schema-checker-lib.workspace = true
 [features]
 sandbox = []
 test_features = []
-solomon = ["reed-solomon-erasure", "itertools"]
-rand = ["dep:rand", "rand_chacha", "near-crypto/rand", "itertools"]
+test_utils = []
+solomon = ["reed-solomon-erasure"]
+rand = ["dep:rand", "rand_chacha", "near-crypto/rand"]
 clock = ["near-time/clock", "near-time/serde"]
-protocol_feature_fix_staking_threshold = [
-  "near-primitives-core/protocol_feature_fix_staking_threshold",
-]
 protocol_feature_fix_contract_loading_cost = [
   "near-primitives-core/protocol_feature_fix_contract_loading_cost",
-]
-protocol_feature_reject_blocks_with_outdated_protocol_version = [
-  "near-primitives-core/protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
 protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives-core/protocol_feature_nonrefundable_transfer_nep491",
@@ -78,9 +78,7 @@ nightly = [
   "near-primitives/nightly",
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "protocol_feature_relaxed_chunk_validation",
 ]
 
@@ -93,13 +91,16 @@ nightly_protocol = [
 
 calimero_zero_storage = []
 
-protocol_schema = [
-  "near-schema-checker-lib/protocol_schema",
-]
+protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }
-near-primitives = { workspace = true, features = ["clock", "solomon", "rand"] }
+near-primitives = { path = ".", features = [
+  "clock",
+  "solomon",
+  "rand",
+  "test_utils",
+] }
 assert_matches.workspace = true
 bencher.workspace = true
 bolero.workspace = true
