@@ -62,6 +62,7 @@ pub mod col {
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
+    pub const GLOBAL_CONTRACT_DATA: u8 = 18;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -77,7 +78,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 17] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 18] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -95,6 +96,7 @@ pub mod col {
         (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
+        (GLOBAL_CONTRACT_DATA, "GlobalContractData"),
     ];
 }
 
@@ -193,6 +195,9 @@ pub enum TrieKey {
         receiving_shard: ShardId,
         index: u64,
     },
+    GlobalContractCode {
+        code_hash: CryptoHash,
+    },
 }
 
 /// Provides `len` function.
@@ -276,6 +281,9 @@ impl TrieKey {
                 col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM.len()
                     + std::mem::size_of::<u64>()
                     + std::mem::size_of_val(index)
+            }
+            TrieKey::GlobalContractCode { code_hash } => {
+                col::GLOBAL_CONTRACT_DATA.len() + code_hash.as_ref().len()
             }
         }
     }
@@ -370,6 +378,10 @@ impl TrieKey {
                 buf.extend(&receiving_shard.to_le_bytes());
                 buf.extend(&index.to_le_bytes());
             }
+            TrieKey::GlobalContractCode { code_hash } => {
+                buf.push(col::GLOBAL_CONTRACT_DATA);
+                buf.extend(code_hash.as_ref());
+            },
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -401,6 +413,7 @@ impl TrieKey {
             TrieKey::BandwidthSchedulerState => None,
             TrieKey::BufferedReceiptGroupsQueueData { .. } => None,
             TrieKey::BufferedReceiptGroupsQueueItem { .. } => None,
+            TrieKey::GlobalContractCode { .. } => None,
         }
     }
 }

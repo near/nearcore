@@ -485,6 +485,10 @@ impl Receipt {
         *self.receipt_id()
     }
 
+    pub fn send_to_all_shards(&self) -> bool {
+        matches!(self.receipt(), ReceiptEnum::GlobalContractDitribution(..))
+    }
+
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
     /// This should be used for token refunds instead of gas refunds. It inherits priority from the parent receipt.
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
