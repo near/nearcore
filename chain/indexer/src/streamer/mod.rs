@@ -37,7 +37,7 @@ static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
     Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>>,
 > = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-const INTERVAL: Duration = Duration::from_millis(500);
+const INTERVAL: Duration = Duration::from_millis(250);
 
 /// Blocks #47317863 and #47317864 with restored receipts.
 const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
@@ -413,11 +413,12 @@ pub(crate) async fn start(
             AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
         };
 
-        let block = if let Ok(block) = fetch_latest_block(&view_client).await {
-            block
-        } else {
-            continue;
-        };
+        let block =
+            if let Ok(block) = fetch_latest_block(&view_client, &indexer_config.finality).await {
+                block
+            } else {
+                continue;
+            };
 
         let latest_block_height = block.header.height;
         let start_syncing_block_height = if let Some(last_synced_block_height) =
