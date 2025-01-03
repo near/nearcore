@@ -3,8 +3,6 @@ use crate::flat::{
     BlockInfo, FlatStorageReadyStatus, FlatStorageReshardingStatus, FlatStorageStatus,
     POISONED_LOCK_ERR,
 };
-use crate::{DBCol, StoreAdapter};
-use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -99,34 +97,12 @@ impl FlatStorageManager {
         Ok(())
     }
 
-    fn read_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, StorageError> {
-        let header = self
-            .0
-            .store
-            .store_ref()
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, hash.as_ref())
-            .map_err(|e| {
-                StorageError::StorageInconsistentState(format!(
-                    "could not read block header {}: {:?}",
-                    hash, e
-                ))
-            })?
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState(format!("block header {} not found", hash))
-            })?;
-        Ok(BlockInfo {
-            hash: *header.hash(),
-            prev_hash: *header.prev_hash(),
-            height: header.height(),
-        })
-    }
-
     /// Sets the status to `Ready` if it's currently `Resharding(CatchingUp)`
     fn mark_flat_storage_ready(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         // Don't use Self::get_flat_storage_status() because there's no need to panic if this fails, since this is used
         // during state snapshotting where an error isn't critical to node operation.
         let status = self.0.store.get_flat_storage_status(shard_uid)?;
-        let catchup_flat_head = match status {
+        let flat_head = match status {
             FlatStorageStatus::Ready(_) => return Ok(()),
             FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(flat_head)) => {
                 flat_head
@@ -138,7 +114,6 @@ impl FlatStorageManager {
                 )))
             }
         };
-        let flat_head = self.read_block_info(&catchup_flat_head)?;
         let mut store_update = self.0.store.store_update();
         store_update.set_flat_storage_status(
             shard_uid,
@@ -311,9 +286,8 @@ impl FlatStorageManager {
         for shard_uid in shard_uids {
             match self.0.store.get_flat_storage_status(shard_uid)? {
                 FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
-                    catchup_flat_head,
+                    flat_head,
                 )) => {
-                    let flat_head = self.read_block_info(&catchup_flat_head)?;
                     if let Some(Some(min_height)) = ret {
                         ret = Some(Some(std::cmp::min(min_height, flat_head.height)));
                     } else {

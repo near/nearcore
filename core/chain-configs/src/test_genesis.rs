@@ -139,7 +139,7 @@ impl Default for TestEpochConfigBuilder {
             fishermen_threshold: FISHERMEN_THRESHOLD,
             protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
             minimum_stake_divisor: 10,
-            minimum_stake_ratio: Rational32::new(160i32, 1_000_000i32),
+            minimum_stake_ratio: Rational32::new(16i32, 1_000_000i32),
             chunk_producer_assignment_changes_limit: 5,
             shuffle_shard_assignment_for_chunk_producers: false,
             // consider them ineffective
@@ -628,6 +628,42 @@ pub struct GenesisAndEpochConfigParams<'a> {
 
 /// Handy factory for building test genesis and epoch config store. Use it if it is enough to have
 /// one epoch config for your test. Otherwise, just use builders directly.
+///
+/// ```
+/// use near_chain_configs::test_genesis::build_genesis_and_epoch_config_store;
+/// use near_chain_configs::test_genesis::GenesisAndEpochConfigParams;
+/// use near_chain_configs::test_genesis::ValidatorsSpec;
+/// use near_primitives::shard_layout::ShardLayout;
+/// use near_primitives::test_utils::create_test_signer;
+/// use near_primitives::types::AccountId;
+/// use near_primitives::types::AccountInfo;
+///
+/// const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
+///
+/// let protocol_version = 73;
+/// let epoch_length = 10;
+/// let accounts = (0..6).map(|i| format!("test{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+/// let shard_layout = ShardLayout::multi_shard(6, 1);
+/// let validators = vec![
+///     AccountInfo {
+///         account_id: accounts[0].clone(),
+///         public_key: create_test_signer(accounts[0].as_str()).public_key(),
+///         amount: 62500 * ONE_NEAR,
+///     },
+/// ];
+/// let validators_spec = ValidatorsSpec::raw(validators, 3, 3, 3);
+/// let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+///     GenesisAndEpochConfigParams {
+///         protocol_version,
+///         epoch_length,
+///         accounts: &accounts,
+///         shard_layout,
+///         validators_spec,
+///     },
+///     |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
+///     |epoch_config_builder| epoch_config_builder.shuffle_shard_assignment_for_chunk_producers(true),
+/// );
+/// ```
 pub fn build_genesis_and_epoch_config_store<'a>(
     params: GenesisAndEpochConfigParams<'a>,
     customize_genesis_builder: impl FnOnce(TestGenesisBuilder) -> TestGenesisBuilder,
