@@ -188,7 +188,10 @@ impl CacheEntry {
                     "Received invalid partial witness part ord"
                 );
             }
-            InsertPartResult::Decoded(decode_result) => {
+            InsertPartResult::Decoded(decode_result, decoding_time) => {
+                metrics::PARTIAL_WITNESS_DECODE_TIME
+                    .with_label_values(&[&self.shard_id.to_string()])
+                    .observe(decoding_time);
                 self.witness_parts =
                     WitnessPartsState::Decoded { decode_result, decoded_at: Instant::now() };
                 metrics::DECODE_PARTIAL_WITNESS_ACCESSED_CONTRACTS_STATE_COUNT
@@ -423,7 +426,8 @@ impl PartialEncodedStateWitnessTracker {
             }
 
             // Merge accessed contracts into the main transition's partial state.
-            let PartialState::TrieValues(values) = &mut witness.main_state_transition.base_state;
+            let PartialState::TrieValues(values) =
+                &mut witness.inner.main_state_transition.base_state;
             values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
 
             tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
@@ -472,7 +476,7 @@ impl PartialEncodedStateWitnessTracker {
         let decode_start = std::time::Instant::now();
         let (witness, raw_witness_size) = encoded_witness.decode()?;
         let decode_elapsed_seconds = decode_start.elapsed().as_secs_f64();
-        let witness_shard = witness.chunk_header.shard_id();
+        let witness_shard = witness.inner.chunk_header.shard_id();
 
         // Record metrics after validating the witness
         near_chain::stateless_validation::metrics::CHUNK_STATE_WITNESS_DECODE_TIME
