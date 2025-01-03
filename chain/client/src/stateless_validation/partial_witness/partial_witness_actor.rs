@@ -242,12 +242,11 @@ impl PartialWitnessActor {
             witness_bytes,
             &chunk_validators,
             &signer,
-        )?;
+        );
 
         if !contract_deploys.is_empty() {
             self.send_chunk_contract_deploys_parts(key, contract_deploys)?;
         }
-
         Ok(())
     }
 
@@ -259,7 +258,7 @@ impl PartialWitnessActor {
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
-    ) -> Result<Vec<(AccountId, PartialEncodedStateWitness)>, Error> {
+    ) -> Vec<(AccountId, PartialEncodedStateWitness)> {
         tracing::debug!(
             target: "client",
             chunk_hash=?chunk_header.chunk_hash(),
@@ -271,7 +270,7 @@ impl PartialWitnessActor {
         let encoder = self.witness_encoders.entry(chunk_validators.len());
         let (parts, encoded_length) = encoder.encode(&witness_bytes);
 
-        Ok(chunk_validators
+        chunk_validators
             .iter()
             .zip_eq(parts)
             .enumerate()
@@ -288,7 +287,7 @@ impl PartialWitnessActor {
                 );
                 (chunk_validator.clone(), partial_witness)
             })
-            .collect_vec())
+            .collect_vec()
     }
 
     fn generate_contract_deploys_parts(
@@ -336,7 +335,7 @@ impl PartialWitnessActor {
         witness_bytes: EncodedChunkStateWitness,
         chunk_validators: &[AccountId],
         signer: &ValidatorSigner,
-    ) -> Result<(), Error> {
+    ) {
         // Capture these values first, as the sources are consumed before calling record_witness_sent.
         let chunk_hash = chunk_header.chunk_hash();
         let witness_size_in_bytes = witness_bytes.size_bytes();
@@ -352,7 +351,7 @@ impl PartialWitnessActor {
             witness_bytes,
             chunk_validators,
             signer,
-        )?;
+        );
         encode_timer.observe_duration();
 
         // Record the witness in order to match the incoming acks for measuring round-trip times.
@@ -367,7 +366,6 @@ impl PartialWitnessActor {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple),
         ));
-        Ok(())
     }
 
     /// Sends the witness part to the chunk validators, except the chunk producer that generated the witness part.

@@ -162,7 +162,7 @@ fn resume_without_yield() {
         )
         .unwrap();
 
-    // expect the execution to suceed, but return 'false'
+    // expect the execution to succeed, but return 'false'
     assert_eq!(
         res.status,
         FinalExecutionStatus::SuccessValue(vec![0u8]),

@@ -879,9 +879,9 @@ async fn max_num_peers_limit() {
     drop(pm3);
 }
 
-/// Test that TTL is handled properly.
+/// Test that TTL and number of hops are handled properly.
 #[tokio::test]
-async fn ttl() {
+async fn ttl_and_num_hops() {
     abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -931,6 +931,7 @@ async fn ttl() {
                 .await;
             assert_eq!(msg.body, got.body);
             assert_eq!(msg.ttl - 1, got.ttl);
+            assert_eq!(msg.num_hops + 1, got.num_hops);
         }
     }
 }
