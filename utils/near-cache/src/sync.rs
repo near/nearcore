@@ -15,7 +15,7 @@ where
     K: Hash + Eq,
     V: Clone,
 {
-    /// Creats a new `LRU` cache that holds at most `cap` items.
+    /// Creates a new `LRU` cache that holds at most `cap` items.
     pub fn new(cap: usize) -> Self {
         Self { inner: Mutex::new(LruCache::<K, V>::new(NonZeroUsize::new(cap).unwrap())) }
     }
