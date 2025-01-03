@@ -51,6 +51,12 @@ const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 /// Maximum number of epochs under which the test should finish.
 const TESTLOOP_NUM_EPOCHS_TO_WAIT: u64 = 8;
 
+/// Default shard layout version used in resharding tests.
+const DEFAULT_SHARD_LAYOUT_VERSION: u64 = 2;
+
+/// Account used in resharding tests as a split boundary.
+const NEW_BOUNDARY_ACCOUNT: &str = "account6";
+
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
 #[allow(unused)]
@@ -92,7 +98,7 @@ struct TestReshardingParameters {
     track_all_shards: bool,
     // Manually specify what shards will be tracked for a given client ID.
     // The client ID must not be used for any other role (validator, RPC, etc.).
-    // The schedule length must be at least `TESTLOOP_NUM_EPOCHS_TO_WAIT` so that it covers all epoch heights used in the test.
+    // The schedule length must be more than `TESTLOOP_NUM_EPOCHS_TO_WAIT` so that it covers all epoch heights used in the test.
     // The suffix must consist of `GC_NUM_EPOCHS_TO_KEEP` repetitions of the same shard,
     // so that we can assert at the end of the test that the state of all other shards have been cleaned up.
     tracked_shard_schedule: Option<TrackedShardSchedule>,
@@ -203,8 +209,9 @@ impl TestReshardingParametersBuilder {
         println!("Rpcs: {rpcs:?}");
         println!("Archivals: {archivals:?}");
         println!("To serve requests, we use client: {client_id}");
+        println!("Num extra nodes: {num_extra_nodes}");
 
-        let new_boundary_account: AccountId = "account6".parse().unwrap();
+        let new_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
         let temporary_account_id: AccountId =
             format!("{}.{}", new_boundary_account, new_boundary_account).parse().unwrap();
         let mut loop_actions = self.loop_actions.unwrap_or_default();
@@ -220,7 +227,9 @@ impl TestReshardingParametersBuilder {
         }
 
         TestReshardingParameters {
-            base_shard_layout_version: self.base_shard_layout_version.unwrap_or(2),
+            base_shard_layout_version: self
+                .base_shard_layout_version
+                .unwrap_or(DEFAULT_SHARD_LAYOUT_VERSION),
             num_accounts,
             num_clients,
             num_producers,
@@ -539,22 +548,32 @@ fn test_resharding_v3() {
 
 // Takes a sequence of shard ids to track in consecutive epochs,
 // repeats the last element `TESTLOOP_NUM_EPOCHS_TO_WAIT` times,
-// and maps each element: |id| -> vec![ShardId(id)], to the format required by `TrackedShardSchedule`.
-fn shard_sequence_to_schedule(mut shard_sequence: Vec<u64>) -> Vec<Vec<ShardId>> {
+// and maps each element: |id| -> vec![id], to the format required by `TrackedShardSchedule`.
+fn shard_sequence_to_schedule(mut shard_sequence: Vec<ShardId>) -> Vec<Vec<ShardId>> {
     shard_sequence.extend(
         std::iter::repeat(*shard_sequence.last().unwrap())
             .take(TESTLOOP_NUM_EPOCHS_TO_WAIT as usize),
     );
-    shard_sequence.iter().map(|shard_id| vec![ShardId::new(*shard_id)]).collect()
+    shard_sequence.iter().map(|shard_id| vec![*shard_id]).collect()
 }
 
 #[test]
 // TODO(resharding): fix nearcore and un-ignore this test
-#[ignore]
+//#[ignore]
 fn test_resharding_v3_state_cleanup() {
-    // Track parent shard (6) before resharding, child shard (7) after resharding, and then an unrelated shard (5) forever.
-    // Eventually, the State column should only contain entries belonging to shard 5.
-    let tracked_shard_sequence = vec![6, 6, 7, 5];
+    // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
+    // Eventually, the State column should only contain entries belonging to the last tracked shard.
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let child_shard_id = new_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, child_shard_id, unrelated_shard_id];
     let num_clients = 8;
     let tracked_shard_schedule = TrackedShardSchedule {
         client_index: (num_clients - 1) as usize,

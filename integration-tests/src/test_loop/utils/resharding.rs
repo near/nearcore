@@ -538,9 +538,6 @@ pub(crate) fn check_state_cleanup_after_resharding(
     tracked_shard_schedule: TrackedShardSchedule,
 ) -> LoopAction {
     let client_index = tracked_shard_schedule.client_index;
-    let first_tracked_shard_id = tracked_shard_schedule.schedule[0][0];
-    let final_tracked_shard_id = tracked_shard_schedule.schedule.last().unwrap()[0];
-
     let latest_height = Cell::new(0);
     let target_height = Cell::new(None);
 
@@ -559,24 +556,31 @@ pub(crate) fn check_state_cleanup_after_resharding(
             if latest_height.get() == tip.height {
                 return;
             }
-            if latest_height.get() == 0 {
-                // If this is beginning of the test, get rid of the part of the Genesis State other than the shard we initially track.
-                let first_tracked_shard_uid = client
-                    .epoch_manager
-                    .shard_id_to_uid(first_tracked_shard_id, &tip.epoch_id)
-                    .unwrap();
-                retain_the_only_shard_state(client, first_tracked_shard_uid);
-            }
 
+            let epoch_height = client
+                .epoch_manager
+                .get_epoch_height_from_prev_block(&tip.prev_block_hash)
+                .unwrap();
+            let [tracked_shard_id] =
+                tracked_shard_schedule.schedule[epoch_height as usize].clone().try_into().unwrap();
+            let tracked_shard_uid =
+                client.epoch_manager.shard_id_to_uid(tracked_shard_id, &tip.epoch_id).unwrap();
+
+            if latest_height.get() == 0 {
+                // This is beginning of the test, and the first epoch after genesis has height 1.
+                assert_eq!(epoch_height, 1);
+                // Get rid of the part of the Genesis State other than the shard we initially track.
+                retain_the_only_shard_state(client, tracked_shard_uid);
+            }
             latest_height.set(tip.height);
-            let epoch_length = client.config.epoch_length;
-            let gc_num_epochs_to_keep = client.config.gc.gc_num_epochs_to_keep;
 
             if target_height.get().is_none() {
                 if !this_block_has_new_shard_layout(client.epoch_manager.as_ref(), &tip) {
                     return;
                 }
                 // Just resharded. Set the target height high enough so that gc will kick in.
+                let epoch_length = client.config.epoch_length;
+                let gc_num_epochs_to_keep = client.config.gc.gc_num_epochs_to_keep;
                 target_height
                     .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
             }
@@ -584,12 +588,8 @@ pub(crate) fn check_state_cleanup_after_resharding(
             if latest_height.get() < target_height.get().unwrap() {
                 return;
             }
-            let final_tracked_shard_uid = client
-                .epoch_manager
-                .shard_id_to_uid(final_tracked_shard_id, &tip.epoch_id)
-                .unwrap();
             // At this point, we should only have State from the last tracked shard.
-            check_has_the_only_shard_state(&client, final_tracked_shard_uid);
+            check_has_the_only_shard_state(&client, tracked_shard_uid);
             done.set(true);
         },
     );
