@@ -9,6 +9,7 @@ use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -653,6 +654,19 @@ pub(crate) fn action_deploy_contract(
     Ok(())
 }
 
+pub(crate) fn action_deploy_global_contract(
+    account_id: &AccountId,
+    deploy_contract: &DeployGlobalContractAction,
+    result: &mut ActionResult,
+) -> Result<(), StorageError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
+    result.new_receipts.push(Receipt::new_global_contract_distribution(
+        account_id.clone(),
+        deploy_contract.code.clone(),
+    ));
+    Ok(())
+}
+
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
@@ -899,7 +913,9 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
             required_gas
         }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_)
+        | ReceiptEnum::GlobalContractDitribution(_) => 0,
     })
 }
 
@@ -1025,7 +1041,11 @@ pub(crate) fn check_actor_permissions(
     account_id: &AccountId,
 ) -> Result<(), ActionError> {
     match action {
-        Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
+        Action::DeployContract(_)
+        | Action::DeployGlobalContract(_)
+        | Action::Stake(_)
+        | Action::AddKey(_)
+        | Action::DeleteKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1132,6 +1152,7 @@ pub(crate) fn check_account_existence(
             }
         }
         Action::DeployContract(_)
+        | Action::DeployGlobalContract(_)
         | Action::FunctionCall(_)
         | Action::Stake(_)
         | Action::AddKey(_)

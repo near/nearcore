@@ -1206,6 +1206,7 @@ impl From<Action> for ActionView {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
+            Action::DeployGlobalContract(_) => todo!(),
         }
     }
 }
@@ -1953,6 +1954,7 @@ impl From<Receipt> for ReceiptView {
                         is_promise_resume,
                     }
                 }
+                ReceiptEnum::GlobalContractDitribution(_) => todo!("#12639"),
             },
             priority,
         }
