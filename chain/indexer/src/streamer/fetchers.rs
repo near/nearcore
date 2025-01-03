@@ -29,12 +29,13 @@ pub(crate) async fn fetch_status(
 /// entire block or we already fetched this block.
 pub(crate) async fn fetch_latest_block(
     client: &Addr<near_client::ViewClientActor>,
+    finality: &near_primitives::types::Finality,
 ) -> Result<views::BlockView, FailedToFetchData> {
     tracing::debug!(target: INDEXER, "Fetching latest block");
     client
         .send(
             near_client::GetBlock(near_primitives::types::BlockReference::Finality(
-                near_primitives::types::Finality::Final,
+                finality.clone(),
             ))
             .with_span_context(),
         )

@@ -1763,6 +1763,7 @@ impl<T: ChainAccess> TxMirror<T> {
             home_dir,
             sync_mode: near_indexer::SyncModeEnum::FromInterruption,
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
+            finality: Finality::Final,
             validate_genesis: false,
         })
         .context("failed to start target chain indexer")?;
