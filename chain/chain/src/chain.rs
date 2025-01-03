@@ -2024,7 +2024,6 @@ impl Chain {
             tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
 
             if need_storage_update {
-                // TODO(resharding): consider adding to catchup flow.
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
