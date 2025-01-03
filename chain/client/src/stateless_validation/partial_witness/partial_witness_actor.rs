@@ -454,9 +454,9 @@ impl PartialWitnessActor {
                     runtime_adapter.store(),
                 ) {
                     Ok(true) => {
-                        partial_witness_tracker
-                            .store_partial_encoded_state_witness(partial_witness)
-                            .unwrap();
+                        if let Err(err) = partial_witness_tracker.store_partial_encoded_state_witness(partial_witness) {
+                            tracing::error!(target: "client", "Failed to store partial encoded state witness: {}", err);
+                        }
                     }
                     Ok(false) => {
                         tracing::warn!(
