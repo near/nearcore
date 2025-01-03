@@ -2,7 +2,6 @@ use super::downloader::StateSyncDownloader;
 use super::task_tracker::TaskTracker;
 use crate::metrics;
 use crate::sync::state::chain_requests::ChainFinalizationRequest;
-use crate::sync::state::util::query_epoch_id_and_height_for_block;
 use futures::{StreamExt, TryStreamExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::AsyncSender;
@@ -15,6 +14,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
@@ -162,8 +162,6 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
     // Create flat storage.
     {
-        let (epoch_id, _) = query_epoch_id_and_height_for_block(&store, sync_hash)?;
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let chunk = header.cloned_chunk();
         let block_hash = chunk.prev_block();
 
@@ -180,8 +178,15 @@ pub(super) async fn run_state_sync_for_shard(
     // Load memtrie.
     {
         let handle = computation_task_tracker.get_handle(&format!("shard {}", shard_id)).await;
+        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_uids_pending_resharding = epoch_manager
+            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
         handle.set_status("Loading memtrie");
-        runtime.get_tries().load_mem_trie_on_catchup(&shard_uid, &state_root)?;
+        runtime.get_tries().load_mem_trie_on_catchup(
+            &shard_uid,
+            &state_root,
+            &shard_uids_pending_resharding,
+        )?;
     }
 
     return_if_cancelled!(cancel);

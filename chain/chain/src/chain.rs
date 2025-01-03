@@ -2024,7 +2024,6 @@ impl Chain {
             tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
 
             if need_storage_update {
-                // TODO(resharding): consider adding to catchup flow.
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
@@ -3127,8 +3126,8 @@ impl Chain {
                         }
                         blocks_catch_up_state.done_blocks.push(queued_block);
                     }
-                    Err(_) => {
-                        error!("Error processing block during catch up, retrying");
+                    Err(err) => {
+                        error!(target: "chain", ?err, "Error processing block during catch up, retrying");
                         blocks_catch_up_state.pending_blocks.push(queued_block);
                     }
                 }
