@@ -114,7 +114,7 @@ fn do_deploy_contract(
     let code = near_test_contracts::rs_contract().to_vec();
     let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, 1);
     test_loop.run_for(Duration::seconds(5));
-    check_txs(&*test_loop, node_datas, rpc_id, &[tx]);
+    check_txs(&test_loop.data, node_datas, rpc_id, &[tx]);
 }
 
 /// Call the contract from all accounts and wait until the transactions are executed.
@@ -144,7 +144,7 @@ fn do_call_contract(
         txs.push(tx);
     }
     test_loop.run_for(Duration::seconds(20));
-    check_txs(&*test_loop, node_datas, &rpc_id, &txs);
+    check_txs(&test_loop.data, node_datas, &rpc_id, &txs);
 }
 
 /// The condition that can be used for the test loop to wait until the chain
