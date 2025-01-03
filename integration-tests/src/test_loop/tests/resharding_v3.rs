@@ -772,8 +772,6 @@ fn test_resharding_v3_load_mem_trie_v1() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(1)
         .load_mem_tries_for_tracked_shards(false)
-        // TODO(resharding): should it work without tracking all shards?
-        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -783,8 +781,6 @@ fn test_resharding_v3_load_mem_trie_v2() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(2)
         .load_mem_tries_for_tracked_shards(false)
-        // TODO(resharding): should it work without tracking all shards?
-        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
