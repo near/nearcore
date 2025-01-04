@@ -381,7 +381,7 @@ impl TrieKey {
             TrieKey::GlobalContractCode { code_hash } => {
                 buf.push(col::GLOBAL_CONTRACT_DATA);
                 buf.extend(code_hash.as_ref());
-            },
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }

@@ -931,6 +931,26 @@ impl Runtime {
         })
     }
 
+    fn apply_global_contract_distribution_receipt(
+        &self,
+        receipt: &Receipt,
+        state_update: &mut TrieUpdate,
+    ) {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_global_contract_distribution_receipt",
+        )
+        .entered();
+        let ReceiptEnum::GlobalContractDitribution(global_contract_data) = receipt.receipt() else {
+            unreachable!("given receipt should be an global contract distribution receipt")
+        };
+        let code_hash = CryptoHash::hash_bytes(&global_contract_data.code);
+        state_update
+            .set(TrieKey::GlobalContractCode { code_hash }, global_contract_data.code.clone());
+        state_update
+            .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+    }
+
     fn generate_refund_receipts(
         &self,
         current_gas_price: Balance,
@@ -1203,8 +1223,8 @@ impl Runtime {
                     return Ok(None);
                 }
             }
-            ReceiptEnum::GlobalContractDitribution(_global_contract_data) => {
-                // TODO(#12639): save global contract to the state
+            ReceiptEnum::GlobalContractDitribution(_) => {
+                self.apply_global_contract_distribution_receipt(receipt, state_update);
                 return Ok(None);
             }
         };
