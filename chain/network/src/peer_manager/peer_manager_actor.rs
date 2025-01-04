@@ -1071,12 +1071,14 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
+                let arbiter = actix::Arbiter::current();
                 validator_witness_tuple.into_par_iter().for_each(
                     |(chunk_validator, partial_witness)| {
-                        self.state.send_message_to_account(
+                        self.state.send_message_to_account_with_arbiter(
                             &self.clock,
                             &chunk_validator,
                             RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                            arbiter.clone(),
                         );
                     },
                 );
@@ -1086,13 +1088,15 @@ impl PeerManagerActor {
                 chunk_validators,
                 partial_witness,
             ) => {
+                let arbiter = actix::Arbiter::current();
                 chunk_validators.into_par_iter().for_each(|chunk_validator| {
-                    self.state.send_message_to_account(
+                    self.state.send_message_to_account_with_arbiter(
                         &self.clock,
                         &chunk_validator,
                         RoutedMessageBody::PartialEncodedStateWitnessForward(
                             partial_witness.clone(),
                         ),
+                        arbiter.clone(),
                     );
                 });
                 NetworkResponses::NoResponse
