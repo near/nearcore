@@ -400,16 +400,14 @@ impl ReceiptSinkV2 {
         // See https://github.com/near/nearcore/issues/12606
         let max_receipt_size = apply_state.config.wasm_config.limit_config.max_receipt_size;
         if size > max_receipt_size {
-            if size > max_receipt_size {
-                tracing::warn!(
-                    target: "runtime",
-                    "try_forward observed a receipt with size exceeding the size limit! receipt_id: {} size: {} size_limit: {}",
-                    receipt.receipt_id(),
-                    size,
-                    max_receipt_size,
-                );
-                size = max_receipt_size;
-            }
+            tracing::warn!(
+                target: "runtime",
+                "try_forward observed a receipt with size exceeding the size limit! receipt_id: {} size: {} size_limit: {}",
+                receipt.receipt_id(),
+                size,
+                max_receipt_size,
+            );
+            size = max_receipt_size;
         }
 
         // Default case set to `Gas::MAX`: If no outgoing limit was defined for the receiving
