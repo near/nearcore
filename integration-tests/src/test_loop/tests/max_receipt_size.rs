@@ -149,7 +149,7 @@ fn test_max_receipt_size_promise_return() {
         &account,
         near_test_contracts::rs_contract().into(),
         &account_signer,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(5));
 
@@ -191,7 +191,7 @@ fn test_max_receipt_size_promise_return() {
         "max_receipt_size_promise_return_method1".into(),
         format!("{{\"args_size\": {}}}", args_size).into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, large_receipt_tx, &env.datas, Duration::seconds(5));
 
@@ -205,7 +205,7 @@ fn test_max_receipt_size_promise_return() {
         "assert_test_completed".into(),
         "".into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, assert_test_completed, &env.datas, Duration::seconds(5));
 
@@ -234,7 +234,7 @@ fn test_max_receipt_size_value_return() {
         &account,
         near_test_contracts::rs_contract().into(),
         &account_signer,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(5));
 
@@ -250,7 +250,7 @@ fn test_max_receipt_size_value_return() {
         "max_receipt_size_value_return_method".into(),
         format!("{{\"value_size\": {}}}", max_receipt_size).into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, large_receipt_tx, &env.datas, Duration::seconds(5));
 
@@ -264,7 +264,7 @@ fn test_max_receipt_size_value_return() {
         "assert_test_completed".into(),
         "".into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, assert_test_completed, &env.datas, Duration::seconds(5));
 
@@ -290,7 +290,7 @@ fn test_max_receipt_size_yield_resume() {
         &account,
         near_test_contracts::rs_contract().into(),
         &account_signer,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     run_tx(&mut env.test_loop, &rpc_id, deploy_contract_tx, &env.datas, Duration::seconds(50));
 
@@ -307,7 +307,7 @@ fn test_max_receipt_size_yield_resume() {
         "yield_with_large_args".into(),
         format!("{{\"args_size\": {}}}", max_receipt_size).into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     let yield_receipt_res = execute_tx(
         &mut env.test_loop,
@@ -342,7 +342,7 @@ fn test_max_receipt_size_yield_resume() {
         "resume_with_large_payload".into(),
         format!("{{\"payload_size\": {}}}", 2000).into(),
         300 * TGAS,
-        get_shared_block_hash(&env.datas, &env.test_loop),
+        get_shared_block_hash(&env.datas, &env.test_loop.data),
     );
     let resume_receipt_res = execute_tx(
         &mut env.test_loop,
