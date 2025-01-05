@@ -402,10 +402,10 @@ impl ReceiptSinkV2 {
         if size > max_receipt_size {
             tracing::warn!(
                 target: "runtime",
-                "try_forward observed a receipt with size exceeding the size limit! receipt_id: {} size: {} size_limit: {}",
-                receipt.receipt_id(),
+                receipt_id=?receipt.receipt_id(),
                 size,
                 max_receipt_size,
+                "try_forward observed a receipt with size exceeding the size limit!",
             );
             size = max_receipt_size;
         }
