@@ -105,7 +105,7 @@ pub(crate) fn generate_thunks(
 
     // And finally, fixup thunks in export and table sections.
 
-    // Fixup original function index to a index of a thunk generated earlier.
+    // Fixup original function index to an index of a thunk generated earlier.
     let fixup = |function_idx: &mut u32| {
         // Check whether this function is in replacement_map, since
         // we can skip thunk generation (e.g. if stack_cost of function is 0).

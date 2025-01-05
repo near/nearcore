@@ -130,7 +130,7 @@ fn run_model(
     let mut model = Model::new(strategy, workload);
     let mut max_queues = ShardQueueLengths::default();
 
-    // Set the start time to an half hour ago to make it visible by default in
+    // Set the start time to a half hour ago to make it visible by default in
     // grafana. Each round is 1 virtual second so hald an hour is good for
     // looking at a maximum of 1800 rounds, beyond that you'll need to customize
     // the grafana time range.
