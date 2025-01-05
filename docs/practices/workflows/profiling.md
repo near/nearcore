@@ -69,7 +69,7 @@ $ perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
 
 ### Profiling with hardware counters
 
-As mentioned earlier, sampling profiler is probablistic and the data it produces is only really
+As mentioned earlier, sampling profiler is probabilistic and the data it produces is only really
 suitable for a broad overview. Any attempt to analyze the performance of the code at the
 microarchitectural level (which you might want to do if investigating how to speed up a small but
 frequently invoked function) will be severely hampered by the low quality of data.

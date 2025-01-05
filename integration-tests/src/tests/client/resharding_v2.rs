@@ -359,7 +359,7 @@ impl TestReshardingEnv {
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
         for shard_id in shard_layout.shard_ids() {
             // get hash of the last block that we need to check that it has empty chunks for the shard
-            // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
+            // if `get_next_block_hash_with_new_chunk` returns None, that would be the latest block
             // on chain, otherwise, that would be the block before the `block_hash` that the function
             // call returns
             let next_block_hash_with_new_chunk =

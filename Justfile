@@ -10,7 +10,6 @@ platform_excludes := if os() == "macos" {
 }
 
 nightly_flags := "--features nightly,test_features"
-public_libraries := "-p near-primitives -p near-crypto -p near-jsonrpc-primitives -p near-chain-configs -p near-primitives-core"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
@@ -150,5 +149,10 @@ check-protocol-schema:
     env {{protocol_schema_env}} cargo test -p protocol-schema-check --profile dev-artifacts
     env {{protocol_schema_env}} cargo run -p protocol-schema-check --profile dev-artifacts
 
-check_build_public_libraries:
-    cargo check {{public_libraries}}
+publishable := "cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length > 0)) | .name'"
+check-publishable-separately *OPTIONS:
+    #!/usr/bin/env bash
+    for pkg in $({{ publishable }}); do
+        echo "Checking $pkg..."
+        cargo check -p $pkg {{ OPTIONS }}
+    done

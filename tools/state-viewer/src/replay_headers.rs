@@ -201,7 +201,7 @@ fn get_validator_summary(
     validator_to_summary
 }
 
-/// Returns a mapping from validator account id to the kickout reasong (from previous epoch).
+/// Returns a mapping from validator account id to the kickout reason (from previous epoch).
 fn get_validator_kickouts(
     validator_info: &EpochValidatorInfo,
 ) -> HashMap<AccountId, ValidatorKickoutReason> {

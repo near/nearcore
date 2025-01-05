@@ -242,7 +242,7 @@ impl TrieIterationBenchmarkCmd {
             col::DELAYED_RECEIPT_OR_INDICES => false,
 
             // Most columns use the ACCOUNT_DATA_SEPARATOR to indicate the end
-            // of the accound id in the trie key. For those columns the
+            // of the account id in the trie key. For those columns the
             // partial_parse_account_id method should be used.
             // The only exception is the ACCESS_KEY and dedicated method
             // partial_parse_account_id_from_access_key should be used.

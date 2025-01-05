@@ -6,7 +6,7 @@
 //!      To support this, pass test_loop.future_spawner() the &dyn FutureSpawner
 //!      to any component that needs to spawn futures.
 //!
-//!      This causes any futures spawned during the test to end up as an callback in the
+//!      This causes any futures spawned during the test to end up as a callback in the
 //!      test loop. The event will eventually be executed by the drive_futures function,
 //!      which will drive the future until it is either suspended or completed. If suspended,
 //!      then the waker of the future (called when the future is ready to resume) will place
