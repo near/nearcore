@@ -137,6 +137,7 @@ pub(crate) enum ActionType {
     DataReceipt,
     Delegate,
     DeployGlobalContract,
+    UseGlobalContract,
 }
 
 impl ContractAccount {
@@ -352,6 +353,7 @@ fn try_find_actions_spawned_by_receipt(
                                     Action::DeployGlobalContract(_) => {
                                         ActionType::DeployGlobalContract
                                     }
+                                    Action::UseGlobalContract(_) => ActionType::UseGlobalContract,
                                 };
                                 entry
                                     .actions

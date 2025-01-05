@@ -1207,6 +1207,7 @@ impl From<Action> for ActionView {
                 signature: action.signature,
             },
             Action::DeployGlobalContract(_) => todo!(),
+            Action::UseGlobalContract(_) => todo!(),
         }
     }
 }

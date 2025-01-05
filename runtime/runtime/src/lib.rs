@@ -575,6 +575,13 @@ impl Runtime {
                     receipt.priority(),
                 )?;
             }
+            Action::UseGlobalContract(use_global_contract_action) => {
+                action_use_global_contract(
+                    state_update,
+                    account.as_mut().expect(EXPECT_ACCOUNT_EXISTS),
+                    use_global_contract_action,
+                )?;
+            }
         };
         Ok(result)
     }

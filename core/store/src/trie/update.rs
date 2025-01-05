@@ -336,23 +336,28 @@ impl TrieUpdate {
         if code_hash == CryptoHash::default() {
             return Ok(());
         }
-        let trie_key = TrieKey::ContractCode { account_id };
-        let contract_ref = self
-            .trie
-            .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
-            .or_else(|err| {
-                // If the value for the trie key is not found, we treat it as if the contract does not exist.
-                // In this case, we ignore the error and skip recording the contract call below.
-                if matches!(err, StorageError::MissingTrieValue(_, _)) {
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            })?;
-        let contract_exists =
-            contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
-        if contract_exists {
-            self.contract_storage.record_call(code_hash);
+        // ugly hack here
+        for trie_key in
+            [TrieKey::ContractCode { account_id }, TrieKey::GlobalContractCode { code_hash }]
+        {
+            let contract_ref = self
+                .trie
+                .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
+                .or_else(|err| {
+                    // If the value for the trie key is not found, we treat it as if the contract does not exist.
+                    // In this case, we ignore the error and skip recording the contract call below.
+                    if matches!(err, StorageError::MissingTrieValue(_, _)) {
+                        Ok(None)
+                    } else {
+                        Err(err)
+                    }
+                })?;
+            let contract_exists =
+                contract_ref.is_some_and(|value_ref| value_ref.value_hash() == code_hash);
+            if contract_exists {
+                self.contract_storage.record_call(code_hash);
+                break;
+            }
         }
         Ok(())
     }
