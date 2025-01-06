@@ -452,6 +452,7 @@ pub fn start_with_config_and_synchronization(
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .context("PeerManager::spawn()")?;
     network_adapter.bind(network_actor.clone().with_auto_span_context());

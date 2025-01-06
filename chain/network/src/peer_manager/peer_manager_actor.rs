@@ -26,6 +26,7 @@ use ::time::ext::InstantExt as _;
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{SendAsync, Sender};
 use near_async::time;
 use near_o11y::{handler_debug_span, handler_trace_span, WithSpanContext};
@@ -40,6 +41,7 @@ use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use rand::Rng;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -101,6 +103,8 @@ pub struct PeerManagerActor {
 
     /// State that is shared between multiple threads (including PeerActors).
     pub(crate) state: Arc<NetworkState>,
+
+    rayon_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 /// TEST-ONLY
@@ -218,6 +222,7 @@ impl PeerManagerActor {
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
         genesis_id: GenesisId,
+        rayon_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<actix::Addr<Self>> {
         let config = config.verify().context("config")?;
         let store = store::Store::from(store);
@@ -352,6 +357,7 @@ impl PeerManagerActor {
             started_connect_attempts: false,
             state,
             clock,
+            rayon_spawner,
         }))
     }
 
@@ -1069,29 +1075,42 @@ impl PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-                for (chunk_validator, partial_witness) in validator_witness_tuple {
-                    self.state.send_message_to_account(
-                        &self.clock,
+            NetworkRequests::PartialEncodedStateWitness(chunk_validator, partial_witness) => {
+                let arbiter = actix::Arbiter::current();
+                let state = self.state.clone();
+                let clock = self.clock.clone();
+                self.rayon_spawner.spawn("Peer_Manager_PartialEncodedStateWitness", move || {
+                    state.send_message_to_account_with_arbiter(
+                        &clock,
                         &chunk_validator,
                         RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                        arbiter,
                     );
-                }
+                });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitnessForward(
                 chunk_validators,
                 partial_witness,
             ) => {
-                for chunk_validator in chunk_validators {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        RoutedMessageBody::PartialEncodedStateWitnessForward(
-                            partial_witness.clone(),
-                        ),
-                    );
-                }
+                let arbiter = actix::Arbiter::current();
+                let state = self.state.clone();
+                let clock = self.clock.clone();
+                self.rayon_spawner.spawn(
+                    "Peer_Manager_PartialEncodedStateWitnessForward",
+                    move || {
+                        chunk_validators.into_par_iter().for_each(|chunk_validator| {
+                            state.send_message_to_account_with_arbiter(
+                                &clock,
+                                &chunk_validator,
+                                RoutedMessageBody::PartialEncodedStateWitnessForward(
+                                    partial_witness.clone(),
+                                ),
+                                arbiter.clone(),
+                            );
+                        });
+                    },
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {

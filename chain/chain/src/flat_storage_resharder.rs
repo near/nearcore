@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use crate::resharding::types::{
@@ -1025,9 +1025,10 @@ fn copy_kv_to_child(
 
     // Sanity check we are truly writing to one of the expected children shards.
     if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
-        let err_msg = "account id doesn't map to any child shard!";
-        error!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
-        return Err(Error::ReshardingError(err_msg.to_string()));
+        let err_msg = "account id doesn't map to any child shard! - skipping it";
+        warn!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
+        // Do not fail resharding. Just skip this entry.
+        return Ok(());
     }
     // Add the new flat store entry.
     store_update.set(new_shard_uid, key, value);
@@ -2560,5 +2561,64 @@ mod tests {
             flat_store.get_flat_storage_status(parent_shard),
             Ok(FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }))
         );
+    }
+
+    /// This test asserts that resharding doesn't fail if flat storage iteration goes over an account
+    /// which is not part of any children shards after the shard layout changes.
+    #[test]
+    fn unrelated_account_do_not_fail_splitting() {
+        init_test_logger();
+        let (mut chain, resharder, sender) =
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams {
+            parent_shard, left_child_shard, right_child_shard, ..
+        } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Add two blocks on top of genesis. This will make the resharding block (height 0) final.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
+
+        // Inject an account which doesn't belong to the parent shard into its flat storage.
+        let mut store_update = flat_store.store_update();
+        let test_value = Some(FlatStateValue::Inlined(vec![0]));
+        let key = TrieKey::Account { account_id: account!("ab") };
+        store_update.set(parent_shard, key.to_vec(), test_value);
+        store_update.commit().unwrap();
+
+        // Perform resharding.
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        sender.call_split_shard_task();
+
+        // Check final status of parent flat storage.
+        let parent = ShardUId { version: 3, shard_id: 1 };
+        assert_eq!(flat_store.get_flat_storage_status(parent), Ok(FlatStorageStatus::Empty));
+        assert_eq!(flat_store.iter(parent).count(), 0);
+        assert!(resharder
+            .runtime
+            .get_flat_storage_manager()
+            .get_flat_storage_for_shard(parent)
+            .is_none());
+
+        // Check intermediate status of children flat storages.
+        // If children reached the catching up state, it means that the split task succeeded.
+        for child in [left_child_shard, right_child_shard] {
+            assert_eq!(
+                flat_store.get_flat_storage_status(child),
+                Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
+                    chain.final_head().unwrap().into()
+                )))
+            );
+            // However, the unrelated account should not end up in any child.
+            assert!(flat_store.get(child, &key.to_vec()).is_ok_and(|val| val.is_none()));
+        }
     }
 }
