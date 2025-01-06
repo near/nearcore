@@ -686,6 +686,38 @@ fn test_resharding_v3_shard_shuffling() {
     test_resharding_v3_base(params);
 }
 
+/// This tests an edge case where we track the parent in the pre-resharding epoch, then we
+/// track an unrelated shard in the first epoch after resharding, then we track a child of the resharding
+/// in the next epoch after that. In that case we don't want to state sync because we can just perform
+/// the resharding and continue applying chunks for the child in the first epoch post-resharding.
+#[test]
+fn test_resharding_v3_shard_shuffling_untrack_then_track() {
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let child_shard_id = new_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, unrelated_shard_id, child_shard_id];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    let params = TestReshardingParametersBuilder::default()
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .num_clients(num_clients)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        // TODO(resharding): uncomment after fixing test_resharding_v3_state_cleanup()
+        //.add_loop_action(check_state_cleanup_after_resharding(tracked_shard_schedule))
+        .build();
+    test_resharding_v3_base(params);
+}
+
 #[test]
 fn test_resharding_v3_shard_shuffling_intense() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
