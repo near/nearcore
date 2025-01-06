@@ -102,7 +102,10 @@ impl RuntimeUser {
                     false,
                 )
             } else {
-                client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root)
+                let shard_uid = ShardUId::single_shard();
+                let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
+                trie.set_charge_gas_for_trie_node_access(true);
+                trie
             };
             let apply_result = client
                 .runtime
