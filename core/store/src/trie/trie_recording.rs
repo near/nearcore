@@ -469,7 +469,9 @@ mod trie_recording_tests {
                 false,
             )
         } else {
-            tries.get_trie_for_shard(shard_uid, state_root)
+            let mut trie = tries.get_trie_for_shard(shard_uid, state_root);
+            trie.charge_gas_for_trie_node_access = true;
+            trie
         }
     }
 
