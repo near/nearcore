@@ -2454,8 +2454,10 @@ impl Chain {
     }
 
     /// Returns whether we need to initiate state sync for the given `shard_id` for the epoch
-    /// beginning after the block `epoch_last_block`. If that epoch is epoch T, the logic is: (will
-    /// track the shard in epoch T+1) && (not tracking it in T) && (didn't track it in T-1).
+    /// beginning after the block `epoch_last_block`. If that epoch is epoch T, the logic is:
+    /// - will track the shard in epoch T+1
+    /// - AND not tracking it in T
+    /// - AND didn't track it in T-1
     /// We check that we didn't track it in T-1 because if so, and we're in the relatively rare case
     /// where we'll go from tracking it to not tracking it and back to tracking it in consecutive epochs,
     /// then we can just continue to apply chunks as if we were tracking it in epoch T, and there's no need to state sync.
