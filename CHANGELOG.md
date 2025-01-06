@@ -305,7 +305,7 @@ to pay for the storage of their accounts.
   `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
   [#7548](https://github.com/near/nearcore/pull/7548)
 * Few changes to `view_state` JSON RPC query:
-  - The requset has now an optional `include_proof` argument.  When set to
+  - The request has now an optional `include_proof` argument.  When set to
     `true`, response’s `proof` will be populated.
   - The `proof` within each value in `values` list of a `view_state` response is
     now deprecated and will be removed in the future.  Client code should ignore
