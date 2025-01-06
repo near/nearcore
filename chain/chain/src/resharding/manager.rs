@@ -320,6 +320,7 @@ impl ReshardingManager {
         parent_congestion_info: CongestionInfo,
         retain_mode: RetainMode,
     ) -> Result<CongestionInfo, Error> {
+        tracing::debug!(target: "resharding", "Getting child congestion info.");
         // The left child contains all the delayed and buffered receipts from the
         // parent so it should have identical congestion info.
         if retain_mode == RetainMode::Left {
@@ -351,6 +352,7 @@ impl ReshardingManager {
         // congestion info must match this invariant.
         assert_eq!(congestion_info.buffered_receipts_gas(), 0);
 
+        tracing::debug!(target: "resharding", "Getting child congestion info done.");
         Ok(congestion_info)
     }
 

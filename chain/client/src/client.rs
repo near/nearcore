@@ -1072,6 +1072,7 @@ impl Client {
                 } else {
                     0
                 };
+            tracing::info!("boom prepare_transactions from client");
             runtime.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext {
@@ -2255,7 +2256,8 @@ impl Client {
             validators.remove(account_id);
         }
         for validator in validators {
-            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, ?shard_id, "Routing a transaction");
+            let tx_hash = tx.get_hash();
+            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, ?shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

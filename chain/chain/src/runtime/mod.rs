@@ -799,7 +799,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
         }
-        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
+        debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
         metrics::PREPARE_TX_REJECTED

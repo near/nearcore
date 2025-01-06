@@ -437,6 +437,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
         }
 
+        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+        println!(
+            "new block #{} shards: {:?} chunk mask {:?}",
+            tip.height,
+            shard_layout.shard_ids().collect_vec(),
+            block_header.chunk_mask().to_vec()
+        );
+
         trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
 
         let epoch_height =
