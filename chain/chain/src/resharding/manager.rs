@@ -147,7 +147,7 @@ impl ReshardingManager {
     }
 
     /// Store in the database the mapping of ShardUId from children to the parent shard,
-    /// so that subsequent accesses to the State will use the parent shard's UId prefix
+    /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
     /// as a prefix for the database key.
     // TODO(resharding) add testloop where grandparent ShardUId is used
     fn set_state_shard_uid_mapping(
