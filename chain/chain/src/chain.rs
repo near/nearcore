@@ -2483,15 +2483,9 @@ impl Chain {
         if epoch_id == &EpochId::default() {
             return Ok(true);
         }
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let prev_epoch_id = epoch_manager.get_epoch_id(epoch_last_block)?;
-        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
-        let parent_shard_id = if shard_layout == prev_shard_layout {
-            shard_id
-        } else {
-            shard_layout.get_parent_shard_id(shard_id)?
-        };
 
+        let (_layout, parent_shard_id, _index) =
+            epoch_manager.get_prev_shard_id_from_prev_hash(epoch_last_block, shard_id)?;
         // Note that here passing `epoch_last_block_prev` to care_about_shard() will have us check whether we were tracking it in
         // the previous epoch, because it is the "parent_hash" of the last block of the previous epoch.
         // TODO: consider refactoring these ShardTracker functions to accept an epoch_id
