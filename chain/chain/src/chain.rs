@@ -2389,7 +2389,6 @@ impl Chain {
         if !self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
             return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash)?, None));
         }
-        debug!(target: "chain", %block_hash, "block is the first block of an epoch");
         if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
             // The previous block is not caught up for the next epoch relative to the previous
             // block, which is the current epoch for this block, so this block cannot be applied
@@ -2402,6 +2401,10 @@ impl Chain {
         // we consider that we are caught up, otherwise not
         let state_sync_info =
             self.get_state_sync_info(me, epoch_id, block_hash, prev_hash, prev_prev_hash)?;
+        debug!(
+            target: "chain", %block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
+            "Checked for shards to sync for epoch T+1 upon processing first block of epoch T"
+        );
         Ok((state_sync_info.is_none(), state_sync_info))
     }
 
