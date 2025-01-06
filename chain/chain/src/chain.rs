@@ -2386,24 +2386,23 @@ impl Chain {
         prev_prev_hash: &CryptoHash,
         me: &Option<AccountId>,
     ) -> Result<(bool, Option<StateSyncInfo>), Error> {
-        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
-            debug!(target: "chain", %block_hash, "block is the first block of an epoch");
-            if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
-                // The previous block is not caught up for the next epoch relative to the previous
-                // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, needs to be orphaned
-                return Err(Error::Orphan);
-            }
-
-            // For the first block of the epoch we check if we need to start download states for
-            // shards that we will care about in the next epoch. If there is no state to be downloaded,
-            // we consider that we are caught up, otherwise not
-            let state_sync_info =
-                self.get_state_sync_info(me, epoch_id, block_hash, prev_hash, prev_prev_hash)?;
-            Ok((state_sync_info.is_none(), state_sync_info))
-        } else {
-            Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash)?, None))
+        if !self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
+            return Ok((self.prev_block_is_caught_up(prev_prev_hash, prev_hash)?, None));
         }
+        debug!(target: "chain", %block_hash, "block is the first block of an epoch");
+        if !self.prev_block_is_caught_up(prev_prev_hash, prev_hash)? {
+            // The previous block is not caught up for the next epoch relative to the previous
+            // block, which is the current epoch for this block, so this block cannot be applied
+            // at all yet, needs to be orphaned
+            return Err(Error::Orphan);
+        }
+
+        // For the first block of the epoch we check if we need to start download states for
+        // shards that we will care about in the next epoch. If there is no state to be downloaded,
+        // we consider that we are caught up, otherwise not
+        let state_sync_info =
+            self.get_state_sync_info(me, epoch_id, block_hash, prev_hash, prev_prev_hash)?;
+        Ok((state_sync_info.is_none(), state_sync_info))
     }
 
     pub fn prev_block_is_caught_up(
