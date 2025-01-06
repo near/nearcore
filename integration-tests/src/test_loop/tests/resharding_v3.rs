@@ -706,12 +706,12 @@ fn test_resharding_v3_shard_shuffling_untrack_then_track() {
     let num_clients = 8;
     let tracked_shard_schedule = TrackedShardSchedule {
         client_index: (num_clients - 1) as usize,
-        schedule: shard_sequence_to_schedule(tracked_shard_sequence.clone()),
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
     };
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
         .num_clients(num_clients)
-        .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
         // TODO(resharding): uncomment after fixing test_resharding_v3_state_cleanup()
         //.add_loop_action(check_state_cleanup_after_resharding(tracked_shard_schedule))
         .build();
