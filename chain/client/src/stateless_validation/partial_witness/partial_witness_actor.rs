@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Instant;
 
 use itertools::Itertools;
 use lru::LruCache;
@@ -339,6 +340,7 @@ impl PartialWitnessActor {
 
         // Record time taken to encode the state witness parts.
         let shard_id_label = chunk_header.shard_id().to_string();
+        let partial_witness_creation_timestamp = Instant::now();
         let encode_timer = metrics::PARTIAL_WITNESS_ENCODE_TIME
             .with_label_values(&[shard_id_label.as_str()])
             .start_timer();
@@ -357,6 +359,7 @@ impl PartialWitnessActor {
             chunk_hash,
             witness_size_in_bytes,
             validator_witness_tuple.len(),
+            partial_witness_creation_timestamp,
         );
 
         // Send the parts to the corresponding chunk validator owners.
@@ -596,7 +599,7 @@ impl PartialWitnessActor {
 
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
-    /// which will receive the state witness for the new chunk.  
+    /// which will receive the state witness for the new chunk.
     fn send_contract_accesses_to_chunk_validators(
         &self,
         key: ChunkProductionKey,

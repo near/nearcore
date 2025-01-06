@@ -582,6 +582,18 @@ pub(crate) static CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME: LazyLock<Histogram
         .unwrap()
     });
 
+pub(crate) static CHUNK_STATE_WITNESS_E2E_ROUNDTRIP_TIME: LazyLock<HistogramVec> = LazyLock::new(
+    || {
+        try_create_histogram_vec(
+                "near_chunk_state_witness_e2e_roundtrip_time",
+                "Time in seconds between creating the partial witnesses, sending them through the network to receiving the corresponding ack message after rebuilding the state witness",
+                &["witness_size_bucket"],
+                Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+            )
+            .unwrap()
+    },
+);
+
 pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_SIZE: LazyLock<IntGaugeVec> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(

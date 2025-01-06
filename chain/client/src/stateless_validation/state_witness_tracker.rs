@@ -1,7 +1,7 @@
 use crate::metrics;
 use bytesize::ByteSize;
 use lru::LruCache;
-use near_async::time::Clock;
+use near_async::time::{Clock, Instant};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitnessAck;
 use s3::creds::time::ext::InstantExt as _;
@@ -35,7 +35,9 @@ struct ChunkStateWitnessRecord {
     /// Number of validators that the witness is sent to.
     num_validators: usize,
     /// Timestamp of when the chunk producer sends the state witness.
-    sent_timestamp: near_async::time::Instant,
+    sent_timestamp: Instant,
+    /// Timestamp of when the chunk producer starts creating the partial state witnesses.
+    partial_witness_creation_timestamp: Instant,
 }
 
 /// Tracks a collection of state witnesses sent from chunk producers to validators.
@@ -65,6 +67,7 @@ impl ChunkStateWitnessTracker {
         chunk_hash: ChunkHash,
         witness_size_in_bytes: usize,
         num_validators: usize,
+        partial_witness_creation_timestamp: Instant,
     ) -> () {
         let key = ChunkStateWitnessKey::new(chunk_hash);
         tracing::trace!(target: "state_witness_tracker", witness_key=?key,
@@ -75,6 +78,7 @@ impl ChunkStateWitnessTracker {
                 num_validators,
                 witness_size: witness_size_in_bytes,
                 sent_timestamp: self.clock.now(),
+                partial_witness_creation_timestamp,
             },
         );
     }
@@ -88,7 +92,7 @@ impl ChunkStateWitnessTracker {
         if let Some(record) = self.witnesses.get_mut(&key) {
             debug_assert!(record.num_validators > 0);
 
-            Self::update_roundtrip_time_metric(record, &self.clock);
+            Self::update_roundtrip_time_metrics(record, &self.clock);
 
             // Cleanup the record if we received the acks from all the validators, otherwise update
             // the number of validators from which we are expecting an ack message.
@@ -102,13 +106,20 @@ impl ChunkStateWitnessTracker {
     }
 
     /// Records the roundtrip time in metrics.
-    fn update_roundtrip_time_metric(record: &ChunkStateWitnessRecord, clock: &Clock) -> () {
+    fn update_roundtrip_time_metrics(record: &ChunkStateWitnessRecord, clock: &Clock) -> () {
         let received_time = clock.now();
         if received_time > record.sent_timestamp {
             metrics::CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME
                 .with_label_values(&[witness_size_bucket(record.witness_size)])
                 .observe(
                     (received_time.signed_duration_since(record.sent_timestamp)).as_seconds_f64(),
+                );
+            metrics::CHUNK_STATE_WITNESS_E2E_ROUNDTRIP_TIME
+                .with_label_values(&[witness_size_bucket(record.witness_size)])
+                .observe(
+                    (received_time
+                        .signed_duration_since(record.partial_witness_creation_timestamp))
+                    .as_seconds_f64(),
                 );
         }
     }
@@ -161,9 +172,15 @@ mod state_witness_tracker_tests {
     fn record_and_receive_ack_num_validators_decreased() {
         let witness = dummy_witness();
         let clock = dummy_clock();
+        let random_timestamp = clock.now();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(
+            witness.chunk_header.compute_hash(),
+            4321,
+            NUM_VALIDATORS,
+            random_timestamp,
+        );
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all "except for one".
@@ -180,9 +197,15 @@ mod state_witness_tracker_tests {
     fn record_and_receive_ack_record_deleted() {
         let witness = dummy_witness();
         let clock = dummy_clock();
+        let random_timestamp = clock.now();
         let mut tracker = ChunkStateWitnessTracker::new(clock.clock());
 
-        tracker.record_witness_sent(witness.chunk_header.compute_hash(), 4321, NUM_VALIDATORS);
+        tracker.record_witness_sent(
+            witness.chunk_header.compute_hash(),
+            4321,
+            NUM_VALIDATORS,
+            random_timestamp,
+        );
         clock.advance(Duration::milliseconds(3444));
 
         // Ack received from all.
