@@ -5,6 +5,7 @@ use std::time::Duration;
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use tracing::info;
 
 use near_actix_test_utils::run_actix;
@@ -34,6 +35,7 @@ fn make_peer_manager(
         noop().into_sender(),
         noop().into_multi_sender(),
         GenesisId::default(),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap()
 }
