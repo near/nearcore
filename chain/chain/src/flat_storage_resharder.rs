@@ -1027,6 +1027,12 @@ fn copy_kv_to_child(
     if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
         let err_msg = "account id doesn't map to any child shard! - skipping it";
         warn!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
+
+        // TODO(resharding): add a debug assertion once the root cause is fixed. The current
+        // hypothesis is that flat storage might contain keys with account_id outside of the shard's
+        // boundary due to either a bug in the state generation for forknet or corrupted state in
+        // mainnet.
+
         // Do not fail resharding. Just skip this entry.
         return Ok(());
     }
