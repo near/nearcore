@@ -3335,6 +3335,7 @@ dependencies = [
  "near-config-utils",
  "near-indexer",
  "near-o11y",
+ "near-primitives",
  "openssl-probe",
  "serde_json",
  "tokio",
