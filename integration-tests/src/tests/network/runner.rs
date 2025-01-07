@@ -140,7 +140,7 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let networking_rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let networking_rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         networking_rt.handle().clone(),
         Clock::real(),
