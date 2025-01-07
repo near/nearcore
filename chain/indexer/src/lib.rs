@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use near_chain_configs::GenesisValidationMode;
 pub use near_primitives;
-use near_primitives::types::Gas;
+use near_primitives::types::{Finality, Gas};
 pub use nearcore::{get_default_home, init_configs, NearConfig};
 
 pub use near_indexer_primitives::{
@@ -83,6 +83,8 @@ pub struct IndexerConfig {
     pub sync_mode: SyncModeEnum,
     /// Whether await for node to be synced or not
     pub await_for_node_synced: AwaitForNodeSyncedEnum,
+    /// Finality level at which blocks are streamed
+    pub finality: Finality,
     /// Tells whether to validate the genesis file before starting
     pub validate_genesis: bool,
 }

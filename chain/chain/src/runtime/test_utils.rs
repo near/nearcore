@@ -48,6 +48,7 @@ impl NightshadeRuntime {
         runtime_config_store: Option<RuntimeConfigStore>,
         trie_config: TrieConfig,
         state_snapshot_type: StateSnapshotType,
+        gc_num_epochs_to_keep: u64,
     ) -> Arc<Self> {
         Self::new(
             store,
@@ -57,7 +58,7 @@ impl NightshadeRuntime {
             None,
             None,
             runtime_config_store,
-            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            gc_num_epochs_to_keep,
             trie_config,
             StateSnapshotConfig {
                 state_snapshot_type,

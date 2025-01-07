@@ -593,6 +593,7 @@ impl TestLoopBuilder {
             self.runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
+            client_config.gc.gc_num_epochs_to_keep,
         );
 
         let state_snapshot = StateSnapshotActor::new(
@@ -671,6 +672,7 @@ impl TestLoopBuilder {
                     self.runtime_config_store.clone(),
                     TrieConfig::from_store_config(&store_config),
                     StateSnapshotType::EveryEpoch,
+                    client_config.gc.gc_num_epochs_to_keep,
                 );
                 (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
             } else {
