@@ -64,7 +64,7 @@ where
     F: FnMut(Trie) -> Result<(Trie, Out), StorageError>,
     Out: PartialEq + Debug,
 {
-    let recording_trie = trie.recording_reads();
+    let recording_trie = trie.recording_reads_new_recorder();
     let (recording_trie, output) = test(recording_trie).expect("should not fail");
     (recording_trie.recorded_storage().unwrap(), recording_trie, output)
 }
@@ -434,7 +434,7 @@ mod trie_storage_tests {
 
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes.clone());
-        let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+        let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
         let changes = trie.update(updates.clone()).unwrap();
         tracing::info!("Changes: {:?}", changes);
 
@@ -445,7 +445,7 @@ mod trie_storage_tests {
         let shard_uid = ShardUId::single_shard();
 
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, base_changes);
-        let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+        let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
         let changes = trie.update(updates).unwrap();
 
         tracing::info!("Changes: {:?}", changes);
@@ -503,7 +503,8 @@ mod trie_storage_tests {
             vec![(vec![7], vec![1]), (vec![7, 0], vec![2]), (vec![7, 1], vec![3])];
 
         let disk_iter_recorded = {
-            let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+            let trie =
+                tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
             let mut disk_iter = trie.disk_iter().unwrap();
             disk_iter.seek_prefix(&iter_prefix).unwrap();
             let disk_iter_results = disk_iter.collect::<Result<Vec<_>, _>>().unwrap();
@@ -512,7 +513,8 @@ mod trie_storage_tests {
         };
 
         let memtrie_iter_recorded = {
-            let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+            let trie =
+                tries.get_trie_for_shard(shard_uid, state_root).recording_reads_new_recorder();
             let lock = trie.lock_for_iter();
             let mut memtrie_iter = lock.iter().unwrap();
             match memtrie_iter {
@@ -531,7 +533,7 @@ mod trie_storage_tests {
 
         let partial_recorded = {
             let trie = Trie::from_recorded_storage(memtrie_iter_recorded, state_root, true)
-                .recording_reads();
+                .recording_reads_new_recorder();
             let mut disk_iter = trie.disk_iter().unwrap();
             disk_iter.seek_prefix(&iter_prefix).unwrap();
             let disk_iter_results = disk_iter.collect::<Result<Vec<_>, _>>().unwrap();

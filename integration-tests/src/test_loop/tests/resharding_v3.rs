@@ -262,7 +262,7 @@ impl TestReshardingParametersBuilder {
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
-            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(false),
+            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(true),
             disable_temporary_account_test,
             temporary_account_id,
         }
@@ -493,6 +493,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
             assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
         }
+
+        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+        println!(
+            "new block #{} shards: {:?} chunk mask {:?}",
+            tip.height,
+            shard_layout.shard_ids().collect_vec(),
+            block_header.chunk_mask().to_vec()
+        );
 
         trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
 

@@ -4,6 +4,7 @@ use crate::chain::{
 };
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
+use crate::resharding::manager::ReshardingManager;
 use crate::sharding::shuffle_receipt_proofs;
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
@@ -96,6 +97,7 @@ pub fn validate_prepared_transactions(
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
     let last_chunk_transactions_size = borsh::to_vec(last_chunk_transactions)?.len();
+    tracing::info!("boom prepare_transactions from validator");
     runtime_adapter.prepare_transactions(
         storage_config,
         crate::types::PrepareTransactionsChunkContext {
@@ -690,7 +692,7 @@ pub fn validate_chunk_state_witness(
         .into_iter()
         .zip(state_witness.implicit_transitions.into_iter())
     {
-        let (shard_uid, new_state_root) = match implicit_transition_params {
+        let (shard_uid, new_state_root, new_congestion_info) = match implicit_transition_params {
             ImplicitTransitionParams::ApplyOldChunk(block, shard_uid) => {
                 let shard_context = ShardContext { shard_uid, should_apply_chunk: false };
                 let old_chunk_data = OldChunkData {
@@ -710,7 +712,9 @@ pub fn validate_chunk_state_witness(
                     shard_context,
                     runtime_adapter,
                 )?;
-                (shard_uid, apply_result.new_root)
+                let congestion_info =
+                    chunk_extra.congestion_info().expect("The congestion info must exist!");
+                (shard_uid, apply_result.new_root, congestion_info)
             }
             ImplicitTransitionParams::Resharding(
                 boundary_account,
@@ -718,17 +722,37 @@ pub fn validate_chunk_state_witness(
                 child_shard_uid,
             ) => {
                 let old_root = *chunk_extra.state_root();
-                let trie = Trie::from_recorded_storage(
-                    PartialStorage { nodes: transition.base_state },
-                    old_root,
-                    true,
-                );
-                let new_root = trie.retain_split_shard(&boundary_account, retain_mode)?;
-                (child_shard_uid, new_root)
+                let partial_storage = PartialStorage { nodes: transition.base_state };
+                let parent_trie = Trie::from_recorded_storage(partial_storage, old_root, true);
+
+                // Update the congestion info based on the parent shard. It's
+                // important to do this step before the `retain_split_shard`
+                // because only the parent trie has the needed information.
+                let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+                let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+                let parent_congestion_info =
+                    chunk_extra.congestion_info().expect("The congestion info must exist");
+
+                let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
+                let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
+                let child_congestion_info = ReshardingManager::get_child_congestion_info(
+                    &parent_trie,
+                    &parent_shard_layout,
+                    parent_congestion_info,
+                    &child_shard_layout,
+                    child_shard_uid,
+                    retain_mode,
+                )?;
+
+                let new_root = parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
+
+                (child_shard_uid, new_root, child_congestion_info)
             }
         };
 
         *chunk_extra.state_root_mut() = new_state_root;
+        *chunk_extra.congestion_info_mut().expect("The congestion info must exist!") =
+            new_congestion_info;
         if chunk_extra.state_root() != &transition.post_state_root {
             // This is an early check, it's not for correctness, only for better
             // error reporting in case of an invalid state witness due to a bug.

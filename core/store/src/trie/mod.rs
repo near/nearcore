@@ -722,16 +722,26 @@ impl Trie {
 
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
-    pub fn recording_reads(&self) -> Self {
+    pub fn recording_reads_new_recorder(&self) -> Self {
+        self.recording_reads_with_recorder(RefCell::new(TrieRecorder::new()))
+    }
+
+    /// Makes a new trie that has everything the same except that access
+    /// through that trie accumulates a state proof for all nodes accessed.
+    pub fn recording_reads_with_recorder(&self, recorder: RefCell<TrieRecorder>) -> Self {
         let mut trie = Self::new_with_memtries(
             self.storage.clone(),
             self.memtries.clone(),
             self.root,
             self.flat_storage_chunk_view.clone(),
         );
-        trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.recorder = Some(recorder);
         trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
+    }
+
+    pub fn take_recorder(self) -> Option<RefCell<TrieRecorder>> {
+        self.recorder
     }
 
     /// Takes the recorded state proof out of the trie.
@@ -2229,7 +2239,8 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
-        let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+        let trie2 =
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder();
         trie2.get(b"dog").unwrap();
         trie2.get(b"horse").unwrap();
         let partial_storage = trie2.recorded_storage();
@@ -2258,14 +2269,18 @@ mod tests {
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         // Trie: extension -> branch -> 2 leaves
         {
-            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries
+                .get_trie_for_shard(ShardUId::single_shard(), root)
+                .recording_reads_new_recorder();
             trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {
-            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries
+                .get_trie_for_shard(ShardUId::single_shard(), root)
+                .recording_reads_new_recorder();
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
             // record extension, branch and both leaves, but not the value.
@@ -2273,7 +2288,9 @@ mod tests {
         }
 
         {
-            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries
+                .get_trie_for_shard(ShardUId::single_shard(), root)
+                .recording_reads_new_recorder();
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(updates).unwrap();
             // record extension and branch, but not leaves

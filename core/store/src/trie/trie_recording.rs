@@ -552,7 +552,7 @@ mod trie_recording_tests {
             // Now let's do this again while recording, and make sure that the counters
             // we get are exactly the same.
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
-                .recording_reads();
+                .recording_reads_new_recorder();
             trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
@@ -577,7 +577,7 @@ mod trie_recording_tests {
             // in-memory tries.
             destructively_delete_in_memory_state_from_disk(&store.trie_store(), &data_in_trie);
             let trie = get_trie_for_shard(&tries, shard_uid, state_root, use_flat_storage)
-                .recording_reads();
+                .recording_reads_new_recorder();
             trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
@@ -621,7 +621,7 @@ mod trie_recording_tests {
 
             // Build a Trie using recorded storage and enable recording_reads on this Trie
             let trie = Trie::from_recorded_storage(partial_storage, state_root, use_flat_storage)
-                .recording_reads();
+                .recording_reads_new_recorder();
             trie.accounting_cache.borrow().enable_switch().set(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
