@@ -756,6 +756,7 @@ impl TestLoopBuilder {
                 future_spawner.spawn_boxed("state_sync_dumper", future);
                 Box::new(|| {})
             }),
+            future_spawner: Arc::new(self.test_loop.future_spawner()),
             handle: None,
         };
         let state_sync_dumper_handle = self.test_loop.data.register_data(state_sync_dumper);
