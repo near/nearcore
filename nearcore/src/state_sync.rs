@@ -966,6 +966,8 @@ impl StateDumper {
     }
 }
 
+const CHECK_STORED_PARTS_INTERVAL: Duration = Duration::seconds(20);
+
 /// Main entry point into the state dumper. Initializes the state dumper and starts a loop that periodically
 /// checks whether there's a new epoch to dump state for.
 async fn state_sync_dump(
@@ -1005,7 +1007,8 @@ async fn state_sync_dump(
 
     let now = clock.now();
     let mut check_head = Interval::new(now + iteration_delay, iteration_delay);
-    let mut check_stored_parts = Interval::new(now + Duration::seconds(20), Duration::seconds(20));
+    let mut check_stored_parts =
+        Interval::new(now + CHECK_STORED_PARTS_INTERVAL, CHECK_STORED_PARTS_INTERVAL);
 
     while keep_running.load(Ordering::Relaxed) {
         tokio::select! {
