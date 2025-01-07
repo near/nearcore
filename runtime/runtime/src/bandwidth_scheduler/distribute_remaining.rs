@@ -26,15 +26,17 @@ pub fn distribute_remaining_bandwidth(
     is_link_allowed: &ShardLinkMap<bool>,
     shard_layout: &ShardLayout,
 ) -> ShardLinkMap<Bandwidth> {
-    let mut sender_infos: ShardIndexMap<Info> = ShardIndexMap::new(shard_layout);
-    let mut receiver_infos: ShardIndexMap<Info> = ShardIndexMap::new(shard_layout);
+    let mut sender_infos: ShardIndexMap<EndpointInfo> = ShardIndexMap::new(shard_layout);
+    let mut receiver_infos: ShardIndexMap<EndpointInfo> = ShardIndexMap::new(shard_layout);
 
     for shard_index in shard_layout.shard_indexes() {
         let sender_budget = sender_budgets.get(&shard_index).copied().unwrap_or(0);
-        sender_infos.insert(shard_index, Info { links_num: 0, bandwidth_left: sender_budget });
+        sender_infos
+            .insert(shard_index, EndpointInfo { links_num: 0, bandwidth_left: sender_budget });
 
         let receiver_budget = receiver_budgets.get(&shard_index).copied().unwrap_or(0);
-        receiver_infos.insert(shard_index, Info { links_num: 0, bandwidth_left: receiver_budget });
+        receiver_infos
+            .insert(shard_index, EndpointInfo { links_num: 0, bandwidth_left: receiver_budget });
     }
 
     for sender in shard_layout.shard_indexes() {
@@ -85,12 +87,12 @@ pub fn distribute_remaining_bandwidth(
     bandwidth_grants
 }
 
-struct Info {
+struct EndpointInfo {
     bandwidth_left: Bandwidth,
     links_num: u64,
 }
 
-impl Info {
+impl EndpointInfo {
     fn average_link_bandwidth(&self) -> Bandwidth {
         if self.links_num == 0 {
             return 0;
