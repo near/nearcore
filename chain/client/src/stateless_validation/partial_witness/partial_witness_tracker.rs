@@ -309,13 +309,13 @@ pub struct PartialEncodedStateWitnessTracker {
     /// Epoch manager to get the set of chunk validators
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// Keeps track of state witness parts received from chunk producers.
-    parts_cache: Arc<Mutex<LruCache<ChunkProductionKey, CacheEntry>>>,
+    parts_cache: Mutex<LruCache<ChunkProductionKey, CacheEntry>>,
     /// Keeps track of the already decoded witnesses. This is needed
     /// to protect chunk validator from processing the same witness multiple
     /// times.
-    processed_witnesses: Arc<SyncLruCache<ChunkProductionKey, ()>>,
+    processed_witnesses: SyncLruCache<ChunkProductionKey, ()>,
     /// Reed Solomon encoder for decoding state witness parts.
-    encoders: Arc<Mutex<ReedSolomonEncoderCache>>,
+    encoders: Mutex<ReedSolomonEncoderCache>,
 }
 
 impl PartialEncodedStateWitnessTracker {
@@ -326,11 +326,11 @@ impl PartialEncodedStateWitnessTracker {
         Self {
             client_sender,
             epoch_manager,
-            parts_cache: Arc::new(Mutex::new(LruCache::new(
+            parts_cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(WITNESS_PARTS_CACHE_SIZE).unwrap(),
-            ))),
-            processed_witnesses: Arc::new(SyncLruCache::new(PROCESSED_WITNESSES_CACHE_SIZE)),
-            encoders: Arc::new(Mutex::new(ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS))),
+            )),
+            processed_witnesses: SyncLruCache::new(PROCESSED_WITNESSES_CACHE_SIZE),
+            encoders: Mutex::new(ReedSolomonEncoderCache::new(WITNESS_RATIO_DATA_PARTS)),
         }
     }
 
@@ -383,60 +383,65 @@ impl PartialEncodedStateWitnessTracker {
         if create_if_not_exists {
             self.maybe_insert_new_entry_in_parts_cache(&key);
         }
+        let mut parts_cache = self.parts_cache.lock().unwrap();
+        let Some(entry) = parts_cache.get_mut(&key) else {
+            return Ok(());
+        };
+        let total_size: usize = if let Some((decode_result, accessed_contracts)) =
+            entry.update(update)
         {
-            let mut parts_cache = self.parts_cache.lock().unwrap();
-            let Some(entry) = parts_cache.get_mut(&key) else {
-                return Ok(());
-            };
-            if let Some((decode_result, accessed_contracts)) = entry.update(update) {
-                // Record the time taken from receiving first part to decoding partial witness.
-                let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
-                metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
-                    .with_label_values(&[key.shard_id.to_string().as_str()])
-                    .observe(time_to_last_part.as_seconds_f64());
+            // Record the time taken from receiving first part to decoding partial witness.
+            let time_to_last_part = Instant::now().signed_duration_since(entry.created_at);
+            metrics::PARTIAL_WITNESS_TIME_TO_LAST_PART
+                .with_label_values(&[key.shard_id.to_string().as_str()])
+                .observe(time_to_last_part.as_seconds_f64());
 
-                parts_cache.pop(&key);
-                drop(parts_cache);
-                self.processed_witnesses.push(key.clone(), ());
+            parts_cache.pop(&key);
+            let total_size = parts_cache.iter().map(|(_, entry)| entry.total_size()).sum();
+            drop(parts_cache);
 
-                let encoded_witness = match decode_result {
-                    Ok(encoded_chunk_state_witness) => encoded_chunk_state_witness,
-                    Err(err) => {
-                        // We ideally never expect the decoding to fail. In case it does, we received a bad part
-                        // from the chunk producer.
-                        tracing::error!(
-                            target: "client",
-                            ?err,
-                            shard_id = ?key.shard_id,
-                            height_created = key.height_created,
-                            "Failed to reed solomon decode witness parts. Maybe malicious or corrupt data."
-                        );
-                        return Err(Error::InvalidPartialChunkStateWitness(format!(
-                            "Failed to reed solomon decode witness parts: {err}",
-                        )));
-                    }
-                };
+            self.processed_witnesses.push(key.clone(), ());
 
-                let (mut witness, raw_witness_size) =
-                    self.decode_state_witness(&encoded_witness)?;
-                if witness.chunk_production_key() != key {
+            let encoded_witness = match decode_result {
+                Ok(encoded_chunk_state_witness) => encoded_chunk_state_witness,
+                Err(err) => {
+                    // We ideally never expect the decoding to fail. In case it does, we received a bad part
+                    // from the chunk producer.
+                    tracing::error!(
+                        target: "client",
+                        ?err,
+                        shard_id = ?key.shard_id,
+                        height_created = key.height_created,
+                        "Failed to reed solomon decode witness parts. Maybe malicious or corrupt data."
+                    );
                     return Err(Error::InvalidPartialChunkStateWitness(format!(
-                        "Decoded witness key {:?} doesn't match partial witness {:?}",
-                        witness.chunk_production_key(),
-                        key,
+                        "Failed to reed solomon decode witness parts: {err}",
                     )));
                 }
+            };
 
-                // Merge accessed contracts into the main transition's partial state.
-                let PartialState::TrieValues(values) =
-                    &mut witness.main_state_transition.base_state;
-                values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
-
-                tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
-                self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
+            let (mut witness, raw_witness_size) = self.decode_state_witness(&encoded_witness)?;
+            if witness.chunk_production_key() != key {
+                return Err(Error::InvalidPartialChunkStateWitness(format!(
+                    "Decoded witness key {:?} doesn't match partial witness {:?}",
+                    witness.chunk_production_key(),
+                    key,
+                )));
             }
-        }
-        self.record_total_parts_cache_size_metric();
+
+            // Merge accessed contracts into the main transition's partial state.
+            let PartialState::TrieValues(values) = &mut witness.main_state_transition.base_state;
+            values.extend(accessed_contracts.into_iter().map(|code| code.0.into()));
+
+            tracing::debug!(target: "client", ?key, "Sending encoded witness to client.");
+            self.client_sender.send(ChunkStateWitnessMessage { witness, raw_witness_size });
+
+            total_size
+        } else {
+            parts_cache.iter().map(|(_, entry)| entry.total_size()).sum()
+        };
+        metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
+
         Ok(())
     }
 
@@ -467,12 +472,6 @@ impl PartialEncodedStateWitnessTracker {
                 );
             }
         }
-    }
-
-    fn record_total_parts_cache_size_metric(&self) {
-        let parts_cache = self.parts_cache.lock().unwrap();
-        let total_size: usize = parts_cache.iter().map(|(_, entry)| entry.total_size()).sum();
-        metrics::PARTIAL_WITNESS_CACHE_SIZE.set(total_size as f64);
     }
 
     fn decode_state_witness(
