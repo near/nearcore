@@ -650,7 +650,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads();
+            trie = trie.recording_reads_new_recorder();
         }
         let mut state_update = TrieUpdate::new(trie);
 
@@ -882,7 +882,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads();
+            trie = trie.recording_reads_new_recorder();
         }
 
         match self.process_state_update(

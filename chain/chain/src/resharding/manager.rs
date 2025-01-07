@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io;
 use std::sync::Arc;
 
@@ -226,6 +227,9 @@ impl ReshardingManager {
             let parent_state_root = *parent_chunk_extra.state_root();
             let parent_trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
 
+            let trie_recorder = RefCell::new(trie_recorder);
+            let parent_trie = parent_trie.recording_reads_with_recorder(trie_recorder);
+
             let child_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
             let child_shard_layout = self.epoch_manager.get_shard_layout(&child_epoch_id)?;
             let child_congestion_info = Self::get_child_congestion_info(
@@ -237,7 +241,8 @@ impl ReshardingManager {
                 retain_mode,
             )?;
 
-            let partial_storage = trie_recorder.recorded_storage();
+            let trie_recorder = parent_trie.take_recorder().unwrap();
+            let partial_storage = trie_recorder.borrow_mut().recorded_storage();
             let partial_state_len = match &partial_storage.nodes {
                 PartialState::TrieValues(values) => values.len(),
             };
