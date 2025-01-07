@@ -514,11 +514,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             print_and_assert_shard_accounts(&clients, &tip);
         }
 
-        check_state_shard_uid_mapping_after_resharding(
-            &client,
-            parent_shard_uid,
-            params.allow_negative_refcount,
-        );
+        for client in clients.iter() {
+            check_state_shard_uid_mapping_after_resharding(
+                client,
+                parent_shard_uid,
+                params.allow_negative_refcount,
+            );
+        }
 
         // Return false if garbage collection window has not passed yet since resharding.
         if epoch_height <= new_layout_epoch_height.get().unwrap() + GC_NUM_EPOCHS_TO_KEEP {
@@ -555,6 +557,37 @@ fn shard_sequence_to_schedule(mut shard_sequence: Vec<ShardId>) -> Vec<Vec<Shard
             .take(TESTLOOP_NUM_EPOCHS_TO_WAIT as usize),
     );
     shard_sequence.iter().map(|shard_id| vec![*shard_id]).collect()
+}
+
+// Sets up an extra node that doesn't track the parent, doesn't track the child in the first post-resharding
+// epoch, and then tracks a child in the epoch after that. This checks that state sync works in that case.
+// TODO(resharding): fix nearcore and un-ignore this test. This will currently fail because apply_state_part()
+// sets the state of the child after state sync with no state mapping, and then
+// check_state_shard_uid_mapping_after_resharding() fails because that was expected.
+#[test]
+#[ignore]
+fn test_resharding_v3_sync_child() {
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let child_shard_id = new_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![unrelated_shard_id, unrelated_shard_id, unrelated_shard_id, child_shard_id];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(num_clients)
+            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
+            .build(),
+    );
 }
 
 #[test]
