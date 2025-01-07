@@ -16,7 +16,7 @@ use borsh::BorshSerialize;
 use bytesize::ByteSize;
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
-    BandwidthSchedulerState, BlockBandwidthRequests,
+    BandwidthSchedulerState, BandwidthSchedulerStateV1, BlockBandwidthRequests,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -177,10 +177,10 @@ impl ChainSimulator {
         }
         let mut shard_state = shard_state_opt.unwrap_or_else(|| ShardState {
             buffered_outgoing_receipts: BTreeMap::new(),
-            scheduler_state: BandwidthSchedulerState {
+            scheduler_state: BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
                 link_allowances: Vec::new(),
                 sanity_check_hash: CryptoHash::default(),
-            },
+            }),
         });
         let pre_state_hash = CryptoHash::hash_borsh(&shard_state);
 

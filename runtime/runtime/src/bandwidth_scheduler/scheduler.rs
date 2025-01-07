@@ -144,7 +144,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 use near_primitives::bandwidth_scheduler::{
     Bandwidth, BandwidthRequest, BandwidthRequestValues, BandwidthRequests,
-    BandwidthSchedulerParams, BandwidthSchedulerState, BlockBandwidthRequests, LinkAllowance,
+    BandwidthSchedulerParams, BandwidthSchedulerState, BandwidthSchedulerStateV1,
+    BlockBandwidthRequests, LinkAllowance,
 };
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{ShardId, ShardIndex};
@@ -208,6 +209,10 @@ impl BandwidthScheduler {
             // No shards, nothing to grant.
             return GrantedBandwidth { granted: BTreeMap::new() };
         }
+
+        let state = match state {
+            BandwidthSchedulerState::V1(v1) => v1,
+        };
 
         // Convert link allowances to the internal representation.
         let mut link_allowances: ShardLinkMap<Bandwidth> = ShardLinkMap::new(&shard_layout);
@@ -504,7 +509,7 @@ impl BandwidthScheduler {
 
     /// Update the persistent scheduler state after running the scheduler algorithm.
     /// This state is persisted in the trie between runs.
-    fn update_scheduler_state(&self, state: &mut BandwidthSchedulerState) {
+    fn update_scheduler_state(&self, state: &mut BandwidthSchedulerStateV1) {
         let mut new_state_allowances: Vec<LinkAllowance> = Vec::new();
 
         for link in self.iter_links() {
@@ -696,7 +701,8 @@ mod tests {
 
     use near_primitives::bandwidth_scheduler::{
         BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
-        BandwidthSchedulerParams, BandwidthSchedulerState, BlockBandwidthRequests, LinkAllowance,
+        BandwidthSchedulerParams, BandwidthSchedulerState, BandwidthSchedulerStateV1,
+        BlockBandwidthRequests, LinkAllowance,
     };
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
@@ -732,8 +738,10 @@ mod tests {
                 next_allowance -= 1;
             }
         }
-        let mut scheduler_state =
-            BandwidthSchedulerState { link_allowances, sanity_check_hash: CryptoHash::default() };
+        let mut scheduler_state = BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
+            link_allowances,
+            sanity_check_hash: CryptoHash::default(),
+        });
 
         // Shards are not congested, scheduler can grant as many requests as possible.
         let shards_status = shard_layout

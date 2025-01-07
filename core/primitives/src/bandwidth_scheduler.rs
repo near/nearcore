@@ -302,9 +302,13 @@ impl BlockBandwidthRequests {
 /// The state should be the same on all shards. All shards start with the same state
 /// and apply the same bandwidth scheduler algorithm at the same heights, so the resulting
 /// scheduler state stays the same.
-/// TODO(bandwidth_scheduler) - make this struct versioned.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
-pub struct BandwidthSchedulerState {
+pub enum BandwidthSchedulerState {
+    V1(BandwidthSchedulerStateV1),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+pub struct BandwidthSchedulerStateV1 {
     /// Allowance for every pair of (sender, receiver). Used in the scheduler algorithm.
     /// Bandwidth scheduler updates the allowances on every run.
     pub link_allowances: Vec<LinkAllowance>,
