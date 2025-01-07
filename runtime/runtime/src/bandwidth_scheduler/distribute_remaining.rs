@@ -99,7 +99,7 @@ impl Info {
     }
 
     fn link_proposition(&self) -> Bandwidth {
-        self.bandwidth_left / self.links_num + self.bandwidth_left % self.links_num
+        self.bandwidth_left / self.links_num
     }
 }
 
