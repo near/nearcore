@@ -312,6 +312,7 @@ mod tests {
             assert!(total_incoming[i] <= receiver_budgets[i]);
         }
 
+        // Make sure that bandwidth utilization is high
         dbg!(total_throughput);
         if all_links_allowed {
             // When all links are allowed the algorithm achieves 99% bandwidth utilization.
@@ -331,6 +332,17 @@ mod tests {
                 .sum();
             dbg!(estimated_total_throughput);
             assert!(total_throughput >= estimated_total_throughput * 75 / 100);
+        }
+
+        // Ensure that bandwidth is not granted on forbidden links
+        for sender in 0..num_shards {
+            for receiver in 0..num_shards {
+                let granted = *grants.get(&ShardLink::new(sender, receiver)).unwrap_or(&0);
+
+                if !active_links.contains(&(sender, receiver)) {
+                    assert_eq!(granted, 0);
+                }
+            }
         }
     }
 
