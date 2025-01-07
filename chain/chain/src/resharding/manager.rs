@@ -14,6 +14,7 @@ use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
 use near_primitives::types::chunk_extra::ChunkExtra;
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
 use near_store::trie::mem::mem_trie_update::TrackingMode;
@@ -124,7 +125,7 @@ impl ReshardingManager {
             return Ok(());
         }
 
-        // Reshard the State column by setting ShardUId mapping from children to parent.
+        // Reshard the State column by setting ShardUId mapping from children to ancestor.
         self.set_state_shard_uid_mapping(&split_shard_event)?;
 
         // Create temporary children memtries by freezing parent memtrie and referencing it.
@@ -146,16 +147,19 @@ impl ReshardingManager {
     }
 
     /// Store in the database the mapping of ShardUId from children to the parent shard,
-    /// so that subsequent accesses to the State will use the parent shard's UId as a prefix for the database key.
+    /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
+    /// as a prefix for the database key.
+    // TODO(resharding) add testloop where grandparent ShardUId is used
     fn set_state_shard_uid_mapping(
         &mut self,
         split_shard_event: &ReshardingSplitShardParams,
     ) -> io::Result<()> {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
+        let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
         // TODO(resharding) No need to set the mapping for children shards that we won't track just after resharding?
         for child_shard_uid in split_shard_event.children_shards() {
-            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid);
+            store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
         store_update.commit()
     }

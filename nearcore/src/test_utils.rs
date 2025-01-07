@@ -1,5 +1,5 @@
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_client::test_utils::TestEnvBuilder;
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
@@ -101,6 +101,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
                 Some(runtime_config_store),
                 trie_config,
                 state_snapshot_type.clone(),
+                DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             )
         };
         let dummy_runtime_configs =

@@ -429,12 +429,16 @@ impl ShardTries {
 
     /// Loads in-memory trie upon catchup, if it is enabled.
     /// Requires state root because `ChunkExtra` is not available at the time mem-trie is being loaded.
+    /// Mem-tries of shards that are pending resharding must be loaded in any case.
     pub fn load_mem_trie_on_catchup(
         &self,
         shard_uid: &ShardUId,
         state_root: &StateRoot,
+        shard_uids_pending_resharding: &HashSet<ShardUId>,
     ) -> Result<(), StorageError> {
-        if !self.0.trie_config.load_mem_tries_for_tracked_shards {
+        if !self.0.trie_config.load_mem_tries_for_tracked_shards
+            && !shard_uids_pending_resharding.contains(shard_uid)
+        {
             return Ok(());
         }
         // It should not happen that memtrie is already loaded for a shard
