@@ -8,9 +8,9 @@ use super::scheduler::{ShardIndexMap, ShardLink, ShardLinkMap};
 /// budget for sending and receiving data between shards. This function is responsible for
 /// distributing the remaining bandwidth in a fair manner. It looks at how much more each shard
 /// could send/receive and grants bandwidth on links to fully utilize the available bandwidth.
-/// The `is_link_allowed` argument makes it possible to disallow granting bandwidth on some links.
-/// This usually happens when a shard is fully congested and is allowed to receive receipts only
-/// from the allowed sender shard.
+/// The `is_link_allowed_map` argument makes it possible to disallow granting bandwidth on some
+/// links. This usually happens when a shard is fully congested and is allowed to receive receipts
+/// only from the allowed sender shard.
 /// The algorithm processes senders and receivers in the order of increasing budget. It grants a bit
 /// of bandwidth, keeping in mind that others will also want to send some data there. Processing
 /// them in this order gives the guarantee that all senders processed later will send at least as
@@ -23,7 +23,7 @@ use super::scheduler::{ShardIndexMap, ShardLink, ShardLinkMap};
 pub fn distribute_remaining_bandwidth(
     sender_budgets: &ShardIndexMap<Bandwidth>,
     receiver_budgets: &ShardIndexMap<Bandwidth>,
-    is_link_allowed: impl Fn(ShardIndex, ShardIndex) -> bool,
+    is_link_allowed: &ShardLinkMap<bool>,
     shard_layout: &ShardLayout,
 ) -> ShardLinkMap<Bandwidth> {
     let mut sender_infos: ShardIndexMap<Info> = ShardIndexMap::new(shard_layout);
@@ -39,7 +39,7 @@ pub fn distribute_remaining_bandwidth(
 
     for sender in shard_layout.shard_indexes() {
         for receiver in shard_layout.shard_indexes() {
-            if is_link_allowed(sender, receiver) {
+            if *is_link_allowed.get(&ShardLink::new(sender, receiver)).unwrap_or(&false) {
                 sender_infos.get_mut(&sender).unwrap().links_num += 1;
                 receiver_infos.get_mut(&receiver).unwrap().links_num += 1;
             }
@@ -59,7 +59,7 @@ pub fn distribute_remaining_bandwidth(
     for sender in senders_by_avg_link_bandwidth {
         let sender_info = sender_infos.get_mut(&sender).unwrap();
         for &receiver in &receivers_by_avg_link_bandwidth {
-            if !is_link_allowed(sender, receiver) {
+            if !*is_link_allowed.get(&ShardLink::new(sender, receiver)).unwrap_or(&false) {
                 continue;
             }
 
@@ -120,7 +120,7 @@ mod tests {
     fn run_distribute_remaining(
         sender_budgets: &[Bandwidth],
         receiver_budgets: &[Bandwidth],
-        is_link_allowed: impl Fn(ShardIndex, ShardIndex) -> bool,
+        allowed_links: AllowedLinks,
     ) -> ShardLinkMap<Bandwidth> {
         assert_eq!(sender_budgets.len(), receiver_budgets.len());
         let shard_layout = ShardLayout::multi_shard(sender_budgets.len().try_into().unwrap(), 0);
@@ -133,12 +133,39 @@ mod tests {
             receiver_budgets_map.insert(i, *receiver_budget);
         }
 
+        let mut is_link_allowed_map = ShardLinkMap::new(&shard_layout);
+        let default_allowed = match &allowed_links {
+            AllowedLinks::AllAllowed => true,
+            AllowedLinks::AllowedList(_) | AllowedLinks::NoneAllowed => false,
+        };
+        for sender_index in shard_layout.shard_indexes() {
+            for receiver_index in shard_layout.shard_indexes() {
+                is_link_allowed_map
+                    .insert(ShardLink::new(sender_index, receiver_index), default_allowed);
+            }
+        }
+        if let AllowedLinks::AllowedList(allowed_links_list) = allowed_links {
+            for (sender_index, receiver_index) in allowed_links_list {
+                is_link_allowed_map.insert(ShardLink::new(sender_index, receiver_index), true);
+            }
+        }
+
         distribute_remaining_bandwidth(
             &sender_budgets_map,
             &receiver_budgets_map,
-            is_link_allowed,
+            &is_link_allowed_map,
             &shard_layout,
         )
+    }
+
+    /// Convenient way to specify is_link_allowed_map in the tests
+    enum AllowedLinks {
+        /// All links are allowed
+        AllAllowed,
+        /// All links are forbidden
+        NoneAllowed,
+        /// Only the links in the list are allowed
+        AllowedList(Vec<(ShardIndex, ShardIndex)>),
     }
 
     fn assert_grants(
@@ -165,14 +192,14 @@ mod tests {
     /// A single link, sender can send less than the receiver can receive.
     #[test]
     fn test_one_link() {
-        let granted = run_distribute_remaining(&[50], &[100], |_, _| true);
+        let granted = run_distribute_remaining(&[50], &[100], AllowedLinks::AllAllowed);
         assert_grants(&granted, &[(0, 0, 50)]);
     }
 
     /// A single link which is not allowed. No bandwidth should be granted.
     #[test]
     fn test_one_link_not_allowed() {
-        let granted = run_distribute_remaining(&[50], &[100], |_, _| false);
+        let granted = run_distribute_remaining(&[50], &[100], AllowedLinks::NoneAllowed);
         assert_grants(&granted, &[]);
     }
 
@@ -180,7 +207,8 @@ mod tests {
     /// Bandwidth should be distributed equally.
     #[test]
     fn test_three_shards() {
-        let granted = run_distribute_remaining(&[300, 300, 300], &[300, 300, 300], |_, _| true);
+        let granted =
+            run_distribute_remaining(&[300, 300, 300], &[300, 300, 300], AllowedLinks::AllAllowed);
         assert_grants(
             &granted,
             &[
@@ -202,10 +230,8 @@ mod tests {
     /// Each active link should get half of the available budget.
     #[test]
     fn test_two_to_one() {
-        let active_links = [(1, 0), (1, 2), (0, 1), (2, 1)];
-        let granted = run_distribute_remaining(&[100, 100, 100], &[100, 100, 100], |a, b| {
-            active_links.contains(&(a, b))
-        });
+        let allowed_links = AllowedLinks::AllowedList(vec![(1, 0), (1, 2), (0, 1), (2, 1)]);
+        let granted = run_distribute_remaining(&[100, 100, 100], &[100, 100, 100], allowed_links);
         assert_grants(&granted, &[(0, 1, 50), (1, 0, 50), (1, 2, 50), (2, 1, 50)]);
     }
 
@@ -215,10 +241,8 @@ mod tests {
     /// (0) can receive receipts from all shards.
     #[test]
     fn test_two_fully_congested() {
-        let active_links = [(0, 0), (0, 1), (1, 0), (1, 2), (2, 0)];
-        let granted = run_distribute_remaining(&[300, 300, 300], &[300, 300, 300], |a, b| {
-            active_links.contains(&(a, b))
-        });
+        let allowed_links = AllowedLinks::AllowedList(vec![(0, 0), (0, 1), (1, 0), (1, 2), (2, 0)]);
+        let granted = run_distribute_remaining(&[300, 300, 300], &[300, 300, 300], allowed_links);
         assert_grants(&granted, &[(0, 0, 100), (0, 1, 200), (1, 0, 100), (1, 2, 200), (2, 0, 100)]);
     }
 
@@ -257,9 +281,8 @@ mod tests {
         println!("sender_budgets: {:?}", sender_budgets);
         println!("receiver_budgets: {:?}", receiver_budgets);
 
-        let grants = run_distribute_remaining(&sender_budgets, &receiver_budgets, |a, b| {
-            active_links.contains(&(a, b))
-        });
+        let allowed_links = AllowedLinks::AllowedList(active_links.iter().copied().collect());
+        let grants = run_distribute_remaining(&sender_budgets, &receiver_budgets, allowed_links);
 
         let mut total_incoming = vec![0; num_shards];
         let mut total_outgoing = vec![0; num_shards];

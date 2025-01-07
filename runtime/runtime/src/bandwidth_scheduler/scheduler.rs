@@ -168,9 +168,9 @@ pub struct BandwidthScheduler {
     shard_layout: ShardLayout,
     /// Configuration parameters for the algorithm.
     params: BandwidthSchedulerParams,
-    /// ShardStatus for each shard.
-    /// (ShardIndex -> ShardStatus)
-    shards_status: ShardIndexMap<ShardStatus>,
+    /// For every link keeps information whether sending receipts on this link is allowed.
+    /// Keeps result of `Self::calculate_is_link_allowed()` for every pair of shards
+    is_link_allowed_map: ShardLinkMap<bool>,
     /// Each shard can send and receive at most `max_shard_bandwidth` bytes of receipts.
     /// This is tracked in the `sender_budget` and `receiver_budget` fields, which keep
     /// track of how much more a shard can send or receive before hitting the limit.
@@ -223,12 +223,25 @@ impl BandwidthScheduler {
             }
         }
 
-        // Translate shard statuses to the internal representation.
+        // Initialize the allowed link map based on shard statuses
         let mut shard_status_by_index: ShardIndexMap<ShardStatus> =
             ShardIndexMap::new(&shard_layout);
         for (shard_id, status) in shards_status {
             if let Ok(idx) = shard_layout.get_shard_index(*shard_id) {
                 shard_status_by_index.insert(idx, *status);
+            }
+        }
+
+        let mut is_link_allowed_map: ShardLinkMap<bool> = ShardLinkMap::new(&shard_layout);
+        for sender_index in shard_layout.shard_indexes() {
+            for receiver_index in shard_layout.shard_indexes() {
+                let is_allowed = Self::calculate_is_link_allowed(
+                    sender_index,
+                    receiver_index,
+                    &shard_status_by_index,
+                );
+                is_link_allowed_map
+                    .insert(ShardLink::new(sender_index, receiver_index), is_allowed);
             }
         }
 
@@ -264,7 +277,7 @@ impl BandwidthScheduler {
         // Init the scheduler state
         let mut scheduler = BandwidthScheduler {
             shard_layout,
-            shards_status: shard_status_by_index,
+            is_link_allowed_map,
             sender_budget,
             receiver_budget,
             link_allowances,
@@ -301,7 +314,6 @@ impl BandwidthScheduler {
             self.receiver_budget.insert(receiver, self.params.max_shard_bandwidth);
         }
     }
-
     /// Give every link a fair amount of allowance at every height.
     fn increase_allowances(&mut self) {
         // In an ideal, fair world, every link would send the same amount of bandwidth.
@@ -378,7 +390,7 @@ impl BandwidthScheduler {
             super::distribute_remaining::distribute_remaining_bandwidth(
                 &self.sender_budget,
                 &self.receiver_budget,
-                |sender, receiver| self.is_link_allowed(&ShardLink::new(sender, receiver)),
+                &self.is_link_allowed_map,
                 &self.shard_layout,
             );
         for link in self.iter_links() {
@@ -480,10 +492,18 @@ impl BandwidthScheduler {
         self.granted_bandwidth.insert(*link, new_granted);
     }
 
+    fn is_link_allowed(&self, link: &ShardLink) -> bool {
+        *self.is_link_allowed_map.get(link).unwrap_or(&false)
+    }
+
     /// Decide if it's allowed to send receipts on the link, based on shard statuses.
     /// Makes sure that receipts are not sent to fully congested shards or shards with missing chunks.
-    fn is_link_allowed(&self, link: &ShardLink) -> bool {
-        let Some(receiver_status) = self.shards_status.get(&link.receiver) else {
+    fn calculate_is_link_allowed(
+        sender_index: ShardIndex,
+        receiver_index: ShardIndex,
+        shards_status: &ShardIndexMap<ShardStatus>,
+    ) -> bool {
+        let Some(receiver_status) = shards_status.get(&receiver_index) else {
             // Receiver shard status unknown - don't send anything on the link, just to be safe.
             return false;
         };
@@ -494,7 +514,7 @@ impl BandwidthScheduler {
             return false;
         }
 
-        let sender_status_opt = self.shards_status.get(&link.sender);
+        let sender_status_opt = shards_status.get(&sender_index);
         if let Some(sender_status) = sender_status_opt {
             if sender_status.last_chunk_missing {
                 // The chunk on sender's shard is missing. Don't grant any bandwidth on links from a shard
@@ -508,7 +528,7 @@ impl BandwidthScheduler {
 
         // Only the "allowed shard" is allowed to send receipts to a fully congested shard.
         if receiver_status.is_fully_congested {
-            if Some(link.sender) == receiver_status.allowed_sender_shard_index {
+            if Some(sender_index) == receiver_status.allowed_sender_shard_index {
                 return true;
             } else {
                 return false;
