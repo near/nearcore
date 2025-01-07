@@ -327,13 +327,13 @@ impl ReshardingManager {
         // The left child contains all the delayed and buffered receipts from the
         // parent so it should have identical congestion info.
         if retain_mode == RetainMode::Left {
-            return Ok(parent_congestion_info.clone());
+            return Ok(parent_congestion_info);
         }
 
         // The right child contains all the delayed receipts from the parent but it
         // has no buffered receipts. It's info needs to be computed by subtracting
         // the parent's buffered receipts from the parent's congestion info.
-        let mut congestion_info = parent_congestion_info.clone();
+        let mut congestion_info = parent_congestion_info;
         for shard_id in parent_shard_layout.shard_ids() {
             let receipt_groups = ReceiptGroupsQueue::load(parent_trie, shard_id)?;
             let Some(receipt_groups) = receipt_groups else {
