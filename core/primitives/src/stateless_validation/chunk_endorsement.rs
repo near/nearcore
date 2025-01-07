@@ -100,6 +100,8 @@ impl ChunkEndorsement {
     }
 }
 
+/// Represents version 2 of chunk endorsement with enhanced security features.
+/// Contains both the endorsement data and associated metadata for validation.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementV2 {
     // This is the part of the chunk endorsement that signed and included in the block header
