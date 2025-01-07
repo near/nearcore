@@ -87,12 +87,16 @@ pub fn distribute_remaining_bandwidth(
     bandwidth_grants
 }
 
+/// Information about sender or receiver shard, used in `distribute_remaining_bandwidth`
 struct EndpointInfo {
+    /// How much more bandwidth can be sent/received
     bandwidth_left: Bandwidth,
+    /// How many more links the bandwidth will be granted on
     links_num: u64,
 }
 
 impl EndpointInfo {
+    /// How much can be sent on every link on average
     fn average_link_bandwidth(&self) -> Bandwidth {
         if self.links_num == 0 {
             return 0;
@@ -100,6 +104,8 @@ impl EndpointInfo {
         self.bandwidth_left / self.links_num
     }
 
+    /// Propose amount of bandwidth to grant on the next link.
+    /// Both sides of the link propose something and the minimum of the two is granted on the link.
     fn link_proposition(&self) -> Bandwidth {
         self.bandwidth_left / self.links_num
     }
