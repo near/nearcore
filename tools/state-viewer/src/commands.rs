@@ -52,6 +52,7 @@ use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, 
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
+use node_runtime::SignedValidPeriodTransactions;
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
@@ -104,6 +105,7 @@ pub(crate) fn apply_block(
         )
         .unwrap();
 
+        let transactions = chunk.transactions();
         runtime
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
@@ -122,7 +124,7 @@ pub(crate) fn apply_block(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                chunk.transactions(),
+                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
             )
             .unwrap()
     } else {
@@ -148,7 +150,7 @@ pub(crate) fn apply_block(
                     prev_block.block_bandwidth_requests(),
                 ),
                 &[],
-                &[],
+                SignedValidPeriodTransactions::empty(),
             )
             .unwrap()
     };

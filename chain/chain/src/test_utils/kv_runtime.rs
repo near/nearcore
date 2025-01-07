@@ -54,6 +54,7 @@ use near_store::{
     TrieChanges, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
+use node_runtime::SignedValidPeriodTransactions;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -1091,7 +1092,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error> {
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
@@ -1128,7 +1129,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        for transaction in transactions {
+        for transaction in transactions.iter_nonexpired_transactions() {
             assert_eq!(
                 account_id_to_shard_id(transaction.transaction.signer_id(), self.num_shards),
                 shard_id

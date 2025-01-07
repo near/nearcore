@@ -21,6 +21,7 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::DBCol;
 use near_store::Store;
+use node_runtime::SignedValidPeriodTransactions;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -203,7 +204,7 @@ pub(crate) fn apply_chunk(
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
-            transactions,
+            SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
         )?,
         chunk_header.gas_limit(),
     ))

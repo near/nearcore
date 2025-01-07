@@ -3170,48 +3170,59 @@ impl Chain {
         block: &Block,
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<bool>, Error> {
         let protocol_version =
             self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-
-        if checked_feature!(
+        let relaxed_chunk_validation = checked_feature!(
             "protocol_feature_relaxed_chunk_validation",
             RelaxedChunkValidation,
             protocol_version
-        ) {
-            return Ok(());
-        }
+        );
 
-        if !validate_transactions_order(chunk.transactions()) {
-            let merkle_paths =
-                Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
-            let epoch_id = block.header().epoch_id();
-            let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-            let shard_id = chunk.shard_id();
-            let shard_index = shard_layout.get_shard_index(shard_id)?;
+        if !relaxed_chunk_validation {
+            if !validate_transactions_order(chunk.transactions()) {
+                let merkle_paths =
+                    Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
+                let epoch_id = block.header().epoch_id();
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let shard_id = chunk.shard_id();
+                let shard_index = shard_layout.get_shard_index(shard_id)?;
 
-            let chunk_proof = ChunkProofs {
-                block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
-                merkle_proof: merkle_paths[shard_index].clone(),
-                chunk: MaybeEncodedShardChunk::Decoded(chunk.clone()).into(),
-            };
-            return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
+                let chunk_proof = ChunkProofs {
+                    block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
+                    merkle_proof: merkle_paths[shard_index].clone(),
+                    chunk: MaybeEncodedShardChunk::Decoded(chunk.clone()).into(),
+                };
+                return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
+            }
         }
 
         if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let transaction_validity_period = self.transaction_validity_period;
-            for transaction in chunk.transactions() {
-                self.chain_store()
-                    .check_transaction_validity_period(
-                        prev_block_header,
-                        transaction.transaction.block_hash(),
-                        transaction_validity_period,
-                    )
-                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
-            }
+            return chunk
+                .transactions()
+                .into_iter()
+                .map(|transaction| {
+                    let tx_valid = self
+                        .chain_store()
+                        .check_transaction_validity_period(
+                            prev_block_header,
+                            transaction.transaction.block_hash(),
+                            transaction_validity_period,
+                        )
+                        .is_ok();
+                    if relaxed_chunk_validation {
+                        Ok(tx_valid)
+                    } else if !tx_valid {
+                        Err(Error::from(Error::InvalidTransactions))
+                    } else {
+                        Ok(true)
+                    }
+                })
+                .collect::<Result<_, _>>();
         };
 
-        Ok(())
+        Ok(vec![true; chunk.transactions().len()])
     }
 
     pub fn transaction_validity_check<'a>(
@@ -3773,7 +3784,8 @@ impl Chain {
                     }
                 })?;
 
-                self.validate_chunk_transactions(&block, prev_block.header(), &chunk)?;
+                let tx_valid_list =
+                    self.validate_chunk_transactions(&block, prev_block.header(), &chunk)?;
 
                 // we can't use hash from the current block here yet because the incoming receipts
                 // for this block is not stored yet
@@ -3806,6 +3818,7 @@ impl Chain {
                 ShardUpdateReason::NewChunk(NewChunkData {
                     chunk_header: chunk_header.clone(),
                     transactions: chunk.transactions().to_vec(),
+                    transaction_validity_check_results: tx_valid_list,
                     receipts,
                     block: block_context,
                     is_first_block_with_chunk_of_version,

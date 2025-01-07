@@ -67,18 +67,6 @@ impl MainTransition {
 pub struct PreValidationOutput {
     pub main_transition_params: MainTransition,
     pub implicit_transition_params: Vec<ImplicitTransitionParams>,
-    /// List of the transactions that are valid and should be processed by e.g.
-    /// `validate_chunk_state_witness`.
-    ///
-    /// This list is exactly the length of the corresponding `ChunkStateWitness::transactions`
-    /// field. Element at the index N in this array corresponds to an element at index N in the
-    /// transactions list.
-    ///
-    /// Transactions for which a `false` is stored here ought to be ignored/dropped/skipped.
-    ///
-    /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
-    /// enabled.
-    pub transaction_validity_check_passed: Vec<bool>,
 }
 
 #[derive(Clone)]
@@ -381,7 +369,7 @@ pub fn pre_validate_chunk_state_witness(
 
     let current_protocol_version =
         epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
-    let transaction_validity_check_passed = if checked_feature!(
+    let transaction_validity_check_results = if checked_feature!(
         "protocol_feature_relaxed_chunk_validation",
         RelaxedChunkValidation,
         current_protocol_version
@@ -467,6 +455,7 @@ pub fn pre_validate_chunk_state_witness(
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
+            transaction_validity_check_results,
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
                 epoch_manager,
@@ -484,11 +473,7 @@ pub fn pre_validate_chunk_state_witness(
         })
     };
 
-    Ok(PreValidationOutput {
-        main_transition_params,
-        implicit_transition_params,
-        transaction_validity_check_passed,
-    })
+    Ok(PreValidationOutput { main_transition_params, implicit_transition_params })
 }
 
 /// Validate that receipt proofs contain the receipts that should be applied during the
@@ -637,21 +622,7 @@ pub fn validate_chunk_state_witness(
     let (mut chunk_extra, mut outgoing_receipts) =
         match (pre_validation_output.main_transition_params, cache_result) {
             (MainTransition::Genesis { chunk_extra, .. }, _) => (chunk_extra, vec![]),
-            (MainTransition::NewChunk(mut new_chunk_data), None) => {
-                let mut validity_iterator =
-                    pre_validation_output.transaction_validity_check_passed.iter();
-                new_chunk_data.transactions.retain(|t| {
-                    let valid = *validity_iterator.next().unwrap();
-                    if !valid {
-                        tracing::debug!(
-                            target: "chain",
-                            message="discarding invalid transaction",
-                            tx=%t.get_hash()
-                        );
-                    }
-                    valid
-                });
-
+            (MainTransition::NewChunk(new_chunk_data), None) => {
                 let chunk_header = new_chunk_data.chunk_header.clone();
                 let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
                     ApplyChunkReason::ValidateChunkStateWitness,

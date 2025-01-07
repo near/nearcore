@@ -13,6 +13,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::Gas;
+use node_runtime::SignedValidPeriodTransactions;
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
@@ -43,6 +44,7 @@ pub enum ShardUpdateResult {
 pub struct NewChunkData {
     pub chunk_header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
+    pub transaction_validity_check_results: Vec<bool>,
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
     pub is_first_block_with_chunk_of_version: bool,
@@ -119,6 +121,7 @@ pub fn apply_new_chunk(
     let NewChunkData {
         chunk_header,
         transactions,
+        transaction_validity_check_results,
         block,
         receipts,
         is_first_block_with_chunk_of_version,
@@ -153,7 +156,7 @@ pub fn apply_new_chunk(
         },
         block,
         &receipts,
-        &transactions,
+        SignedValidPeriodTransactions::new(&transactions, &transaction_validity_check_results),
     ) {
         Ok(apply_result) => {
             Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
@@ -200,7 +203,7 @@ pub fn apply_old_chunk(
         },
         block,
         &[],
-        &[],
+        SignedValidPeriodTransactions::new(&[], &[]),
     ) {
         Ok(apply_result) => Ok(OldChunkResult { shard_uid: shard_context.shard_uid, apply_result }),
         Err(err) => Err(err),

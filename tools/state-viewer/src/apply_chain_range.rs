@@ -19,6 +19,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
+use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
@@ -168,6 +169,7 @@ fn apply_block_from_range(
 
         num_receipt = receipts.len();
         num_tx = chunk.transactions().len();
+
         if only_contracts {
             let mut has_contracts = false;
             for tx in chunk.transactions() {
@@ -182,6 +184,7 @@ fn apply_block_from_range(
             }
         }
 
+        let transactions = chunk.transactions();
         runtime_adapter
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
@@ -200,7 +203,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                chunk.transactions(),
+                SignedValidPeriodTransactions::new(&transactions, &vec![true; transactions.len()]),
             )
             .unwrap()
     } else {
@@ -227,7 +230,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &[],
-                &[],
+                SignedValidPeriodTransactions::empty(),
             )
             .unwrap()
     };
