@@ -133,7 +133,8 @@ pub struct ChunkEndorsementMetadata {
     height_created: BlockHeight,
 }
 
-/// This is the part of the chunk endorsement that is actually being signed.
+/// Core data structure that is signed in the chunk endorsement process.
+/// Includes the chunk hash and a signature differentiator for security.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementInner {
     chunk_hash: ChunkHash,
