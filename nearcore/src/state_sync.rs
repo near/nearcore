@@ -978,19 +978,12 @@ async fn state_sync_dump(
     runtime: Arc<dyn RuntimeAdapter>,
     chain_id: String,
     external: ExternalConnection,
-    mut iteration_delay: Duration,
+    iteration_delay: Duration,
     validator: MutableValidatorSigner,
     keep_running: Arc<AtomicBool>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> anyhow::Result<()> {
     tracing::info!(target: "state_sync_dump", "Running StateSyncDump loop");
-
-    // This is set to zero in some tests where the block production delay is very small (10 millis).
-    // In that case we'll actually just wait for 1 millisecond. The previous behavior was to call
-    // clock.sleep(ZERO), but setting it to 1 is probably fine, and works with the Instant below.
-    if iteration_delay == Duration::ZERO {
-        iteration_delay = Duration::milliseconds(1);
-    }
 
     let mut dumper = StateDumper::new(
         clock.clone(),
@@ -1006,7 +999,12 @@ async fn state_sync_dump(
     dumper.init(iteration_delay).await?;
 
     let now = clock.now();
-    let mut check_head = Interval::new(now + iteration_delay, iteration_delay);
+    // This is set to zero in some tests where the block production delay is very small (10 millis).
+    // In that case we'll actually just wait for 1 millisecond. The previous behavior was to call
+    // clock.sleep(ZERO), but setting it to 1 is probably fine, and works with the Instant below.
+    let min_iteration_delay = Duration::milliseconds(1);
+    let mut check_head =
+        Interval::new(now + iteration_delay, iteration_delay.max(min_iteration_delay));
     let mut check_stored_parts =
         Interval::new(now + CHECK_STORED_PARTS_INTERVAL, CHECK_STORED_PARTS_INTERVAL);
 
