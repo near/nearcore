@@ -22,7 +22,8 @@ use crate::test_loop::utils::receipts::{
 use crate::test_loop::utils::resharding::fork_before_resharding_block;
 use crate::test_loop::utils::resharding::{
     call_burn_gas_contract, call_promise_yield, check_state_cleanup_after_resharding,
-    execute_money_transfers, temporary_account_during_resharding, TrackedShardSchedule,
+    execute_money_transfers, execute_storage_operations, temporary_account_during_resharding,
+    TrackedShardSchedule,
 };
 use crate::test_loop::utils::sharding::print_and_assert_shard_accounts;
 use crate::test_loop::utils::transactions::{
@@ -482,9 +483,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
         latest_block_height.set(tip.height);
 
-        // Check that all chunks are included.
         let client = clients[client_index];
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+        println!("Block: {:?} {} {:?}", tip.last_block_hash, tip.height, block_header.chunk_mask());
+        println!("Shard IDs: {:?}", shard_layout.shard_ids().collect_vec());
+
+        // Check that all chunks are included.
         if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
             assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
         }
@@ -686,6 +691,38 @@ fn test_resharding_v3_shard_shuffling() {
     test_resharding_v3_base(params);
 }
 
+/// This tests an edge case where we track the parent in the pre-resharding epoch, then we
+/// track an unrelated shard in the first epoch after resharding, then we track a child of the resharding
+/// in the next epoch after that. In that case we don't want to state sync because we can just perform
+/// the resharding and continue applying chunks for the child in the first epoch post-resharding.
+#[test]
+fn test_resharding_v3_shard_shuffling_untrack_then_track() {
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let child_shard_id = new_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, unrelated_shard_id, child_shard_id];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    let params = TestReshardingParametersBuilder::default()
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .num_clients(num_clients)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        // TODO(resharding): uncomment after fixing test_resharding_v3_state_cleanup()
+        //.add_loop_action(check_state_cleanup_after_resharding(tracked_shard_schedule))
+        .build();
+    test_resharding_v3_base(params);
+}
+
 #[test]
 fn test_resharding_v3_shard_shuffling_intense() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
@@ -697,6 +734,24 @@ fn test_resharding_v3_shard_shuffling_intense() {
         .add_loop_action(execute_money_transfers(
             TestReshardingParametersBuilder::compute_initial_accounts(8),
         ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+/// Executes storage operations at every block height.
+/// In particular, checks that storage gas costs are computed correctly during
+/// resharding. Caught a bug with invalid storage costs computed during flat
+/// storage resharding.
+#[test]
+fn test_resharding_v3_storage_operations() {
+    let sender_account: AccountId = "account1".parse().unwrap();
+    let account_in_parent: AccountId = "account4".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_contract(account_in_parent.clone())
+        .add_loop_action(execute_storage_operations(sender_account, account_in_parent))
+        .all_chunks_expected(true)
+        .delay_flat_state_resharding(2)
+        .epoch_length(13)
         .build();
     test_resharding_v3_base(params);
 }
@@ -927,8 +982,6 @@ fn test_resharding_v3_yield_resume() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        // TODO(resharding): test should work without changes to track_all_shards
-        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }

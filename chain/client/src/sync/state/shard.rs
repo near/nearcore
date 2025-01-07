@@ -3,7 +3,7 @@ use super::task_tracker::TaskTracker;
 use crate::metrics;
 use crate::sync::state::chain_requests::ChainFinalizationRequest;
 use futures::{StreamExt, TryStreamExt};
-use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::futures::{respawn_for_parallelism, FutureSpawner};
 use near_async::messaging::AsyncSender;
 use near_chain::types::RuntimeAdapter;
 use near_chain::BlockHeader;
@@ -279,22 +279,4 @@ async fn apply_state_part(
         &epoch_id,
     )?;
     Ok(())
-}
-
-/// Given a future, respawn it as an equivalent future but which does not block the
-/// driver of the future. For example, if the given future directly performs
-/// computation, normally the whoever drives the future (such as a buffered_unordered)
-/// would be blocked by the computation, thereby not allowing computation of other
-/// futures driven by the same driver to proceed. This function respawns the future
-/// onto the FutureSpawner, so the driver of the returned future would not be blocked.
-fn respawn_for_parallelism<T: Send + 'static>(
-    future_spawner: &dyn FutureSpawner,
-    name: &'static str,
-    f: impl std::future::Future<Output = T> + Send + 'static,
-) -> impl std::future::Future<Output = T> + Send + 'static {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    future_spawner.spawn(name, async move {
-        sender.send(f.await).ok();
-    });
-    async move { receiver.await.unwrap() }
 }

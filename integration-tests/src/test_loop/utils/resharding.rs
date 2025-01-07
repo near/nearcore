@@ -10,6 +10,7 @@ use near_chain::ChainStoreAccess;
 use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
+use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -136,6 +137,97 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
             ran_transfers.set(true);
         },
     );
+    LoopAction::new(action_fn, succeeded)
+}
+
+/// Returns a loop action that makes storage read and write at every block
+/// height.
+pub(crate) fn execute_storage_operations(
+    sender_id: AccountId,
+    receiver_id: AccountId,
+) -> LoopAction {
+    const TX_CHECK_DEADLINE: u64 = 5;
+    let latest_height = Cell::new(0);
+    let txs = Cell::new(vec![]);
+    let nonce = Cell::new(102);
+
+    let (ran_transfers, succeeded) = LoopAction::shared_success_flag();
+
+    let action_fn = Box::new(
+        move |node_datas: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            let mut remaining_txs = vec![];
+            for (tx, tx_height) in txs.take() {
+                if tx_height + TX_CHECK_DEADLINE >= tip.height {
+                    remaining_txs.push((tx, tx_height));
+                    continue;
+                }
+
+                let tx_outcome = client_actor.client.chain.get_partial_transaction_result(&tx);
+                let status = tx_outcome.as_ref().map(|o| o.status.clone());
+                assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
+            }
+            txs.set(remaining_txs);
+
+            let clients = node_datas
+                .iter()
+                .map(|test_data| {
+                    &test_loop_data.get(&test_data.client_sender.actor_handle()).client
+                })
+                .collect_vec();
+
+            // Send transaction which reads a key and writes a key-value pair
+            // to the contract storage.
+            let anchor_hash = get_anchor_hash(&clients);
+            let gas = 20 * TGAS;
+            let salt = 2 * tip.height;
+            nonce.set(nonce.get() + 1);
+            let read_action = Action::FunctionCall(Box::new(FunctionCallAction {
+                args: near_primitives::test_utils::encode(&[salt]),
+                method_name: "read_value".to_string(),
+                gas,
+                deposit: 0,
+            }));
+            let write_action = Action::FunctionCall(Box::new(FunctionCallAction {
+                args: near_primitives::test_utils::encode(&[salt + 1, salt * 10]),
+                method_name: "write_key_value".to_string(),
+                gas,
+                deposit: 0,
+            }));
+            let tx = SignedTransaction::from_actions(
+                nonce.get(),
+                sender_id.clone(),
+                receiver_id.clone(),
+                &create_user_test_signer(&sender_id).into(),
+                vec![read_action, write_action],
+                anchor_hash,
+                0,
+            );
+
+            store_and_submit_tx(
+                &node_datas,
+                &client_account_id,
+                &txs,
+                &sender_id,
+                &receiver_id,
+                tip.height,
+                tx,
+            );
+            ran_transfers.set(true);
+        },
+    );
+
     LoopAction::new(action_fn, succeeded)
 }
 

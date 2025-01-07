@@ -694,11 +694,16 @@ impl Trie {
             )))),
             None => RefCell::new(TrieAccountingCache::new(None)),
         };
+        // Technically the charge_gas_for_trie_node_access should be set based
+        // on the flat storage protocol feature. When flat storage is enabled
+        // the trie node access should be free and the charge flag should be set
+        // to false.
+        let charge_gas_for_trie_node_access = false;
         Trie {
             storage,
             memtries,
             root,
-            charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
+            charge_gas_for_trie_node_access,
             flat_storage_chunk_view,
             accounting_cache,
             recorder: None,
@@ -711,8 +716,8 @@ impl Trie {
     }
 
     /// Helper to simulate gas costs as if flat storage was present.
-    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
-        self.charge_gas_for_trie_node_access = false;
+    pub fn set_charge_gas_for_trie_node_access(&mut self, value: bool) {
+        self.charge_gas_for_trie_node_access = value;
     }
 
     /// Makes a new trie that has everything the same except that access
