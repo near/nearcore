@@ -12,6 +12,10 @@ use super::{ChunkProductionKey, SignatureDifferentiator};
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.
+/// 
+/// # Version History
+/// - V1: Deprecated version (no longer used)
+/// - V2: Current version with enhanced security features and metadata
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ChunkEndorsement {
