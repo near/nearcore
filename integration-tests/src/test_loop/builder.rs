@@ -42,6 +42,7 @@ use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
+use tokio::runtime::Runtime;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
 use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
@@ -719,7 +720,9 @@ impl TestLoopBuilder {
         )
         .unwrap();
 
+        let networking_rt = Runtime::new().unwrap();
         let partial_witness_actor = PartialWitnessActor::new(
+            networking_rt.handle().clone(),
             self.test_loop.clock(),
             network_adapter.as_multi_sender(),
             client_adapter.as_multi_sender(),

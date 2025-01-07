@@ -16,6 +16,7 @@ use near_primitives::stateless_validation::contract_distribution::ContractUpdate
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::ShardId;
 use std::sync::Arc;
+use tokio::runtime::Handle;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 
@@ -119,6 +120,7 @@ impl Handler<ContractCodeResponseMessage> for PartialWitnessActor {
 
 impl PartialWitnessActor {
     pub fn new(
+        rt: Handle,
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
@@ -129,6 +131,7 @@ impl PartialWitnessActor {
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         let tx = PartialWitnessService::new(
+            rt,
             clock,
             network_adapter,
             client_sender,

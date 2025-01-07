@@ -38,6 +38,7 @@ use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
 use rand::Rng;
+use tokio::runtime::Handle;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
@@ -110,6 +111,7 @@ pub struct PartialWitnessSenderForClient {
 
 impl PartialWitnessService {
     pub fn new(
+        rt: Handle,
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
@@ -144,7 +146,7 @@ impl PartialWitnessService {
             ),
         };
 
-        tokio::spawn(async move {
+        rt.spawn(async move {
             actor.run().await.expect("Failed to run PartialWitnessActor");
         });
 
@@ -155,7 +157,6 @@ impl PartialWitnessService {
     /// Main async loop processing all incoming PartialWitnessMsg.
     pub async fn run(mut self) -> Result<(), Error> {
         while let Some(msg) = self.rx.recv().await {
-            // Match on the enum variant and dispatch the appropriate handler:
             match msg {
                 PartialWitnessMsg::DistributeStateWitnessRequest(req) => {
                     if let Err(err) = self.handle_distribute_state_witness_request(req).await {

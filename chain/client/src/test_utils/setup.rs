@@ -74,6 +74,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
+use tokio::runtime::Runtime;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -156,7 +157,9 @@ pub fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
+    let networking_rt = Runtime::new().unwrap();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
+        networking_rt.handle().clone(),
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
