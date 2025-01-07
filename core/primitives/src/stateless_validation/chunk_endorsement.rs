@@ -123,6 +123,8 @@ impl ChunkEndorsementV2 {
     }
 }
 
+/// Metadata associated with chunk endorsement, used for validation purposes.
+/// Contains information about the validator, shard, epoch, and block height.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkEndorsementMetadata {
     account_id: AccountId,
