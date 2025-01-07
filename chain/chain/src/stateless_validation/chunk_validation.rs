@@ -692,7 +692,7 @@ pub fn validate_chunk_state_witness(
         .into_iter()
         .zip(state_witness.implicit_transitions.into_iter())
     {
-        let (shard_uid, new_state_root) = match implicit_transition_params {
+        let (shard_uid, new_state_root, new_congestion_info) = match implicit_transition_params {
             ImplicitTransitionParams::ApplyOldChunk(block, shard_uid) => {
                 let shard_context = ShardContext { shard_uid, should_apply_chunk: false };
                 let old_chunk_data = OldChunkData {
@@ -712,7 +712,9 @@ pub fn validate_chunk_state_witness(
                     shard_context,
                     runtime_adapter,
                 )?;
-                (shard_uid, apply_result.new_root)
+                let congestion_info =
+                    chunk_extra.congestion_info().expect("The congestion info must exist!");
+                (shard_uid, apply_result.new_root, congestion_info)
             }
             ImplicitTransitionParams::Resharding(
                 boundary_account,
@@ -725,36 +727,32 @@ pub fn validate_chunk_state_witness(
 
                 // Update the congestion info based on the parent shard. It's
                 // important to do this step before the `retain_split_shard`
-                // because only the parent has the needed information.
-                if let Some(congestion_info) = chunk_extra.congestion_info_mut() {
-                    // Get the congestion info based on the parent shard.
-                    let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
-                    let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-                    let parent_congestion_info = *congestion_info;
-                    *congestion_info = ReshardingManager::get_child_congestion_info_not_finalized(
-                        &parent_trie,
-                        &parent_shard_layout,
-                        parent_congestion_info,
-                        retain_mode,
-                    )?;
+                // because only the parent trie has the needed information.
+                let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+                let parent_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+                let parent_congestion_info =
+                    chunk_extra.congestion_info().expect("The congestion info must exist");
 
-                    // Set the allowed shard based on the child shard.
-                    let next_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
-                    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
-                    ReshardingManager::finalize_allowed_shard(
-                        &next_shard_layout,
-                        child_shard_uid,
-                        congestion_info,
-                    )?;
-                }
+                let child_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
+                let child_shard_layout = epoch_manager.get_shard_layout(&child_epoch_id)?;
+                let child_congestion_info = ReshardingManager::get_child_congestion_info(
+                    &parent_trie,
+                    &parent_shard_layout,
+                    parent_congestion_info,
+                    &child_shard_layout,
+                    child_shard_uid,
+                    retain_mode,
+                )?;
 
                 let new_root = parent_trie.retain_split_shard(&boundary_account, retain_mode)?;
 
-                (child_shard_uid, new_root)
+                (child_shard_uid, new_root, child_congestion_info)
             }
         };
 
         *chunk_extra.state_root_mut() = new_state_root;
+        *chunk_extra.congestion_info_mut().expect("The congestion info must exist!") =
+            new_congestion_info;
         if chunk_extra.state_root() != &transition.post_state_root {
             // This is an early check, it's not for correctness, only for better
             // error reporting in case of an invalid state witness due to a bug.
