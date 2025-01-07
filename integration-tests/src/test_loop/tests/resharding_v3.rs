@@ -982,8 +982,6 @@ fn test_resharding_v3_yield_resume() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        // TODO(resharding): test should work without changes to track_all_shards
-        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }
