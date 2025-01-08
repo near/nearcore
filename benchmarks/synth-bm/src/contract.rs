@@ -15,6 +15,7 @@ use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
+use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -139,13 +140,21 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     Ok(())
 }
 
+/// Constructs the parameters according to
+/// https://github.com/near/mpc/blob/79ec50759146221e7ad8bb04520f13333b75ca07/chain-signatures/contract/src/lib.rs#L127
 fn new_random_mpc_sign_args(rng: &mut ThreadRng, key_version: u32) -> serde_json::Value {
+    #[derive(Serialize)]
+    struct SignRequest {
+        pub payload: [u8; 32],
+        pub path: String,
+        pub key_version: u32,
+    }
+
     let mut payload: [u8; 32] = [0; 32];
     rng.fill(&mut payload);
+    let path = Alphanumeric.sample_string(rng, 16);
 
     json!({
-        "payload": payload,
-        "path": Alphanumeric.sample_string(rng, 16),
-        "key_version": key_version,
+        "request": SignRequest { payload, path, key_version },
     })
 }
