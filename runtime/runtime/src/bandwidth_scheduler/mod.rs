@@ -43,7 +43,8 @@ pub fn run_bandwidth_scheduler(
         target: "runtime",
         "run_bandwidth_scheduler",
         height = apply_state.block_height,
-        shard_id = ?apply_state.shard_id);
+        shard_id = ?apply_state.shard_id)
+    .entered();
 
     // Read the current scheduler state from the Trie
     let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
