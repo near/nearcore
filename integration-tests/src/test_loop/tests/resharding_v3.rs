@@ -459,10 +459,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         TrieSanityCheck::new(&clients, params.load_mem_tries_for_tracked_shards);
 
     let latest_block_height = Cell::new(0u64);
-    // Height of a block after resharding.
-    let new_layout_block_height = Cell::new(None);
-    // Height of an epoch after resharding.
-    let new_layout_epoch_height = Cell::new(None);
+    let resharding_block_hash = Cell::new(None);
+    let epoch_height_after_resharding = Cell::new(None);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         params
             .loop_actions
@@ -485,56 +483,47 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
         let client = clients[client_index];
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
-        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-        println!("Block: {:?} {} {:?}", tip.last_block_hash, tip.height, block_header.chunk_mask());
-        println!("Shard IDs: {:?}", shard_layout.shard_ids().collect_vec());
 
         // Check that all chunks are included.
         if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
             assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
         }
 
-        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-        println!(
-            "new block #{} shards: {:?} chunk mask {:?}",
-            tip.height,
-            shard_layout.shard_ids().collect_vec(),
-            block_header.chunk_mask().to_vec()
-        );
-
         trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
 
-        let epoch_height =
-            client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
+        let epoch_id =
+            client.epoch_manager.get_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
+        let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
+        let epoch_height = epoch_info.epoch_height();
 
-        // Return false if we have not yet passed an epoch with increased number of shards.
-        if new_layout_epoch_height.get().is_none() {
-            assert!(epoch_height < 6);
-            let prev_epoch_id = client
-                .epoch_manager
-                .get_prev_epoch_id_from_prev_block(&tip.prev_block_hash)
-                .unwrap();
-            let epoch_config = client.epoch_manager.get_epoch_config(&prev_epoch_id).unwrap();
+        // Return false if we have not resharded yet.
+        if epoch_height_after_resharding.get().is_none() {
+            assert!(epoch_height < 5);
+            let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
             if epoch_config.shard_layout.num_shards() != expected_num_shards {
                 return false;
             }
-            // Just passed an epoch with increased number of shards.
-            new_layout_block_height.set(Some(latest_block_height.get()));
-            new_layout_epoch_height.set(Some(epoch_height));
+            // Just resharded.
+            resharding_block_hash.set(Some(tip.prev_block_hash));
+            epoch_height_after_resharding.set(Some(epoch_height));
             // Assert that we will have a chance for gc to kick in before the test is over.
             assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < TESTLOOP_NUM_EPOCHS_TO_WAIT);
             println!("State after resharding:");
             print_and_assert_shard_accounts(&clients, &tip);
         }
 
-        check_state_shard_uid_mapping_after_resharding(
-            &client,
-            parent_shard_uid,
-            params.allow_negative_refcount,
-        );
+        for client in clients {
+            check_state_shard_uid_mapping_after_resharding(
+                client,
+                &tip.prev_block_hash,
+                &resharding_block_hash.get().unwrap(),
+                parent_shard_uid,
+                params.allow_negative_refcount,
+            );
+        }
 
         // Return false if garbage collection window has not passed yet since resharding.
-        if epoch_height <= new_layout_epoch_height.get().unwrap() + GC_NUM_EPOCHS_TO_KEEP {
+        if epoch_height <= epoch_height_after_resharding.get().unwrap() + GC_NUM_EPOCHS_TO_KEEP {
             return false;
         }
         for loop_action in &params.loop_actions {

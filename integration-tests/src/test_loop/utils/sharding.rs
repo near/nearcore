@@ -118,3 +118,25 @@ pub fn shard_was_split(shard_layout: &ShardLayout, shard_id: ShardId) -> bool {
     };
     parent != shard_id
 }
+
+pub fn get_tracked_shards_from_prev_block(
+    client: &Client,
+    prev_block_hash: &CryptoHash,
+) -> Vec<ShardUId> {
+    let account_id =
+        client.validator_signer.get().map(|validator| validator.validator_id().clone());
+    let mut tracked_shards = vec![];
+    for shard_uid in
+        client.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap().shard_uids()
+    {
+        if client.shard_tracker.care_about_shard(
+            account_id.as_ref(),
+            prev_block_hash,
+            shard_uid.shard_id(),
+            true,
+        ) {
+            tracked_shards.push(shard_uid);
+        }
+    }
+    tracked_shards
+}
