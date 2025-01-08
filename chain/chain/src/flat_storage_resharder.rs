@@ -732,7 +732,6 @@ impl FlatStorageResharder {
                     merged_changes.merge(changes);
                     store_update.remove_delta(shard_uid, flat_head.hash);
                 }
-                // TODO(resharding): if flat_head_block_hash == state sync hash -> do snapshot
             }
 
             // Commit all changes to store.
