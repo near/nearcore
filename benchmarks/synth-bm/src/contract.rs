@@ -82,7 +82,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     info!("Setup complete, starting to send transactions");
     let timer = Instant::now();
     for i in 0..args.num_transfers {
-        let sender_idx = usize::try_from(i).unwrap() / accounts.len();
+        let sender_idx = usize::try_from(i).unwrap() % accounts.len();
         let sender = &accounts[sender_idx];
 
         let transaction = SignedTransaction::call(
