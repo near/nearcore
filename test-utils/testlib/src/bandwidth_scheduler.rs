@@ -360,8 +360,9 @@ impl TestBandwidthStats {
         let link_imbalance_ratio =
             max_sent_on_link.as_u64() as f64 / min_sent_on_link.as_u64() as f64;
 
+        let max_budget = vec![self.scheduler_params.max_shard_bandwidth; 1000];
         let estimated_link_throughputs =
-            estimate_link_throughputs(active_links, self.scheduler_params.max_shard_bandwidth);
+            estimate_link_throughputs(active_links, &max_budget, &max_budget);
 
         let mut estimated_throughput = ByteSize::b(1);
         for (_link, link_throughput) in &estimated_link_throughputs {
@@ -506,28 +507,35 @@ impl std::fmt::Display for TestSummary {
 /// Ideally this would be done with some sort of network flow algorithm, but for now this will do.I
 /// guess granting a bit on all links is like poor man's Ford-Flukerson.
 /// TODO(bandwidth_scheduler) - make this better.
-fn estimate_link_throughputs(
+pub fn estimate_link_throughputs(
     active_links: &BTreeSet<(ShardIndex, ShardIndex)>,
-    max_shard_bandwidth: Bandwidth,
+    sender_budgets: &[Bandwidth],
+    receiver_budgets: &[Bandwidth],
 ) -> BTreeMap<(ShardIndex, ShardIndex), ByteSize> {
     if active_links.is_empty() {
         return BTreeMap::new();
     }
-    let max_shard_bandwidth = ByteSize::b(max_shard_bandwidth);
     let max_index = active_links.iter().map(|(a, b)| std::cmp::max(*a, *b)).max().unwrap();
     let num_shards = max_index + 1;
 
-    let mut sender_granted = vec![ByteSize::b(0); num_shards];
-    let mut receiver_granted = vec![ByteSize::b(0); num_shards];
-    let mut link_granted = vec![vec![ByteSize::b(0); num_shards]; num_shards];
+    let min_nonzero_budget = sender_budgets
+        .iter()
+        .chain(receiver_budgets.iter())
+        .filter(|b| **b > 0)
+        .min()
+        .unwrap_or(&0);
+    let single_increase = std::cmp::max(1, min_nonzero_budget / num_shards as u64);
 
-    let single_increase = ByteSize::b(max_shard_bandwidth.as_u64() / num_shards as u64 / 4);
+    let mut sender_granted = vec![0; num_shards];
+    let mut receiver_granted = vec![0; num_shards];
+    let mut link_granted = vec![vec![0; num_shards]; num_shards];
+
     let mut links: Vec<(ShardIndex, ShardIndex)> = active_links.iter().copied().collect();
     while !links.is_empty() {
         let mut next_links = Vec::new();
         for link in links {
-            if sender_granted[link.0] + single_increase <= max_shard_bandwidth
-                && receiver_granted[link.1] + single_increase <= max_shard_bandwidth
+            if sender_granted[link.0] + single_increase <= sender_budgets[link.0]
+                && receiver_granted[link.1] + single_increase <= receiver_budgets[link.1]
             {
                 sender_granted[link.0] += single_increase;
                 receiver_granted[link.1] += single_increase;
@@ -540,7 +548,7 @@ fn estimate_link_throughputs(
 
     let mut res = BTreeMap::new();
     for link in active_links {
-        res.insert(*link, link_granted[link.0][link.1]);
+        res.insert(*link, ByteSize::b(link_granted[link.0][link.1]));
     }
     res
 }

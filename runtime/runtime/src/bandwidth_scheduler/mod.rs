@@ -14,6 +14,7 @@ use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;
 
+mod distribute_remaining;
 mod scheduler;
 #[cfg(test)]
 mod simulator;
