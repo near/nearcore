@@ -141,7 +141,7 @@ fn setup_network_node(
         client_config.chunk_request_retry_period,
     );
     let networking_rt = Arc::new(tokio::runtime::Builder::new_current_thread().build().unwrap());
-    let networking_spawner = Arc::new(TokioRuntimeFutureSpawner(networking_rt.clone()));
+    let networking_spawner = Arc::new(TokioRuntimeFutureSpawner(networking_rt));
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
         networking_spawner,
         Clock::real(),
