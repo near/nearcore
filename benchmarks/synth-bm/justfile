@@ -41,5 +41,5 @@ benchmark_mpc_sign:
         --receiver-id 'v1.signer-dev.testnet' \
         --key-version 0 \
         --channel-buffer-size 500 \
-        --gas 100000000000000 \
-        --deposit 1
+        --gas 300000000000000 \
+        --deposit 100000000000000000000000
