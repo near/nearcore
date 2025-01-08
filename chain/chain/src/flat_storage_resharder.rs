@@ -1754,9 +1754,8 @@ mod tests {
 
         // Perform resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
-        let (parent_shard, split_params) = resharder.get_parent_shard_and_split_params().unwrap();
-        let ParentSplitParameters { left_child_shard, right_child_shard, flat_head, .. } =
-            split_params;
+        let (_, split_params) = resharder.get_parent_shard_and_split_params().unwrap();
+        let ParentSplitParameters { left_child_shard, right_child_shard, .. } = split_params;
 
         // Run the split task.
         assert_matches!(
