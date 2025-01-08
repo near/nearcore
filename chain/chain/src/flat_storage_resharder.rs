@@ -694,7 +694,6 @@ impl FlatStorageResharder {
         };
 
         loop {
-            // TODO:(resharding): check self.controller.is_cancelled() here as well.
             let _span = tracing::debug_span!(
                 target: "resharding",
                 "shard_catchup_apply_deltas/batch",
