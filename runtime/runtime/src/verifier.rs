@@ -340,7 +340,7 @@ pub enum ValidateReceiptMode {
     /// 2) There is a bug which allows to create receipts that are above the size limit. Runtime has
     ///    to handle them gracefully until the receipt size limit bug is fixed.
     ///    See https://github.com/near/nearcore/issues/12606 for details.
-    OldReceipt,
+    ExistingReceipt,
 }
 
 /// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.

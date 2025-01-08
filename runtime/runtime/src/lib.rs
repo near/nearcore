@@ -1870,7 +1870,7 @@ impl Runtime {
                 &processing_state.apply_state.config.wasm_config.limit_config,
                 &receipt,
                 protocol_version,
-                ValidateReceiptMode::OldReceipt,
+                ValidateReceiptMode::ExistingReceipt,
             )
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
@@ -1936,7 +1936,7 @@ impl Runtime {
                 &processing_state.apply_state.config.wasm_config.limit_config,
                 receipt,
                 protocol_version,
-                ValidateReceiptMode::OldReceipt,
+                ValidateReceiptMode::ExistingReceipt,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if processing_state.total.compute >= compute_limit
