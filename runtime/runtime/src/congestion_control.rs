@@ -400,7 +400,7 @@ impl ReceiptSinkV2 {
         // See https://github.com/near/nearcore/issues/12606
         let max_receipt_size = apply_state.config.wasm_config.limit_config.max_receipt_size;
         if size > max_receipt_size {
-            tracing::warn!(
+            tracing::debug!(
                 target: "runtime",
                 receipt_id=?receipt.receipt_id(),
                 size,
