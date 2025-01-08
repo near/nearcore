@@ -834,14 +834,13 @@ mod tests {
     /// Run with:
     /// cargo test -p node-runtime --release test_scheduler_worst_case_performance -- --nocapture
     ///
-    /// Example output on an n2d-standard-8 GCP VM with AMD EPYC 7B13 CPU:
-    /// Running scheduler with 6 shards: 0.11 ms
-    /// Running scheduler with 10 shards: 0.15 ms
-    /// Running scheduler with 32 shards: 1.75 ms
-    /// Running scheduler with 64 shards: 6.16 ms
-    /// Running scheduler with 128 shards: 26.59 ms
-    /// Running scheduler with 256 shards: 107.43 ms
-    /// Running scheduler with 512 shards: 423.76 ms
+    /// Running scheduler with 6 shards: 0.13 ms
+    /// Running scheduler with 10 shards: 0.19 ms
+    /// Running scheduler with 32 shards: 1.85 ms
+    /// Running scheduler with 64 shards: 5.80 ms
+    /// Running scheduler with 128 shards: 23.98 ms
+    /// Running scheduler with 256 shards: 97.44 ms
+    /// Running scheduler with 512 shards: 385.97 ms
     #[test]
     fn test_scheduler_worst_case_performance() {
         for num_shards in [6, 10, 32, 64, 128, 256, 512] {
