@@ -2,7 +2,7 @@ use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
-use near_async::futures::ActixFutureSpawner;
+use near_async::futures::{ActixFutureSpawner, TokioRuntimeFutureSpawner};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -140,9 +140,10 @@ fn setup_network_node(
         runtime.store().clone(),
         client_config.chunk_request_retry_period,
     );
-    let networking_rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let networking_rt = Arc::new(tokio::runtime::Builder::new_current_thread().build().unwrap());
+    let networking_spawner = Arc::new(TokioRuntimeFutureSpawner(networking_rt.clone()));
     let (partial_witness_actor, _) = spawn_actix_actor(PartialWitnessActor::new(
-        networking_rt.handle().clone(),
+        networking_spawner,
         Clock::real(),
         network_adapter.as_multi_sender(),
         client_actor.clone().with_auto_span_context().into_multi_sender(),

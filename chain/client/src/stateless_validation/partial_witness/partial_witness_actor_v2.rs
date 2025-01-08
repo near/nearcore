@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use lru::LruCache;
-use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
+use near_async::futures::{
+    AsyncComputationSpawner, AsyncComputationSpawnerExt, FutureSpawnerExt,
+    TokioRuntimeFutureSpawner,
+};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
@@ -38,7 +41,6 @@ use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::{DBCol, StorageError, TrieDBStorage, TrieStorage};
 use near_vm_runner::{get_contract_cache_key, ContractCode, ContractRuntimeCache};
 use rand::Rng;
-use tokio::runtime::Handle;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
@@ -52,7 +54,7 @@ use super::encoding::{CONTRACT_DEPLOYS_RATIO_DATA_PARTS, WITNESS_RATIO_DATA_PART
 use super::partial_deploys_tracker::PartialEncodedContractDeploysTracker;
 use super::partial_witness_tracker::PartialEncodedStateWitnessTracker;
 use near_primitives::utils::compression::CompressedData;
-use tokio::sync::mpsc::{self, error::SendError, Receiver, Sender as MpscSender};
+use std::sync::mpsc::{self, Receiver, SendError, Sender as MpscSender};
 
 const PROCESSED_CONTRACT_CODE_REQUESTS_CACHE_SIZE: usize = 30;
 
@@ -73,8 +75,9 @@ pub struct PartialWitnessSender(MpscSender<PartialWitnessMsg>);
 
 impl PartialWitnessSender {
     /// Send a message to the Partial Witness Service (async).
-    pub async fn send(&self, msg: PartialWitnessMsg) -> Result<(), SendError<PartialWitnessMsg>> {
-        self.0.send(msg).await
+    #[allow(clippy::result_large_err)]
+    pub fn send(&self, msg: PartialWitnessMsg) -> Result<(), SendError<PartialWitnessMsg>> {
+        self.0.send(msg)
     }
 }
 
@@ -111,7 +114,7 @@ pub struct PartialWitnessSenderForClient {
 
 impl PartialWitnessService {
     pub fn new(
-        rt: Handle,
+        rt: Arc<TokioRuntimeFutureSpawner>,
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
@@ -121,7 +124,7 @@ impl PartialWitnessService {
         compile_contracts_spawner: Arc<dyn AsyncComputationSpawner>,
         partial_witness_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> PartialWitnessSender {
-        let (tx, rx) = mpsc::channel(1024);
+        let (tx, rx) = mpsc::channel();
 
         let partial_witness_tracker =
             Arc::new(PartialEncodedStateWitnessTracker::new(client_sender, epoch_manager.clone()));
@@ -146,7 +149,7 @@ impl PartialWitnessService {
             ),
         };
 
-        rt.spawn(async move {
+        rt.spawn("PartialWitnessService", async move {
             actor.run().await.expect("Failed to run PartialWitnessActor");
         });
 
@@ -156,7 +159,7 @@ impl PartialWitnessService {
 
     /// Main async loop processing all incoming PartialWitnessMsg.
     pub async fn run(mut self) -> Result<(), Error> {
-        while let Some(msg) = self.rx.recv().await {
+        while let Ok(msg) = self.rx.recv() {
             match msg {
                 PartialWitnessMsg::DistributeStateWitnessRequest(req) => {
                     if let Err(err) = self.handle_distribute_state_witness_request(req).await {

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
-use near_async::futures::FutureSpawner;
+use near_async::futures::{FutureSpawner, TokioRuntimeFutureSpawner};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
@@ -720,9 +720,11 @@ impl TestLoopBuilder {
         )
         .unwrap();
 
-        let networking_rt = Runtime::new().unwrap();
+        let networking_rt =
+            Arc::new(tokio::runtime::Builder::new_current_thread().build().unwrap());
+        let networking_spawner = Arc::new(TokioRuntimeFutureSpawner(networking_rt.clone()));
         let partial_witness_actor = PartialWitnessActor::new(
-            networking_rt.handle().clone(),
+            networking_spawner,
             self.test_loop.clock(),
             network_adapter.as_multi_sender(),
             client_adapter.as_multi_sender(),

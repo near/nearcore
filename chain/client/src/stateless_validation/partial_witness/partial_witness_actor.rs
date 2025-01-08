@@ -1,4 +1,4 @@
-use near_async::futures::AsyncComputationSpawner;
+use near_async::futures::{AsyncComputationSpawner, TokioRuntimeFutureSpawner};
 use near_async::messaging::{Actor, Handler, Sender};
 use near_async::time::Clock;
 use near_async::{MultiSend, MultiSenderFrom};
@@ -16,7 +16,6 @@ use near_primitives::stateless_validation::contract_distribution::ContractUpdate
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::ShardId;
 use std::sync::Arc;
-use tokio::runtime::Handle;
 
 use crate::client_actor::ClientSenderForPartialWitness;
 
@@ -46,81 +45,55 @@ pub struct PartialWitnessSenderForClient {
 impl Handler<DistributeStateWitnessRequest> for PartialWitnessActor {
     #[perf]
     fn handle(&mut self, msg: DistributeStateWitnessRequest) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::DistributeStateWitnessRequest(Box::new(msg))).await.unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::DistributeStateWitnessRequest(Box::new(msg))).unwrap();
     }
 }
 
 impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkStateWitnessAckMessage) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::ChunkStateWitnessAckMessage(msg)).await.unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::ChunkStateWitnessAckMessage(msg)).unwrap();
     }
 }
 
 impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::PartialEncodedStateWitnessMessage(msg)).await.unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::PartialEncodedStateWitnessMessage(msg)).unwrap();
     }
 }
 
 impl Handler<PartialEncodedStateWitnessForwardMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessForwardMessage) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::PartialEncodedStateWitnessForwardMessage(msg))
-                .await
-                .unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::PartialEncodedStateWitnessForwardMessage(msg)).unwrap();
     }
 }
 
 impl Handler<ChunkContractAccessesMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ChunkContractAccessesMessage) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::ChunkContractAccessesMessage(msg)).await.unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::ChunkContractAccessesMessage(msg)).unwrap();
     }
 }
 
 impl Handler<PartialEncodedContractDeploysMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedContractDeploysMessage) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::PartialEncodedContractDeploysMessage(msg)).await.unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::PartialEncodedContractDeploysMessage(msg)).unwrap();
     }
 }
 
 impl Handler<ContractCodeRequestMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ContractCodeRequestMessage) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::ContractCodeRequestMessage(msg)).await.unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::ContractCodeRequestMessage(msg)).unwrap();
     }
 }
 
 impl Handler<ContractCodeResponseMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: ContractCodeResponseMessage) {
-        let tx = self.tx.clone();
-        actix::spawn(async move {
-            tx.send(PartialWitnessMsg::ContractCodeResponseMessage(msg)).await.unwrap();
-        });
+        self.tx.send(PartialWitnessMsg::ContractCodeResponseMessage(msg)).unwrap();
     }
 }
 
 impl PartialWitnessActor {
     pub fn new(
-        rt: Handle,
+        rt: Arc<TokioRuntimeFutureSpawner>,
         clock: Clock,
         network_adapter: PeerManagerAdapter,
         client_sender: ClientSenderForPartialWitness,
