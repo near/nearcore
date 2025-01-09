@@ -145,7 +145,7 @@ fn setup_initial_blockchain(
         // whether to drop the block, and be more robust to state sync protocol changes. But for now this
         // will trigger the behavior we want and it's quite a bit easier.
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-             genesis_height + epoch_length + 4
+            genesis_height + epoch_length + 4
         } else {
             genesis_height + epoch_length + 1
         };
@@ -394,7 +394,7 @@ fn slow_test_state_sync_current_epoch() {
 #[test]
 #[ignore]
 fn test_state_sync_forks() {
-    let params =     StateSyncTest {
+    let params = StateSyncTest {
         num_validators: 4,
         num_shards: 5,
         generate_shard_accounts: true,
@@ -405,11 +405,12 @@ fn test_state_sync_forks() {
         params.num_validators,
         params.num_shards,
         params.generate_shard_accounts,
-        params.chunks_produced
+        params
+            .chunks_produced
             .iter()
             .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
             .collect(),
-            params.skip_sync_block,
+        params.skip_sync_block,
     );
     run_test(state);
 }
