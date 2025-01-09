@@ -21,7 +21,7 @@ use crate::test_loop::utils::ONE_NEAR;
 /// Write block height to contract storage.
 fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &AccountId) {
     tracing::info!(target: "test", "Calling contract.");
-    let nonce = get_next_nonce(env, contract_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
         &env.datas,
@@ -33,7 +33,7 @@ fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &Acc
         nonce,
     );
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
 }
 
 /// Tracks latest block heights and checks that all chunks are produced.

@@ -23,6 +23,7 @@ sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 bytesize.workspace = true
+rand_chacha.workspace = true
 
 near-crypto.workspace = true
 near-o11y.workspace = true
@@ -35,6 +36,7 @@ near-wallet-contract.workspace = true
 
 [features]
 default = []
+estimator = ["near-primitives/test_utils"]
 nightly = [
   "near-chain-configs/nightly",
   "near-o11y/nightly",

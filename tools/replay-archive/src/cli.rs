@@ -15,7 +15,9 @@ use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpd
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
-use near_chain::{Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess};
+use near_chain::{
+    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+};
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
 use near_epoch_manager::EpochManagerAdapter;
@@ -37,7 +39,7 @@ use std::sync::Arc;
 
 /// This command assumes that it is run from an archival node
 /// and not all the operations data that is available for a
-/// regular validator may not be available in the archival database.
+/// regular validator might not be available in the archival database.
 #[derive(clap::Parser)]
 pub struct ReplayArchiveCommand {
     #[clap(long)]
@@ -392,6 +394,7 @@ impl ReplayController {
             &shard_layout,
             *block_header.hash(),
             prev_chunk_height_included,
+            ReceiptFilter::TargetShard,
         )?;
         let receipts = collect_receipts_from_response(receipt_response);
         Ok(receipts)
@@ -496,7 +499,7 @@ impl ReplayController {
     }
 
     /// Saves the ChunkExtras for the shards in the genesis block.
-    /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
+    /// Note that there are no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
         let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);

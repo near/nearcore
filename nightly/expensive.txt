@@ -160,6 +160,8 @@ expensive integration-tests integration_tests tests::client::sync_state_nodes::u
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes --features nightly
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard
 expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_sync_state_nodes_multishard --features nightly
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block
+expensive integration-tests integration_tests tests::client::sync_state_nodes::ultra_slow_test_dump_epoch_missing_chunk_in_last_block --features nightly
 
 # other tests
 expensive --timeout=300 near-chain near_chain tests::garbage_collection::ultra_slow_test_clear_old_data_too_many_heights

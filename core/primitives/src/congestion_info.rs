@@ -81,9 +81,7 @@ impl CongestionControl {
     pub fn outgoing_gas_limit(&self, sender_shard: ShardId) -> Gas {
         let congestion = self.congestion_level();
 
-        // note: using float equality is okay here because
-        // `clamped_f64_fraction` clamps to exactly 1.0.
-        if congestion == 1.0 {
+        if Self::is_fully_congested(congestion) {
             // Red traffic light: reduce to minimum speed
             if sender_shard == ShardId::from(self.info.allowed_shard()) {
                 self.config.allowed_shard_outgoing_gas
@@ -93,6 +91,13 @@ impl CongestionControl {
         } else {
             mix(self.config.max_outgoing_gas, self.config.min_outgoing_gas, congestion)
         }
+    }
+
+    pub fn is_fully_congested(congestion_level: f64) -> bool {
+        // note: using float equality is okay here because
+        // `clamped_f64_fraction` clamps to exactly 1.0.
+        debug_assert!(congestion_level <= 1.0);
+        congestion_level == 1.0
     }
 
     /// How much data another shard can send to us in the next block.
@@ -295,11 +300,11 @@ impl CongestionInfo {
         Ok(())
     }
 
-    pub fn remove_buffered_receipt_gas(&mut self, gas: Gas) -> Result<(), RuntimeError> {
+    pub fn remove_buffered_receipt_gas(&mut self, gas: u128) -> Result<(), RuntimeError> {
         match self {
             CongestionInfo::V1(inner) => {
                 inner.buffered_receipts_gas =
-                    inner.buffered_receipts_gas.checked_sub(gas as u128).ok_or_else(|| {
+                    inner.buffered_receipts_gas.checked_sub(gas).ok_or_else(|| {
                         RuntimeError::UnexpectedIntegerOverflow(
                             "remove_buffered_receipt_gas".into(),
                         )
@@ -725,7 +730,8 @@ mod tests {
         assert_eq!(config.max_tx_gas, control.process_tx_limit());
 
         // remove halve the congestion
-        info.remove_buffered_receipt_gas(config.max_congestion_outgoing_gas / 2).unwrap();
+        let gas_diff = config.max_congestion_outgoing_gas / 2;
+        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.5, control.congestion_level());
         assert_eq!(
@@ -736,7 +742,8 @@ mod tests {
         assert!(control.shard_accepts_transactions().is_no());
 
         // reduce congestion to 1/8
-        info.remove_buffered_receipt_gas(3 * config.max_congestion_outgoing_gas / 8).unwrap();
+        let gas_diff = 3 * config.max_congestion_outgoing_gas / 8;
+        info.remove_buffered_receipt_gas(gas_diff.into()).unwrap();
         let control = CongestionControl::new(config, info, 0);
         assert_eq!(0.125, control.congestion_level());
         assert_eq!(

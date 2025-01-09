@@ -433,8 +433,14 @@ impl<'a> ChainStoreUpdate<'a> {
                 for transaction in chunk.transactions() {
                     self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
                 }
-                for receipt in chunk.prev_outgoing_receipts() {
-                    self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
+
+                let partial_chunk = self.get_partial_chunk(&chunk_hash);
+                if let Ok(partial_chunk) = partial_chunk {
+                    for receipts in partial_chunk.prev_outgoing_receipts() {
+                        for receipt in &receipts.0 {
+                            self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                        }
+                    }
                 }
 
                 // 2. Delete chunk_hash-indexed data
@@ -501,7 +507,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    // TODO(reshardingV3) Revisit this function, probably it is not needed anymore.
+    // TODO(resharding) Revisit this function, probably it is not needed anymore.
     fn get_shard_uids_to_gc(
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,
@@ -742,6 +748,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.gc_outcomes(&block)?;
         self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
         self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
+        self.gc_col(DBCol::StateSyncNewChunks, block_hash.as_bytes());
 
         // 3. update columns related to prev block (block refcount and NextBlockHashes)
         self.dec_block_refcount(block.header().prev_hash())?;
@@ -766,8 +773,14 @@ impl<'a> ChainStoreUpdate<'a> {
             for transaction in chunk.transactions() {
                 self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
             }
-            for receipt in chunk.prev_outgoing_receipts() {
-                self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
+
+            let partial_chunk = self.get_partial_chunk(&chunk_hash);
+            if let Ok(partial_chunk) = partial_chunk {
+                for receipts in partial_chunk.prev_outgoing_receipts() {
+                    for receipt in &receipts.0 {
+                        self.gc_col(DBCol::Receipts, receipt.receipt_id().as_bytes());
+                    }
+                }
             }
 
             // 2. Delete chunk_hash-indexed data
@@ -975,6 +988,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::LatestWitnessesByIndex => {
                 store_update.delete(col, key);
             }
+            DBCol::StateSyncNewChunks => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount
@@ -1007,10 +1023,9 @@ impl<'a> ChainStoreUpdate<'a> {
             | DBCol::Misc
             | DBCol::_ReceiptIdToShardId
             | DBCol::StateShardUIdMapping
-            // Note that StateSyncHashes and StateSyncNewChunks should not ever have too many keys in them
+            // Note that StateSyncHashes should not ever have too many keys in them
             // because we remove unneeded keys as we add new ones.
             | DBCol::StateSyncHashes
-            | DBCol::StateSyncNewChunks
             => unreachable!(),
         }
         self.merge(store_update);

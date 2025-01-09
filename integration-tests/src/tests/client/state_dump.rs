@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 
+use near_async::futures::ActixFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -27,7 +28,7 @@ use std::sync::Arc;
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
 /// write files to a temp dir.
-fn test_state_dump() {
+fn slow_test_state_dump() {
     init_test_logger();
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
@@ -66,6 +67,7 @@ fn test_state_dump() {
         runtime,
         validator,
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: Arc::new(ActixFutureSpawner),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -143,7 +145,7 @@ fn run_state_sync_with_dumped_parts(
 
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let validator = MutableConfigValue::new(
-        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()).into())),
+        Some(Arc::new(InMemoryValidatorSigner::from_signer(signer.clone()))),
         "validator_signer",
     );
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -171,6 +173,7 @@ fn run_state_sync_with_dumped_parts(
         runtime,
         validator,
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: Arc::new(ActixFutureSpawner),
         handle: None,
     };
     state_sync_dumper.start().unwrap();

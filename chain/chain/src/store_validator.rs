@@ -13,7 +13,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -245,6 +245,17 @@ impl StoreValidator {
                     );
                     // Block which can be indexed by Outcome block_hash exists
                     self.check(&validate::outcome_id_block_exists, &block_hash, &outcome_ids, col);
+                }
+                DBCol::PartialChunks => {
+                    let chunk_hash = ChunkHash::try_from_slice(key_ref)?;
+                    let shard_chunk = PartialEncodedChunk::try_from_slice(value_ref)?;
+                    // Receipts column contain exactly the receipts from PartialEncodedChunk.
+                    self.check(
+                        &validate::partial_chunk_receipts_exist_in_receipts,
+                        &chunk_hash,
+                        &shard_chunk,
+                        col,
+                    );
                 }
                 DBCol::TransactionResultForBlock => {
                     let (outcome_id, block_hash) = get_outcome_id_block_hash_rev(key_ref)?;

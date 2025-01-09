@@ -635,7 +635,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // flat storage by not charging gas for trie nodes.
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
                 let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.dont_charge_gas_for_trie_node_access();
+                trie.set_charge_gas_for_trie_node_access(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
@@ -650,7 +650,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads();
+            trie = trie.recording_reads_new_recorder();
         }
         let mut state_update = TrieUpdate::new(trie);
 
@@ -799,7 +799,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
         }
-        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
+        debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
         metrics::PREPARE_TX_REJECTED
@@ -862,7 +862,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     storage_config.state_root,
                     false,
                 )?;
-                trie.dont_charge_gas_for_trie_node_access();
+                trie.set_charge_gas_for_trie_node_access(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
@@ -882,7 +882,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads();
+            trie = trie.recording_reads_new_recorder();
         }
 
         match self.process_state_update(

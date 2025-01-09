@@ -74,6 +74,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
+use verifier::ValidateReceiptMode;
 
 mod actions;
 pub mod adapter;
@@ -336,6 +337,7 @@ impl Runtime {
                     signed_transaction,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                 );
                 let receipt = Receipt::V0(ReceiptV0 {
                     predecessor_id: transaction.signer_id().clone(),
@@ -645,6 +647,7 @@ impl Runtime {
                 receipt.receipt_id(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
                 action_index,
             );
             let mut new_result = self.apply_action(
@@ -668,6 +671,7 @@ impl Runtime {
                         &apply_state.config.wasm_config.limit_config,
                         receipt,
                         apply_state.current_protocol_version,
+                        ValidateReceiptMode::NewReceipt,
                     )
                 }) {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
@@ -865,6 +869,7 @@ impl Runtime {
                     receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                     receipt_index,
                 );
 
@@ -897,6 +902,7 @@ impl Runtime {
                     receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
+                    apply_state.block_height,
                     receipt_index as usize,
                 ))
             }
@@ -1468,8 +1474,11 @@ impl Runtime {
         );
 
         // Bandwidth scheduler should be run for every chunk, including the missing ones.
-        let bandwidth_scheduler_output =
-            run_bandwidth_scheduler(apply_state, &mut processing_state.state_update)?;
+        let bandwidth_scheduler_output = run_bandwidth_scheduler(
+            apply_state,
+            &mut processing_state.state_update,
+            epoch_info_provider,
+        )?;
 
         // If the chunk is missing, exit early and don't process any receipts.
         if !apply_state.is_new_chunk
@@ -1861,6 +1870,7 @@ impl Runtime {
                 &processing_state.apply_state.config.wasm_config.limit_config,
                 &receipt,
                 protocol_version,
+                ValidateReceiptMode::ExistingReceipt,
             )
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
@@ -1926,6 +1936,7 @@ impl Runtime {
                 &processing_state.apply_state.config.wasm_config.limit_config,
                 receipt,
                 protocol_version,
+                ValidateReceiptMode::ExistingReceipt,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if processing_state.total.compute >= compute_limit
@@ -2064,7 +2075,8 @@ impl Runtime {
         let apply_state = processing_state.apply_state;
         let epoch_info_provider = processing_state.epoch_info_provider;
         let mut state_update = processing_state.state_update;
-        let delayed_receipts = processing_state.delayed_receipts;
+        let pending_delayed_receipts = processing_state.delayed_receipts;
+        let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
 
         if promise_yield_result.promise_yield_indices
@@ -2079,10 +2091,10 @@ impl Runtime {
 
         // Congestion info needs a final touch to select an allowed shard if
         // this shard is fully congested.
-        let delayed_receipts_count = delayed_receipts.upper_bound_len();
+        let delayed_receipts_count = pending_delayed_receipts.upper_bound_len();
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
-            delayed_receipts.apply_congestion_changes(congestion_info)?;
+            pending_delayed_receipts.apply_congestion_changes(congestion_info)?;
             let protocol_version = apply_state.current_protocol_version;
 
             let (all_shards, shard_seed) =
@@ -2116,6 +2128,7 @@ impl Runtime {
                 &state_update,
                 validator_accounts_update,
                 processing_state.incoming_receipts,
+                &processed_delayed_receipts,
                 &promise_yield_result.timeout_receipts,
                 processing_state.transactions,
                 &receipt_sink.outgoing_receipts(),
@@ -2180,7 +2193,6 @@ impl Runtime {
             .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         metrics::report_recorded_column_sizes(&trie, &apply_state);
         let proof = trie.recorded_storage();
-        let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let processed_yield_timeouts = promise_yield_result.processed_yield_timeouts;
         let bandwidth_scheduler_state_hash = receipt_sink
             .bandwidth_scheduler_output()
@@ -2388,6 +2400,7 @@ fn resolve_promise_yield_timeouts(
                 &queue_entry.data_id,
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
+                apply_state.block_height,
                 new_receipt_index,
             );
             new_receipt_index += 1;
@@ -2674,6 +2687,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     Some(scheduled_receipt_offset.saturating_add(1))
 }
 
+#[cfg(feature = "estimator")]
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};

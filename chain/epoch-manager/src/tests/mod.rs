@@ -20,7 +20,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfoV3;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
@@ -2514,13 +2514,13 @@ fn test_epoch_validators_cache() {
 #[test]
 fn test_chunk_producers() {
     let amount_staked = 1_000_000;
-    // Make sure that last validator has at least 160/1'000'000  / num_shards of stake.
+    // Make sure that last validator has at least 160/1'000'000 of stake.
     // We're running with 2 shards and test1 + test2 has 2'000'000 tokens - so chunk_only should have over 160.
     let validators = vec![
         ("test1".parse().unwrap(), amount_staked),
         ("test2".parse().unwrap(), amount_staked),
-        ("chunk_only".parse().unwrap(), 200),
-        ("not_enough_producer".parse().unwrap(), 100),
+        ("chunk_only".parse().unwrap(), 321),
+        ("not_enough_producer".parse().unwrap(), 320),
     ];
 
     // There are 2 shards, and 2 block producers seats.
@@ -3799,7 +3799,7 @@ fn test_get_shard_uids_pending_resharding_single() {
     let shard_layout_0 = ShardLayout::multi_shard_custom(vec![a.clone()], version);
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
 
-    let s1 = account_id_to_shard_uid(&a, &shard_layout_0);
+    let s1 = shard_layout_0.account_id_to_shard_uid(&a);
 
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[shard_layout_0, shard_layout_1]);
     assert_eq!(shard_uids, vec![s1].into_iter().collect::<HashSet<_>>());
@@ -3822,8 +3822,8 @@ fn test_get_shard_uids_pending_resharding_double_different() {
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, a.clone());
     let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
 
-    let s0 = account_id_to_shard_uid(&a, &shard_layout_0);
-    let s1 = account_id_to_shard_uid(&b, &shard_layout_0);
+    let s0 = shard_layout_0.account_id_to_shard_uid(&a);
+    let s1 = shard_layout_0.account_id_to_shard_uid(&b);
 
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[
         shard_layout_0,
@@ -3850,7 +3850,7 @@ fn test_get_shard_uids_pending_resharding_double_same() {
     let shard_layout_1 = ShardLayout::derive_shard_layout(&shard_layout_0, b);
     let shard_layout_2 = ShardLayout::derive_shard_layout(&shard_layout_0, c);
 
-    let s1 = account_id_to_shard_uid(&a, &shard_layout_0);
+    let s1 = shard_layout_0.account_id_to_shard_uid(&a);
 
     let shard_uids = test_get_shard_uids_pending_resharding_base(&[
         shard_layout_0,

@@ -905,8 +905,8 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let (prev_shard_id, prev_shard_index) =
-            self.epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        let (_, prev_shard_id, prev_shard_index) =
+            self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
         let last_chunk_header =
             prev_block.chunks().get(prev_shard_index).cloned().ok_or_else(|| {
                 Error::ChunkProducer(format!(
@@ -1072,6 +1072,7 @@ impl Client {
                 } else {
                     0
                 };
+            tracing::info!("boom prepare_transactions from client");
             runtime.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext {
@@ -1501,7 +1502,6 @@ impl Client {
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
-
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
@@ -1685,7 +1685,7 @@ impl Client {
             // layout is changing we need to reshard the transaction pool.
             // TODO make sure transactions don't get added for the old shard
             // layout after the pool resharding
-            // TODO check if this logic works in resharding V3
+            // TODO(resharding) check if this logic works in resharding V3
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
@@ -2256,7 +2256,8 @@ impl Client {
             validators.remove(account_id);
         }
         for validator in validators {
-            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, ?shard_id, "Routing a transaction");
+            let tx_hash = tx.get_hash();
+            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, ?shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

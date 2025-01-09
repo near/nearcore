@@ -4,7 +4,7 @@ The current chunk state witness structure is inefficient due to a significant po
 
 In feature `ExcludeContractCodeFromStateWitness`, we optimize the state witness size by distributing the contract code separately from the witness, under the following observations:
 1. New contracts are deployed infrequently, so the function calls are often made to the same contract and we distribute the same contract code in the witness many times at different heights.
-2. Once deployed, a contract is compiled and stored in the compiled-contract cache. This cache is stored in the disk and persistent across epochs, until the VM configuration changes. The chunk application uses this cache to bypass the trie traversal and storage reads to fetch the uncompiled contract code from storage. The cache is maintaned with high hit rates by both chunk producers and chunk validators.
+2. Once deployed, a contract is compiled and stored in the compiled-contract cache. This cache is stored in the disk and persistent across epochs, until the VM configuration changes. The chunk application uses this cache to bypass the trie traversal and storage reads to fetch the uncompiled contract code from storage. The cache is maintained with high hit rates by both chunk producers and chunk validators.
 
 ## Deploying a contract to an account
 

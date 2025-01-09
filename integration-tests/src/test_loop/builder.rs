@@ -30,20 +30,23 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
+use near_store::db::TestDBFlags;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{create_test_split_store, create_test_store};
-use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
+use near_store::test_utils::{create_test_split_store, create_test_store_with_flags};
+use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
+use super::utils::network::{
+    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
+};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -54,13 +57,15 @@ enum DropConditionKind {
     EndorsementsFrom(AccountId),
     /// Whether test loop should drop all chunks in the given range of heights
     /// relative to first block height where protocol version changes.
-    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardUId, std::ops::Range<i64>>)),
+    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardIndex, std::ops::Range<i64>>)),
     /// Specifies the chunks that should be produced by their appearance in the
     /// chain with respect to the start of an epoch. That is, a given chunk at height
     /// `height_created` for shard `shard_id` will be produced if
     /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
     /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
+    // Drops Block broadcast messages with height in `self.0`
+    BlocksByHeight(HashSet<BlockHeight>),
 }
 
 pub(crate) struct TestLoopBuilder {
@@ -81,7 +86,7 @@ pub(crate) struct TestLoopBuilder {
     archival_clients: HashSet<AccountId>,
     /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    /// Conditions under which chunks/endorsements are dropped.
+    /// Conditions under which chunks/endorsements/blocks are dropped.
     drop_condition_kinds: Vec<DropConditionKind>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
@@ -97,6 +102,8 @@ pub(crate) struct TestLoopBuilder {
     load_mem_tries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    /// Overrides to test database behavior.
+    test_store_flags: TestDBFlags,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -149,31 +156,31 @@ fn should_drop_chunk_for_protocol_upgrade(
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     chunk: ShardChunkHeader,
     version_of_protocol_upgrade: ProtocolVersion,
-    chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+    chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
 ) -> bool {
     let prev_block_hash = chunk.prev_block_hash();
     let shard_id = chunk.shard_id();
     let height_created = chunk.height_created();
     let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
     let shard_layout = epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
-    let chunk_shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     // If there is no condition for the shard, all chunks
     // pass through.
-    let Some(range) = chunk_ranges.get(&chunk_shard_uid) else {
+    let Some(range) = chunk_ranges.get(&shard_index) else {
         return false;
     };
 
     let epoch_protocol_version =
         epoch_manager_adapter.get_epoch_protocol_version(&epoch_id).unwrap();
     // Drop condition for the first epoch with new protocol version.
-    if epoch_protocol_version == version_of_protocol_upgrade {
+    if epoch_protocol_version >= version_of_protocol_upgrade {
         let prev_epoch_id =
             epoch_manager_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash).unwrap();
         let prev_epoch_protocol_version =
             epoch_manager_adapter.get_epoch_protocol_version(&prev_epoch_id).unwrap();
         // If this is not the first epoch with new protocol version,
         // all chunks go through.
-        if prev_epoch_protocol_version == version_of_protocol_upgrade {
+        if prev_epoch_protocol_version >= version_of_protocol_upgrade {
             return false;
         }
 
@@ -189,7 +196,7 @@ fn should_drop_chunk_for_protocol_upgrade(
         let epoch_start_height =
             epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
         range.contains(&(height_created as i64 - epoch_start_height as i64))
-    } else if epoch_protocol_version + 1 == version_of_protocol_upgrade {
+    } else if epoch_protocol_version < version_of_protocol_upgrade {
         // Drop condition for the last epoch with old protocol version.
         let maybe_upgrade_height = epoch_manager_adapter
             .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
@@ -275,6 +282,9 @@ fn register_drop_condition(
                 drop_chunks_condition,
             ));
         }
+        DropConditionKind::BlocksByHeight(heights) => {
+            peer_manager_actor.register_override_handler(block_dropper_by_height(heights.clone()));
+        }
     }
 }
 
@@ -297,6 +307,7 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_mem_tries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
+            test_store_flags: Default::default(),
         }
     }
 
@@ -362,7 +373,7 @@ impl TestLoopBuilder {
     pub(crate) fn drop_protocol_upgrade_chunks(
         mut self,
         protocol_version: ProtocolVersion,
-        chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+        chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
     ) -> Self {
         if !chunk_ranges.is_empty() {
             self.drop_condition_kinds.push(DropConditionKind::ProtocolUpgradeChunkRange((
@@ -380,6 +391,13 @@ impl TestLoopBuilder {
         if !chunks_produced.is_empty() {
             self.drop_condition_kinds
                 .push(DropConditionKind::ChunksProducedByHeight(chunks_produced));
+        }
+        self
+    }
+
+    pub(crate) fn drop_blocks_by_height(mut self, heights: HashSet<BlockHeight>) -> Self {
+        if !heights.is_empty() {
+            self.drop_condition_kinds.push(DropConditionKind::BlocksByHeight(heights));
         }
         self
     }
@@ -415,6 +433,11 @@ impl TestLoopBuilder {
 
     pub fn load_mem_tries_for_tracked_shards(mut self, load_mem_tries: bool) -> Self {
         self.load_mem_tries_for_tracked_shards = load_mem_tries;
+        self
+    }
+
+    pub(crate) fn allow_negative_refcount(mut self) -> Self {
+        self.test_store_flags.allow_negative_refcount = true;
         self
     }
 
@@ -494,6 +517,7 @@ impl TestLoopBuilder {
         let genesis = self.genesis.as_ref().unwrap();
         let epoch_config_store = self.epoch_config_store.as_ref().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
+        client_config.epoch_length = genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
         client_config.state_sync_external_timeout = Duration::milliseconds(100);
@@ -557,7 +581,7 @@ impl TestLoopBuilder {
                 let (hot_store, split_store) = create_test_split_store();
                 (hot_store, Some(split_store))
             } else {
-                let hot_store = create_test_store();
+                let hot_store = create_test_store_with_flags(&self.test_store_flags);
                 (hot_store, None)
             };
         initialize_genesis_state(store.clone(), &genesis, None);
@@ -583,6 +607,7 @@ impl TestLoopBuilder {
             self.runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
+            client_config.gc.gc_num_epochs_to_keep,
         );
 
         let state_snapshot = StateSnapshotActor::new(
@@ -661,6 +686,7 @@ impl TestLoopBuilder {
                     self.runtime_config_store.clone(),
                     TrieConfig::from_store_config(&store_config),
                     StateSnapshotType::EveryEpoch,
+                    client_config.gc.gc_num_epochs_to_keep,
                 );
                 (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
             } else {
@@ -744,6 +770,7 @@ impl TestLoopBuilder {
                 future_spawner.spawn_boxed("state_sync_dumper", future);
                 Box::new(|| {})
             }),
+            future_spawner: Arc::new(self.test_loop.future_spawner()),
             handle: None,
         };
         let state_sync_dumper_handle = self.test_loop.data.register_data(state_sync_dumper);

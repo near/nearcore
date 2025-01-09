@@ -82,7 +82,7 @@ impl RuntimeUser {
 
     pub fn apply_all(
         &self,
-        apply_state: ApplyState,
+        mut apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
         use_flat_storage: bool,
@@ -102,7 +102,10 @@ impl RuntimeUser {
                     false,
                 )
             } else {
-                client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root)
+                let shard_uid = ShardUId::single_shard();
+                let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
+                trie.set_charge_gas_for_trie_node_access(true);
+                trie
             };
             let apply_result = client
                 .runtime
@@ -144,14 +147,32 @@ impl RuntimeUser {
             }
             update.commit().unwrap();
             client.state_root = apply_result.state_root;
-            if apply_result.outgoing_receipts.is_empty() {
-                return Ok(());
-            }
             for receipt in apply_result.outgoing_receipts.iter() {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
+
+            if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+                apply_state.bandwidth_requests = BlockBandwidthRequests {
+                    shards_bandwidth_requests: [(apply_state.shard_id, bandwidth_requests)]
+                        .into_iter()
+                        .collect(),
+                };
+            }
+            let mut have_queued_receipts = false;
+            if let Some(congestion_info) = apply_result.congestion_info {
+                if congestion_info.receipt_bytes() > 0 {
+                    have_queued_receipts = true;
+                }
+                apply_state.congestion_info.insert(
+                    apply_state.shard_id,
+                    ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
+                );
+            }
+            if receipts.is_empty() && !have_queued_receipts {
+                return Ok(());
+            }
         }
     }
 

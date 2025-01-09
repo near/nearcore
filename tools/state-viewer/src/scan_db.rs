@@ -32,7 +32,7 @@ fn find_db_col(col: &str) -> DBCol {
             return db_col;
         }
     }
-    panic!("Wrong columnn")
+    panic!("Wrong column")
 }
 
 /// Scans a DB column, deserializes keys and values and prints them.

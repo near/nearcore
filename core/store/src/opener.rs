@@ -602,7 +602,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let _span =
         tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
             .entered();
-    if let Some(storage) = hot_store.storage.copy_if_test() {
+    if let Some(storage) = hot_store.storage.copy_if_test(columns_to_keep) {
         return Ok(NodeStorage::new(storage));
     }
     let checkpoint_path = checkpoint_base_path.join("data");
@@ -648,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn test_checkpoint_hot_storage_and_cleanup_columns() {
+    fn slow_test_checkpoint_hot_storage_and_cleanup_columns() {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
         let hot_store = Store { storage: node_storage.hot_storage.clone() };

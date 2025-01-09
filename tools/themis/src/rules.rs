@@ -403,7 +403,7 @@ pub fn recursively_publishable(workspace: &Workspace) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Ensure that top-level `Cargo.toml` does not contain superfluouos dependencies.
+/// Ensure that top-level `Cargo.toml` does not contain superfluous dependencies.
 pub fn no_superfluous_deps(workspace: &Workspace) -> anyhow::Result<()> {
     let mut workspace_deps = BTreeSet::<String>::new();
     let mut read_deps = |manifest: &toml::value::Value, table_name: &'static str| {

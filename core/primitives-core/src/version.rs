@@ -121,6 +121,9 @@ pub enum ProtocolFeature {
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
     FixStakingThreshold,
+    /// In case not all validator seats are occupied, the minimum seat price of a chunk producer
+    /// used to depend on the number of existing shards, which is no longer the case.
+    FixChunkProducerStakingThreshold,
     /// Charge for contract loading before it happens.
     #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
     FixContractLoadingCost,
@@ -191,6 +194,8 @@ pub enum ProtocolFeature {
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
+    /// Use the block height instead of the block hash to calculate the receipt ID.
+    BlockHeightForReceiptId,
 }
 
 impl ProtocolFeature {
@@ -251,7 +256,8 @@ impl ProtocolFeature {
             | ProtocolFeature::StateStoredReceipt => 72,
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold
-            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 74,
+            | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
+            | ProtocolFeature::FixChunkProducerStakingThreshold => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -266,12 +272,19 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
+            // CurrentEpochStateSync must be enabled before ReshardingV3! When
+            // releasing this feature please make sure to schedule separate
+            // protocol upgrades for those features!
             ProtocolFeature::CurrentEpochStateSync => 144,
-            ProtocolFeature::SimpleNightshadeV4 => 145,
+            // BandwidthScheduler must be enabled before ReshardingV3! When
+            // releasing this feature please make sure to schedule separate
+            // protocol upgrades for those features!
+            ProtocolFeature::BandwidthScheduler => 145,
+            ProtocolFeature::SimpleNightshadeV4 => 146,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
-            ProtocolFeature::RelaxedChunkValidation => 146,
-            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 147,
-            ProtocolFeature::BandwidthScheduler => 148,
+            ProtocolFeature::RelaxedChunkValidation => 147,
+            ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
+            ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.
         }
     }
@@ -285,7 +298,7 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
 
 // On nightly, pick big enough version to support all features.
-const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 148;
+const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
 
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
@@ -337,4 +350,19 @@ macro_rules! checked_feature {
             $non_feature_block
         }
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProtocolFeature;
+
+    #[test]
+    fn test_resharding_dependencies() {
+        let state_sync = ProtocolFeature::CurrentEpochStateSync.protocol_version();
+        let bandwidth_scheduler = ProtocolFeature::BandwidthScheduler.protocol_version();
+        let resharding_v3 = ProtocolFeature::SimpleNightshadeV4.protocol_version();
+
+        assert!(state_sync < resharding_v3);
+        assert!(bandwidth_scheduler < resharding_v3);
+    }
 }

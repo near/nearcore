@@ -117,8 +117,8 @@ pub struct Store {
 }
 
 impl StoreAdapter for Store {
-    fn store(&self) -> Store {
-        self.clone()
+    fn store_ref(&self) -> &Store {
+        self
     }
 }
 

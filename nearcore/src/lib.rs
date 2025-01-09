@@ -225,6 +225,8 @@ pub struct NearNode {
     pub resharding_handle: ReshardingHandle,
     // The threads that state sync runs in.
     pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
+    /// Shard tracker, allows querying of which shards are tracked by this node.
+    pub shard_tracker: ShardTracker,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -387,6 +389,7 @@ pub fn start_with_config_and_synchronization(
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
+    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
     let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -395,7 +398,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone())),
+        state_sync_spawner.clone(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -428,10 +431,11 @@ pub fn start_with_config_and_synchronization(
         client_config: config.client_config.clone(),
         chain_genesis,
         epoch_manager,
-        shard_tracker,
+        shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: state_sync_spawner,
         handle: None,
     };
     state_sync_dumper.start()?;
@@ -511,5 +515,6 @@ pub fn start_with_config_and_synchronization(
         state_sync_dumper,
         resharding_handle,
         state_sync_runtime,
+        shard_tracker,
     })
 }

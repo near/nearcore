@@ -81,7 +81,7 @@ impl Trie {
         &self,
         part_id: PartId,
     ) -> Result<PartialState, StorageError> {
-        let with_recording = self.recording_reads();
+        let with_recording = self.recording_reads_new_recorder();
         with_recording.visit_nodes_for_state_part(part_id)?;
         let recorded = with_recording.recorded_storage().unwrap();
         Ok(recorded.nodes)
@@ -147,7 +147,7 @@ impl Trie {
         let PartId { idx, total } = part_id;
 
         // 1. Extract nodes corresponding to state part boundaries.
-        let recording_trie = self.recording_reads();
+        let recording_trie = self.recording_reads_new_recorder();
         let boundaries_read_timer = metrics::GET_STATE_PART_BOUNDARIES_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
@@ -826,7 +826,7 @@ mod tests {
             for part_id in 0..num_parts {
                 // Compute proof with size and check that it doesn't exceed theoretical boundary for
                 // the path with full set of left siblings of maximal possible size.
-                let trie_recording = trie.recording_reads();
+                let trie_recording = trie.recording_reads_new_recorder();
                 let left_nibbles_boundary =
                     trie_recording.find_state_part_boundary(part_id, num_parts).unwrap();
                 let left_key_boundary = NibbleSlice::nibbles_to_bytes(&left_nibbles_boundary);
