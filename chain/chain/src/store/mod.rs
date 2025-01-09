@@ -2807,13 +2807,13 @@ mod tests {
         let cur_header = &long_fork.last().unwrap().header();
         assert!(chain
             .mut_chain_store()
-            .check_transaction_validity_period(cur_header, valid_base_hash,)
+            .check_transaction_validity_period(cur_header, valid_base_hash)
             .is_ok());
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
             chain
                 .mut_chain_store()
-                .check_transaction_validity_period(cur_header, invalid_base_hash,),
+                .check_transaction_validity_period(cur_header, invalid_base_hash),
             Err(InvalidTxError::Expired)
         );
     }

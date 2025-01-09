@@ -102,6 +102,8 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
@@ -148,6 +150,11 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
+        let transactions = chunk.transactions();
+        let valid_txs = chain_store_update
+            .chain_store()
+            .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
+            .expect("valid transaction calculation");
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
@@ -188,7 +195,6 @@ fn apply_block_from_range(
             }
         }
 
-        let transactions = chunk.transactions();
         runtime_adapter
             .apply_chunk(
                 storage.create_runtime_storage(*chunk_inner.prev_state_root()),
@@ -207,7 +213,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                SignedValidPeriodTransactions::new(&transactions, &vec![true; transactions.len()]),
+                SignedValidPeriodTransactions::new(&transactions, &valid_txs),
             )
             .unwrap()
     } else {
@@ -239,8 +245,6 @@ fn apply_block_from_range(
             .unwrap()
     };
 
-    let protocol_version =
-        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         protocol_version,

@@ -178,6 +178,15 @@ pub(crate) fn apply_chunk(
         shard_id,
     )?;
 
+    let new_epoch_id =
+        epoch_manager.get_epoch_id_from_prev_block(prev_block_hash).context("new epoch id")?;
+    let protocol_version = epoch_manager
+        .get_epoch_protocol_version(&new_epoch_id)
+        .context("epoch protocol version")?;
+    let valid_txs = chain_store
+        .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
+        .context("compute transaction validity")?;
+
     Ok((
         runtime.apply_chunk(
             storage.create_runtime_storage(prev_state_root),
@@ -204,7 +213,7 @@ pub(crate) fn apply_chunk(
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
-            SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
+            SignedValidPeriodTransactions::new(transactions, &valid_txs),
         )?,
         chunk_header.gas_limit(),
     ))
