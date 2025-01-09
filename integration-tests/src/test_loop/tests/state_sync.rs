@@ -410,6 +410,8 @@ fn slow_test_state_sync_current_epoch() {
 #[test]
 #[ignore]
 fn test_state_sync_forks() {
+    init_test_logger();
+
     let params = StateSyncTest {
         num_validators: 5,
         num_block_producer_seats: 4,
