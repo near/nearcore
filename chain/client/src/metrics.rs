@@ -648,6 +648,16 @@ pub(crate) static PARTIAL_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock
     .unwrap()
 });
 
+pub(crate) static PARTIAL_WITNESS_DECODE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_partial_witness_decode_time",
+        "State witness decoding time from the partial state witness parts in seconds",
+        &["shard_id"],
+        Some(linear_buckets(0.0, 0.005, 20).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static PARTIAL_WITNESS_TIME_TO_LAST_PART: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_partial_witness_time_to_last_part",
