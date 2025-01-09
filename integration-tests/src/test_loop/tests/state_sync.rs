@@ -71,6 +71,8 @@ struct TestState {
 
 fn setup_initial_blockchain(
     num_validators: usize,
+    num_block_producer_seats: usize,
+    num_chunk_producer_seats: usize,
     num_shards: usize,
     generate_shard_accounts: bool,
     chunks_produced: HashMap<ShardId, Vec<bool>>,
@@ -78,8 +80,6 @@ fn setup_initial_blockchain(
 ) -> TestState {
     let mut builder = TestLoopBuilder::new();
 
-    let num_block_producer_seats = num_validators;
-    let num_chunk_producer_seats = num_validators;
     let validators = (0..num_validators)
         .map(|i| {
             let account_id = format!("node{}", i);
@@ -105,7 +105,7 @@ fn setup_initial_blockchain(
         validators,
         num_block_producer_seats as NumSeats,
         num_chunk_producer_seats as NumSeats,
-        0,
+        num_validators as NumSeats,
     );
 
     let mut genesis_builder = TestGenesisBuilder::new()
@@ -298,6 +298,8 @@ fn run_test(state: TestState) {
 #[derive(Debug)]
 struct StateSyncTest {
     num_validators: usize,
+    num_block_producer_seats: usize,
+    num_chunk_producer_seats: usize,
     num_shards: usize,
     // If true, generate several extra accounts per shard. We have a test with this disabled
     // to test state syncing shards without any account data
@@ -310,13 +312,17 @@ static TEST_CASES: &[StateSyncTest] = &[
     // The first two make no modifications to chunks_produced, and all chunks should be produced. This is the normal case
     StateSyncTest {
         num_validators: 2,
+        num_block_producer_seats: 2,
+        num_chunk_producer_seats: 2,
         num_shards: 2,
         generate_shard_accounts: true,
         chunks_produced: &[],
         skip_sync_block: false,
     },
     StateSyncTest {
-        num_validators: 4,
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
         num_shards: 4,
         generate_shard_accounts: true,
         chunks_produced: &[],
@@ -327,6 +333,8 @@ static TEST_CASES: &[StateSyncTest] = &[
     // accounts in it, so we check that corner case here.
     StateSyncTest {
         num_validators: 2,
+        num_block_producer_seats: 2,
+        num_chunk_producer_seats: 2,
         num_shards: 4,
         generate_shard_accounts: false,
         chunks_produced: &[],
@@ -334,7 +342,9 @@ static TEST_CASES: &[StateSyncTest] = &[
     },
     // Now we miss some chunks at the beginning of the epoch
     StateSyncTest {
-        num_validators: 4,
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
         num_shards: 4,
         generate_shard_accounts: true,
         chunks_produced: &[
@@ -346,14 +356,18 @@ static TEST_CASES: &[StateSyncTest] = &[
         skip_sync_block: false,
     },
     StateSyncTest {
-        num_validators: 4,
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
         num_shards: 4,
         generate_shard_accounts: true,
         chunks_produced: &[(ShardId::new(0), &[true, false]), (ShardId::new(1), &[true, false])],
         skip_sync_block: false,
     },
     StateSyncTest {
-        num_validators: 4,
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
         num_shards: 4,
         generate_shard_accounts: true,
         chunks_produced: &[
@@ -374,6 +388,8 @@ fn slow_test_state_sync_current_epoch() {
         tracing::info!("run test: {:?}", t);
         let state = setup_initial_blockchain(
             t.num_validators,
+            t.num_block_producer_seats,
+            t.num_chunk_producer_seats,
             t.num_shards,
             t.generate_shard_accounts,
             t.chunks_produced
@@ -395,7 +411,9 @@ fn slow_test_state_sync_current_epoch() {
 #[ignore]
 fn test_state_sync_forks() {
     let params = StateSyncTest {
-        num_validators: 4,
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
         num_shards: 5,
         generate_shard_accounts: true,
         chunks_produced: &[],
@@ -403,6 +421,8 @@ fn test_state_sync_forks() {
     };
     let state = setup_initial_blockchain(
         params.num_validators,
+        params.num_block_producer_seats,
+        params.num_chunk_producer_seats,
         params.num_shards,
         params.generate_shard_accounts,
         params
@@ -465,7 +485,7 @@ fn slow_test_state_request() {
     init_test_logger();
 
     let TestState { mut env, .. } =
-        setup_initial_blockchain(4, 4, false, HashMap::default(), false);
+        setup_initial_blockchain(4, 4, 4, 4, false, HashMap::default(), false);
 
     spam_state_sync_header_reqs(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
