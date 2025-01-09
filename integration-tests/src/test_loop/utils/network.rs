@@ -72,7 +72,7 @@ pub fn chunk_endorsement_dropper(
 
 /// Handler to drop all block broadcasts at certain heights.
 /// A few things to note:
-/// - This will notfully prevent the blocks from being distributed if they are explicitly requested with
+/// - This will not fully prevent the blocks from being distributed if they are explicitly requested with
 /// a `NetworkRequests::BlockRequest`, because that case isn't handled here. For example, this can happen
 /// if the producer for a height, `h`, in `heights` is also the producer for `h+1`, and then distributes `h+1`
 /// with prev block equal to the one with height `h`. Then a node that receives that block with height `h+1` will
