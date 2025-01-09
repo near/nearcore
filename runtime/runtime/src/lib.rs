@@ -74,6 +74,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
+use verifier::ValidateReceiptMode;
 
 mod actions;
 pub mod adapter;
@@ -670,6 +671,7 @@ impl Runtime {
                         &apply_state.config.wasm_config.limit_config,
                         receipt,
                         apply_state.current_protocol_version,
+                        ValidateReceiptMode::NewReceipt,
                     )
                 }) {
                     new_result.result = Err(ActionErrorKind::NewReceiptValidationError(e).into());
@@ -1868,6 +1870,7 @@ impl Runtime {
                 &processing_state.apply_state.config.wasm_config.limit_config,
                 &receipt,
                 protocol_version,
+                ValidateReceiptMode::ExistingReceipt,
             )
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
@@ -1933,6 +1936,7 @@ impl Runtime {
                 &processing_state.apply_state.config.wasm_config.limit_config,
                 receipt,
                 protocol_version,
+                ValidateReceiptMode::ExistingReceipt,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if processing_state.total.compute >= compute_limit

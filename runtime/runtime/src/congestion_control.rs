@@ -398,12 +398,28 @@ impl ReceiptSinkV2 {
     fn try_forward(
         receipt: Receipt,
         gas: u64,
-        size: u64,
+        mut size: u64,
         shard: ShardId,
         outgoing_limit: &mut HashMap<ShardId, OutgoingLimit>,
         outgoing_receipts: &mut Vec<Receipt>,
         apply_state: &ApplyState,
     ) -> Result<ReceiptForwarding, RuntimeError> {
+        // There is a bug which allows to create receipts that are above the size limit. Receipts
+        // above the size limit might not fit under the maximum outgoing size limit. Let's pretend
+        // that all receipts are at most `max_receipt_size` to avoid receipts getting stuck.
+        // See https://github.com/near/nearcore/issues/12606
+        let max_receipt_size = apply_state.config.wasm_config.limit_config.max_receipt_size;
+        if size > max_receipt_size {
+            tracing::debug!(
+                target: "runtime",
+                receipt_id=?receipt.receipt_id(),
+                size,
+                max_receipt_size,
+                "try_forward observed a receipt with size exceeding the size limit!",
+            );
+            size = max_receipt_size;
+        }
+
         // Default case set to `Gas::MAX`: If no outgoing limit was defined for the receiving
         // shard, this usually just means the feature is not enabled. Or, it
         // could be a special case during resharding events. Or even a bug. In
@@ -547,7 +563,15 @@ impl ReceiptSinkV2 {
 
         // Metadata is fully initialized, make a proper bandwidth request using it.
         let receipt_sizes_iter = metadata.iter_receipt_group_sizes(trie, side_effects);
-        BandwidthRequest::make_from_receipt_sizes(to_shard, receipt_sizes_iter, params)
+
+        // There's a bug which allows to create receipts above `max_receipt_size` (https://github.com/near/nearcore/issues/12606).
+        // This could cause problems with bandwidth scheduler which would generate requests for size above max size, and these
+        // requests would never be fulfilled. For bandwidth requests let's pretend that all sizes are below `max_receipt_size`.
+        // The same pretending logic is also present in `try_forward` which compares receipt size with outgoing limit.
+        // This logic should also make it possible to do protocol upgrades that lower `max_receipt_size` without too much trouble.
+        let sizes_iter = receipt_sizes_iter
+            .map_ok(|group_size| std::cmp::min(group_size, params.max_receipt_size));
+        BandwidthRequest::make_from_receipt_sizes(to_shard, sizes_iter, params)
     }
 }
 
