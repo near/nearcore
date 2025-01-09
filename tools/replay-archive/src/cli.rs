@@ -39,7 +39,7 @@ use std::sync::Arc;
 
 /// This command assumes that it is run from an archival node
 /// and not all the operations data that is available for a
-/// regular validator may not be available in the archival database.
+/// regular validator might not be available in the archival database.
 #[derive(clap::Parser)]
 pub struct ReplayArchiveCommand {
     #[clap(long)]
@@ -499,7 +499,7 @@ impl ReplayController {
     }
 
     /// Saves the ChunkExtras for the shards in the genesis block.
-    /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
+    /// Note that there are no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
         let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);

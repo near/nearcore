@@ -1153,7 +1153,7 @@ fn test_main_storage_proof_size_soft_limit() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
@@ -1195,7 +1195,7 @@ fn test_main_storage_proof_size_soft_limit() {
     // The function call to bob_account should hit the main_storage_proof_size_soft_limit
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
@@ -1258,7 +1258,7 @@ fn test_exclude_contract_code_from_witness() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
@@ -1300,7 +1300,7 @@ fn test_exclude_contract_code_from_witness() {
     // The function call to bob_account should hit the main_storage_proof_size_soft_limit
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
@@ -1372,7 +1372,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
@@ -1413,7 +1413,7 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
@@ -1506,7 +1506,7 @@ fn test_deploy_and_call_different_contracts() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt],
@@ -1533,7 +1533,7 @@ fn test_deploy_and_call_different_contracts() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_call_receipt, second_call_receipt],
@@ -1612,7 +1612,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt],
@@ -1639,7 +1639,7 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_call_receipt, second_call_receipt],
@@ -1716,7 +1716,7 @@ fn test_deploy_and_call_in_apply() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
@@ -1795,7 +1795,7 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
@@ -1850,7 +1850,7 @@ fn test_deploy_existing_contract_to_different_account() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, first_call_receipt],
@@ -1892,7 +1892,7 @@ fn test_deploy_existing_contract_to_different_account() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[second_deploy_receipt, second_call_receipt],
@@ -1941,7 +1941,7 @@ fn test_deploy_and_call_in_same_receipt() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[receipt],
@@ -1990,7 +1990,7 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[receipt],
@@ -2026,7 +2026,7 @@ fn test_call_account_without_contract() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[receipt],
@@ -2070,7 +2070,7 @@ fn test_contract_accesses_when_validating_chunk() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[deploy_receipt],
@@ -2096,7 +2096,7 @@ fn test_contract_accesses_when_validating_chunk() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[call_receipt.clone()],
@@ -2117,7 +2117,7 @@ fn test_contract_accesses_when_validating_chunk() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[call_receipt],
@@ -2164,7 +2164,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[deploy_receipt1],
@@ -2188,7 +2188,7 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[deploy_receipt2],
@@ -2265,7 +2265,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[create_account_receipt, deploy_receipt],
@@ -2289,7 +2289,7 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[delete_account_receipt],
