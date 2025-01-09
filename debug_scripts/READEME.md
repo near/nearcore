@@ -28,7 +28,7 @@ export PYTHONPATH="<absolute path>/nearcore/debug_scripts:$PYTHONPATH"
 
 ```
 cd <absolute path>/nearcore/debug_scripts
-python3 -m pipenv sync
+pipenv sync
 python3 -m pipenv shell
 python3 -m unittest tests.send_validator_logs_test 
 ```
