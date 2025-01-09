@@ -67,7 +67,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     // Current network capacity for MPC `sign` calls is known to be around 100 TPS. At that
     // rate, neither the network nor the RPC should be a bottleneck.
     // Hence `wait_until: EXECUTED_OPTIMISTIC` as it provides most insights.
-    let wait_until = TxExecutionStatus::None;
+    let wait_until = TxExecutionStatus::ExecutedOptimistic;
     let wait_until_channel = wait_until.clone();
     let num_expected_responses = args.num_transfers;
     let response_handler_task = tokio::task::spawn(async move {
