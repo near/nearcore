@@ -123,14 +123,14 @@ pub fn get_tracked_shards_from_prev_block(
     client: &Client,
     prev_block_hash: &CryptoHash,
 ) -> Vec<ShardUId> {
-    let account_id =
-        client.validator_signer.get().map(|validator| validator.validator_id().clone());
+    let signer = client.validator_signer.get();
+    let account_id = signer.as_ref().map(|s| s.validator_id());
+    let shard_layout =
+        client.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
     let mut tracked_shards = vec![];
-    for shard_uid in
-        client.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap().shard_uids()
-    {
+    for shard_uid in shard_layout.shard_uids() {
         if client.shard_tracker.care_about_shard(
-            account_id.as_ref(),
+            account_id,
             prev_block_hash,
             shard_uid.shard_id(),
             true,
@@ -139,4 +139,9 @@ pub fn get_tracked_shards_from_prev_block(
         }
     }
     tracked_shards
+}
+
+pub fn get_tracked_shards(client: &Client, block_hash: &CryptoHash) -> Vec<ShardUId> {
+    let block_header = client.chain.get_block_header(block_hash).unwrap();
+    get_tracked_shards_from_prev_block(client, block_header.prev_hash())
 }

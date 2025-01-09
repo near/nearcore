@@ -483,6 +483,15 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
         let client = clients[client_index];
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+
+        println!(
+            "new block #{} shards: {:?} chunk mask {:?} block hash {}",
+            tip.height,
+            shard_layout.shard_ids().collect_vec(),
+            block_header.chunk_mask().to_vec(),
+            tip.last_block_hash,
+        );
 
         // Check that all chunks are included.
         if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
@@ -491,16 +500,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
         trie_sanity_check.assert_state_sanity(&clients, expected_num_shards);
 
-        let epoch_id =
-            client.epoch_manager.get_epoch_id_from_prev_block(&tip.prev_block_hash).unwrap();
-        let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-        let epoch_height = epoch_info.epoch_height();
+        let epoch_height =
+            client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
 
         // Return false if we have not resharded yet.
         if epoch_height_after_resharding.get().is_none() {
             assert!(epoch_height < 5);
-            let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
-            if epoch_config.shard_layout.num_shards() != expected_num_shards {
+            if shard_layout.num_shards() != expected_num_shards {
                 return false;
             }
             // Just resharded.
@@ -515,7 +521,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         for client in clients {
             check_state_shard_uid_mapping_after_resharding(
                 client,
-                &tip.prev_block_hash,
                 &resharding_block_hash.get().unwrap(),
                 parent_shard_uid,
                 params.allow_negative_refcount,
@@ -586,6 +591,32 @@ fn test_resharding_v3_state_cleanup() {
             .num_clients(num_clients)
             .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
             .add_loop_action(check_state_cleanup_after_resharding(tracked_shard_schedule))
+            .build(),
+    );
+}
+
+#[test]
+fn test_resharding_v3_do_not_track_children_after_resharding() {
+    // Track parent shard before resharding, but do not track any child shard after resharding.
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, unrelated_shard_id, unrelated_shard_id];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(num_clients)
+            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
             .build(),
     );
 }

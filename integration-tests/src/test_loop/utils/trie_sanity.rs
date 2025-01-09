@@ -1,6 +1,7 @@
 use super::sharding::shard_was_split;
 use crate::test_loop::utils::sharding::{
-    client_tracking_shard, get_memtrie_for_shard, get_tracked_shards_from_prev_block,
+    client_tracking_shard, get_memtrie_for_shard, get_tracked_shards,
+    get_tracked_shards_from_prev_block,
 };
 use borsh::BorshDeserialize;
 use itertools::Itertools;
@@ -343,20 +344,19 @@ fn should_assert_state_sanity(
 /// Asserts that all parent shard State is accessible via parent and children shards.
 pub fn check_state_shard_uid_mapping_after_resharding(
     client: &Client,
-    prev_block_hash: &CryptoHash,
     resharding_block_hash: &CryptoHash,
     parent_shard_uid: ShardUId,
     allow_negative_refcount: bool,
 ) {
     let tip = client.chain.head().unwrap();
     let epoch_id = tip.epoch_id;
-    let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let children_shard_uids =
-        epoch_config.shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
+        shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
     assert_eq!(children_shard_uids.len(), 2);
 
     // Currently tracked shards.
-    let tracked_shards = get_tracked_shards_from_prev_block(client, prev_block_hash);
+    let tracked_shards = get_tracked_shards_from_prev_block(client, &tip.prev_block_hash);
     // ShardUId mappings (different than map to itself) that we have stored in DB.
     let mut shard_uid_mapping = HashMap::new();
     // Currently tracked children shards that are mapped to an ancestor.
@@ -410,21 +410,26 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     }
     assert!(checked_any_key);
 
+    let shards_tracked_before_resharding = get_tracked_shards(client, resharding_block_hash);
+    let tracked_parent_before_resharding =
+        shards_tracked_before_resharding.contains(&parent_shard_uid);
     let shards_tracked_after_resharding =
         get_tracked_shards_from_prev_block(client, resharding_block_hash);
+
     // Sanity checks if the node tracks all shards (e.g. it is RPC node).
     if !client.config.tracked_shards.is_empty() {
         assert_eq!(tracked_mapped_children.len(), 2);
-        assert_eq!(
-            shards_tracked_after_resharding.len(),
-            epoch_config.shard_layout.num_shards() as usize
-        );
+        assert_eq!(shards_tracked_after_resharding.len(), shard_layout.num_shards() as usize,);
     }
     // If any child shard was tracked after resharding, it means the node had to split the parent shard.
     if children_shard_uids
         .iter()
         .any(|child_shard_uid| shards_tracked_after_resharding.contains(child_shard_uid))
     {
+        assert_eq!(shard_uid_mapping.len(), 2);
+    } else if tracked_parent_before_resharding {
+        // Parent was tracked before resharding, but no child was tracked after resharding.
+        // TODO(resharding) Consider not resharding in such case. If fixed, the assert below should change from 2 to 0.
         assert_eq!(shard_uid_mapping.len(), 2);
     } else {
         // Otherwise, no mapping was set and no shard State would be mapped.
