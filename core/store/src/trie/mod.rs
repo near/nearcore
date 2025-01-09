@@ -723,13 +723,24 @@ impl Trie {
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads(&self) -> Self {
+        self.recording_reads_internal(None)
+    }
+
+    /// Makes a new trie that has everything the same except that access
+    /// through that trie accumulates a state proof for all nodes accessed.
+    /// We also supply a proof size limit to prevent the proof from growing too large.
+    pub fn recording_reads_with_proof_size_limit(&self, proof_size_limit: usize) -> Self {
+        self.recording_reads_internal(Some(proof_size_limit))
+    }
+
+    fn recording_reads_internal(&self, proof_size_limit: Option<usize>) -> Self {
         let mut trie = Self::new_with_memtries(
             self.storage.clone(),
             self.memtries.clone(),
             self.root,
             self.flat_storage_chunk_view.clone(),
         );
-        trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.recorder = Some(RefCell::new(TrieRecorder::new(proof_size_limit)));
         trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
     }
@@ -753,6 +764,13 @@ impl Trie {
         self.recorder
             .as_ref()
             .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
+            .unwrap_or_default()
+    }
+
+    pub fn check_proof_size_limit_exceed(&self) -> bool {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().check_proof_size_limit_exceed())
             .unwrap_or_default()
     }
 

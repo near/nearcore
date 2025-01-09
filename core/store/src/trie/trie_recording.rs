@@ -11,6 +11,12 @@ use std::sync::Arc;
 pub struct TrieRecorder {
     recorded: HashMap<CryptoHash, Arc<[u8]>>,
     size: usize,
+    /// Size of the recorded state proof plus some additional size added to cover removals and contract code.
+    /// An upper-bound estimation of the true recorded size after finalization.
+    /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
+    upper_bound_size: usize,
+    /// Soft limit on the maximum size of the state proof that can be recorded.
+    proof_size_limit: Option<usize>,
     /// Counts removals performed while recording.
     /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: usize,
@@ -45,10 +51,12 @@ pub struct SubtreeSize {
 }
 
 impl TrieRecorder {
-    pub fn new() -> Self {
+    pub fn new(proof_size_limit: Option<usize>) -> Self {
         Self {
             recorded: HashMap::new(),
             size: 0,
+            upper_bound_size: 0,
+            proof_size_limit,
             removal_counter: 0,
             code_len_counter: 0,
             codes_to_record: Default::default(),
@@ -66,16 +74,27 @@ impl TrieRecorder {
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
         let size = node.len();
         if self.recorded.insert(*hash, node).is_none() {
-            self.size += size;
+            self.size = self.size.checked_add(size).unwrap();
+            self.upper_bound_size = self.upper_bound_size.checked_add(size).unwrap();
         }
     }
 
-    pub fn record_removal(&mut self) {
-        self.removal_counter = self.removal_counter.saturating_add(1)
+    pub fn record_key_removal(&mut self) {
+        // Charge 2000 bytes for every removal
+        self.removal_counter = self.removal_counter.checked_add(1).unwrap();
+        self.upper_bound_size = self.upper_bound_size.checked_add(2000).unwrap();
     }
 
     pub fn record_code_len(&mut self, code_len: usize) {
-        self.code_len_counter = self.code_len_counter.saturating_add(code_len)
+        self.code_len_counter = self.code_len_counter.checked_add(code_len).unwrap();
+        self.upper_bound_size = self.upper_bound_size.checked_add(code_len).unwrap();
+    }
+
+    pub fn check_proof_size_limit_exceed(&self) -> bool {
+        if let Some(proof_size_limit) = self.proof_size_limit {
+            return self.upper_bound_size > proof_size_limit;
+        }
+        false
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
@@ -88,19 +107,11 @@ impl TrieRecorder {
         self.size
     }
 
-    /// Size of the recorded state proof plus some additional size added to cover removals
-    /// and contract codes.
-    /// An upper-bound estimation of the true recorded size after finalization.
-    /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
     pub fn recorded_storage_size_upper_bound(&self) -> usize {
-        // Charge 2000 bytes for every removal
-        let removals_size = self.removal_counter.saturating_mul(2000);
-        self.recorded_storage_size()
-            .saturating_add(removals_size)
-            .saturating_add(self.code_len_counter)
+        self.upper_bound_size
     }
 
-    /// Get statisitics about the recorded trie. Useful for observability and debugging.
+    /// Get statistics about the recorded trie. Useful for observability and debugging.
     /// This scans all of the recorded data, so could potentially be expensive to run.
     pub fn get_stats(&self, trie_root: &CryptoHash) -> TrieRecorderStats {
         let mut trie_column_sizes = Vec::new();
