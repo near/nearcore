@@ -7,9 +7,8 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::DistributeStateWitnessRequest;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::stateless_validation::state_witness::{
+    test_field_offsets::{find_field_for_bit, witness_field_offsets},
     ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::types::AccountId;
@@ -24,10 +23,6 @@ struct WitnessBitFlipTestEnv {
     excluded_validator_idx: usize,
 }
 
-/// This function prepares a scenario in which an orphaned chunk witness will occur.
-/// It creates two blocks (`block1` and `block2`), but doesn't pass them to `excluded_validator`.
-/// When `excluded_validator` receives a witness for the chunk belonging to `block2`, it doesn't
-/// have `block1` which is required to process the witness, so it becomes an orphaned state witness.
 fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
     let accounts: Vec<AccountId> = (0..4).map(|i| format!("test{i}").parse().unwrap()).collect();
     let genesis = Genesis::test(accounts.clone(), accounts.len().try_into().unwrap());
@@ -78,9 +73,8 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
         assert_eq!(heads.len(), 1, "All clients should have the same head");
     }
 
-    // Produce two more blocks (`block1` and `block2`), but don't send them to the `excluded_validator`.
-    // The `excluded_validator` will receive a chunk witness for the chunk in `block2`, but it won't
-    // have `block1`, so it will become an orphaned chunk state witness.
+    // Produce two more blocks. The `excluded_validator` will receive a chunk witness
+    // for the chunk in `block2` which will be intercepted and used in the bit flip test.
     let tip = env.clients[0].chain.head().unwrap();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
@@ -117,9 +111,7 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
         env.process_shards_manager_responses(client_idx);
     }
 
-    // At this point the chunk producer for the chunk belonging to block2 produces
-    // the chunk and sends out a witness for it. Let's intercept the witness
-    // and process it on all validators except for `excluded_validator`.
+    // Intercept the witness and process it on all validators except for `excluded_validator`.
     // The intercepted witness will be used in the bit flip test.
     let mut witness_opt = None;
     let partial_witness_adapter =
@@ -157,6 +149,7 @@ fn setup_witness_bit_flip_test() -> WitnessBitFlipTestEnv {
 
     env.propagate_chunk_endorsements(false);
 
+    // Produce the second block and validate the intercepted witness.
     tracing::info!(target:"test", "Producing block at height {}", tip.height + 2);
     let last_block =
         env.client(&last_block_producer).produce_block(tip.height + 2).unwrap().unwrap();
@@ -190,42 +183,71 @@ fn test_corrupted_witness() {
         excluded_validator_idx: _excluded_validator_idx,
     } = setup_witness_bit_flip_test();
 
+    let witness_fields = witness_field_offsets(&witness);
+
     let witness_bytes = borsh::to_vec(&witness).unwrap();
     let mut corrupted_bit_idx = 0;
+    // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.
+    // Should be empty.
+    let mut errs = vec![];
+    // List of reasons `check_process_flipped_block_fails_on_bit` returned `Ok`.
+    // Should contain various validation errors.
+    let mut oks = vec![];
     loop {
         let mut witness_bytes = witness_bytes.clone();
-        let res = bit_flip(&mut witness_bytes, corrupted_bit_idx);
-        if let Err(err) = &res {
-            if err.to_string() == "End" {
-                // `corrupted_bit_idx` is out of bounds for correct block length. Should stop iteration.
-                break;
-            } else {
-                panic!("Unexpected error: {}", err);
-            }
+        let in_bounds = bit_flip(&mut witness_bytes, corrupted_bit_idx);
+        if !in_bounds {
+            // `corrupted_bit_idx` is out of bounds for correct witness length. Should stop iteration.
+            break;
         }
 
-        let res = check_state_witness(witness_bytes, &mut env, excluded_validator.clone());
-        res.unwrap();
+        let res = check_state_witness(
+            witness_bytes,
+            corrupted_bit_idx,
+            witness.clone(),
+            &witness_fields,
+            &mut env,
+            excluded_validator.clone(),
+        );
+        match res {
+            Ok(msg) => {
+                oks.push(msg);
+            }
+            Err(msg) => {
+                errs.push(msg);
+            }
+        };
 
         corrupted_bit_idx += 1;
     }
 
-    // let block_processed = env
-    //     .client(&excluded_validator)
-    //     .process_block_test(block1.clone().into(), Provenance::NONE)
-    //     .unwrap();
-    // assert_eq!(block_processed, vec![*block1.hash()]);
-
-    // After processing `block1`, `excluded_validator` should process the orphaned witness for the chunk belonging to `block2`
-    // and it should send out an endorsement for this chunk. This happens asynchronously, so we have to wait for it.
-    // env.wait_for_chunk_endorsement(excluded_validator_idx, &block.chunks()[0].chunk_hash())
-    //     .unwrap();
+    tracing::info!("All of the Errors:");
+    for err in &errs {
+        tracing::info!("{:?}", err);
+    }
+    tracing::info!("{}", ["-"; 100].concat());
+    // tracing::info!("All of the Oks:");
+    // for ok in &oks {
+    //     tracing::info!("{:?}", ok);
+    // }
+    assert!(errs.is_empty());
+    assert!(
+        oks.iter()
+            .filter(|e| e.to_string() != NOT_BREAKING_CHANGE_MSG
+                && e.to_string() != STATE_WITNESS_NOT_PARSED_MSG)
+            .count()
+            > 0
+    );
 }
 
 const STATE_WITNESS_NOT_PARSED_MSG: &str = "Corrupt state witness didn't parse";
+const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 
 fn check_state_witness(
     bytes: Vec<u8>,
+    corrupted_bit_idx: usize,
+    correct_witness: ChunkStateWitness,
+    witness_fields: &Vec<(&'static str, usize, usize)>,
     env: &mut TestEnv,
     excluded_validator: AccountId,
 ) -> Result<anyhow::Error, anyhow::Error> {
@@ -233,19 +255,49 @@ fn check_state_witness(
         // `excluded_validator` receives a corrupted witness for a chunk belonging to the previous block.
         let witness_size = bytes.len();
         let client = env.client(&excluded_validator);
-        // expect an error
-        client
-            .process_chunk_state_witness(witness, witness_size, None, client.validator_signer.get())
-            .unwrap_err();
-        return Ok(anyhow::anyhow!("Good"));
+        match client.process_chunk_state_witness(
+            witness,
+            witness_size,
+            None,
+            client.validator_signer.get(),
+        ) {
+            Ok(_) => {
+                if let Some(field) = find_field_for_bit(corrupted_bit_idx, witness_fields) {
+                    Err(anyhow::anyhow!(
+                        "Successfully processed witness with {} bit flipped. It corresponds to the {} ChunkStateWitness struct field.",
+                        corrupted_bit_idx,
+                        field,
+                    ))
+                } else {
+                    Err(anyhow::anyhow!("Bit {} was out of known ranges.", corrupted_bit_idx))
+                }
+            }
+            Err(e) => {
+                if let Err(e) = client.process_chunk_state_witness(
+                    correct_witness,
+                    witness_size,
+                    None,
+                    client.validator_signer.get(),
+                ) {
+                    Err(anyhow::anyhow!(
+                        "Unable to process witness after flipping bit {}. {}",
+                        corrupted_bit_idx,
+                        e
+                    ))
+                } else {
+                    Ok(e.into())
+                }
+            }
+        }
     } else {
-        return Ok(anyhow::anyhow!(STATE_WITNESS_NOT_PARSED_MSG));
+        Ok(anyhow::anyhow!(STATE_WITNESS_NOT_PARSED_MSG))
     }
 }
 
-fn bit_flip(bytes: &mut Vec<u8>, corrupted_bit_idx: usize) -> anyhow::Result<()> {
+// Returns false if the bit index is out of bounds.
+fn bit_flip(bytes: &mut Vec<u8>, corrupted_bit_idx: usize) -> bool {
     if corrupted_bit_idx >= bytes.len() * 8 {
-        return Err(anyhow::anyhow!("End"));
+        return false;
     }
 
     // get indices
@@ -254,20 +306,9 @@ fn bit_flip(bytes: &mut Vec<u8>, corrupted_bit_idx: usize) -> anyhow::Result<()>
 
     // flip
     bytes[byte_idx] ^= 1 << bit_idx;
-    Ok(())
+    true
 }
 
-fn _modify_witness_header_inner(
-    witness: &mut ChunkStateWitness,
-    f: impl FnOnce(&mut ShardChunkHeaderV3),
-) {
-    match &mut witness.chunk_header {
-        ShardChunkHeader::V3(header) => {
-            f(header);
-        }
-        _ => unreachable!(),
-    };
-}
 fn borsh_size(witness: &ChunkStateWitness) -> ChunkStateWitnessSize {
     borsh::to_vec(&witness).unwrap().len()
 }
