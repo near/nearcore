@@ -116,7 +116,12 @@ impl ReplayController {
         let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
-        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(
+            store.clone(),
+            genesis_height,
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
         let start_height = start_height.unwrap_or(genesis_height);

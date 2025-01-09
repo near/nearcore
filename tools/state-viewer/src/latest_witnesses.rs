@@ -56,8 +56,12 @@ enum DumpWitnessesMode {
 
 impl DumpWitnessesCmd {
     pub(crate) fn run(&self, near_config: NearConfig, store: Store) {
-        let chain_store =
-            Rc::new(ChainStore::new(store, near_config.genesis.config.genesis_height, false));
+        let chain_store = Rc::new(ChainStore::new(
+            store,
+            near_config.genesis.config.genesis_height,
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        ));
 
         let witnesses =
             chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap();

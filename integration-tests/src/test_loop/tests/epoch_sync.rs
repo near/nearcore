@@ -330,7 +330,12 @@ impl TestNetworkSetup {
 
     fn chain_final_head_height(&self, node_index: usize) -> u64 {
         let store = self.stores[node_index].clone();
-        let chain_store = ChainStore::new(store, self.genesis.config.genesis_height, false);
+        let chain_store = ChainStore::new(
+            store,
+            self.genesis.config.genesis_height,
+            false,
+            self.genesis.config.transaction_validity_period,
+        );
         chain_store.final_head().unwrap().height
     }
 

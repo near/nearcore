@@ -365,7 +365,13 @@ impl Chain {
         save_trie_changes: bool,
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
-        let chain_store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
+        let transaction_validity_period = chain_genesis.transaction_validity_period;
+        let chain_store = ChainStore::new(
+            store.clone(),
+            chain_genesis.height,
+            save_trie_changes,
+            transaction_validity_period,
+        );
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
         let (genesis, _genesis_chunks) = Self::make_genesis_block(
@@ -392,7 +398,7 @@ impl Chain {
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
             genesis,
-            transaction_validity_period: chain_genesis.transaction_validity_period,
+            transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
@@ -430,12 +436,14 @@ impl Chain {
             chain_genesis,
             state_roots.clone(),
         )?;
+        let transaction_validity_period = chain_genesis.transaction_validity_period;
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut chain_store = ChainStore::new(
             runtime_adapter.store().clone(),
             chain_genesis.height,
             chain_config.save_trie_changes,
+            transaction_validity_period,
         );
         let mut store_update = chain_store.store_update();
         let (block_head, header_head) = match store_update.head() {
@@ -580,7 +588,7 @@ impl Chain {
             blocks_in_processing: BlocksInProcessing::new(),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             genesis: genesis.clone(),
-            transaction_validity_period: chain_genesis.transaction_validity_period,
+            transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
@@ -1546,7 +1554,6 @@ impl Chain {
             self.epoch_manager.clone(),
             self.runtime_adapter.clone(),
             self.doomslug_threshold_mode,
-            self.transaction_validity_period,
         )
     }
 
@@ -3197,32 +3204,7 @@ impl Chain {
             }
         }
 
-        if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
-            let transaction_validity_period = self.transaction_validity_period;
-            return chunk
-                .transactions()
-                .into_iter()
-                .map(|transaction| {
-                    let tx_valid = self
-                        .chain_store()
-                        .check_transaction_validity_period(
-                            prev_block_header,
-                            transaction.transaction.block_hash(),
-                            transaction_validity_period,
-                        )
-                        .is_ok();
-                    if relaxed_chunk_validation {
-                        Ok(tx_valid)
-                    } else if !tx_valid {
-                        Err(Error::from(Error::InvalidTransactions))
-                    } else {
-                        Ok(true)
-                    }
-                })
-                .collect::<Result<_, _>>();
-        };
-
-        Ok(vec![true; chunk.transactions().len()])
+        self.chain_store().compute_transaction_validity(protocol_version, prev_block_header, chunk)
     }
 
     pub fn transaction_validity_check<'a>(

@@ -170,6 +170,7 @@ pub(crate) fn apply_block_at_height(
         read_store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let epoch_manager = EpochManager::new_arc_handle(
         read_store.clone(),
@@ -197,7 +198,7 @@ pub(crate) fn apply_block_at_height(
     )?;
     let result = maybe_save_trie_changes(
         write_store.clone(),
-        near_config.genesis.config.genesis_height,
+        &near_config.genesis.config,
         apply_result,
         height,
         shard_id,
@@ -227,6 +228,7 @@ pub(crate) fn apply_chunk(
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let (apply_result, gas_limit) = apply_chunk::apply_chunk(
         epoch_manager.as_ref(),
@@ -317,7 +319,7 @@ pub(crate) fn apply_receipt(
     )
     .context("could not create the transaction runtime")?;
     apply_chunk::apply_receipt(
-        near_config.genesis.config.genesis_height,
+        &near_config.genesis.config,
         epoch_manager.as_ref(),
         runtime.as_ref(),
         store,
@@ -344,7 +346,7 @@ pub(crate) fn apply_tx(
     )
     .context("could not create the transaction runtime")?;
     apply_chunk::apply_tx(
-        near_config.genesis.config.genesis_height,
+        &near_config.genesis.config,
         epoch_manager.as_ref(),
         runtime.as_ref(),
         store,
@@ -513,6 +515,7 @@ pub(crate) fn dump_tx(
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let mut txs = vec![];
     for height in start_height..=end_height {
@@ -537,6 +540,7 @@ pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: S
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let chunk = chain_store.get_chunk(&chunk_hash);
     println!("Chunk: {:#?}", chunk);
@@ -551,6 +555,7 @@ pub(crate) fn get_partial_chunk(
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let partial_chunk = chain_store.get_partial_chunk(&partial_chunk_hash);
     println!("Partial chunk: {:#?}", partial_chunk);
@@ -561,6 +566,7 @@ pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let receipt = chain_store.get_receipt(&receipt_id);
     println!("Receipt: {:#?}", receipt);
@@ -578,6 +584,7 @@ pub(crate) fn print_chain(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let epoch_manager =
         EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
@@ -729,6 +736,7 @@ pub(crate) fn view_chain(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let block = {
         match height {
@@ -801,8 +809,12 @@ pub(crate) fn view_genesis(
     )
     .unwrap();
     let genesis_height = near_config.genesis.config.genesis_height;
-    let chain_store =
-        ChainStore::new(store, genesis_height, near_config.client_config.save_trie_changes);
+    let chain_store = ChainStore::new(
+        store,
+        genesis_height,
+        near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
+    );
 
     if view_config || compare {
         tracing::info!(target: "state_viewer", "Computing genesis from config...");
@@ -879,8 +891,12 @@ fn read_genesis_from_store(
 
 pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
     let genesis_height = near_config.genesis.config.genesis_height;
-    let chain_store =
-        ChainStore::new(store, genesis_height, near_config.client_config.save_trie_changes);
+    let chain_store = ChainStore::new(
+        store,
+        genesis_height,
+        near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
+    );
     let head = chain_store.head().unwrap();
     let mut cur_block = chain_store.get_block(&head.last_block_hash).unwrap();
     while cur_block.header().height() > genesis_height {
@@ -912,8 +928,12 @@ pub(crate) fn print_epoch_info(
     store: Store,
 ) {
     let genesis_height = near_config.genesis.config.genesis_height;
-    let mut chain_store =
-        ChainStore::new(store.clone(), genesis_height, near_config.client_config.save_trie_changes);
+    let mut chain_store = ChainStore::new(
+        store.clone(),
+        genesis_height,
+        near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
+    );
     let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
             .expect("Failed to start Epoch Manager")
@@ -1267,13 +1287,18 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
 /// Persists the trie changes expressed by `apply_result` in the given storage.
 pub(crate) fn maybe_save_trie_changes(
     store: Option<Store>,
-    genesis_height: u64,
+    genesis_config: &near_chain_configs::GenesisConfig,
     apply_result: ApplyChunkResult,
     block_height: u64,
     shard_id: ShardId,
 ) -> anyhow::Result<()> {
     if let Some(store) = store {
-        let mut chain_store = ChainStore::new(store, genesis_height, false);
+        let mut chain_store = ChainStore::new(
+            store,
+            genesis_config.genesis_height,
+            false,
+            genesis_config.transaction_validity_period,
+        );
         let mut chain_store_update = chain_store.store_update();
         chain_store_update.save_trie_changes(apply_result.trie_changes);
         chain_store_update.commit()?;

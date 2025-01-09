@@ -33,8 +33,8 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
-    StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    BlockExtra, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges,
+    StateChangesExt, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -457,6 +457,9 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+
+    /// The maximum number of blocks for which a transaction is valid since its creation.
+    transaction_validity_period: BlockHeightDelta,
 }
 
 fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
@@ -471,7 +474,12 @@ where
 }
 
 impl ChainStore {
-    pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> ChainStore {
+    pub fn new(
+        store: Store,
+        genesis_height: BlockHeight,
+        save_trie_changes: bool,
+        transaction_validity_period: BlockHeightDelta,
+    ) -> ChainStore {
         ChainStore {
             store,
             genesis_height,
@@ -498,6 +506,7 @@ impl ChainStore {
             block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
             processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
+            transaction_validity_period,
         }
     }
 
@@ -710,6 +719,57 @@ impl ChainStore {
             } else {
                 Err(InvalidTxError::InvalidChain)
             }
+        }
+    }
+
+    pub fn compute_transaction_validity(
+        &self,
+        protocol_version: ProtocolVersion,
+        prev_block_header: &BlockHeader,
+        chunk: &ShardChunk,
+    ) -> Result<Vec<bool>, Error> {
+        let relaxed_chunk_validation = near_primitives::checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        );
+        let validity_period = self.transaction_validity_period;
+        if near_primitives::checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
+            let tx_iter = chunk.transactions().into_iter();
+            if relaxed_chunk_validation {
+                let valid_txs = tx_iter
+                    .map(|transaction| {
+                        let tx_valid = self
+                            .check_transaction_validity_period(
+                                prev_block_header,
+                                transaction.transaction.block_hash(),
+                                validity_period,
+                            )
+                            .is_ok();
+                        tx_valid
+                    })
+                    .collect::<Vec<bool>>();
+                Ok(valid_txs)
+            } else {
+                tx_iter
+                    .map(|transaction| {
+                        let tx_valid = self
+                            .check_transaction_validity_period(
+                                prev_block_header,
+                                transaction.transaction.block_hash(),
+                                validity_period,
+                            )
+                            .is_ok();
+                        if !tx_valid {
+                            Err(Error::from(Error::InvalidTransactions))
+                        } else {
+                            Ok(true)
+                        }
+                    })
+                    .collect::<Result<Vec<bool>, _>>()
+            }
+        } else {
+            Ok(vec![true; chunk.transactions().len()])
         }
     }
 }
