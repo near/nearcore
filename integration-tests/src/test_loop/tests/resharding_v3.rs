@@ -616,7 +616,7 @@ fn test_resharding_v3_do_not_track_children_after_resharding() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
-            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
+            .tracked_shard_schedule(Some(tracked_shard_schedule))
             .build(),
     );
 }
