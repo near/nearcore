@@ -16,7 +16,7 @@ use actix::{Actor, Addr, Context};
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
-use near_async::futures::ActixFutureSpawner;
+use near_async::futures::{ActixFutureSpawner, TokioRuntimeFutureSpawner};
 use near_async::messaging::{
     noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender,
 };
@@ -156,13 +156,17 @@ pub fn setup(
     );
 
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
+    let networking_rt = Arc::new(tokio::runtime::Builder::new_current_thread().build().unwrap());
+    let networking_spawner = Arc::new(TokioRuntimeFutureSpawner(networking_rt));
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
+        networking_spawner,
         clock.clone(),
         network_adapter.clone(),
         client_adapter_for_partial_witness_actor.as_multi_sender(),
         signer.clone(),
         epoch_manager.clone(),
         runtime.clone(),
+        Arc::new(RayonAsyncComputationSpawner),
         Arc::new(RayonAsyncComputationSpawner),
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();

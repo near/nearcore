@@ -227,6 +227,8 @@ pub struct NearNode {
     pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
     /// Shard tracker, allows querying of which shards are tracked by this node.
     pub shard_tracker: ShardTracker,
+    // The threads that the networking layer runs in.
+    pub networking_rt: Arc<tokio::runtime::Runtime>,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -363,14 +365,20 @@ pub fn start_with_config_and_synchronization(
     );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
+    let networking_rt =
+        Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
+    let networking_spawner = Arc::new(TokioRuntimeFutureSpawner(networking_rt.clone()));
+
     let (partial_witness_actor, partial_witness_arbiter) =
         spawn_actix_actor(PartialWitnessActor::new(
+            networking_spawner,
             Clock::real(),
             network_adapter.as_multi_sender(),
             client_adapter_for_partial_witness_actor.as_multi_sender(),
             config.validator_signer.clone(),
             epoch_manager.clone(),
             runtime.clone(),
+            Arc::new(RayonAsyncComputationSpawner),
             Arc::new(RayonAsyncComputationSpawner),
         ));
 
@@ -516,5 +524,6 @@ pub fn start_with_config_and_synchronization(
         resharding_handle,
         state_sync_runtime,
         shard_tracker,
+        networking_rt,
     })
 }
