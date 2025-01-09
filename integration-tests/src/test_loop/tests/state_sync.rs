@@ -1,6 +1,7 @@
 use near_async::messaging::{Handler, SendAsync};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
+use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{
     TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
@@ -11,7 +12,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, AccountInfo, BlockHeightDelta, Nonce, NumSeats, ShardId};
+use near_primitives::types::{
+    AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
+};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 
 use crate::test_loop::builder::TestLoopBuilder;
@@ -67,6 +70,7 @@ fn generate_accounts(boundary_accounts: &[String]) -> Vec<Vec<(AccountId, Nonce)
 struct TestState {
     env: TestLoopEnv,
     accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
+    skip_sync_block_height: Option<BlockHeight>,
 }
 
 fn setup_initial_blockchain(
@@ -138,7 +142,7 @@ fn setup_initial_blockchain(
     let epoch_config_store =
         EpochConfigStore::test(BTreeMap::from([(PROTOCOL_VERSION, Arc::new(epoch_config))]));
 
-    if skip_sync_block {
+    let skip_sync_block_height = if skip_sync_block {
         // It would probably be better not to rely on this height calculation, since that makes
         // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
         // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
@@ -150,7 +154,10 @@ fn setup_initial_blockchain(
             genesis_height + epoch_length + 1
         };
         builder = builder.drop_blocks_by_height([sync_height].into_iter().collect());
-    }
+        Some(sync_height)
+    } else {
+        None
+    };
     let env = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
@@ -158,7 +165,7 @@ fn setup_initial_blockchain(
         .drop_chunks_by_height(chunks_produced)
         .build();
 
-    TestState { env, accounts }
+    TestState { env, accounts, skip_sync_block_height }
 }
 
 fn get_wrapped<T>(s: &[T], idx: usize) -> &T {
@@ -228,10 +235,28 @@ fn send_txs_between_shards(
     }
 }
 
+// Check that no block with height `skip_sync_block_height` made it on the canonical chain, so we're testing
+// what we think we should be.
+fn assert_fork_happened(env: &TestLoopEnv, skip_sync_block_height: BlockHeight) {
+    let handle = env.datas[0].client_sender.actor_handle();
+    let client = &env.test_loop.data.get(&handle).client;
+
+    // Here we assume the one before the skipped block will exist, since it's easier that way and it should
+    // be true in this test.
+    let prev_hash = client.chain.get_block_hash_by_height(skip_sync_block_height - 1).unwrap();
+    let next_hash = client.chain.chain_store.get_next_block_hash(&prev_hash).unwrap();
+    let header = client.chain.get_block_header(&next_hash).unwrap();
+    assert!(header.height() > skip_sync_block_height);
+}
+
 /// runs the network and sends transactions at the beginning of each epoch. At the end the condition we're
 /// looking for is just that a few epochs have passed, because that should only be possible if state sync was successful
 /// (which will be required because we enable chunk producer shard shuffling on this chain)
-fn produce_chunks(env: &mut TestLoopEnv, mut accounts: Option<Vec<Vec<(AccountId, Nonce)>>>) {
+fn produce_chunks(
+    env: &mut TestLoopEnv,
+    mut accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
+    skip_sync_block_height: Option<BlockHeight>,
+) {
     let handle = env.datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
     let mut tip = client.chain.head().unwrap();
@@ -267,10 +292,14 @@ fn produce_chunks(env: &mut TestLoopEnv, mut accounts: Option<Vec<Vec<(AccountId
         }
         tip = new_tip;
     }
+
+    if let Some(skip_sync_block_height) = skip_sync_block_height {
+        assert_fork_happened(env, skip_sync_block_height);
+    }
 }
 
 fn run_test(state: TestState) {
-    let TestState { mut env, mut accounts } = state;
+    let TestState { mut env, mut accounts, skip_sync_block_height } = state;
     let handle = env.datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
     let first_epoch_time = client.config.min_block_production_delay
@@ -291,7 +320,7 @@ fn run_test(state: TestState) {
         first_epoch_time,
     );
 
-    produce_chunks(&mut env, accounts);
+    produce_chunks(&mut env, accounts, skip_sync_block_height);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
