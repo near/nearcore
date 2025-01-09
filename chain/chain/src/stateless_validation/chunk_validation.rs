@@ -97,7 +97,6 @@ pub fn validate_prepared_transactions(
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
     let last_chunk_transactions_size = borsh::to_vec(last_chunk_transactions)?.len();
-    tracing::info!("boom prepare_transactions from validator");
     runtime_adapter.prepare_transactions(
         storage_config,
         crate::types::PrepareTransactionsChunkContext {
