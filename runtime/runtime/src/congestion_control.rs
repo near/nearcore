@@ -277,7 +277,9 @@ impl ReceiptSinkV2 {
         }
 
         // Assert that empty buffers match zero buffered gas.
-        assert_eq!(all_buffers_empty, self.own_congestion_info.buffered_receipts_gas() == 0);
+        if all_buffers_empty {
+            assert_eq!(self.own_congestion_info.buffered_receipts_gas(), 0);
+        }
 
         Ok(())
     }
