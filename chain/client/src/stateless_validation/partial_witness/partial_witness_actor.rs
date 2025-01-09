@@ -596,7 +596,7 @@ impl PartialWitnessActor {
 
     /// Sends the contract accesses to the same chunk validators
     /// (except for the chunk producers that track the same shard),
-    /// which will receive the state witness for the new chunk.
+    /// which will receive the state witness for the new chunk.  
     fn send_contract_accesses_to_chunk_validators(
         &self,
         key: ChunkProductionKey,
