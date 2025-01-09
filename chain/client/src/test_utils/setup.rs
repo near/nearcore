@@ -164,6 +164,7 @@ pub fn setup(
         epoch_manager.clone(),
         runtime.clone(),
         Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
@@ -756,14 +757,12 @@ fn process_peer_manager_message_default(
                 }
             }
         }
-        NetworkRequests::PartialEncodedStateWitness(partial_witnesses) => {
-            for (account, partial_witness) in partial_witnesses {
-                for (i, name) in validators.iter().enumerate() {
-                    if name == account {
-                        connectors[i]
-                            .partial_witness_sender
-                            .send(PartialEncodedStateWitnessMessage(partial_witness.clone()));
-                    }
+        NetworkRequests::PartialEncodedStateWitness(account, partial_witness) => {
+            for (i, name) in validators.iter().enumerate() {
+                if name == account {
+                    connectors[i]
+                        .partial_witness_sender
+                        .send(PartialEncodedStateWitnessMessage(partial_witness.clone()));
                 }
             }
         }

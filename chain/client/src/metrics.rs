@@ -638,10 +638,21 @@ pub(crate) static BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT: LazyLock<HistogramVe
         .unwrap()
     });
 
-pub(crate) static PARTIAL_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+pub(crate) static PARTIAL_WITNESS_ENCODE_AND_SEND_TIME: LazyLock<HistogramVec> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "near_partial_witness_encode_and_send_time",
+            "Partial state witness generation from encoded state witness time in seconds",
+            &["shard_id"],
+            Some(linear_buckets(0.0, 0.005, 20).unwrap()),
+        )
+        .unwrap()
+    });
+
+pub(crate) static PARTIAL_WITNESS_DECODE_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
-        "near_partial_witness_encode_time",
-        "Partial state witness generation from encoded state witness time in seconds",
+        "near_partial_witness_decode_time",
+        "State witness decoding time from the partial state witness parts in seconds",
         &["shard_id"],
         Some(linear_buckets(0.0, 0.005, 20).unwrap()),
     )
