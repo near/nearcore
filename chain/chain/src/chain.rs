@@ -3213,11 +3213,7 @@ impl Chain {
     ) -> impl FnMut(&SignedTransaction) -> bool + 'a {
         move |tx: &SignedTransaction| -> bool {
             self.chain_store()
-                .check_transaction_validity_period(
-                    &prev_block_header,
-                    tx.transaction.block_hash(),
-                    self.transaction_validity_period,
-                )
+                .check_transaction_validity_period(&prev_block_header, tx.transaction.block_hash())
                 .is_ok()
         }
     }

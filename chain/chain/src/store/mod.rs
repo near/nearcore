@@ -667,7 +667,6 @@ impl ChainStore {
         &self,
         prev_block_header: &BlockHeader,
         base_block_hash: &CryptoHash,
-        validity_period: BlockHeight,
     ) -> Result<(), InvalidTxError> {
         // if both are on the canonical chain, comparing height is sufficient
         // we special case this because it is expected that this scenario will happen in most cases.
@@ -678,7 +677,7 @@ impl ChainStore {
             if &base_block_hash_by_height == base_block_hash {
                 if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
                     if &prev_hash == prev_block_header.hash() {
-                        if prev_height <= base_height + validity_period {
+                        if prev_height <= base_height + self.transaction_validity_period {
                             return Ok(());
                         } else {
                             return Err(InvalidTxError::Expired);
@@ -695,14 +694,14 @@ impl ChainStore {
             .get_block_height(prev_block_header.last_final_block())
             .map_err(|_| InvalidTxError::InvalidChain)?;
 
-        if prev_height > base_height + validity_period {
+        if prev_height > base_height + self.transaction_validity_period {
             Err(InvalidTxError::Expired)
         } else if last_final_height >= base_height {
             let base_block_hash_by_height = self
                 .get_block_hash_by_height(base_height)
                 .map_err(|_| InvalidTxError::InvalidChain)?;
             if &base_block_hash_by_height == base_block_hash {
-                if prev_height <= base_height + validity_period {
+                if prev_height <= base_height + self.transaction_validity_period {
                     Ok(())
                 } else {
                     Err(InvalidTxError::Expired)
@@ -733,7 +732,6 @@ impl ChainStore {
             RelaxedChunkValidation,
             protocol_version
         );
-        let validity_period = self.transaction_validity_period;
         if near_primitives::checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let tx_iter = chunk.transactions().into_iter();
             if relaxed_chunk_validation {
@@ -743,7 +741,6 @@ impl ChainStore {
                             .check_transaction_validity_period(
                                 prev_block_header,
                                 transaction.transaction.block_hash(),
-                                validity_period,
                             )
                             .is_ok();
                         tx_valid
@@ -757,7 +754,6 @@ impl ChainStore {
                             .check_transaction_validity_period(
                                 prev_block_header,
                                 transaction.transaction.block_hash(),
-                                validity_period,
                             )
                             .is_ok();
                         if !tx_valid {
@@ -2779,8 +2775,8 @@ mod tests {
 
     #[test]
     fn test_tx_validity_long_fork() {
-        let transaction_validity_period = 5;
         let mut chain = get_chain(Clock::real());
+        chain.transaction_validity_period = 5;
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let short_fork = [TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
@@ -2791,15 +2787,11 @@ mod tests {
         let short_fork_head = short_fork[0].header().clone();
         assert!(chain
             .mut_chain_store()
-            .check_transaction_validity_period(
-                &short_fork_head,
-                genesis.hash(),
-                transaction_validity_period
-            )
+            .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
             .is_ok());
         let mut long_fork = vec![];
         let mut prev_block = genesis;
-        for i in 1..(transaction_validity_period + 3) {
+        for i in 1..(chain.transaction_validity_period + 3) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
@@ -2815,32 +2807,26 @@ mod tests {
         let cur_header = &long_fork.last().unwrap().header();
         assert!(chain
             .mut_chain_store()
-            .check_transaction_validity_period(
-                cur_header,
-                valid_base_hash,
-                transaction_validity_period
-            )
+            .check_transaction_validity_period(cur_header, valid_base_hash,)
             .is_ok());
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
-            chain.mut_chain_store().check_transaction_validity_period(
-                cur_header,
-                invalid_base_hash,
-                transaction_validity_period
-            ),
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(cur_header, invalid_base_hash,),
             Err(InvalidTxError::Expired)
         );
     }
 
     #[test]
     fn test_tx_validity_normal_case() {
-        let transaction_validity_period = 5;
         let mut chain = get_chain(Clock::real());
+        chain.transaction_validity_period = 5;
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let mut blocks = vec![];
         let mut prev_block = genesis;
-        for i in 1..(transaction_validity_period + 2) {
+        for i in 1..(chain.transaction_validity_period + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
@@ -2856,14 +2842,10 @@ mod tests {
         let cur_header = &blocks.last().unwrap().header();
         assert!(chain
             .mut_chain_store()
-            .check_transaction_validity_period(
-                cur_header,
-                valid_base_hash,
-                transaction_validity_period
-            )
+            .check_transaction_validity_period(cur_header, valid_base_hash,)
             .is_ok());
         let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
-            .height(transaction_validity_period + 3)
+            .height(chain.transaction_validity_period + 3)
             .build();
 
         let mut store_update = chain.mut_chain_store().store_update();
@@ -2873,25 +2855,23 @@ mod tests {
             .unwrap();
         store_update.commit().unwrap();
         assert_eq!(
-            chain.mut_chain_store().check_transaction_validity_period(
-                new_block.header(),
-                valid_base_hash,
-                transaction_validity_period
-            ),
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(new_block.header(), valid_base_hash,),
             Err(InvalidTxError::Expired)
         );
     }
 
     #[test]
     fn test_tx_validity_off_by_one() {
-        let transaction_validity_period = 5;
         let mut chain = get_chain(Clock::real());
+        chain.transaction_validity_period = 5;
         let genesis = chain.get_block_by_height(0).unwrap();
         let genesis_hash = *genesis.hash();
         let signer = Arc::new(create_test_signer("test1"));
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
-        for i in 1..(transaction_validity_period + 2) {
+        for i in 1..(chain.transaction_validity_period + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
@@ -2903,16 +2883,14 @@ mod tests {
 
         let short_fork_head = short_fork.last().unwrap().header().clone();
         assert_eq!(
-            chain.mut_chain_store().check_transaction_validity_period(
-                &short_fork_head,
-                &genesis_hash,
-                transaction_validity_period
-            ),
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(&short_fork_head, &genesis_hash),
             Err(InvalidTxError::Expired)
         );
         let mut long_fork = vec![];
         let mut prev_block = genesis;
-        for i in 1..(transaction_validity_period * 5) {
+        for i in 1..(chain.transaction_validity_period * 5) {
             let mut store_update = chain.mut_chain_store().store_update();
             let block =
                 TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
@@ -2923,11 +2901,9 @@ mod tests {
         }
         let long_fork_head = &long_fork.last().unwrap().header();
         assert_eq!(
-            chain.mut_chain_store().check_transaction_validity_period(
-                long_fork_head,
-                &genesis_hash,
-                transaction_validity_period
-            ),
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(long_fork_head, &genesis_hash,),
             Err(InvalidTxError::Expired)
         );
     }

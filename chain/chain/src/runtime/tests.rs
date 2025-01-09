@@ -1662,11 +1662,7 @@ fn prepare_transactions(
         &mut |tx: &SignedTransaction| -> bool {
             chain
                 .chain_store()
-                .check_transaction_validity_period(
-                    &block.header(),
-                    tx.transaction.block_hash(),
-                    chain.transaction_validity_period,
-                )
+                .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),
