@@ -1908,7 +1908,7 @@ impl ClientActorInner {
                 return Ok(false);
             }
             if epoch_sync_boundary_block_header.height()
-                + self.client.chain.transaction_validity_period
+                + self.client.chain.transaction_validity_period()
                 > current_epoch_start
             {
                 // We also do not want to state sync, if by doing so we would not have enough headers to

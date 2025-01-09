@@ -240,7 +240,6 @@ pub struct Chain {
     pub(crate) orphans: OrphanBlockPool,
     pub blocks_with_missing_chunks: MissingChunksPool<Orphan>,
     genesis: Block,
-    pub transaction_validity_period: NumBlocks,
     pub epoch_length: BlockHeightDelta,
     /// Block economics, relevant to changes when new block must be produced.
     pub block_economics_config: BlockEconomicsConfig,
@@ -398,7 +397,6 @@ impl Chain {
             blocks_with_missing_chunks: MissingChunksPool::new(),
             blocks_in_processing: BlocksInProcessing::new(),
             genesis,
-            transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
@@ -588,7 +586,6 @@ impl Chain {
             blocks_in_processing: BlocksInProcessing::new(),
             invalid_blocks: LruCache::new(NonZeroUsize::new(INVALID_CHUNKS_POOL_SIZE).unwrap()),
             genesis: genesis.clone(),
-            transaction_validity_period,
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
@@ -3961,6 +3958,14 @@ impl Chain {
                 }
             }
         }
+    }
+
+    pub fn transaction_validity_period(&self) -> BlockHeightDelta {
+        self.chain_store.transaction_validity_period
+    }
+
+    pub fn set_transaction_validity_period(&mut self, to: BlockHeightDelta) {
+        self.chain_store.transaction_validity_period = to;
     }
 }
 
