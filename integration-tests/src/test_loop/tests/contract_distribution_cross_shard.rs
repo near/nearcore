@@ -4,6 +4,7 @@ use near_chain_configs::test_genesis::{
     build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
 };
 use near_o11y::testonly::init_test_logger;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -17,7 +18,8 @@ use crate::test_loop::utils::contract_distribution::{
 };
 use crate::test_loop::utils::get_head_height;
 use crate::test_loop::utils::transactions::{
-    call_contract, check_txs, deploy_contract, make_accounts,
+    call_contract, check_txs, deploy_contract, deploy_global_contract, make_accounts,
+    use_global_contract,
 };
 
 const EPOCH_LENGTH: u64 = 10;
@@ -28,6 +30,53 @@ const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_RPC: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
 const NUM_ACCOUNTS: usize = NUM_VALIDATORS + NUM_RPC;
+
+#[test]
+fn test_global_contracts() {
+    init_test_logger();
+    let accounts = make_accounts(NUM_ACCOUNTS);
+
+    let (mut env, rpc_id) = setup(&accounts);
+
+    let mut nonce = 1;
+    let rpc_index = 8;
+    assert_eq!(accounts[rpc_index], rpc_id);
+
+    let contract = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
+    let deploy_tx = deploy_global_contract(
+        &mut env.test_loop,
+        &env.datas,
+        &rpc_id,
+        &accounts[0],
+        contract.code().to_vec(),
+        nonce,
+    );
+    nonce += 1;
+    env.test_loop.run_for(Duration::seconds(3));
+    check_txs(&env.test_loop, &env.datas, &rpc_id, &[deploy_tx]);
+    let code_hash = CryptoHash::hash_bytes(contract.code());
+    // test on accounts from different shards
+    for account in [&accounts[1], &accounts[6]] {
+        let use_tx =
+            use_global_contract(&mut env.test_loop, &env.datas, &rpc_id, account, code_hash, nonce);
+        nonce += 1;
+        env.test_loop.run_for(Duration::seconds(3));
+        check_txs(&env.test_loop, &env.datas, &rpc_id, &[use_tx]);
+        let call_tx = call_contract(
+            &mut env.test_loop,
+            &env.datas,
+            &rpc_id,
+            account,
+            account,
+            "log_something".to_owned(),
+            vec![],
+            nonce,
+        );
+        env.test_loop.run_for(Duration::seconds(3));
+        check_txs(&env.test_loop, &env.datas, &rpc_id, &[call_tx]);
+    }
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
 
 /// Tests a scenario that different contracts are deployed to a number of accounts and
 /// these contracts are called from a set of accounts.

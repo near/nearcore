@@ -12,6 +12,7 @@ use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
+use near_primitives::action::{Action, DeployGlobalContractAction, UseGlobalContractAction};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -298,6 +299,60 @@ pub fn deploy_contract(
     submit_tx(node_datas, rpc_id, tx);
 
     tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
+    tx_hash
+}
+
+pub fn deploy_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    account_id: &AccountId,
+    code: Vec<u8>,
+    nonce: u64,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+    let signer = create_user_test_signer(&account_id);
+
+    let tx = SignedTransaction::from_actions(
+        nonce,
+        account_id.clone(),
+        account_id.clone(),
+        &signer,
+        vec![Action::DeployGlobalContract(DeployGlobalContractAction { code })],
+        block_hash,
+        0,
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?account_id, ?tx_hash, "deployed global contract");
+    tx_hash
+}
+
+pub fn use_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    account_id: &AccountId,
+    global_code_hash: CryptoHash,
+    nonce: u64,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, test_loop);
+    let signer = create_user_test_signer(&account_id);
+
+    let tx = SignedTransaction::from_actions(
+        nonce,
+        account_id.clone(),
+        account_id.clone(),
+        &signer,
+        vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction { global_code_hash }))],
+        block_hash,
+        0,
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tracing::debug!(target: "test", ?account_id, ?tx_hash, "used global contract");
     tx_hash
 }
 
