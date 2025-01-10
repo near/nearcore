@@ -24,7 +24,7 @@ pub fn wast_processor(_out: &mut Testsuite, p: PathBuf) -> Option<Test> {
     Some(Test { name: testname, body })
 }
 
-/// Given a Testsuite and a path, process the path in case is a Emscripten
+/// Given a Testsuite and a path, process the path in case is an Emscripten
 /// wasm file.
 pub fn emscripten_processor(_out: &mut Testsuite, p: PathBuf) -> Option<Test> {
     let ext = p.extension()?;
