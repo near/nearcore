@@ -291,7 +291,7 @@ impl Runtime {
 
     /// Takes one signed transaction, verifies it and converts it to a receipt.
     ///
-    /// Add the produced receipt receipt either to the new local receipts if the signer is the same
+    /// Add the produced receipt either to the new local receipts if the signer is the same
     /// as receiver or to the new outgoing receipts.
     ///
     /// When transaction is converted to a receipt, the account is charged for the full value of

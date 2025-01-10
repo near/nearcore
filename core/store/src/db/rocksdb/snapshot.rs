@@ -13,7 +13,7 @@ use crate::Temperature;
 /// The usage of the type is to create a checkpoint before a risky database
 /// operation and then [`Snapshot::remove`] it when the operation finishes
 /// successfully.  In that scenario, the checkpoint will be gracefully deleted
-/// from the file system.  On the other hand, if the operation fails an the
+/// from the file system.  On the other hand, if the operation fails and the
 /// checkpoint is not deleted, this type’s Drop implementation will log
 /// informational messages pointing where the snapshot resides and how to
 /// recover data from it.
