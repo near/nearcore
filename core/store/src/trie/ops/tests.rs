@@ -109,7 +109,7 @@ fn run(initial_entries: Vec<(Vec<u8>, Vec<u8>)>, retain_multi_ranges: Vec<Range<
     let mut update = memtries.update(initial_state_root, mode).unwrap();
     retain_split_shard_custom_ranges(&mut update, &retain_multi_ranges);
     let mut trie_changes = update.to_trie_changes();
-    let memtrie_changes = trie_changes.mem_trie_changes.take().unwrap();
+    let memtrie_changes = trie_changes.memtrie_changes.take().unwrap();
     let mem_state_root = memtries.apply_memtrie_changes(1, &memtrie_changes);
     let proof = trie_recorder.recorded_storage();
 
