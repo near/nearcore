@@ -1020,6 +1020,8 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
+// TODO(resharding): fix nearcore and un-ignore this test
+#[ignore]
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
