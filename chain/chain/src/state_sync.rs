@@ -15,14 +15,6 @@ fn get_state_sync_new_chunks(
     Ok(store.get_ser(DBCol::StateSyncNewChunks, block_hash.as_ref())?)
 }
 
-fn iter_state_sync_new_chunks_keys<'a>(
-    store: &'a Store,
-) -> impl Iterator<Item = Result<CryptoHash, std::io::Error>> + 'a {
-    store
-        .iter(DBCol::StateSyncNewChunks)
-        .map(|item| item.and_then(|(k, _v)| CryptoHash::try_from_slice(&k)))
-}
-
 fn iter_state_sync_hashes_keys<'a>(
     store: &'a Store,
 ) -> impl Iterator<Item = Result<EpochId, std::io::Error>> + 'a {
@@ -96,33 +88,6 @@ fn remove_old_epochs(
     Ok(())
 }
 
-fn remove_old_blocks<T: ChainStoreAccess>(
-    chain_store: &T,
-    store_update: &mut StoreUpdate,
-    header: &BlockHeader,
-) -> Result<(), Error> {
-    if header.last_final_block() == &CryptoHash::default() {
-        return Ok(());
-    }
-    // We don't need to keep info for old blocks around. After a block is finalized, we don't need anything before it
-    let last_final_header = match chain_store.get_block_header(header.last_final_block()) {
-        Ok(h) => h,
-        // This might happen in the case of epoch sync where we save individual headers without having all
-        // headers that belong to the epoch.
-        Err(Error::DBNotFoundErr(_)) => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    for block_hash in iter_state_sync_new_chunks_keys(chain_store.store()) {
-        let block_hash = block_hash?;
-        let old_header = chain_store.get_block_header(&block_hash)?;
-        if old_header.height() < last_final_header.height() {
-            store_update.delete(DBCol::StateSyncNewChunks, block_hash.as_ref());
-        }
-    }
-
-    Ok(())
-}
-
 /// Updates information in the DB related to calculating the correct "sync_hash" for this header's epoch,
 /// if it hasn't already been found.
 pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
@@ -155,5 +120,5 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     }
 
     save_epoch_new_chunks(chain_store, store_update, header)?;
-    remove_old_blocks(chain_store, store_update, header)
+    Ok(())
 }
