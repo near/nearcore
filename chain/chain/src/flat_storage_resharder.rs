@@ -2697,10 +2697,10 @@ mod tests {
         assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
         assert_gt!(flat_store.iter(parent_shard).count(), 0);
 
-        // Add two additional blocks on the fork to make the resharding block (height 1) final.
+        // Add three additional blocks on the fork to make the resharding block (height 2) final.
         add_blocks_to_chain(
             &mut chain,
-            2,
+            3,
             PreviousBlockHeight::Fixed(2),
             NextBlockHeight::Fixed(5),
         );
