@@ -36,6 +36,7 @@ use crate::types::{
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as _};
 use lru::LruCache;
+use near_async::futures::AsyncComputationSpawner;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
@@ -191,6 +192,8 @@ pub(crate) struct PeerActor {
 
     /// Per-message rate limits for incoming messages.
     received_messages_rate_limits: messages_limits::RateLimits,
+
+    message_handler_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl Debug for PeerActor {
@@ -220,8 +223,10 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        message_handler_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<actix::Addr<Self>> {
-        let (addr, handshake_signal) = Self::spawn(clock, stream, force_encoding, network_state)?;
+        let (addr, handshake_signal) =
+            Self::spawn(clock, stream, force_encoding, network_state, message_handler_spawner)?;
         // Await for the handshake to complete, by awaiting the handshake_signal channel.
         // This is a receiver of Infallible, so it only completes when the channel is closed.
         handshake_signal.await.err().unwrap();
@@ -237,12 +242,19 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        message_handler_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> anyhow::Result<(actix::Addr<Self>, HandshakeSignal)> {
         #[cfg(test)]
         let stream_id = stream.id();
         #[cfg(test)]
         let network_state_clone = network_state.clone();
-        match Self::spawn_inner(clock, stream, force_encoding, network_state) {
+        match Self::spawn_inner(
+            clock,
+            stream,
+            force_encoding,
+            network_state,
+            message_handler_spawner,
+        ) {
             Ok(it) => Ok(it),
             Err(reason) => {
                 #[cfg(test)]
@@ -259,6 +271,7 @@ impl PeerActor {
         stream: tcp::Stream,
         force_encoding: Option<Encoding>,
         network_state: Arc<NetworkState>,
+        message_handler_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<(actix::Addr<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
             tcp::StreamType::Inbound => ConnectingStatus::Inbound(
@@ -371,6 +384,7 @@ impl PeerActor {
                     .into(),
                     network_state,
                     received_messages_rate_limits,
+                    message_handler_spawner,
                 }
             }),
             recv,
@@ -1687,72 +1701,77 @@ impl actix::Handler<stream::Frame> for PeerActor {
             return;
         }
 
-        // Message type agnostic stats.
-        {
-            metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
-            tracing::trace!(target: "network", msg_len=msg.len());
-            self.tracker.lock().increment_received(&self.clock, msg.len() as u64);
-        }
-
-        let mut peer_msg = match self.parse_message(&msg) {
-            Ok(msg) => msg,
-            Err(err) => {
-                tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), self.peer_info, err);
-                return;
+        use near_async::futures::AsyncComputationSpawnerExt;
+        let tracker = self.tracker.clone();
+        let clock = self.clock.clone();
+        self.message_handler_spawner.spawn("peer_actor_frame_handler", move || {
+            // Message type agnostic stats.
+            {
+                metrics::PEER_DATA_RECEIVED_BYTES.inc_by(msg.len() as u64);
+                tracing::trace!(target: "network", msg_len=msg.len());
+                tracker.lock().increment_received(&clock, msg.len() as u64);
             }
-        };
 
-        tracing::trace!(target: "network", "Received message: {}", peer_msg);
-
-        let now = self.clock.now();
-        {
-            let labels = [peer_msg.msg_variant()];
-            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
-            metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
-                .with_label_values(&labels)
-                .inc_by(msg.len() as u64);
-            if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
-                metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
-                tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
-                return;
-            }
-        }
-        match &self.peer_status {
-            PeerStatus::Connecting { .. } => self.handle_msg_connecting(ctx, peer_msg),
-            PeerStatus::Ready(conn) => {
-                if self.closing_reason.is_some() {
-                    tracing::warn!(target: "network", "Received {} from closing connection {:?}. Ignoring", peer_msg, self.peer_type);
+            let mut peer_msg = match self.parse_message(&msg) {
+                Ok(msg) => msg,
+                Err(err) => {
+                    tracing::debug!(target: "network", "Received invalid data {} from {}: {}", near_fmt::AbbrBytes(&msg), self.peer_info, err);
                     return;
                 }
-                conn.last_time_received_message.store(now);
-                // Check if the message type is allowed given the TIER of the connection:
-                // TIER1 connections are reserved exclusively for BFT consensus messages.
-                if !conn.tier.is_allowed(&peer_msg) {
-                    tracing::warn!(target: "network", "Received {} on {:?} connection, disconnecting",peer_msg.msg_variant(),conn.tier);
-                    // TODO(gprusak): this is abusive behavior. Consider banning for it.
-                    self.stop(ctx, ClosingReason::DisallowedMessage);
+            };
+
+            tracing::trace!(target: "network", "Received message: {}", peer_msg);
+
+            let now = clock.now();
+            {
+                let labels = [peer_msg.msg_variant()];
+                metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+                metrics::PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES
+                    .with_label_values(&labels)
+                    .inc_by(msg.len() as u64);
+                if !self.received_messages_rate_limits.is_allowed(&peer_msg, now) {
+                    metrics::PEER_MESSAGE_RATE_LIMITED_BY_TYPE_TOTAL.with_label_values(&labels).inc();
+                    tracing::debug!(target: "network", "Peer {} is being rate limited for message {}", self.peer_info, peer_msg.msg_variant());
                     return;
                 }
+            }
+            match &self.peer_status {
+                PeerStatus::Connecting { .. } => self.handle_msg_connecting(ctx, peer_msg),
+                PeerStatus::Ready(conn) => {
+                    if self.closing_reason.is_some() {
+                        tracing::warn!(target: "network", "Received {} from closing connection {:?}. Ignoring", peer_msg, self.peer_type);
+                        return;
+                    }
+                    conn.last_time_received_message.store(now);
+                    // Check if the message type is allowed given the TIER of the connection:
+                    // TIER1 connections are reserved exclusively for BFT consensus messages.
+                    if !conn.tier.is_allowed(&peer_msg) {
+                        tracing::warn!(target: "network", "Received {} on {:?} connection, disconnecting",peer_msg.msg_variant(),conn.tier);
+                        // TODO(gprusak): this is abusive behavior. Consider banning for it.
+                        self.stop(ctx, ClosingReason::DisallowedMessage);
+                        return;
+                    }
 
-                // Optionally, ignore any received tombstones after startup. This is to
-                // prevent overload from too much accumulated deleted edges.
-                //
-                // We have similar code to skip sending tombstones, here we handle the
-                // case when our peer doesn't use that logic yet.
-                if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
-                    if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
-                        if conn.established_time + skip_tombstones > now {
-                            routing_table
-                                .edges
-                                .retain(|edge| edge.edge_type() == EdgeState::Active);
-                            metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
+                    // Optionally, ignore any received tombstones after startup. This is to
+                    // prevent overload from too much accumulated deleted edges.
+                    //
+                    // We have similar code to skip sending tombstones, here we handle the
+                    // case when our peer doesn't use that logic yet.
+                    if let Some(skip_tombstones) = self.network_state.config.skip_tombstones {
+                        if let PeerMessage::SyncRoutingTable(routing_table) = &mut peer_msg {
+                            if conn.established_time + skip_tombstones > now {
+                                routing_table
+                                    .edges
+                                    .retain(|edge| edge.edge_type() == EdgeState::Active);
+                                metrics::EDGE_TOMBSTONE_RECEIVING_SKIPPED.inc();
+                            }
                         }
                     }
+                    // Handle the message.
+                    self.handle_msg_ready(ctx, conn.clone(), peer_msg);
                 }
-                // Handle the message.
-                self.handle_msg_ready(ctx, conn.clone(), peer_msg);
             }
-        }
+        });
     }
 }
 
