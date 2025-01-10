@@ -448,7 +448,6 @@ fn slow_test_state_sync_current_epoch() {
 // first sync block that will end up skipped on the canonical chain (node0) provides a
 // state sync header that other nodes see as invalid.
 #[test]
-#[ignore]
 fn test_state_sync_from_fork() {
     init_test_logger();
 
@@ -485,7 +484,6 @@ fn test_state_sync_from_fork() {
 // even be possible to do it without reaching into and modifying the implementation, by writing some function
 // that will hack together just the right parameters (account IDs, stakes, etc)
 #[test]
-#[ignore]
 fn test_state_sync_to_fork() {
     init_test_logger();
 

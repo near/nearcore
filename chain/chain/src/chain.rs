@@ -3964,13 +3964,15 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    let Some(sync_hash) = self.get_sync_hash(&head.last_block_hash)? else {
-                        return Ok(SnapshotAction::None);
-                    };
-                    if sync_hash == head.last_block_hash {
-                        // note that here we're returning prev_block_hash instead of last_block_hash because in this case
-                        // we can't detect the right sync hash until it is actually applied as the head block
-                        Ok(SnapshotAction::MakeSnapshot(head.prev_block_hash))
+                    let is_sync_prev = crate::state_sync::is_sync_prev_hash(
+                        self.chain_store.store(),
+                        &head.last_block_hash,
+                        &head.prev_block_hash,
+                    )?;
+                    if is_sync_prev {
+                        // Here the head block is the prev block of what the sync hash will be, and the previous
+                        // block is the point in the chain we want to snapshot state for
+                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
                     } else {
                         Ok(SnapshotAction::None)
                     }
