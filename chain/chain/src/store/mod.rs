@@ -677,7 +677,7 @@ impl ChainStore {
             if &base_block_hash_by_height == base_block_hash {
                 if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
                     if &prev_hash == prev_block_header.hash() {
-                        if prev_height <= base_height + dbg!(self.transaction_validity_period) {
+                        if prev_height <= base_height + self.transaction_validity_period {
                             return Ok(());
                         } else {
                             return Err(InvalidTxError::Expired);
@@ -733,37 +733,26 @@ impl ChainStore {
             protocol_version
         );
         if near_primitives::checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
-            let tx_iter = chunk.transactions().into_iter();
+            let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
             if relaxed_chunk_validation {
-                let valid_txs = tx_iter
-                    .map(|transaction| {
-                        let tx_valid = self
-                            .check_transaction_validity_period(
-                                prev_block_header,
-                                transaction.transaction.block_hash(),
-                            )
-                            .is_ok();
-                        tx_valid
-                    })
-                    .collect::<Vec<bool>>();
-                Ok(valid_txs)
+                for transaction in chunk.transactions() {
+                    let is_valid = self.check_transaction_validity_period(
+                        prev_block_header,
+                        transaction.transaction.block_hash(),
+                    );
+                    valid_txs.push(is_valid.is_ok());
+                }
             } else {
-                tx_iter
-                    .map(|transaction| {
-                        let tx_valid = self
-                            .check_transaction_validity_period(
-                                prev_block_header,
-                                transaction.transaction.block_hash(),
-                            )
-                            .is_ok();
-                        if !tx_valid {
-                            Err(Error::from(Error::InvalidTransactions))
-                        } else {
-                            Ok(true)
-                        }
-                    })
-                    .collect::<Result<Vec<bool>, _>>()
+                for transaction in chunk.transactions() {
+                    self.check_transaction_validity_period(
+                        prev_block_header,
+                        transaction.transaction.block_hash(),
+                    )
+                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
+                    valid_txs.push(true);
+                }
             }
+            Ok(valid_txs)
         } else {
             Ok(vec![true; chunk.transactions().len()])
         }

@@ -378,7 +378,7 @@ pub fn pre_validate_chunk_state_witness(
             vec![true; state_witness.transactions.len()]
         } else {
             let prev_block_header =
-                store.get_block_header(last_chunk_block.header().prev_hash())?;
+                store.get_block_header(state_witness.chunk_header.prev_block_hash())?;
             let mut check = chain.transaction_validity_check(prev_block_header);
             state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
         }
