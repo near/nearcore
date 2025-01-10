@@ -38,7 +38,7 @@ use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::ops::DerefMut;
@@ -1671,11 +1671,14 @@ impl Trie {
         I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
         // Call `get` for contract codes requested to be recorded.
-        if let Some(recorder) = &self.recorder {
-            for account_id in &recorder.borrow().codes_to_record {
-                let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
-                let _ = self.get(&trie_key.to_vec());
-            }
+        let codes_to_record = if let Some(recorder) = &self.recorder {
+            recorder.borrow().codes_to_record.clone()
+        } else {
+            HashSet::default()
+        };
+        for account_id in codes_to_record {
+            let trie_key = TrieKey::ContractCode { account_id: account_id.clone() };
+            let _ = self.get(&trie_key.to_vec());
         }
 
         if self.memtries.is_some() {
