@@ -1430,7 +1430,20 @@ mod tests {
             NextBlockHeight::Fixed(height) => height,
         };
         for height in next_block_height..next_block_height + num_blocks {
-            let prev_block = chain.get_block_by_height(prev_block_height).unwrap();
+            // Take the previous block hash by navigating all block hashes at `prev_block_height` across all forks.
+            // We pick the first available hash.
+            let prev_block_hash = *chain
+                .chain_store()
+                .get_all_block_hashes_by_height(prev_block_height)
+                .unwrap()
+                .iter()
+                .next()
+                .unwrap()
+                .1
+                .iter()
+                .next()
+                .unwrap();
+            let prev_block = chain.get_block(&prev_block_hash).unwrap();
             let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
                 .height(height)
                 .build();
@@ -2629,5 +2642,75 @@ mod tests {
             // However, the unrelated account should not end up in any child.
             assert!(flat_store.get(child, &key.to_vec()).is_ok_and(|val| val.is_none()));
         }
+    }
+
+    /// Test to validate that split shard resharding works if the chain undergoes a fork across the
+    /// resharding boundary. In this specific test we want to assert that the whole operation
+    /// succeed even if the older fork (chronologically) ends up becoming part of the canonical
+    /// chain.
+    /// The complementary test to this is `resharding_event_not_started_can_be_replaced`, which tests
+    /// forks where the newest path is finalized.
+    ///
+    /// Timeline:
+    /// ------- Fork 1 -------> canonical chain
+    ///    |
+    ///     -------- Fork 2 --> discarded
+    #[test]
+    fn split_shard_in_forks_when_older_branch_is_finalized() {
+        init_test_logger();
+        let (mut chain, resharder, sender) =
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Add two blocks on top of genesis.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
+
+        // Trigger resharding at block 2. Parent shard shouldn't get split yet.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
+
+        // Add two blocks on top of the first block (simulate a fork).
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::Fixed(1),
+            NextBlockHeight::Fixed(3),
+        );
+
+        // Get the new resharding event and re-trigger the shard split.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
+
+        // Add two additional blocks on the fork to make the resharding block (height 1) final.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::Fixed(2),
+            NextBlockHeight::Fixed(5),
+        );
+
+        // Now the second resharding event should take place.
+        assert_matches!(
+            sender.call_split_shard_task(),
+            FlatStorageReshardingTaskResult::Successful { .. }
+        );
+
+        assert_eq!(flat_store.iter(parent_shard).count(), 0);
     }
 }
