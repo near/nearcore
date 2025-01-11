@@ -723,11 +723,18 @@ impl Trie {
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads_new_recorder(&self) -> Self {
-        self.recording_reads_with_recorder(RefCell::new(TrieRecorder::new()))
+        let recorder = RefCell::new(TrieRecorder::new(None));
+        self.recording_reads_with_recorder(recorder)
     }
 
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
+    /// We also supply a proof size limit to prevent the proof from growing too large.
+    pub fn recording_reads_with_proof_size_limit(&self, proof_size_limit: usize) -> Self {
+        let recorder = RefCell::new(TrieRecorder::new(Some(proof_size_limit)));
+        self.recording_reads_with_recorder(recorder)
+    }
+
     pub fn recording_reads_with_recorder(&self, recorder: RefCell<TrieRecorder>) -> Self {
         let mut trie = Self::new_with_memtries(
             self.storage.clone(),
@@ -763,6 +770,13 @@ impl Trie {
         self.recorder
             .as_ref()
             .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
+            .unwrap_or_default()
+    }
+
+    pub fn check_proof_size_limit_exceed(&self) -> bool {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().check_proof_size_limit_exceed())
             .unwrap_or_default()
     }
 

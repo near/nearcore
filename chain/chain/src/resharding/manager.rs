@@ -216,7 +216,7 @@ impl ReshardingManager {
                 "Creating child memtrie by retaining nodes in parent memtrie..."
             );
             let mut mem_tries = mem_tries.write().unwrap();
-            let mut trie_recorder = TrieRecorder::new();
+            let mut trie_recorder = TrieRecorder::new(None);
             let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
             let mem_trie_update = mem_tries.update(*parent_chunk_extra.state_root(), mode)?;
 

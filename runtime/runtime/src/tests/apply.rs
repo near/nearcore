@@ -1151,9 +1151,14 @@ fn test_main_storage_proof_size_soft_limit() {
         )
     };
 
+    let trie = tries
+        .get_trie_for_shard(ShardUId::single_shard(), root)
+        .recording_reads_with_proof_size_limit(
+            apply_state.config.witness_config.main_storage_proof_size_soft_limit,
+        );
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            trie,
             &None,
             &apply_state,
             &[
@@ -1192,10 +1197,16 @@ fn test_main_storage_proof_size_soft_limit() {
         )
     };
 
+    let trie = tries
+        .get_trie_for_shard(ShardUId::single_shard(), root)
+        .recording_reads_with_proof_size_limit(
+            apply_state.config.witness_config.main_storage_proof_size_soft_limit,
+        );
+
     // The function call to bob_account should hit the main_storage_proof_size_soft_limit
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
+            trie,
             &None,
             &apply_state,
             &[

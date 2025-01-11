@@ -104,7 +104,7 @@ fn run(initial_entries: Vec<(Vec<u8>, Vec<u8>)>, retain_multi_ranges: Vec<Range<
         retain_split_shard_custom_ranges_for_trie(&trie, &retain_multi_ranges);
 
     // Split memtrie and track proof
-    let mut trie_recorder = TrieRecorder::new();
+    let mut trie_recorder = TrieRecorder::new(None);
     let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
     let mut update = memtries.update(initial_state_root, mode).unwrap();
     retain_split_shard_custom_ranges(&mut update, &retain_multi_ranges);

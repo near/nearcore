@@ -1656,11 +1656,14 @@ impl Runtime {
             compute_usage = tracing::field::Empty,
         )
         .entered();
+
         let state_update = &mut processing_state.state_update;
-        let node_counter_before = state_update.trie().get_trie_nodes_count();
-        let recorded_storage_size_before = state_update.trie().recorded_storage_size();
-        let storage_proof_size_upper_bound_before =
-            state_update.trie().recorded_storage_size_upper_bound();
+        let trie = state_update.trie();
+        let node_counter_before = trie.get_trie_nodes_count();
+        let recorded_storage_size_before = trie.recorded_storage_size();
+        let storage_proof_size_upper_bound_before = trie.recorded_storage_size_upper_bound();
+
+        // Main logic
         let result = self.process_receipt(
             processing_state,
             receipt,
@@ -1668,42 +1671,38 @@ impl Runtime {
             &mut validator_proposals,
         );
 
-        let total = &mut processing_state.total;
-        let state_update = &mut processing_state.state_update;
-        let node_counter_after = state_update.trie().get_trie_nodes_count();
-        tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
-        let recorded_storage_diff = state_update
-            .trie()
-            .recorded_storage_size()
-            .saturating_sub(recorded_storage_size_before)
-            as f64;
-        let recorded_storage_upper_bound_diff = state_update
-            .trie()
-            .recorded_storage_size_upper_bound()
-            .saturating_sub(storage_proof_size_upper_bound_before)
-            as f64;
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        let trie = processing_state.state_update.trie();
+
+        let node_counter_after = trie.get_trie_nodes_count();
+        tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+
+        let recorded_storage_diff = trie.recorded_storage_size() - recorded_storage_size_before;
+        let recorded_storage_upper_bound_diff =
+            trie.recorded_storage_size_upper_bound() - storage_proof_size_upper_bound_before;
         metrics::RECEIPT_RECORDED_SIZE
             .with_label_values(&[shard_id_str.as_str()])
-            .observe(recorded_storage_diff);
+            .observe(recorded_storage_diff as f64);
         metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
-            .observe(recorded_storage_upper_bound_diff);
+            .observe(recorded_storage_upper_bound_diff as f64);
         let recorded_storage_proof_ratio =
-            recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
+            recorded_storage_upper_bound_diff as f64 / f64::max(1.0, recorded_storage_diff as f64);
         // Record the ratio only for large receipts, small receipts can have a very high ratio,
         // but the ratio is not that important for them.
-        if recorded_storage_upper_bound_diff > 100_000. {
+        if recorded_storage_upper_bound_diff > 100_000 {
             metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO
                 .with_label_values(&[shard_id_str.as_str()])
                 .observe(recorded_storage_proof_ratio);
         }
+
         if let Some(outcome_with_id) = result? {
             let gas_burnt = outcome_with_id.outcome.gas_burnt;
             let compute_usage = outcome_with_id
                 .outcome
                 .compute_usage
                 .expect("`process_receipt` must populate compute usage");
+            let total = &mut processing_state.total;
             total.add(gas_burnt, compute_usage)?;
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
@@ -1726,7 +1725,6 @@ impl Runtime {
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
-        proof_size_limit: Option<usize>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
@@ -1750,9 +1748,7 @@ impl Runtime {
 
         for receipt in local_receipts.iter() {
             if processing_state.total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
+                || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
@@ -1808,7 +1804,6 @@ impl Runtime {
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
-        proof_size_limit: Option<usize>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<Vec<Receipt>, RuntimeError> {
         let delayed_processing_start = std::time::Instant::now();
@@ -1828,9 +1823,7 @@ impl Runtime {
 
         loop {
             if processing_state.total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
+                || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
                 break;
             }
@@ -1910,7 +1903,6 @@ impl Runtime {
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
-        proof_size_limit: Option<usize>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let incoming_processing_start = std::time::Instant::now();
@@ -1940,9 +1932,7 @@ impl Runtime {
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if processing_state.total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
+                || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
@@ -1992,24 +1982,17 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
     ) -> Result<ProcessReceiptsResult, RuntimeError> {
         let mut validator_proposals = vec![];
-        let protocol_version = processing_state.protocol_version;
         let apply_state = &processing_state.apply_state;
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
-        let proof_size_limit = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
-        } else {
-            None
-        };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
             processing_state,
             receipt_sink,
             compute_limit,
-            proof_size_limit,
             &mut validator_proposals,
         )?;
 
@@ -2018,7 +2001,6 @@ impl Runtime {
             processing_state,
             receipt_sink,
             compute_limit,
-            proof_size_limit,
             &mut validator_proposals,
         )?;
 
@@ -2027,26 +2009,19 @@ impl Runtime {
             processing_state,
             receipt_sink,
             compute_limit,
-            proof_size_limit,
             &mut validator_proposals,
         )?;
 
         // Resolve timed-out PromiseYield receipts
-        let promise_yield_result = resolve_promise_yield_timeouts(
-            processing_state,
-            receipt_sink,
-            compute_limit,
-            proof_size_limit,
-        )?;
+        let promise_yield_result =
+            resolve_promise_yield_timeouts(processing_state, receipt_sink, compute_limit)?;
 
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
         if processing_state.total.compute >= compute_limit {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
                 .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
                 .inc();
-        } else if proof_size_limit.is_some_and(|limit| {
-            processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-        }) {
+        } else if processing_state.state_update.trie.check_proof_size_limit_exceed() {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
                 .with_label_values(&[shard_id_str.as_str(), "storage_proof_size_limit"])
                 .inc();
@@ -2351,7 +2326,6 @@ fn resolve_promise_yield_timeouts(
     processing_state: &mut ApplyProcessingReceiptState,
     receipt_sink: &mut ReceiptSink,
     compute_limit: u64,
-    proof_size_limit: Option<usize>,
 ) -> Result<ResolvePromiseYieldTimeoutsResult, RuntimeError> {
     let mut state_update = &mut processing_state.state_update;
     let total = &mut processing_state.total;
@@ -2366,10 +2340,7 @@ fn resolve_promise_yield_timeouts(
     let mut timeout_receipts = vec![];
     let yield_processing_start = std::time::Instant::now();
     while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
-        if total.compute >= compute_limit
-            || proof_size_limit
-                .is_some_and(|limit| state_update.trie.recorded_storage_size_upper_bound() > limit)
-        {
+        if total.compute >= compute_limit || state_update.trie.check_proof_size_limit_exceed() {
             break;
         }
 
