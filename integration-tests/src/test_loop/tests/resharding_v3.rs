@@ -36,7 +36,7 @@ use crate::test_loop::utils::{ONE_NEAR, TGAS};
 use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
 
 /// Default and minimal epoch length used in resharding tests.
-const DEFAULT_EPOCH_LENGTH: u64 = 6;
+const DEFAULT_EPOCH_LENGTH: u64 = 7;
 
 /// Increased epoch length that has to be used in some tests due to the delay caused by catch up.
 ///
