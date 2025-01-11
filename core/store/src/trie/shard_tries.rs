@@ -151,14 +151,9 @@ impl ShardTries {
             )
         } else {
             let memtries = self.get_mem_tries(shard_uid);
-            let children_shard_uid = self
-                .0
-                .temp_split_shard_map
-                .read()
-                .unwrap()
-                .get(&shard_uid)
-                .cloned()
-                .unwrap_or_default();
+            let split_shard_map_guard = self.0.temp_split_shard_map.read().unwrap();
+            let children_shard_uid =
+                split_shard_map_guard.get(&shard_uid).cloned().unwrap_or_default();
             let mut children_memtries = HashMap::new();
             for shard_uid in children_shard_uid {
                 if let Some(memtrie) = self.get_mem_tries(shard_uid) {
@@ -407,12 +402,19 @@ impl ShardTries {
         shard_uid: ShardUId,
         block_height: BlockHeight,
     ) -> Option<StateRoot> {
-        // Apply children memtrie changes in case of forks on parent.
-        // Most of the time children_memtrie_changes will be empty.
-        // Lookup children_memtrie_changes for more context.
+        // Apply children memtrie changes in case of forks on parent. Most of the time children_memtrie_changes
+        // will be empty. Lookup children_memtrie_changes for more context.
+        let split_shard_map_guard = self.0.temp_split_shard_map.read().unwrap();
+        let children_shard_uid = split_shard_map_guard.get(&shard_uid).cloned().unwrap_or_default();
         for (shard_uid, memtrie_changes) in &trie_changes.children_memtrie_changes {
-            let memtrie = self.get_mem_tries(*shard_uid).expect("Memtrie must exist");
-            memtrie.write().unwrap().apply_memtrie_changes(block_height, memtrie_changes);
+            // Note that we should only be writing the changes to the child memtrie iff the child and parent
+            // share the frozen memtrie base.
+            // It's possible that while processing the block, the child memtrie was recreated and no longer
+            // shares the base with parent, in which case we skip writing the changes.
+            if children_shard_uid.contains(&shard_uid) {
+                let memtrie = self.get_mem_tries(*shard_uid).expect("Memtrie must exist");
+                memtrie.write().unwrap().apply_memtrie_changes(block_height, memtrie_changes);
+            }
         }
 
         if let Some(memtries) = self.get_mem_tries(shard_uid) {
