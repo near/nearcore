@@ -31,16 +31,16 @@ ARG make_target=
 RUN make CARGO_TARGET_DIR=/tmp/target \
     "${make_target:?make_target not set}"
 
-# Docker image
-FROM ubuntu:22.04
-
-EXPOSE 3030 24567
-
-RUN apt-get update -qq && apt-get install -y \
-    libssl-dev ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY scripts/run_docker.sh /usr/local/bin/run.sh
-COPY --from=build /tmp/target/release/neard /usr/local/bin/
-
-CMD ["/usr/local/bin/run.sh"]
+## Docker image
+#FROM ubuntu:22.04
+#
+#EXPOSE 3030 24567
+#
+#RUN apt-get update -qq && apt-get install -y \
+#    libssl-dev ca-certificates \
+#    && rm -rf /var/lib/apt/lists/*
+#
+#COPY scripts/run_docker.sh /usr/local/bin/run.sh
+#COPY --from=build /tmp/target/release/neard /usr/local/bin/
+#
+#CMD ["/usr/local/bin/run.sh"]

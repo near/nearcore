@@ -2903,6 +2903,7 @@ bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
         self.result_state.gas_counter.pay_base(log_base)?;
         self.result_state.gas_counter.pay_per(log_byte, message.len() as u64)?;
         self.result_state.checked_push_log(message)
+        eprintln!("EPRINTLN: log_utf8: {}", message);
     }
 
     /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as

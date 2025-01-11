@@ -38,101 +38,118 @@ impl<'a> PrepareContext<'a> {
     ///
     /// This will validate the module, normalize the memories within, apply limits.
     fn run(&mut self) -> Result<Vec<u8>, PrepareError> {
+        eprintln!("EPRINTLN: prepare_v2::RUN");
         self.before_import_section = true;
         let parser = wp::Parser::new(0);
         for payload in parser.parse_all(self.code) {
             let payload = payload.map_err(|err| {
+                eprintln!("EPRINTLN: prepare_v2::RUN map_err 1: {:?}", err);
                 tracing::trace!(?err, "was not able to early prepare the input module");
                 PrepareError::Deserialization
             })?;
             match payload {
                 wp::Payload::Version { num, encoding, range } => {
                     self.copy(range.clone())?;
-                    self.validator
-                        .version(num, encoding, &range)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.version(num, encoding, &range).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 2: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                 }
                 wp::Payload::End(offset) => {
-                    self.validator.end(offset).map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.end(offset).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 3: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                 }
 
                 wp::Payload::TypeSection(reader) => {
-                    self.validator
-                        .type_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.type_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 4: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Type, reader.range())?;
                 }
 
                 wp::Payload::ImportSection(reader) => {
                     self.before_import_section = false;
-                    self.validator
-                        .import_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.import_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 5: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.transform_import_section(&reader)?;
                 }
 
                 wp::Payload::FunctionSection(reader) => {
                     self.ensure_import_section();
-                    self.validator
-                        .function_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.function_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 6: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Function, reader.range())?;
                 }
                 wp::Payload::TableSection(reader) => {
                     self.ensure_import_section();
-                    self.validator
-                        .table_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.table_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 7: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Table, reader.range())?;
                 }
                 wp::Payload::MemorySection(reader) => {
                     // We do not want to include the implicit memory anymore as we normalized it by
                     // importing the memory instead.
                     self.ensure_import_section();
-                    self.validator
-                        .memory_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.memory_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 8: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                 }
                 wp::Payload::GlobalSection(reader) => {
                     self.ensure_import_section();
-                    self.validator
-                        .global_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.global_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 9: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Global, reader.range())?;
                 }
                 wp::Payload::ExportSection(reader) => {
                     self.ensure_import_section();
-                    self.validator
-                        .export_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.export_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 10: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Export, reader.range())?;
                 }
                 wp::Payload::StartSection { func, range } => {
                     self.ensure_import_section();
-                    self.validator
-                        .start_section(func, &range)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.start_section(func, &range).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 11: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Start, range.clone())?;
                 }
                 wp::Payload::ElementSection(reader) => {
                     self.ensure_import_section();
-                    self.validator
-                        .element_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.element_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 12: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Element, reader.range())?;
                 }
                 wp::Payload::DataCountSection { count, range } => {
                     self.ensure_import_section();
-                    self.validator
-                        .data_count_section(count, &range)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.data_count_section(count, &range).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 13: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::DataCount, range.clone())?;
                 }
                 wp::Payload::DataSection(reader) => {
                     self.ensure_import_section();
-                    self.validator
-                        .data_section(&reader)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.data_section(&reader).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 14: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Data, reader.range())?;
                 }
                 wp::Payload::CodeSectionStart { size: _, count, range } => {
@@ -141,26 +158,33 @@ impl<'a> PrepareContext<'a> {
                         .function_limit
                         .checked_sub(u64::from(count))
                         .ok_or(PrepareError::TooManyFunctions)?;
-                    self.validator
-                        .code_section_start(count, &range)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    self.validator.code_section_start(count, &range).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 15: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.copy_section(SectionId::Code, range.clone())?;
                 }
                 wp::Payload::CodeSectionEntry(func) => {
-                    let local_reader =
-                        func.get_locals_reader().map_err(|_| PrepareError::Deserialization)?;
+                    let local_reader = func.get_locals_reader().map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 16: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     for local in local_reader {
-                        let (count, _ty) = local.map_err(|_| PrepareError::Deserialization)?;
+                        let (count, _ty) = local.map_err(|err| {
+                            eprintln!("EPRINTLN: prepare_v2::RUN map_err 17: {:?}", err);
+                            PrepareError::Deserialization
+                        })?;
                         self.local_limit = self
                             .local_limit
                             .checked_sub(u64::from(count))
                             .ok_or(PrepareError::TooManyLocals)?;
                     }
 
-                    let func_validator = self
-                        .validator
-                        .code_section_entry(&func)
-                        .map_err(|_| PrepareError::Deserialization)?;
+                    let func_validator =
+                        self.validator.code_section_entry(&func).map_err(|err| {
+                            eprintln!("EPRINTLN: prepare_v2::RUN map_err 18: {:?}", err);
+                            PrepareError::Deserialization
+                        })?;
                     // PANIC-SAFETY: no big deal if we panic here while the allocations are taken.
                     // Worst-case we are going to be making new allocations again, but in practice
                     // this should never happen as this context should not be reused.
@@ -169,7 +193,10 @@ impl<'a> PrepareContext<'a> {
                         wp::FuncValidatorAllocations::default(),
                     );
                     let mut func_validator = func_validator.into_validator(allocs);
-                    func_validator.validate(&func).map_err(|_| PrepareError::Deserialization)?;
+                    func_validator.validate(&func).map_err(|err| {
+                        eprintln!("EPRINTLN: prepare_v2::RUN map_err 19: {:?}", err);
+                        PrepareError::Deserialization
+                    })?;
                     self.func_validator_allocations = func_validator.into_allocations();
                 }
                 wp::Payload::CustomSection(reader) => {
@@ -180,19 +207,23 @@ impl<'a> PrepareContext<'a> {
                 }
 
                 // Extensions not supported.
-                wp::Payload::UnknownSection { .. }
-                | wp::Payload::TagSection(_)
-                | wp::Payload::ModuleSection { .. }
-                | wp::Payload::InstanceSection(_)
-                | wp::Payload::CoreTypeSection(_)
-                | wp::Payload::ComponentSection { .. }
-                | wp::Payload::ComponentInstanceSection(_)
-                | wp::Payload::ComponentAliasSection(_)
-                | wp::Payload::ComponentTypeSection(_)
-                | wp::Payload::ComponentCanonicalSection(_)
-                | wp::Payload::ComponentStartSection { .. }
-                | wp::Payload::ComponentImportSection(_)
-                | wp::Payload::ComponentExportSection(_) => {
+                section @ wp::Payload::UnknownSection { .. }
+                | section @ wp::Payload::TagSection(_)
+                | section @ wp::Payload::ModuleSection { .. }
+                | section @ wp::Payload::InstanceSection(_)
+                | section @ wp::Payload::CoreTypeSection(_)
+                | section @ wp::Payload::ComponentSection { .. }
+                | section @ wp::Payload::ComponentInstanceSection(_)
+                | section @ wp::Payload::ComponentAliasSection(_)
+                | section @ wp::Payload::ComponentTypeSection(_)
+                | section @ wp::Payload::ComponentCanonicalSection(_)
+                | section @ wp::Payload::ComponentStartSection { .. }
+                | section @ wp::Payload::ComponentImportSection(_)
+                | section @ wp::Payload::ComponentExportSection(_) => {
+                    eprintln!(
+                        "EPRINTLN: prepare_v2::RUN map_err 7: unsupported section {:?}",
+                        section
+                    );
                     tracing::trace!("input module contains unsupported section");
                     return Err(PrepareError::Deserialization);
                 }
@@ -221,7 +252,10 @@ impl<'a> PrepareContext<'a> {
                 wp::TypeRef::Table(_) => return Err(PrepareError::Instantiate),
                 wp::TypeRef::Global(_) => return Err(PrepareError::Instantiate),
                 wp::TypeRef::Memory(_) => return Err(PrepareError::Memory),
-                wp::TypeRef::Tag(_) => return Err(PrepareError::Deserialization),
+                wp::TypeRef::Tag(tag) => {
+                    eprintln!("EPRINTLN: prepare_v2::transform_import_section: {:?}", tag);
+                    return Err(PrepareError::Deserialization);
+                }
             };
             new_section.import(import.module, import.name, new_type);
         }
@@ -263,7 +297,10 @@ impl<'a> PrepareContext<'a> {
 
     /// Copy over the payload to the output binary without significant processing.
     fn copy(&mut self, range: std::ops::Range<usize>) -> Result<(), PrepareError> {
-        Ok(self.output_code.extend(self.code.get(range).ok_or(PrepareError::Deserialization)?))
+        Ok(self.output_code.extend(self.code.get(range).ok_or_else(|| {
+            eprintln!("EPRINTLN: COPY OK_OR_ELSE");
+            PrepareError::Deserialization
+        })?))
     }
 }
 
@@ -285,6 +322,7 @@ pub(crate) fn prepare_contract(
         .with_gas(Box::new(SimpleGasCostCfg(u64::from(config.regular_op_cost))))
         .analyze(&lightly_steamed)
         .map_err(|err| {
+            eprintln!("EPRINTLN: PREPARE_CONTRACT ANALYSIS FAILED");
             tracing::error!(?err, ?kind, "Analysis failed");
             PrepareError::Deserialization
         })?
