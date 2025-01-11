@@ -436,14 +436,54 @@ fn slow_test_state_sync_current_epoch() {
 // is unaware of the possibility of forks, this will cause the producer of that block to
 // believe that that block should be the sync hash block, while all other nodes will
 // believe it should be the next block.
+// This particular test fails without fork-aware state sync because the node that produces the
+// first sync block that will end up skipped on the canonical chain (node0) provides a
+// state sync header that other nodes see as invalid.
 #[test]
 #[ignore]
-fn test_state_sync_forks() {
+fn test_state_sync_from_fork() {
     init_test_logger();
 
     let params = StateSyncTest {
         num_validators: 5,
         num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 5,
+        generate_shard_accounts: true,
+        chunks_produced: &[],
+        skip_sync_block: true,
+    };
+    let state = setup_initial_blockchain(
+        params.num_validators,
+        params.num_block_producer_seats,
+        params.num_chunk_producer_seats,
+        params.num_shards,
+        params.generate_shard_accounts,
+        params
+            .chunks_produced
+            .iter()
+            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+            .collect(),
+        params.skip_sync_block,
+    );
+    run_test(state);
+}
+
+// This is the same as the above test_state_sync_from_fork() except we tweak some parameters so that
+// this test fails without fork-aware state sync because the node that produces the first sync block that will
+// end up skipped on the canonical chain (node4) tries to state sync from other nodes that all know about the
+// other finalized sync hash.
+// TODO: Would be great to be able to set the schedules for all upcoming shard assignments in tests. It might
+// even be possible to do it without reaching into and modifying the implementation, by writing some function
+// that will hack together just the right parameters (account IDs, stakes, etc)
+#[test]
+#[ignore]
+fn test_state_sync_to_fork() {
+    init_test_logger();
+
+    let params = StateSyncTest {
+        num_validators: 6,
+        num_block_producer_seats: 6,
         num_chunk_producer_seats: 4,
         num_shards: 5,
         generate_shard_accounts: true,
