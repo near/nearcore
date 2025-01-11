@@ -70,7 +70,7 @@ fn generate_accounts(boundary_accounts: &[String]) -> Vec<Vec<(AccountId, Nonce)
 struct TestState {
     env: TestLoopEnv,
     accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
-    skip_sync_block_height: Option<BlockHeight>,
+    skip_block_height: Option<BlockHeight>,
 }
 
 fn setup_initial_blockchain(
@@ -80,7 +80,7 @@ fn setup_initial_blockchain(
     num_shards: usize,
     generate_shard_accounts: bool,
     chunks_produced: HashMap<ShardId, Vec<bool>>,
-    skip_sync_block: bool,
+    skip_block_sync_height_delta: Option<isize>,
 ) -> TestState {
     let mut builder = TestLoopBuilder::new();
 
@@ -142,7 +142,7 @@ fn setup_initial_blockchain(
     let epoch_config_store =
         EpochConfigStore::test(BTreeMap::from([(PROTOCOL_VERSION, Arc::new(epoch_config))]));
 
-    let skip_sync_block_height = if skip_sync_block {
+    let skip_block_height = if let Some(delta) = skip_block_sync_height_delta {
         // It would probably be better not to rely on this height calculation, since that makes
         // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
         // it would be nice to modify `drop_blocks_by_height()` to allow for more complex logic to decide
@@ -153,8 +153,13 @@ fn setup_initial_blockchain(
         } else {
             genesis_height + epoch_length + 1
         };
-        builder = builder.drop_blocks_by_height([sync_height].into_iter().collect());
-        Some(sync_height)
+        let height = if delta >= 0 {
+            sync_height.saturating_add(delta as BlockHeight)
+        } else {
+            sync_height.saturating_sub(-delta as BlockHeight)
+        };
+        builder = builder.drop_blocks_by_height([height].into_iter().collect());
+        Some(height)
     } else {
         None
     };
@@ -165,7 +170,7 @@ fn setup_initial_blockchain(
         .drop_chunks_by_height(chunks_produced)
         .build();
 
-    TestState { env, accounts, skip_sync_block_height }
+    TestState { env, accounts, skip_block_height }
 }
 
 fn get_wrapped<T>(s: &[T], idx: usize) -> &T {
@@ -235,18 +240,18 @@ fn send_txs_between_shards(
     }
 }
 
-// Check that no block with height `skip_sync_block_height` made it on the canonical chain, so we're testing
+// Check that no block with height `skip_block_height` made it on the canonical chain, so we're testing
 // what we think we should be.
-fn assert_fork_happened(env: &TestLoopEnv, skip_sync_block_height: BlockHeight) {
+fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
     let handle = env.datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
 
     // Here we assume the one before the skipped block will exist, since it's easier that way and it should
     // be true in this test.
-    let prev_hash = client.chain.get_block_hash_by_height(skip_sync_block_height - 1).unwrap();
+    let prev_hash = client.chain.get_block_hash_by_height(skip_block_height - 1).unwrap();
     let next_hash = client.chain.chain_store.get_next_block_hash(&prev_hash).unwrap();
     let header = client.chain.get_block_header(&next_hash).unwrap();
-    assert!(header.height() > skip_sync_block_height);
+    assert!(header.height() > skip_block_height);
 }
 
 /// runs the network and sends transactions at the beginning of each epoch. At the end the condition we're
@@ -255,7 +260,7 @@ fn assert_fork_happened(env: &TestLoopEnv, skip_sync_block_height: BlockHeight) 
 fn produce_chunks(
     env: &mut TestLoopEnv,
     mut accounts: Option<Vec<Vec<(AccountId, Nonce)>>>,
-    skip_sync_block_height: Option<BlockHeight>,
+    skip_block_height: Option<BlockHeight>,
 ) {
     let handle = env.datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
@@ -293,13 +298,13 @@ fn produce_chunks(
         tip = new_tip;
     }
 
-    if let Some(skip_sync_block_height) = skip_sync_block_height {
-        assert_fork_happened(env, skip_sync_block_height);
+    if let Some(skip_block_height) = skip_block_height {
+        assert_fork_happened(env, skip_block_height);
     }
 }
 
 fn run_test(state: TestState) {
-    let TestState { mut env, mut accounts, skip_sync_block_height } = state;
+    let TestState { mut env, mut accounts, skip_block_height } = state;
     let handle = env.datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&handle).client;
     let first_epoch_time = client.config.min_block_production_delay
@@ -320,7 +325,7 @@ fn run_test(state: TestState) {
         first_epoch_time,
     );
 
-    produce_chunks(&mut env, accounts, skip_sync_block_height);
+    produce_chunks(&mut env, accounts, skip_block_height);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
 }
 
@@ -334,7 +339,10 @@ struct StateSyncTest {
     // to test state syncing shards without any account data
     generate_shard_accounts: bool,
     chunks_produced: &'static [(ShardId, &'static [bool])],
-    skip_sync_block: bool,
+    // If Some(), this delta represents the delta with respect to the expected "sync_hash" block. So
+    // a value of 0 will have us generate a skip on the first block that will probably be the sync_hash,
+    // and a value of 1 will have us skip the one after that.
+    skip_block_sync_height_delta: Option<isize>,
 }
 
 static TEST_CASES: &[StateSyncTest] = &[
@@ -346,7 +354,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         num_shards: 2,
         generate_shard_accounts: true,
         chunks_produced: &[],
-        skip_sync_block: false,
+        skip_block_sync_height_delta: None,
     },
     StateSyncTest {
         num_validators: 5,
@@ -355,7 +363,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         num_shards: 4,
         generate_shard_accounts: true,
         chunks_produced: &[],
-        skip_sync_block: false,
+        skip_block_sync_height_delta: None,
     },
     // In this test we have 2 validators and 4 shards, and we don't generate any extra accounts.
     // That makes 3 accounts ncluding the "near" account. This means at least one shard will have no
@@ -367,7 +375,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         num_shards: 4,
         generate_shard_accounts: false,
         chunks_produced: &[],
-        skip_sync_block: false,
+        skip_block_sync_height_delta: None,
     },
     // Now we miss some chunks at the beginning of the epoch
     StateSyncTest {
@@ -382,7 +390,7 @@ static TEST_CASES: &[StateSyncTest] = &[
             (ShardId::new(2), &[true]),
             (ShardId::new(3), &[true]),
         ],
-        skip_sync_block: false,
+        skip_block_sync_height_delta: None,
     },
     StateSyncTest {
         num_validators: 5,
@@ -391,7 +399,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         num_shards: 4,
         generate_shard_accounts: true,
         chunks_produced: &[(ShardId::new(0), &[true, false]), (ShardId::new(1), &[true, false])],
-        skip_sync_block: false,
+        skip_block_sync_height_delta: None,
     },
     StateSyncTest {
         num_validators: 5,
@@ -403,7 +411,7 @@ static TEST_CASES: &[StateSyncTest] = &[
             (ShardId::new(0), &[false, true]),
             (ShardId::new(2), &[true, false, true]),
         ],
-        skip_sync_block: false,
+        skip_block_sync_height_delta: None,
     },
 ];
 
@@ -425,7 +433,7 @@ fn slow_test_state_sync_current_epoch() {
                 .iter()
                 .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
                 .collect(),
-            t.skip_sync_block,
+            t.skip_block_sync_height_delta,
         );
         run_test(state);
     }
@@ -451,7 +459,7 @@ fn test_state_sync_from_fork() {
         num_shards: 5,
         generate_shard_accounts: true,
         chunks_produced: &[],
-        skip_sync_block: true,
+        skip_block_sync_height_delta: Some(0),
     };
     let state = setup_initial_blockchain(
         params.num_validators,
@@ -464,7 +472,7 @@ fn test_state_sync_from_fork() {
             .iter()
             .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
             .collect(),
-        params.skip_sync_block,
+        params.skip_block_sync_height_delta,
     );
     run_test(state);
 }
@@ -488,7 +496,7 @@ fn test_state_sync_to_fork() {
         num_shards: 5,
         generate_shard_accounts: true,
         chunks_produced: &[],
-        skip_sync_block: true,
+        skip_block_sync_height_delta: Some(0),
     };
     let state = setup_initial_blockchain(
         params.num_validators,
@@ -501,7 +509,70 @@ fn test_state_sync_to_fork() {
             .iter()
             .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
             .collect(),
-        params.skip_sync_block,
+        params.skip_block_sync_height_delta,
+    );
+    run_test(state);
+}
+
+// This one tests what happens when we skip a block after the sync block. This checks a corner case where
+// the "sync_hash" will never appear as the final block for any new head block, since the final block will skip
+// from one before it to one after it, so that when setting the sync hash, we cannot just check the final head
+// on each new header update.
+#[test]
+fn test_state_sync_fork_after_sync() {
+    init_test_logger();
+
+    let params = StateSyncTest {
+        num_validators: 6,
+        num_block_producer_seats: 6,
+        num_chunk_producer_seats: 4,
+        num_shards: 5,
+        generate_shard_accounts: true,
+        chunks_produced: &[],
+        skip_block_sync_height_delta: Some(1),
+    };
+    let state = setup_initial_blockchain(
+        params.num_validators,
+        params.num_block_producer_seats,
+        params.num_chunk_producer_seats,
+        params.num_shards,
+        params.generate_shard_accounts,
+        params
+            .chunks_produced
+            .iter()
+            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+            .collect(),
+        params.skip_block_sync_height_delta,
+    );
+    run_test(state);
+}
+
+// This one tests what happens when we skip a block before the sync block, for good measure.
+#[test]
+fn test_state_sync_fork_before_sync() {
+    init_test_logger();
+
+    let params = StateSyncTest {
+        num_validators: 6,
+        num_block_producer_seats: 6,
+        num_chunk_producer_seats: 4,
+        num_shards: 5,
+        generate_shard_accounts: true,
+        chunks_produced: &[],
+        skip_block_sync_height_delta: Some(-1),
+    };
+    let state = setup_initial_blockchain(
+        params.num_validators,
+        params.num_block_producer_seats,
+        params.num_chunk_producer_seats,
+        params.num_shards,
+        params.generate_shard_accounts,
+        params
+            .chunks_produced
+            .iter()
+            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+            .collect(),
+        params.skip_block_sync_height_delta,
     );
     run_test(state);
 }
@@ -556,7 +627,7 @@ fn slow_test_state_request() {
     init_test_logger();
 
     let TestState { mut env, .. } =
-        setup_initial_blockchain(4, 4, 4, 4, false, HashMap::default(), false);
+        setup_initial_blockchain(4, 4, 4, 4, false, HashMap::default(), None);
 
     spam_state_sync_header_reqs(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));
