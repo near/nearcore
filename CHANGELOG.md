@@ -8,7 +8,7 @@
 ### Non-protocol Changes
 **No Changes**
 
-## [2.4.0]
+## 2.4.0
 
 ### Protocol Changes
 
@@ -25,7 +25,7 @@ and only fallback to downloading from GCS if that fails. Please note that in ord
 your node may generate snapshots of the state. These snapshots should not take too much space,
 since they're hard links to database files that get cleaned up on every epoch. [#12004](https://github.com/near/nearcore/issues/12004)
 
-## [2.3.0]
+## 2.3.0
 
 ### Protocol Changes
 * Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
@@ -35,7 +35,7 @@ since they're hard links to database files that get cleaned up on every epoch. [
 * **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
 * Enabled state snapshots on every epoch to allow the nodes to take part in decentralized state sync in future releases.
 
-### 2.2.1
+## 2.2.1
 
 This release patches a bug found in the 2.2.0 release
 
@@ -52,7 +52,7 @@ It's possible to recover a stalled node by clearing the compiled contract cache 
 
 After that the node should be able to recover and sync with the rest of the network.
 
-### 2.2.0
+## 2.2.0
 
 ### Protocol Changes
 * The minimum validator stake has been set to a lower value. The small-stake validators that were kicked out during the shift to stateless validation will be able to rejoin the network.

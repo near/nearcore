@@ -115,7 +115,7 @@ impl Global {
     /// g.set(Value::I32(2)).unwrap();
     /// ```
     ///
-    /// Trying to set a value of a incompatible type will raise an error:
+    /// Trying to set a value of an incompatible type will raise an error:
     ///
     /// ```should_panic
     /// # use near_vm_test_api::{Global, Store, Value};

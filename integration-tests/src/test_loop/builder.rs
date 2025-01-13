@@ -30,7 +30,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
@@ -44,7 +44,9 @@ use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
+use super::utils::network::{
+    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
+};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -62,6 +64,8 @@ enum DropConditionKind {
     /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
     /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
+    // Drops Block broadcast messages with height in `self.0`
+    BlocksByHeight(HashSet<BlockHeight>),
 }
 
 pub(crate) struct TestLoopBuilder {
@@ -82,7 +86,7 @@ pub(crate) struct TestLoopBuilder {
     archival_clients: HashSet<AccountId>,
     /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    /// Conditions under which chunks/endorsements are dropped.
+    /// Conditions under which chunks/endorsements/blocks are dropped.
     drop_condition_kinds: Vec<DropConditionKind>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
@@ -278,6 +282,9 @@ fn register_drop_condition(
                 drop_chunks_condition,
             ));
         }
+        DropConditionKind::BlocksByHeight(heights) => {
+            peer_manager_actor.register_override_handler(block_dropper_by_height(heights.clone()));
+        }
     }
 }
 
@@ -384,6 +391,13 @@ impl TestLoopBuilder {
         if !chunks_produced.is_empty() {
             self.drop_condition_kinds
                 .push(DropConditionKind::ChunksProducedByHeight(chunks_produced));
+        }
+        self
+    }
+
+    pub(crate) fn drop_blocks_by_height(mut self, heights: HashSet<BlockHeight>) -> Self {
+        if !heights.is_empty() {
+            self.drop_condition_kinds.push(DropConditionKind::BlocksByHeight(heights));
         }
         self
     }
