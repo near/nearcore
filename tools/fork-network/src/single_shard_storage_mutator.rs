@@ -167,8 +167,8 @@ impl SingleShardStorageMutator {
         let state_root = self.shard_tries.apply_all(&trie_changes, *shard_uid, &mut update);
         self.shard_tries.apply_memtrie_changes(&trie_changes, *shard_uid, fake_block_height);
         // We may not have loaded memtries (some commands don't need to), so check.
-        if let Some(mem_tries) = self.shard_tries.get_mem_tries(*shard_uid) {
-            mem_tries.write().unwrap().delete_until_height(fake_block_height - 1);
+        if let Some(memtries) = self.shard_tries.get_memtries(*shard_uid) {
+            memtries.write().unwrap().delete_until_height(fake_block_height - 1);
         }
         tracing::info!(?shard_uid, num_updates, "committing");
         update.store_update().set_ser(

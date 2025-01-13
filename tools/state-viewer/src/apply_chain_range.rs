@@ -391,7 +391,7 @@ pub fn apply_chain_range(
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             runtime_adapter
                 .get_tries()
-                .load_mem_trie(&shard_uid, None, true)
+                .load_memtrie(&shard_uid, None, true)
                 .expect("load mem trie");
         }
     }

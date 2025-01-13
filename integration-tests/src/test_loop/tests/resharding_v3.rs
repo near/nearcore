@@ -103,7 +103,7 @@ struct TestReshardingParameters {
     // The suffix must consist of `GC_NUM_EPOCHS_TO_KEEP` repetitions of the same shard,
     // so that we can assert at the end of the test that the state of all other shards have been cleaned up.
     tracked_shard_schedule: Option<TrackedShardSchedule>,
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
     #[builder(setter(custom))]
     loop_actions: Vec<LoopAction>,
@@ -253,9 +253,7 @@ impl TestReshardingParametersBuilder {
                 .unwrap_or(false),
             track_all_shards: self.track_all_shards.unwrap_or(false),
             tracked_shard_schedule,
-            load_mem_tries_for_tracked_shards: self
-                .load_mem_tries_for_tracked_shards
-                .unwrap_or(true),
+            load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards.unwrap_or(true),
             loop_actions,
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
@@ -404,7 +402,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
         .archival_clients(params.archivals.iter().cloned().collect())
-        .load_mem_tries_for_tracked_shards(params.load_mem_tries_for_tracked_shards)
+        .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .drop_protocol_upgrade_chunks(
             base_protocol_version + 1,
             params.chunk_ranges_to_drop.clone(),
@@ -456,7 +454,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let clients =
         client_handles.iter().map(|handle| &env.test_loop.data.get(handle).client).collect_vec();
     let mut trie_sanity_check =
-        TrieSanityCheck::new(&clients, params.load_mem_tries_for_tracked_shards);
+        TrieSanityCheck::new(&clients, params.load_memtries_for_tracked_shards);
 
     let latest_block_height = Cell::new(0u64);
     let resharding_block_hash = Cell::new(None);
@@ -984,19 +982,19 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 }
 
 #[test]
-fn test_resharding_v3_load_mem_trie_v1() {
+fn test_resharding_v3_load_memtrie_v1() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(1)
-        .load_mem_tries_for_tracked_shards(false)
+        .load_memtries_for_tracked_shards(false)
         .build();
     test_resharding_v3_base(params);
 }
 
 #[test]
-fn test_resharding_v3_load_mem_trie_v2() {
+fn test_resharding_v3_load_memtrie_v2() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(2)
-        .load_mem_tries_for_tracked_shards(false)
+        .load_memtries_for_tracked_shards(false)
         .build();
     test_resharding_v3_base(params);
 }

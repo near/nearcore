@@ -87,11 +87,11 @@ fn test_load_memtrie_after_empty_chunks() {
     };
 
     // Unload memtrie and load it back, check that it doesn't panic.
-    clients[idx].runtime_adapter.get_tries().unload_mem_trie(&shard_uid);
+    clients[idx].runtime_adapter.get_tries().unload_memtrie(&shard_uid);
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .load_mem_trie(&shard_uid, None, true)
+        .load_memtrie(&shard_uid, None, true)
         .expect("Couldn't load memtrie");
 
     // Give the test a chance to finish off remaining events in the event loop, which can

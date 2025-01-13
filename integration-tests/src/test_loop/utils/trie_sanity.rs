@@ -33,12 +33,12 @@ type EpochTrieCheck = HashMap<AccountId, HashMap<ShardUId, bool>>;
 /// we want to make sure that it's always eventually checked by the end of the epoch
 pub struct TrieSanityCheck {
     accounts: Vec<AccountId>,
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     checks: HashMap<EpochId, EpochTrieCheck>,
 }
 
 impl TrieSanityCheck {
-    pub fn new(clients: &[&Client], load_mem_tries_for_tracked_shards: bool) -> Self {
+    pub fn new(clients: &[&Client], load_memtries_for_tracked_shards: bool) -> Self {
         let accounts = clients
             .iter()
             .filter_map(|c| {
@@ -46,7 +46,7 @@ impl TrieSanityCheck {
                 signer.map(|s| s.validator_id().clone())
             })
             .collect();
-        Self { accounts, load_mem_tries_for_tracked_shards, checks: HashMap::new() }
+        Self { accounts, load_memtries_for_tracked_shards, checks: HashMap::new() }
     }
 
     // If it's not already stored, initialize it with the expected ShardUIds for each account
@@ -99,7 +99,7 @@ impl TrieSanityCheck {
         let mut check_shard_uids = HashMap::new();
         for shard_uid in shard_layout.shard_uids() {
             if !should_assert_state_sanity(
-                self.load_mem_tries_for_tracked_shards,
+                self.load_memtries_for_tracked_shards,
                 is_resharded,
                 shards_pending_resharding,
                 shard_layout,
@@ -146,7 +146,7 @@ impl TrieSanityCheck {
             let checked_shards = assert_state_sanity(
                 client,
                 &final_head,
-                self.load_mem_tries_for_tracked_shards,
+                self.load_memtries_for_tracked_shards,
                 new_num_shards,
             );
             let check = self.get_epoch_check(client, &head, new_num_shards);
@@ -192,9 +192,9 @@ impl TrieSanityCheck {
 }
 
 /// Asserts that for each child shard, MemTrie, FlatState and DiskTrie all
-/// contain the same key-value pairs. If `load_mem_tries_for_tracked_shards` is
+/// contain the same key-value pairs. If `load_memtries_for_tracked_shards` is
 /// false, we only enforce memtries for shards pending resharding in the old
-/// layout and the shards thet were split in the new shard layout.
+/// layout and the shards that were split in the new shard layout.
 ///
 /// Returns the ShardUIds that this client tracks and has sane memtries and flat
 /// storage for
@@ -204,7 +204,7 @@ impl TrieSanityCheck {
 fn assert_state_sanity(
     client: &Client,
     final_head: &Tip,
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     new_num_shards: NumShards,
 ) -> Vec<ShardUId> {
     let shard_layout = client.epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
@@ -220,7 +220,7 @@ fn assert_state_sanity(
 
     for shard_uid in shard_layout.shard_uids() {
         if !should_assert_state_sanity(
-            load_mem_tries_for_tracked_shards,
+            load_memtries_for_tracked_shards,
             is_resharded,
             &shards_pending_resharding,
             &shard_layout,
@@ -317,14 +317,14 @@ fn assert_state_equal(
 }
 
 fn should_assert_state_sanity(
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     is_resharded: bool,
     shards_pending_resharding: &HashSet<ShardUId>,
     shard_layout: &ShardLayout,
     shard_uid: &ShardUId,
 ) -> bool {
     // Always assert if the tracked shards are loaded into memory.
-    if load_mem_tries_for_tracked_shards {
+    if load_memtries_for_tracked_shards {
         return true;
     }
 

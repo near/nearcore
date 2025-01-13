@@ -292,7 +292,7 @@ mod trie_recording_tests {
         gen_larger_changes, simplify_changes, test_populate_flat_storage, test_populate_trie,
         TestTriesBuilder,
     };
-    use crate::trie::mem::metrics::MEM_TRIE_NUM_LOOKUPS;
+    use crate::trie::mem::metrics::MEMTRIE_NUM_LOOKUPS;
     use crate::trie::TrieNodesCount;
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
@@ -525,7 +525,7 @@ mod trie_recording_tests {
                 .build();
             let lookup_mode =
                 if use_flat_storage { KeyLookupMode::FlatStorage } else { KeyLookupMode::Trie };
-            let mem_trie_lookup_counts_before = MEM_TRIE_NUM_LOOKUPS.get();
+            let memtrie_lookup_counts_before = MEMTRIE_NUM_LOOKUPS.get();
 
             // Check that while using flat storage counters are all zero.
             // Only use get_optimized_ref(), because get() will actually
@@ -582,8 +582,8 @@ mod trie_recording_tests {
 
             // Now let's do this again with memtries enabled. Check that counters
             // are the same.
-            assert_eq!(MEM_TRIE_NUM_LOOKUPS.get(), mem_trie_lookup_counts_before);
-            tries.load_mem_trie(&shard_uid, None, false).unwrap();
+            assert_eq!(MEMTRIE_NUM_LOOKUPS.get(), memtrie_lookup_counts_before);
+            tries.load_memtrie(&shard_uid, None, false).unwrap();
             // Delete the on-disk state so that we really know we're using
             // in-memory tries.
             destructively_delete_in_memory_state_from_disk(&store.trie_store(), &data_in_trie);
@@ -651,7 +651,7 @@ mod trie_recording_tests {
 
             if !keys_to_get.is_empty() || !keys_to_get_ref.is_empty() {
                 // sanity check that we did indeed use in-memory tries.
-                assert!(MEM_TRIE_NUM_LOOKUPS.get() > mem_trie_lookup_counts_before);
+                assert!(MEMTRIE_NUM_LOOKUPS.get() > memtrie_lookup_counts_before);
             }
         }
     }

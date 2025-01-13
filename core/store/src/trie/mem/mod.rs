@@ -5,8 +5,8 @@ mod freelist;
 pub mod iter;
 pub mod loading;
 mod lookup;
-pub mod mem_trie_update;
-pub mod mem_tries;
+pub mod memtrie_update;
+pub mod memtries;
 pub mod metrics;
 #[cfg(test)]
 pub(crate) mod nibbles_utils;

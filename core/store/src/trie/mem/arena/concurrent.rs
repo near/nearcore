@@ -207,7 +207,7 @@ impl ArenaMut for ConcurrentArenaForThread {
 mod tests {
     use super::ConcurrentArena;
     use crate::trie::mem::arena::alloc::CHUNK_SIZE;
-    use crate::trie::mem::arena::metrics::MEM_TRIE_ARENA_MEMORY_USAGE_BYTES;
+    use crate::trie::mem::arena::metrics::MEMTRIE_ARENA_MEMORY_USAGE_BYTES;
     use crate::trie::mem::arena::{Arena, ArenaMemory, ArenaMut, ArenaWithDealloc};
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(starena.num_active_allocs(), 3);
         assert_eq!(starena.active_allocs_bytes(), 24 + 32 + 40);
         assert_eq!(
-            MEM_TRIE_ARENA_MEMORY_USAGE_BYTES.get_metric_with_label_values(&[&name]).unwrap().get(),
+            MEMTRIE_ARENA_MEMORY_USAGE_BYTES.get_metric_with_label_values(&[&name]).unwrap().get(),
             3 * CHUNK_SIZE as i64
         );
 

@@ -20,7 +20,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
-use near_store::trie::mem::mem_trie_update::TrackingMode;
+use near_store::trie::mem::memtrie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
 use near_store::trie::TrieRecorder;
@@ -197,7 +197,7 @@ impl ReshardingManager {
             (split_shard_event.left_child_shard, RetainMode::Left),
             (split_shard_event.right_child_shard, RetainMode::Right),
         ] {
-            let Some(mem_tries) = tries.get_mem_tries(new_shard_uid) else {
+            let Some(memtries) = tries.get_memtries(new_shard_uid) else {
                 tracing::error!(
                     "Memtrie not loaded. Cannot process memtrie resharding storage
                      update for block {:?}, shard {:?}",
@@ -211,15 +211,15 @@ impl ReshardingManager {
                 target: "resharding", ?new_shard_uid, ?retain_mode,
                 "Creating child memtrie by retaining nodes in parent memtrie..."
             );
-            let mut mem_tries = mem_tries.write().unwrap();
+            let mut memtries = memtries.write().unwrap();
             let mut trie_recorder = TrieRecorder::new(None);
             let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
-            let mem_trie_update = mem_tries.update(*parent_chunk_extra.state_root(), mode)?;
+            let memtrie_update = memtries.update(*parent_chunk_extra.state_root(), mode)?;
 
-            let trie_changes = mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
+            let trie_changes = memtrie_update.retain_split_shard(&boundary_account, retain_mode);
             let memtrie_changes = trie_changes.memtrie_changes.as_ref().unwrap();
-            let new_state_root = mem_tries.apply_memtrie_changes(block_height, memtrie_changes);
-            drop(mem_tries);
+            let new_state_root = memtries.apply_memtrie_changes(block_height, memtrie_changes);
+            drop(memtries);
 
             // Get the congestion info for the child.
             let parent_epoch_id = block.header().epoch_id();
