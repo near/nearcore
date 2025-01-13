@@ -499,7 +499,7 @@ impl<'a> ChainUpdate<'a> {
         }
         let receipts = collect_receipts_from_response(&receipt_proof_responses);
         let is_genesis = block_header.height() == self.chain_store_update.get_genesis_height();
-        let prev_block_header = is_genesis
+        let prev_block_header = (!is_genesis)
             .then(|| self.chain_store_update.get_block_header(block_header.prev_hash()))
             .transpose()?;
 
