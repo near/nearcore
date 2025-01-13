@@ -273,7 +273,7 @@ impl FlatStorageResharder {
         );
         metrics.update_shards_status(&self.runtime.get_flat_storage_manager());
 
-        info!(target: "resharding", ?parent_shard, ?split_params,"scheduling flat storage shard split");
+        info!(target: "resharding", ?parent_shard, ?split_params, "scheduling flat storage shard split");
         let resharder = self.clone();
         // Send a request to schedule the execution of `split_shard_task`, to do the bulk of the
         // splitting work.
@@ -396,7 +396,7 @@ impl FlatStorageResharder {
                     }
                 }
 
-                // We must mark the task as 'Started.
+                // We must mark the task as 'Started'.
                 *execution_status = TaskExecutionStatus::Started;
                 SplitShardSchedulingStatus::CanStart(block, parent_shard, split_params)
             }
