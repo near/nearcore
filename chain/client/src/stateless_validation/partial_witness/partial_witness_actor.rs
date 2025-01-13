@@ -375,6 +375,7 @@ impl PartialWitnessActor {
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
         let signer = self.my_validator_signer()?;
+        let validator_account_id = signer.validator_id().clone();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
 
@@ -402,7 +403,7 @@ impl PartialWitnessActor {
             match validate_partial_encoded_state_witness(
                 epoch_manager.as_ref(),
                 &partial_witness,
-                &signer,
+                &validator_account_id,
                 runtime_adapter.store(),
             ) {
                 Ok(true) => {
@@ -440,6 +441,7 @@ impl PartialWitnessActor {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessForwardMessage");
 
         let signer = self.my_validator_signer()?;
+        let validator_account_id = signer.validator_id().clone();
         let partial_witness_tracker = self.partial_witness_tracker.clone();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime.clone();
@@ -450,7 +452,7 @@ impl PartialWitnessActor {
                 match validate_partial_encoded_state_witness(
                     epoch_manager.as_ref(),
                     &partial_witness,
-                    &signer,
+                    &validator_account_id,
                     runtime_adapter.store(),
                 ) {
                     Ok(true) => {
