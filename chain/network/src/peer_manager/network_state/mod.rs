@@ -727,7 +727,7 @@ impl NetworkState {
             let my_peer_id = self.config.node_id();
             let msg = self.sign_message(
                 &clock,
-                RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body: msg },
+                RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id), body: msg },
             );
             arbiter.spawn(async move {
                 let hash = msg.hash();
