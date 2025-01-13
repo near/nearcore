@@ -5006,7 +5006,7 @@ well):</p>
 $ cargo build --release -p bytehound-preload
 $ cargo build --release -p bytehound-cli
 </code></pre>
-<p>You will also need a build of your <code>neard</code>, once you have that, give it some ambient cabapilities
+<p>You will also need a build of your <code>neard</code>, once you have that, give it some ambient capabilities
 necessary for profiling:</p>
 <pre><code class="language-command">$ sudo sysctl kernel.perf_event_paranoid=0
 $ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/neard
@@ -5097,7 +5097,7 @@ neard view-state apply-range --shard-id 0 --storage flat benchmark
 <p><code>neard</code> is instrumented in a few different ways. From the code perspective we have two major ways
 of instrumenting code:</p>
 <ul>
-<li>Prometheus metrics – by computing various metrics in code and expoding them via the <code>prometheus</code>
+<li>Prometheus metrics – by computing various metrics in code and exposing them via the <code>prometheus</code>
 crate.</li>
 <li>Execution tracing – this shows up in the code as invocations of functionality provided by the
 <code>tracing</code> crate.</li>

@@ -234,7 +234,7 @@ well):</p>
 $ cargo build --release -p bytehound-preload
 $ cargo build --release -p bytehound-cli
 </code></pre>
-<p>You will also need a build of your <code>neard</code>, once you have that, give it some ambient cabapilities
+<p>You will also need a build of your <code>neard</code>, once you have that, give it some ambient capabilities
 necessary for profiling:</p>
 <pre><code class="language-command">$ sudo sysctl kernel.perf_event_paranoid=0
 $ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/neard
