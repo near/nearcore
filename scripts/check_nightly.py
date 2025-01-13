@@ -33,7 +33,7 @@ import nayduck
 
 IGNORED_SUBDIRS = ('target', 'target_expensive', 'sandbox')
 
-EXPENSIVE_DIRECTIVE = 'ultra_slow_test_'
+EXPENSIVE_DIRECTIVE = 'expensive_tests'
 TEST_DIRECTIVE = '#[test]'
 
 
