@@ -476,7 +476,8 @@ impl Trie {
                 new_root: *state_root,
                 insertions,
                 deletions,
-                mem_trie_changes: None,
+                memtrie_changes: None,
+                children_memtrie_changes: Default::default(),
             },
             flat_state_delta,
             contract_codes,
@@ -643,7 +644,8 @@ mod tests {
                 new_root: *state_root,
                 insertions,
                 deletions: vec![],
-                mem_trie_changes: None,
+                memtrie_changes: None,
+                children_memtrie_changes: Default::default(),
             })
         }
 
@@ -900,7 +902,8 @@ mod tests {
             new_root,
             insertions,
             deletions,
-            mem_trie_changes: None,
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
         }
     }
 

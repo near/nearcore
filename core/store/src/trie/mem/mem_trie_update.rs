@@ -448,7 +448,8 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
                 .unwrap_or_default(),
             insertions,
             deletions,
-            mem_trie_changes: Some(mem_trie_changes),
+            memtrie_changes: Some(mem_trie_changes),
+            children_memtrie_changes: Default::default(),
         }
     }
 
@@ -610,7 +611,7 @@ mod tests {
             let disk_changes = self.make_disk_changes_only(changes.clone());
             let mut all_changes = self.make_all_changes(changes.clone());
 
-            let mem_trie_changes_from_all_changes = all_changes.mem_trie_changes.take().unwrap();
+            let mem_trie_changes_from_all_changes = all_changes.memtrie_changes.take().unwrap();
             assert_eq!(memtrie_changes, mem_trie_changes_from_all_changes);
             assert_eq!(disk_changes, all_changes);
 

@@ -185,11 +185,7 @@ impl ReshardingManager {
             ?block_hash, block_height, ?parent_shard_uid)
         .entered();
 
-        // TODO(resharding): what if node doesn't have memtrie? just pause
-        // processing?
-        // TODO(resharding): fork handling. if epoch is finalized on different
-        // blocks, the second finalization will crash.
-        tries.freeze_mem_tries(parent_shard_uid, split_shard_event.children_shards())?;
+        tries.freeze_parent_memtrie(parent_shard_uid, split_shard_event.children_shards())?;
 
         let parent_chunk_extra = self.get_chunk_extra(block_hash, &parent_shard_uid)?;
         let boundary_account = split_shard_event.boundary_account;
@@ -221,8 +217,8 @@ impl ReshardingManager {
             let mem_trie_update = mem_tries.update(*parent_chunk_extra.state_root(), mode)?;
 
             let trie_changes = mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
-            let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
-            let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
+            let memtrie_changes = trie_changes.memtrie_changes.as_ref().unwrap();
+            let new_state_root = mem_tries.apply_memtrie_changes(block_height, memtrie_changes);
             drop(mem_tries);
 
             // Get the congestion info for the child.
