@@ -415,6 +415,7 @@ impl PartialWitnessActor {
                     ));
                 }
                 Ok(false) => {
+                    // TODO: ban sending peer
                     tracing::warn!(
                         target: "client",
                         "Received invalid partial encoded state witness"
@@ -461,6 +462,7 @@ impl PartialWitnessActor {
                         }
                     }
                     Ok(false) => {
+                        // TODO: ban sending peer
                         tracing::warn!(
                             target: "client",
                             "Received invalid partial encoded state witness"
