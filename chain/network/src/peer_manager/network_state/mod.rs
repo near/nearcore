@@ -724,12 +724,21 @@ impl NetworkState {
             let this = self.clone();
             let clock = clock.clone();
             let peer_id = self.config.node_id();
+            let my_peer_id = self.config.node_id();
             let msg = self.sign_message(
                 &clock,
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body: msg },
             );
             arbiter.spawn(async move {
-                this.receive_routed_message(&clock, peer_id, msg.hash(), msg.msg.body).await;
+                let hash = msg.hash();
+                this.receive_routed_message(
+                    &clock,
+                    msg.msg.author.clone(),
+                    my_peer_id,
+                    hash,
+                    msg.msg.body,
+                )
+                .await;
             });
             return true;
         }
