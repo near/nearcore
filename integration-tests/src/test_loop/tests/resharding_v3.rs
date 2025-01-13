@@ -21,8 +21,9 @@ use crate::test_loop::utils::receipts::{
 #[cfg(feature = "test_features")]
 use crate::test_loop::utils::resharding::fork_before_resharding_block;
 use crate::test_loop::utils::resharding::{
-    call_burn_gas_contract, call_promise_yield, execute_money_transfers,
-    temporary_account_during_resharding,
+    call_burn_gas_contract, call_promise_yield, check_state_cleanup_after_resharding,
+    execute_money_transfers, execute_storage_operations, temporary_account_during_resharding,
+    TrackedShardSchedule,
 };
 use crate::test_loop::utils::sharding::print_and_assert_shard_accounts;
 use crate::test_loop::utils::transactions::{
@@ -44,6 +45,18 @@ const DEFAULT_EPOCH_LENGTH: u64 = 6;
 /// That would result in chunk producer rejecting a transaction
 /// and later we would hit the `DBNotFoundErr("Transaction ...)` error in tests.
 const INCREASED_EPOCH_LENGTH: u64 = 8;
+
+/// Garbage collection window length.
+const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
+
+/// Maximum number of epochs under which the test should finish.
+const TESTLOOP_NUM_EPOCHS_TO_WAIT: u64 = 8;
+
+/// Default shard layout version used in resharding tests.
+const DEFAULT_SHARD_LAYOUT_VERSION: u64 = 2;
+
+/// Account used in resharding tests as a split boundary.
+const NEW_BOUNDARY_ACCOUNT: &str = "account6";
 
 #[derive(derive_builder::Builder)]
 #[builder(pattern = "owned", build_fn(skip))]
@@ -84,7 +97,13 @@ struct TestReshardingParameters {
     chunk_ranges_to_drop: HashMap<ShardIndex, std::ops::Range<i64>>,
     shuffle_shard_assignment_for_chunk_producers: bool,
     track_all_shards: bool,
-    load_mem_tries_for_tracked_shards: bool,
+    // Manually specify what shards will be tracked for a given client ID.
+    // The client ID must not be used for any other role (validator, RPC, etc.).
+    // The schedule length must be more than `TESTLOOP_NUM_EPOCHS_TO_WAIT` so that it covers all epoch heights used in the test.
+    // The suffix must consist of `GC_NUM_EPOCHS_TO_KEEP` repetitions of the same shard,
+    // so that we can assert at the end of the test that the state of all other shards have been cleaned up.
+    tracked_shard_schedule: Option<TrackedShardSchedule>,
+    load_memtries_for_tracked_shards: bool,
     /// Custom behavior executed at every iteration of test loop.
     #[builder(setter(custom))]
     loop_actions: Vec<LoopAction>,
@@ -115,7 +134,10 @@ struct TestReshardingParameters {
 
 impl TestReshardingParametersBuilder {
     fn build(self) -> TestReshardingParameters {
+        // Give enough time for GC to kick in after resharding.
+        assert!(GC_NUM_EPOCHS_TO_KEEP + 3 < TESTLOOP_NUM_EPOCHS_TO_WAIT);
         let epoch_length = self.epoch_length.unwrap_or(DEFAULT_EPOCH_LENGTH);
+        let tracked_shard_schedule = self.tracked_shard_schedule.unwrap_or(None);
 
         let num_accounts = self.num_accounts.unwrap_or(8);
         let num_clients = self.num_clients.unwrap_or(7);
@@ -123,8 +145,12 @@ impl TestReshardingParametersBuilder {
         let num_validators = self.num_validators.unwrap_or(2);
         let num_rpcs = self.num_rpcs.unwrap_or(1);
         let num_archivals = self.num_archivals.unwrap_or(1);
+        let num_extra_nodes = if tracked_shard_schedule.is_some() { 1 } else { 0 };
 
-        assert!(num_clients >= num_producers + num_validators + num_rpcs + num_archivals);
+        assert!(
+            num_clients
+                >= num_producers + num_validators + num_rpcs + num_archivals + num_extra_nodes
+        );
 
         // #12195 prevents number of BPs bigger than `epoch_length`.
         assert!(num_producers > 0 && num_producers <= epoch_length);
@@ -157,8 +183,22 @@ impl TestReshardingParametersBuilder {
         let validators = validators.to_vec();
         let (rpcs, tmp) = tmp.split_at(num_rpcs as usize);
         let rpcs = rpcs.to_vec();
-        let (archivals, _) = tmp.split_at(num_archivals as usize);
+        let (archivals, clients_without_role) = tmp.split_at(num_archivals as usize);
         let archivals = archivals.to_vec();
+
+        if let Some(tracked_shard_schedule) = &tracked_shard_schedule {
+            assert!(clients_without_role.contains(&clients[tracked_shard_schedule.client_index]));
+            let schedule_length = tracked_shard_schedule.schedule.len();
+            assert!(schedule_length > TESTLOOP_NUM_EPOCHS_TO_WAIT as usize);
+            for i in
+                (TESTLOOP_NUM_EPOCHS_TO_WAIT - GC_NUM_EPOCHS_TO_KEEP - 1) as usize..schedule_length
+            {
+                assert_eq!(
+                    tracked_shard_schedule.schedule[i - 1],
+                    tracked_shard_schedule.schedule[i]
+                );
+            }
+        }
 
         let client_index =
             if rpcs.is_empty() { 0 } else { num_producers + num_validators } as usize;
@@ -167,10 +207,12 @@ impl TestReshardingParametersBuilder {
         println!("Clients setup:");
         println!("Producers: {producers:?}");
         println!("Validators: {validators:?}");
-        println!("Rpcs: {rpcs:?}, to serve requests we use client: {client_id}");
+        println!("Rpcs: {rpcs:?}");
         println!("Archivals: {archivals:?}");
+        println!("To serve requests, we use client: {client_id}");
+        println!("Num extra nodes: {num_extra_nodes}");
 
-        let new_boundary_account: AccountId = "account6".parse().unwrap();
+        let new_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
         let temporary_account_id: AccountId =
             format!("{}.{}", new_boundary_account, new_boundary_account).parse().unwrap();
         let mut loop_actions = self.loop_actions.unwrap_or_default();
@@ -186,7 +228,9 @@ impl TestReshardingParametersBuilder {
         }
 
         TestReshardingParameters {
-            base_shard_layout_version: self.base_shard_layout_version.unwrap_or(2),
+            base_shard_layout_version: self
+                .base_shard_layout_version
+                .unwrap_or(DEFAULT_SHARD_LAYOUT_VERSION),
             num_accounts,
             num_clients,
             num_producers,
@@ -208,16 +252,15 @@ impl TestReshardingParametersBuilder {
                 .shuffle_shard_assignment_for_chunk_producers
                 .unwrap_or(false),
             track_all_shards: self.track_all_shards.unwrap_or(false),
-            load_mem_tries_for_tracked_shards: self
-                .load_mem_tries_for_tracked_shards
-                .unwrap_or(true),
+            tracked_shard_schedule,
+            load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards.unwrap_or(true),
             loop_actions,
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
-            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(false),
+            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(true),
             disable_temporary_account_test,
             temporary_account_id,
         }
@@ -266,12 +309,20 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     init_test_logger();
     let mut builder = TestLoopBuilder::new();
+    let tracked_shard_schedule = params.tracked_shard_schedule.clone();
 
-    // Adjust the resharding configuration to make the tests faster.
-    builder = builder.config_modifier(|config, _| {
+    builder = builder.config_modifier(move |config, client_index| {
+        // Adjust the resharding configuration to make the tests faster.
         let mut resharding_config = config.resharding_config.get();
         resharding_config.batch_delay = Duration::milliseconds(1);
         config.resharding_config.update(resharding_config);
+        // Set the tracked shard schedule if specified for the client at the given index.
+        if let Some(tracked_shard_schedule) = &tracked_shard_schedule {
+            if client_index == tracked_shard_schedule.client_index {
+                config.tracked_shards = vec![];
+                config.tracked_shard_schedule = tracked_shard_schedule.schedule.clone();
+            }
+        }
     });
 
     // Prepare shard split configuration.
@@ -351,11 +402,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .epoch_config_store(epoch_config_store)
         .clients(params.clients)
         .archival_clients(params.archivals.iter().cloned().collect())
-        .load_mem_tries_for_tracked_shards(params.load_mem_tries_for_tracked_shards)
+        .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
         .drop_protocol_upgrade_chunks(
             base_protocol_version + 1,
             params.chunk_ranges_to_drop.clone(),
         )
+        .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build();
 
     let mut test_setup_transactions = vec![];
@@ -402,14 +454,11 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let clients =
         client_handles.iter().map(|handle| &env.test_loop.data.get(handle).client).collect_vec();
     let mut trie_sanity_check =
-        TrieSanityCheck::new(&clients, params.load_mem_tries_for_tracked_shards);
-    let gc_num_epochs_to_keep = clients[client_index].config.gc.gc_num_epochs_to_keep;
+        TrieSanityCheck::new(&clients, params.load_memtries_for_tracked_shards);
 
     let latest_block_height = Cell::new(0u64);
-    // Height of a block after resharding.
-    let new_layout_block_height = Cell::new(None);
-    // Height of an epoch after resharding.
-    let new_layout_epoch_height = Cell::new(None);
+    let resharding_block_hash = Cell::new(None);
+    let epoch_height_after_resharding = Cell::new(None);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
         params
             .loop_actions
@@ -430,9 +479,20 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         }
         latest_block_height.set(tip.height);
 
-        // Check that all chunks are included.
         let client = clients[client_index];
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+
+        println!(
+            "new block #{} shards: {:?} chunk mask {:?} block hash {} epoch id {:?}",
+            tip.height,
+            shard_layout.shard_ids().collect_vec(),
+            block_header.chunk_mask().to_vec(),
+            tip.last_block_hash,
+            tip.epoch_id.0,
+        );
+
+        // Check that all chunks are included.
         if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
             assert!(block_header.chunk_mask().iter().all(|chunk_bit| *chunk_bit));
         }
@@ -442,32 +502,32 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
 
-        // Return false if we have not yet passed an epoch with increased number of shards.
-        if new_layout_epoch_height.get().is_none() {
-            assert!(epoch_height < 6);
-            let prev_epoch_id = client
-                .epoch_manager
-                .get_prev_epoch_id_from_prev_block(&tip.prev_block_hash)
-                .unwrap();
-            let epoch_config = client.epoch_manager.get_epoch_config(&prev_epoch_id).unwrap();
-            if epoch_config.shard_layout.num_shards() != expected_num_shards {
+        // Return false if we have not resharded yet.
+        if epoch_height_after_resharding.get().is_none() {
+            assert!(epoch_height < 5);
+            if shard_layout.num_shards() != expected_num_shards {
                 return false;
             }
-            // Just passed an epoch with increased number of shards.
-            new_layout_block_height.set(Some(latest_block_height.get()));
-            new_layout_epoch_height.set(Some(epoch_height));
+            // Just resharded.
+            resharding_block_hash.set(Some(tip.prev_block_hash));
+            epoch_height_after_resharding.set(Some(epoch_height));
+            // Assert that we will have a chance for gc to kick in before the test is over.
+            assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < TESTLOOP_NUM_EPOCHS_TO_WAIT);
             println!("State after resharding:");
             print_and_assert_shard_accounts(&clients, &tip);
         }
 
-        check_state_shard_uid_mapping_after_resharding(
-            &client,
-            parent_shard_uid,
-            params.allow_negative_refcount,
-        );
+        for client in clients {
+            check_state_shard_uid_mapping_after_resharding(
+                client,
+                &resharding_block_hash.get().unwrap(),
+                parent_shard_uid,
+                params.allow_negative_refcount,
+            );
+        }
 
         // Return false if garbage collection window has not passed yet since resharding.
-        if epoch_height <= new_layout_epoch_height.get().unwrap() + gc_num_epochs_to_keep {
+        if epoch_height <= TESTLOOP_NUM_EPOCHS_TO_WAIT {
             return false;
         }
         for loop_action in &params.loop_actions {
@@ -478,8 +538,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     env.test_loop.run_until(
         success_condition,
-        // Give enough time to produce ~7 epochs.
-        Duration::seconds((7 * params.epoch_length) as i64),
+        // Give enough time to produce TESTLOOP_NUM_EPOCHS_TO_WAIT epochs.
+        Duration::seconds((TESTLOOP_NUM_EPOCHS_TO_WAIT * params.epoch_length) as i64),
     );
     let client = &env.test_loop.data.get(&client_handles[client_index]).client;
     trie_sanity_check.check_epochs(client);
@@ -490,6 +550,110 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 #[test]
 fn test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
+}
+
+// Takes a sequence of shard ids to track in consecutive epochs,
+// repeats the last element `TESTLOOP_NUM_EPOCHS_TO_WAIT` times,
+// and maps each element: |id| -> vec![id], to the format required by `TrackedShardSchedule`.
+fn shard_sequence_to_schedule(mut shard_sequence: Vec<ShardId>) -> Vec<Vec<ShardId>> {
+    shard_sequence.extend(
+        std::iter::repeat(*shard_sequence.last().unwrap())
+            .take(TESTLOOP_NUM_EPOCHS_TO_WAIT as usize),
+    );
+    shard_sequence.iter().map(|shard_id| vec![*shard_id]).collect()
+}
+
+#[test]
+// TODO(resharding): fix nearcore and un-ignore this test
+#[ignore]
+fn test_resharding_v3_state_cleanup() {
+    // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
+    // Eventually, the State column should only contain entries belonging to the last tracked shard.
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let child_shard_id = new_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, child_shard_id, unrelated_shard_id];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(num_clients)
+            .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
+            .add_loop_action(check_state_cleanup_after_resharding(tracked_shard_schedule))
+            .build(),
+    );
+}
+
+#[test]
+fn test_resharding_v3_do_not_track_children_after_resharding() {
+    // Track parent shard before resharding, but do not track any child shard after resharding.
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, unrelated_shard_id, unrelated_shard_id];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(num_clients)
+            .tracked_shard_schedule(Some(tracked_shard_schedule))
+            .build(),
+    );
+}
+
+#[test]
+// TODO(resharding): Increase `TESTLOOP_NUM_EPOCHS_TO_WAIT` to 10, fix nearcore, and un-ignore this test
+#[ignore]
+fn test_resharding_v3_stop_track_child_for_2_epochs() {
+    // Track parent shard before resharding, and a child shard after resharding.
+    // Then do not track the child for 2 epochs and start tracking it again.
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let child_shard_id = new_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence = vec![
+        parent_shard_id,
+        parent_shard_id,
+        child_shard_id,
+        unrelated_shard_id,
+        unrelated_shard_id,
+        child_shard_id,
+    ];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(num_clients)
+            .tracked_shard_schedule(Some(tracked_shard_schedule))
+            .build(),
+    );
 }
 
 #[test]
@@ -564,7 +728,9 @@ fn test_resharding_v3_resharding_block_in_fork() {
 #[test]
 // TODO(resharding): fix nearcore and un-ignore this test
 // TODO(resharding): duplicate this test so that in one case resharding is performed on block
-//                   B(height=13) and in another case resharding is performed on block B'(height=13)
+//                   B(height=13) and in another case resharding is performed on block B'(height=13).
+//                   In the current scenario the real resharding happens on block B'. Low priority TODO
+//                   since it's a very rare corner case.
 #[ignore]
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_double_sign_resharding_block() {
@@ -588,6 +754,38 @@ fn test_resharding_v3_shard_shuffling() {
     test_resharding_v3_base(params);
 }
 
+/// This tests an edge case where we track the parent in the pre-resharding epoch, then we
+/// track an unrelated shard in the first epoch after resharding, then we track a child of the resharding
+/// in the next epoch after that. In that case we don't want to state sync because we can just perform
+/// the resharding and continue applying chunks for the child in the first epoch post-resharding.
+#[test]
+fn test_resharding_v3_shard_shuffling_untrack_then_track() {
+    let account_in_stable_shard: AccountId = "account0".parse().unwrap();
+    let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let new_shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, split_boundary_account.clone());
+    let parent_shard_id = base_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let child_shard_id = new_shard_layout.account_id_to_shard_id(&split_boundary_account);
+    let unrelated_shard_id = new_shard_layout.account_id_to_shard_id(&account_in_stable_shard);
+
+    let tracked_shard_sequence =
+        vec![parent_shard_id, parent_shard_id, unrelated_shard_id, child_shard_id];
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: shard_sequence_to_schedule(tracked_shard_sequence),
+    };
+    let params = TestReshardingParametersBuilder::default()
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .num_clients(num_clients)
+        .tracked_shard_schedule(Some(tracked_shard_schedule))
+        // TODO(resharding): uncomment after fixing test_resharding_v3_state_cleanup()
+        //.add_loop_action(check_state_cleanup_after_resharding(tracked_shard_schedule))
+        .build();
+    test_resharding_v3_base(params);
+}
+
 #[test]
 fn test_resharding_v3_shard_shuffling_intense() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
@@ -599,6 +797,24 @@ fn test_resharding_v3_shard_shuffling_intense() {
         .add_loop_action(execute_money_transfers(
             TestReshardingParametersBuilder::compute_initial_accounts(8),
         ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+/// Executes storage operations at every block height.
+/// In particular, checks that storage gas costs are computed correctly during
+/// resharding. Caught a bug with invalid storage costs computed during flat
+/// storage resharding.
+#[test]
+fn test_resharding_v3_storage_operations() {
+    let sender_account: AccountId = "account1".parse().unwrap();
+    let account_in_parent: AccountId = "account4".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_contract(account_in_parent.clone())
+        .add_loop_action(execute_storage_operations(sender_account, account_in_parent))
+        .all_chunks_expected(true)
+        .delay_flat_state_resharding(2)
+        .epoch_length(13)
         .build();
     test_resharding_v3_base(params);
 }
@@ -766,23 +982,19 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 }
 
 #[test]
-fn test_resharding_v3_load_mem_trie_v1() {
+fn test_resharding_v3_load_memtrie_v1() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(1)
-        .load_mem_tries_for_tracked_shards(false)
-        // TODO(resharding): should it work without tracking all shards?
-        .track_all_shards(true)
+        .load_memtries_for_tracked_shards(false)
         .build();
     test_resharding_v3_base(params);
 }
 
 #[test]
-fn test_resharding_v3_load_mem_trie_v2() {
+fn test_resharding_v3_load_memtrie_v2() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(2)
-        .load_mem_tries_for_tracked_shards(false)
-        // TODO(resharding): should it work without tracking all shards?
-        .track_all_shards(true)
+        .load_memtries_for_tracked_shards(false)
         .build();
     test_resharding_v3_base(params);
 }
@@ -833,8 +1045,6 @@ fn test_resharding_v3_yield_resume() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        // TODO(resharding): test should work without changes to track_all_shards
-        .track_all_shards(true)
         .build();
     test_resharding_v3_base(params);
 }

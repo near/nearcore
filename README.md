@@ -70,7 +70,7 @@ You can join all the active networks:
 
 Check the `nearup` repository for [more details](https://github.com/near/nearup) on how to run with or without docker.
 
-To learn how to become validator, checkout [documentation](https://docs.near.org/docs/develop/node/validator/staking-and-delegation).
+To learn how to become a validator, checkout [documentation](https://docs.near.org/docs/develop/node/validator/staking-and-delegation).
 
 ## Contributing
 

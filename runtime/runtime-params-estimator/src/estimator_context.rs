@@ -98,7 +98,7 @@ impl<'c> EstimatorContext<'c> {
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
         if self.config.memtrie {
-            trie_config.load_mem_tries_for_shards = vec![shard_uid];
+            trie_config.load_memtries_for_shards = vec![shard_uid];
         }
         let tries = ShardTries::new(
             store.trie_store(),
@@ -111,7 +111,7 @@ impl<'c> EstimatorContext<'c> {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
             // instead of  letting the loader code to locate it from the ChunkExtra (which is missing from the store).
             tries
-                .load_mem_trie(&shard_uid, Some(root), true)
+                .load_memtrie(&shard_uid, Some(root), true)
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
