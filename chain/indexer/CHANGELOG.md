@@ -10,7 +10,7 @@
 
 ## 1.32.x
 
-* Add `nightly` feature to NEAR Indexer Framework to respect this feature for `nearcore` lib (requried for `betanet`)
+* Add `nightly` feature to NEAR Indexer Framework to respect this feature for `nearcore` lib (required for `betanet`)
 
 ## 1.26.0
 
