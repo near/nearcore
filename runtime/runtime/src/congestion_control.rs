@@ -213,11 +213,14 @@ impl ReceiptSink {
     pub(crate) fn generate_bandwidth_requests(
         &self,
         trie: &dyn TrieAccess,
+        shard_layout: &ShardLayout,
         side_effects: bool,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
         match self {
             ReceiptSink::V1(_) => Ok(None),
-            ReceiptSink::V2(inner) => inner.generate_bandwidth_requests(trie, side_effects),
+            ReceiptSink::V2(inner) => {
+                inner.generate_bandwidth_requests(trie, shard_layout, side_effects)
+            }
         }
     }
 }
@@ -504,6 +507,7 @@ impl ReceiptSinkV2 {
     fn generate_bandwidth_requests(
         &self,
         trie: &dyn TrieAccess,
+        shard_layout: &ShardLayout,
         side_effects: bool,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
         if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
@@ -518,9 +522,13 @@ impl ReceiptSinkV2 {
 
         let mut requests = Vec::new();
         for shard_id in self.outgoing_buffers.shards() {
-            if let Some(request) =
-                self.generate_bandwidth_request(shard_id, trie, side_effects, &params)?
-            {
+            if let Some(request) = self.generate_bandwidth_request(
+                shard_id,
+                trie,
+                shard_layout,
+                side_effects,
+                &params,
+            )? {
                 requests.push(request);
             }
         }
@@ -532,6 +540,7 @@ impl ReceiptSinkV2 {
         &self,
         to_shard: ShardId,
         trie: &dyn TrieAccess,
+        shard_layout: &ShardLayout,
         side_effects: bool,
         params: &BandwidthSchedulerParams,
     ) -> Result<Option<BandwidthRequest>, StorageError> {
@@ -564,7 +573,25 @@ impl ReceiptSinkV2 {
         }
 
         // Metadata is fully initialized, make a proper bandwidth request using it.
-        let receipt_sizes_iter = metadata.iter_receipt_group_sizes(trie, side_effects);
+        let mut receipt_sizes_iter: Box<dyn Iterator<Item = Result<u64, StorageError>>> =
+            Box::new(metadata.iter_receipt_group_sizes(trie, side_effects));
+
+        // When making a bandwidth request to a child shard which has been split from a parent
+        // shard, we have to include the receipts stored in the outgoing buffer to the parent shard
+        // in the bandwidth request for sending receipts to the child shard. Forwarding receipts
+        // from the buffer to parent uses bandwidth granted for sending receipts to one of the
+        // children. Not including the parent receipts in the bandwidth request could lead to a
+        // situation where a receipt can't be sent because the grant for sending receipts to a child
+        // is too small to send out a receipt from a buffer aimed at a parent.
+        if let Ok(parent_shard_id) = shard_layout.get_parent_shard_id(to_shard) {
+            if let Some(parent_metadata) =
+                self.outgoing_metadatas.get_metadata_for_shard(&parent_shard_id)
+            {
+                let parent_receipt_sizes_iter =
+                    parent_metadata.iter_receipt_group_sizes(trie, side_effects);
+                receipt_sizes_iter = Box::new(receipt_sizes_iter.chain(parent_receipt_sizes_iter));
+            }
+        }
 
         // There's a bug which allows to create receipts above `max_receipt_size` (https://github.com/near/nearcore/issues/12606).
         // This could cause problems with bandwidth scheduler which would generate requests for size above max size, and these
