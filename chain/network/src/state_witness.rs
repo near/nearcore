@@ -1,5 +1,6 @@
 use near_async::messaging::Sender;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
+use near_crypto::Signature;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, ContractCodeResponse, PartialEncodedContractDeploys,
 };
@@ -12,7 +13,7 @@ pub struct ChunkStateWitnessAckMessage(pub ChunkStateWitnessAck);
 
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct PartialEncodedStateWitnessMessage(pub PartialEncodedStateWitness);
+pub struct PartialEncodedStateWitnessMessage(pub PartialEncodedStateWitness, pub Option<Signature>);
 
 #[derive(actix::Message, Clone, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]

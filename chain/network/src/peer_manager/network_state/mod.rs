@@ -39,6 +39,7 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use near_async::messaging::{CanSend, SendAsync, Sender};
 use near_async::time;
+use near_crypto::Signature;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
@@ -636,6 +637,107 @@ impl NetworkState {
                     my_peer_id,
                     hash,
                     msg.msg.body,
+                    None,
+                )
+                .await;
+            });
+            return true;
+        }
+
+        let accounts_data = self.accounts_data.load();
+        if tcp::Tier::T1.is_allowed_routed(&msg) {
+            for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
+            {
+                let data = match accounts_data.data.get(key) {
+                    Some(data) => data,
+                    None => continue,
+                };
+                let conn = match self.get_tier1_proxy(data) {
+                    Some(conn) => conn,
+                    None => continue,
+                };
+                // TODO(gprusak): in case of PartialEncodedChunk, consider stripping everything
+                // but the header. This will bound the message size
+                conn.send_message(Arc::new(PeerMessage::Routed(self.sign_message(
+                    clock,
+                    RawRoutedMessage {
+                        target: PeerIdOrHash::PeerId(data.peer_id.clone()),
+                        body: msg,
+                    },
+                ))));
+                return true;
+            }
+        }
+
+        let peer_id_from_account_data = accounts_data
+            .keys_by_id
+            .get(account_id)
+            .iter()
+            .flat_map(|keys| keys.iter())
+            .flat_map(|key| accounts_data.data.get(key))
+            .next()
+            .map(|data| data.peer_id.clone());
+        // Find the target peer_id:
+        // - first look it up in self.accounts_data
+        // - if missing, fall back to lookup in self.graph.routing_table
+        // We want to deprecate self.graph.routing_table.account_owner in the next release.
+        let target = if let Some(peer_id) = peer_id_from_account_data {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AccountData"]).inc();
+            peer_id
+        } else if let Some(peer_id) = self.account_announcements.get_account_owner(account_id) {
+            metrics::ACCOUNT_TO_PEER_LOOKUPS.with_label_values(&["AnnounceAccount"]).inc();
+            peer_id
+        } else {
+            // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
+            metrics::MessageDropped::UnknownAccount.inc(&msg);
+            tracing::debug!(target: "network",
+                   account_id = ?self.config.validator.account_id(),
+                   to = ?account_id,
+                   ?msg,"Drop message: unknown account",
+            );
+            tracing::trace!(target: "network", known_peers = ?self.account_announcements.get_accounts_keys(), "Known peers");
+            return false;
+        };
+
+        let mut success = false;
+        let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
+        let msg = self.sign_message(clock, msg);
+        for _ in 0..msg.body.message_resend_count() {
+            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
+        }
+        success
+    }
+
+    /// Send message to specific account.
+    /// Return whether the message is sent or not.
+    /// The message might be sent over TIER1 or TIER2 connection depending on the message type.
+    pub fn send_signed_message_to_account(
+        self: &Arc<Self>,
+        clock: &time::Clock,
+        account_id: &AccountId,
+        msg: RoutedMessageBody,
+        signature: Signature,
+    ) -> bool {
+        // If the message is allowed to be sent to self, we handle it directly.
+        if self.config.validator.account_id().is_some_and(|id| &id == account_id) {
+            // For now, we don't allow some types of messages to be sent to self.
+            debug_assert!(msg.allow_sending_to_self());
+            let this = self.clone();
+            let clock = clock.clone();
+            let my_peer_id = self.config.node_id();
+            let msg = self.sign_message(
+                &clock,
+                RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
+            );
+            actix::spawn(async move {
+                let hash = msg.hash();
+                this.receive_routed_message(
+                    &clock,
+                    msg.msg.author.clone(),
+                    my_peer_id,
+                    hash,
+                    msg.msg.body,
+                    Some(signature),
                 )
                 .await;
             });
@@ -713,6 +815,7 @@ impl NetworkState {
         prev_hop: PeerId,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
+        signature: Option<Signature>,
     ) -> Option<RoutedMessageBody> {
         match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => self
@@ -774,7 +877,8 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitness(witness) => {
-                self.partial_witness_adapter.send(PartialEncodedStateWitnessMessage(witness));
+                self.partial_witness_adapter
+                    .send(PartialEncodedStateWitnessMessage(witness, signature));
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
