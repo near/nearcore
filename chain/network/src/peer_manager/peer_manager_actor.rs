@@ -1082,15 +1082,29 @@ impl PeerManagerActor {
             NetworkRequests::PartialEncodedStateWitnessForward(
                 chunk_validators,
                 partial_witness,
+                forwarded_signature,
             ) => {
-                for chunk_validator in chunk_validators {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        RoutedMessageBody::PartialEncodedStateWitnessForward(
-                            partial_witness.clone(),
-                        ),
-                    );
+                if let Some(forwarded_signature) = forwarded_signature {
+                    for chunk_validator in chunk_validators {
+                        self.state.send_signed_message_to_account(
+                            &self.clock,
+                            &chunk_validator,
+                            RoutedMessageBody::PartialEncodedStateWitnessForward(
+                                partial_witness.clone(),
+                            ),
+                            forwarded_signature.clone(),
+                        );
+                    }
+                } else {
+                    for chunk_validator in chunk_validators {
+                        self.state.send_message_to_account(
+                            &self.clock,
+                            &chunk_validator,
+                            RoutedMessageBody::PartialEncodedStateWitnessForward(
+                                partial_witness.clone(),
+                            ),
+                        );
+                    }
                 }
                 NetworkResponses::NoResponse
             }

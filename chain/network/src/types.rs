@@ -13,7 +13,7 @@ use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::StateSyncResponse;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::{time, MultiSend, MultiSendMessage, MultiSenderFrom};
-use near_crypto::PublicKey;
+use near_crypto::{PublicKey, Signature};
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
@@ -290,7 +290,11 @@ pub enum NetworkRequests {
     /// Message from chunk producer to set of chunk validators to send state witness part.
     PartialEncodedStateWitness(Vec<(AccountId, PartialEncodedStateWitness)>),
     /// Message from chunk validator to all other chunk validators to forward state witness part.
-    PartialEncodedStateWitnessForward(Vec<AccountId>, PartialEncodedStateWitness),
+    PartialEncodedStateWitnessForward(
+        Vec<AccountId>,
+        PartialEncodedStateWitness,
+        Option<Signature>,
+    ),
     /// Requests an epoch sync
     EpochSyncRequest { peer_id: PeerId },
     /// Response to an epoch sync request

@@ -11,6 +11,7 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::types::RuntimeAdapter;
 use near_chain::Error;
 use near_chain_configs::MutableValidatorSigner;
+use near_crypto::Signature;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -112,7 +113,7 @@ impl Handler<ChunkStateWitnessAckMessage> for PartialWitnessActor {
 
 impl Handler<PartialEncodedStateWitnessMessage> for PartialWitnessActor {
     fn handle(&mut self, msg: PartialEncodedStateWitnessMessage) {
-        if let Err(err) = self.handle_partial_encoded_state_witness(msg.0) {
+        if let Err(err) = self.handle_partial_encoded_state_witness(msg.0, msg.1) {
             tracing::error!(target: "client", ?err, "Failed to handle PartialEncodedStateWitnessMessage");
         }
     }
@@ -372,6 +373,7 @@ impl PartialWitnessActor {
     fn handle_partial_encoded_state_witness(
         &mut self,
         partial_witness: PartialEncodedStateWitness,
+        forwarded_signature: Option<Signature>,
     ) -> Result<(), Error> {
         tracing::debug!(target: "client", ?partial_witness, "Receive PartialEncodedStateWitnessMessage");
         let signer = self.my_validator_signer()?;
@@ -411,6 +413,7 @@ impl PartialWitnessActor {
                         NetworkRequests::PartialEncodedStateWitnessForward(
                             target_chunk_validators,
                             partial_witness,
+                            forwarded_signature,
                         ),
                     ));
                 }

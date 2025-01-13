@@ -357,7 +357,11 @@ fn network_message_to_partial_witness_handler(
             }
             None
         }
-        NetworkRequests::PartialEncodedStateWitnessForward(chunk_validators, partial_witness) => {
+        NetworkRequests::PartialEncodedStateWitnessForward(
+            chunk_validators,
+            partial_witness,
+            _,
+        ) => {
             for target in chunk_validators {
                 shared_state
                     .senders_for_account(&target)
