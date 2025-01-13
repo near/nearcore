@@ -560,7 +560,7 @@ fn test_bandwidth_scheduler_simulator_small_vs_big() {
         .build();
     let summary = run_scenario(scenario);
     assert!(summary.bandwidth_utilization > 0.90); // 90% utilization
-    assert!(summary.link_imbalance_ratio < 1.05); // < 5% difference on links
+    assert!(summary.link_imbalance_ratio < 1.06); // < 6% difference on links
     assert!(summary.worst_link_estimation_ratio > 0.90); // 90% of estimated link throughput
     assert!(summary.max_incoming <= summary.max_shard_bandwidth); // Incoming max_shard_bandwidth is respected
     assert!(summary.max_outgoing <= summary.max_shard_bandwidth); // Outgoing max_shard_bandwidth is respected

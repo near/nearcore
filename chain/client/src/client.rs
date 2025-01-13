@@ -1072,7 +1072,6 @@ impl Client {
                 } else {
                     0
                 };
-            tracing::info!("boom prepare_transactions from client");
             runtime.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext {

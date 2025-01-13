@@ -16,7 +16,7 @@ Main class that has two main functions:
 When 'finalize_epoch' is called, the EpochManager will do all the necessary processing (like computing validator rewards for the current epoch (T), selecting validators for the next next epoch (T+2) etc) and create the new EpochId/EpochInfo.
 
 ### Accessing epoch information
-EpochManager has also a lot of methords that allows you to fetch information from different past and present epochs (like who is the chunk/block producer for a given chunk/block, whether the block is at the end of epoch boundary and requires more signatures etc)
+EpochManager has also a lot of methods that allows you to fetch information from different past and present epochs (like who is the chunk/block producer for a given chunk/block, whether the block is at the end of epoch boundary and requires more signatures etc)
 
 
 ## RewardCalculator
@@ -31,7 +31,7 @@ and the new implementation present in the code - with new code existing in `vali
 
 
 ## Shard assignments
-This code is responsible for assigning validators (and chunk producers) to shards (chunks). This wil be used only once we enable `chunk_only_producers` feature (as before, we're simply assigning all the validators to validate each chunk).
+This code is responsible for assigning validators (and chunk producers) to shards (chunks). This will be used only once we enable `chunk_only_producers` feature (as before, we're simply assigning all the validators to validate each chunk).
 
 
 

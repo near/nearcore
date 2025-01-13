@@ -614,6 +614,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(&(&prev_block.block_hash))?;
@@ -650,15 +651,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads_new_recorder();
+            let proof_size_limit =
+                runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
+            trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
         }
         let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
-
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         let transactions_gas_limit =
             chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
@@ -882,7 +883,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads_new_recorder();
+            let epoch_id =
+                self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let config = self.runtime_config_store.get_config(protocol_version);
+            let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
+            trie = trie.recording_reads_with_proof_size_limit(proof_limit);
         }
 
         match self.process_state_update(

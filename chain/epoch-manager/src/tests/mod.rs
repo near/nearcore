@@ -3833,7 +3833,7 @@ fn test_get_shard_uids_pending_resharding_double_different() {
     assert_eq!(shard_uids, vec![s0, s1].into_iter().collect::<HashSet<_>>());
 }
 
-/// Test that that only one shard is pending resharding during a double
+/// Test that only one shard is pending resharding during a double
 /// resharding where the same shard is reshareded twice.
 #[test]
 fn test_get_shard_uids_pending_resharding_double_same() {
