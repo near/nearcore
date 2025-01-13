@@ -554,10 +554,11 @@ impl ShardTries {
         }
     }
 
-    /// Freezes in-memory trie for parent shard and copies reference to it to
-    /// children shards.
-    /// Needed to serve queries for these shards just after resharding, before
-    /// proper memtries are loaded.
+    /// Freezes in-memory trie for parent shard and copies reference from it to children shards.
+    /// This is needed to serve queries for these shards just after resharding, before proper
+    /// memtries are loaded.
+    /// Note that this function is idempotent. It's possible for us to call this function multiple
+    /// times for the same parent shard in case of fork handling at the resharding boundary.
     pub fn freeze_parent_memtrie(
         &self,
         parent_shard_uid: ShardUId,

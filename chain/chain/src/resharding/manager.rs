@@ -217,8 +217,8 @@ impl ReshardingManager {
             let mem_trie_update = mem_tries.update(*parent_chunk_extra.state_root(), mode)?;
 
             let trie_changes = mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
-            let mem_changes = trie_changes.memtrie_changes.as_ref().unwrap();
-            let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
+            let memtrie_changes = trie_changes.memtrie_changes.as_ref().unwrap();
+            let new_state_root = mem_tries.apply_memtrie_changes(block_height, memtrie_changes);
             drop(mem_tries);
 
             // Get the congestion info for the child.

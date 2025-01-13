@@ -1710,6 +1710,8 @@ impl Trie {
         let mut child_updates = child_guards
             .iter()
             .map(|(shard_uid, memtrie)| {
+                // It's fine to use tracking mode as None here because the recording is handled by
+                // the parent memtrie and doesn't need to be tracked for children.
                 (shard_uid, memtrie.update(self.root, TrackingMode::None).unwrap())
             })
             .collect_vec();
@@ -1718,8 +1720,9 @@ impl Trie {
         for (key, value) in changes {
             match value {
                 Some(arr) => {
-                    // Update all child memtries. This is a rare case where parent shard
-                    // has forks after resharding. It is fine to clone the value here.
+                    // Update all child memtries. This is a rare case where parent shard has forks
+                    // at the resharding epoch boundary.
+                    // It is fine to clone the value here as this is a very rare occurrence.
                     for trie_update in &mut child_updates {
                         trie_update.1.insert(&key, arr.clone())?;
                     }
