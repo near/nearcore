@@ -10,8 +10,8 @@ use near_primitives::{shard_layout::ShardUId, types::StateRoot};
 
 use crate::test_utils::TestTriesBuilder;
 use crate::trie::mem::iter::MemTrieIterator;
-use crate::trie::mem::mem_trie_update::TrackingMode;
-use crate::trie::mem::mem_tries::MemTries;
+use crate::trie::mem::memtrie_update::TrackingMode;
+use crate::trie::mem::memtries::MemTries;
 use crate::trie::mem::nibbles_utils::{
     all_two_nibble_nibbles, hex_to_nibbles, multi_hex_to_nibbles,
 };
@@ -70,7 +70,7 @@ fn setup_tries(initial_entries: Vec<(Vec<u8>, Vec<u8>)>) -> (Trie, MemTries) {
     for (key, value) in initial_entries {
         update.insert(&key, value).unwrap();
     }
-    let memtrie_changes = update.to_mem_trie_changes_only();
+    let memtrie_changes = update.to_memtrie_changes_only();
     let memtrie_state_root = memtries.apply_memtrie_changes(0, &memtrie_changes);
 
     assert_eq!(trie_state_root, memtrie_state_root);
@@ -104,12 +104,12 @@ fn run(initial_entries: Vec<(Vec<u8>, Vec<u8>)>, retain_multi_ranges: Vec<Range<
         retain_split_shard_custom_ranges_for_trie(&trie, &retain_multi_ranges);
 
     // Split memtrie and track proof
-    let mut trie_recorder = TrieRecorder::new();
+    let mut trie_recorder = TrieRecorder::new(None);
     let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
     let mut update = memtries.update(initial_state_root, mode).unwrap();
     retain_split_shard_custom_ranges(&mut update, &retain_multi_ranges);
     let mut trie_changes = update.to_trie_changes();
-    let memtrie_changes = trie_changes.mem_trie_changes.take().unwrap();
+    let memtrie_changes = trie_changes.memtrie_changes.take().unwrap();
     let mem_state_root = memtries.apply_memtrie_changes(1, &memtrie_changes);
     let proof = trie_recorder.recorded_storage();
 

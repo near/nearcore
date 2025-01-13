@@ -34,7 +34,7 @@ impl LoadMemTrieCommand {
         let _subscriber = default_subscriber(env_filter, &Default::default()).global();
         let mut near_config = nearcore::config::load_config(&home, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
-        near_config.config.store.load_mem_tries_for_tracked_shards = true;
+        near_config.config.store.load_memtries_for_tracked_shards = true;
 
         let rocksdb = Arc::new(open_rocksdb(home, near_store::Mode::ReadOnly)?);
         let store = near_store::NodeStorage::new(rocksdb).get_hot_store();
@@ -65,7 +65,7 @@ impl LoadMemTrieCommand {
 
         println!("Loading memtries for shards {:?}...", selected_shard_uids);
         let start_time = std::time::Instant::now();
-        runtime.get_tries().load_mem_tries_for_enabled_shards(
+        runtime.get_tries().load_memtries_for_enabled_shards(
             &selected_shard_uids,
             &[].into(),
             !self.no_parallel,

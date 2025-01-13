@@ -3,7 +3,7 @@
 `neard` is instrumented in a few different ways. From the code perspective we have two major ways
 of instrumenting code:
 
-* Prometheus metrics – by computing various metrics in code and expoding them via the `prometheus`
+* Prometheus metrics – by computing various metrics in code and exposing them via the `prometheus`
   crate.
 * Execution tracing – this shows up in the code as invocations of functionality provided by the
   `tracing` crate.
