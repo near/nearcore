@@ -99,7 +99,7 @@ pub(crate) struct TestLoopBuilder {
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Overrides to test database behavior.
@@ -305,7 +305,7 @@ impl TestLoopBuilder {
             config_modifier: None,
             warmup: true,
             track_all_shards: false,
-            load_mem_tries_for_tracked_shards: true,
+            load_memtries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
             test_store_flags: Default::default(),
         }
@@ -431,8 +431,8 @@ impl TestLoopBuilder {
         self
     }
 
-    pub fn load_mem_tries_for_tracked_shards(mut self, load_mem_tries: bool) -> Self {
-        self.load_mem_tries_for_tracked_shards = load_mem_tries;
+    pub fn load_memtries_for_tracked_shards(mut self, load_memtries: bool) -> Self {
+        self.load_memtries_for_tracked_shards = load_memtries;
         self
     }
 
@@ -570,7 +570,7 @@ impl TestLoopBuilder {
 
         let store_config = StoreConfig {
             path: Some(homedir.clone()),
-            load_mem_tries_for_tracked_shards: self.load_mem_tries_for_tracked_shards,
+            load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             ..Default::default()
         };
 

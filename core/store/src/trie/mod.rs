@@ -19,8 +19,8 @@ use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
 use itertools::Itertools;
-use mem::mem_trie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
-use mem::mem_tries::MemTries;
+use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
+use mem::memtries::MemTries;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -1757,7 +1757,7 @@ impl Trie {
         for (shard_uid, trie_update) in child_updates {
             trie_changes
                 .children_memtrie_changes
-                .insert(**shard_uid, trie_update.to_mem_trie_changes_only());
+                .insert(**shard_uid, trie_update.to_memtrie_changes_only());
         }
 
         Ok(trie_changes)

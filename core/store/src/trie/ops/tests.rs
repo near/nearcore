@@ -10,8 +10,8 @@ use near_primitives::{shard_layout::ShardUId, types::StateRoot};
 
 use crate::test_utils::TestTriesBuilder;
 use crate::trie::mem::iter::MemTrieIterator;
-use crate::trie::mem::mem_trie_update::TrackingMode;
-use crate::trie::mem::mem_tries::MemTries;
+use crate::trie::mem::memtrie_update::TrackingMode;
+use crate::trie::mem::memtries::MemTries;
 use crate::trie::mem::nibbles_utils::{
     all_two_nibble_nibbles, hex_to_nibbles, multi_hex_to_nibbles,
 };
@@ -70,7 +70,7 @@ fn setup_tries(initial_entries: Vec<(Vec<u8>, Vec<u8>)>) -> (Trie, MemTries) {
     for (key, value) in initial_entries {
         update.insert(&key, value).unwrap();
     }
-    let memtrie_changes = update.to_mem_trie_changes_only();
+    let memtrie_changes = update.to_memtrie_changes_only();
     let memtrie_state_root = memtries.apply_memtrie_changes(0, &memtrie_changes);
 
     assert_eq!(trie_state_root, memtrie_state_root);

@@ -34,9 +34,9 @@ pub struct TrieConfig {
     pub kaiching_prefetch_config: Vec<PrefetchConfig>,
 
     /// List of shards we will load into memory.
-    pub load_mem_tries_for_shards: Vec<ShardUId>,
+    pub load_memtries_for_shards: Vec<ShardUId>,
     /// Whether mem-trie should be loaded for each tracked shard.
-    pub load_mem_tries_for_tracked_shards: bool,
+    pub load_memtries_for_tracked_shards: bool,
 }
 
 impl TrieConfig {
@@ -62,8 +62,8 @@ impl TrieConfig {
         }
         this.claim_sweat_prefetch_config.clone_from(&config.claim_sweat_prefetch_config);
         this.kaiching_prefetch_config.clone_from(&config.kaiching_prefetch_config);
-        this.load_mem_tries_for_shards.clone_from(&config.load_mem_tries_for_shards);
-        this.load_mem_tries_for_tracked_shards = config.load_mem_tries_for_tracked_shards;
+        this.load_memtries_for_shards.clone_from(&config.load_memtries_for_shards);
+        this.load_memtries_for_tracked_shards = config.load_memtries_for_tracked_shards;
 
         this
     }

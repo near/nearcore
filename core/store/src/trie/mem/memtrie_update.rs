@@ -17,7 +17,7 @@ use crate::{RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 
 use super::arena::{ArenaMemory, ArenaMut};
 use super::flexible_data::children::ChildrenView;
-use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
+use super::metrics::MEMTRIE_NUM_NODES_CREATED_FROM_UPDATES;
 use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 
 pub type OldOrUpdatedNodeId = GenericNodeOrIndex<MemTrieNodeId>;
@@ -392,8 +392,8 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
     /// Converts the changes to memtrie changes. Also returns the list of new nodes inserted,
     /// in hash and serialized form.
-    fn to_mem_trie_changes_internal(self) -> (MemTrieChanges, Vec<(CryptoHash, Vec<u8>)>) {
-        MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES
+    fn to_memtrie_changes_internal(self) -> (MemTrieChanges, Vec<(CryptoHash, Vec<u8>)>) {
+        MEMTRIE_NUM_NODES_CREATED_FROM_UPDATES
             .with_label_values(&[&self.shard_uid])
             .inc_by(self.updated_nodes.len() as u64);
         let mut ordered_nodes = Vec::new();
@@ -416,9 +416,9 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
     }
 
     /// Converts the updates to memtrie changes only.
-    pub fn to_mem_trie_changes_only(self) -> MemTrieChanges {
-        let (mem_trie_changes, _) = self.to_mem_trie_changes_internal();
-        mem_trie_changes
+    pub fn to_memtrie_changes_only(self) -> MemTrieChanges {
+        let (memtrie_changes, _) = self.to_memtrie_changes_internal();
+        memtrie_changes
     }
 
     /// Converts the updates to trie changes as well as memtrie changes.
@@ -430,7 +430,7 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
             .take()
             .expect("Cannot to_trie_changes for memtrie changes only")
             .finalize();
-        let (mem_trie_changes, hashes_and_serialized) = self.to_mem_trie_changes_internal();
+        let (memtrie_changes, hashes_and_serialized) = self.to_memtrie_changes_internal();
 
         // We've accounted for the dereferenced nodes, as well as value addition/subtractions.
         // The only thing left is to increment refcount for all new nodes.
@@ -441,14 +441,14 @@ impl<'a, M: ArenaMemory> MemTrieUpdate<'a, M> {
 
         TrieChanges {
             old_root,
-            new_root: mem_trie_changes
+            new_root: memtrie_changes
                 .node_ids_with_hashes
                 .last()
                 .map(|(_, hash)| *hash)
                 .unwrap_or_default(),
             insertions,
             deletions,
-            memtrie_changes: Some(mem_trie_changes),
+            memtrie_changes: Some(memtrie_changes),
             children_memtrie_changes: Default::default(),
         }
     }
@@ -527,8 +527,8 @@ mod tests {
     use crate::test_utils::TestTriesBuilder;
     use crate::trie::mem::arena::hybrid::HybridArena;
     use crate::trie::mem::lookup::memtrie_lookup;
-    use crate::trie::mem::mem_trie_update::GenericTrieUpdateInsertDelete;
-    use crate::trie::mem::mem_tries::MemTries;
+    use crate::trie::mem::memtrie_update::GenericTrieUpdateInsertDelete;
+    use crate::trie::mem::memtries::MemTries;
     use crate::trie::MemTrieChanges;
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
     use near_primitives::hash::CryptoHash;
@@ -591,7 +591,7 @@ mod tests {
                     update.generic_delete(0, &key).unwrap();
                 }
             }
-            update.to_mem_trie_changes_only()
+            update.to_memtrie_changes_only()
         }
 
         fn make_disk_changes_only(
@@ -611,8 +611,8 @@ mod tests {
             let disk_changes = self.make_disk_changes_only(changes.clone());
             let mut all_changes = self.make_all_changes(changes.clone());
 
-            let mem_trie_changes_from_all_changes = all_changes.memtrie_changes.take().unwrap();
-            assert_eq!(memtrie_changes, mem_trie_changes_from_all_changes);
+            let memtrie_changes_from_all_changes = all_changes.memtrie_changes.take().unwrap();
+            assert_eq!(memtrie_changes, memtrie_changes_from_all_changes);
             assert_eq!(disk_changes, all_changes);
 
             // Then apply the changes and check consistency of new state roots.
@@ -972,7 +972,7 @@ mod tests {
             }
         }
 
-        let changes = update.to_mem_trie_changes_only();
+        let changes = update.to_memtrie_changes_only();
         memtrie.apply_memtrie_changes(block_height, &changes)
     }
 

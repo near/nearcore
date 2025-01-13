@@ -540,7 +540,7 @@ impl Chain {
         let head_protocol_version = epoch_manager.get_epoch_protocol_version(&tip.epoch_id)?;
         let shard_uids_pending_resharding = epoch_manager
             .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
-        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(
+        runtime_adapter.get_tries().load_memtries_for_enabled_shards(
             &tracked_shards,
             &shard_uids_pending_resharding,
             true,
@@ -2043,7 +2043,7 @@ impl Chain {
 
         if self.epoch_manager.is_next_block_epoch_start(block.header().prev_hash())? {
             // Keep in memory only these tries that we care about this or next epoch.
-            self.runtime_adapter.get_tries().retain_mem_tries(&shards_cares_this_or_next_epoch);
+            self.runtime_adapter.get_tries().retain_memtries(&shards_cares_this_or_next_epoch);
         }
 
         if let Err(err) = self.garbage_collect_state_transition_data(&block) {
