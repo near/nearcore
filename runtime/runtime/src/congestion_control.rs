@@ -809,19 +809,17 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             if trie_update.trie.check_proof_size_limit_exceed() {
                 break;
             }
-            if let Some(receipt) = self.queue.pop_front(trie_update)? {
-                let delayed_gas = receipt_congestion_gas(&receipt, &config)?;
-                let delayed_bytes = receipt_size(&receipt)? as u64;
-                self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
-                self.removed_delayed_bytes =
-                    safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
-
-                // Track gas and bytes for receipt above and return only receipt that belong to the shard.
-                if self.receipt_filter_fn(&receipt) {
-                    return Ok(Some(receipt));
-                }
-            } else {
+            let Some(receipt) = self.queue.pop_front(trie_update)? else {
                 break;
+            };
+            let delayed_gas = receipt_congestion_gas(&receipt, &config)?;
+            let delayed_bytes = receipt_size(&receipt)? as u64;
+            self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
+            self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
+
+            // Track gas and bytes for receipt above and return only receipt that belong to the shard.
+            if self.receipt_filter_fn(&receipt) {
+                return Ok(Some(receipt));
             }
         }
         Ok(None)
