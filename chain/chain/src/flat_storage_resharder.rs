@@ -65,7 +65,7 @@ use std::iter;
 ///     - Children shard catchup can be cancelled and will resume from the point where it left.
 /// - Resilience to chain forks.
 ///     - Resharding events will perform changes on the state only after their resharding block
-///       becomes final.  
+///       becomes final.
 #[derive(Clone)]
 pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
@@ -1390,7 +1390,12 @@ mod tests {
             epoch_manager.clone(),
         );
         let chain_genesis = ChainGenesis::new(&genesis.config);
-        let sender = Arc::new(T::new(ChainStore::new(store, chain_genesis.height, false)));
+        let sender = Arc::new(T::new(ChainStore::new(
+            store,
+            chain_genesis.height,
+            false,
+            chain_genesis.transaction_validity_period,
+        )));
         let chain = Chain::new(
             Clock::real(),
             epoch_manager,
@@ -2452,7 +2457,7 @@ mod tests {
         assert_eq!(sender.memtrie_reload_requests(), vec![left_child_shard, right_child_shard]);
     }
 
-    /// Creates a new account through a state change saved as flat storage deltas.  
+    /// Creates a new account through a state change saved as flat storage deltas.
     fn create_new_account_through_deltas(
         manager: &FlatStorageManager,
         account: AccountId,

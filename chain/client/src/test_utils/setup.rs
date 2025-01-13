@@ -169,7 +169,7 @@ pub fn setup(
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
     let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(store.clone(), chain_genesis.height));
+        spawn_actix_actor(ReshardingActor::new(store.clone(), &chain_genesis));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();

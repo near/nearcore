@@ -1421,7 +1421,7 @@ impl Runtime {
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
@@ -1588,7 +1588,8 @@ impl Runtime {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
-        for signed_transaction in processing_state.transactions {
+
+        for signed_transaction in processing_state.transactions.iter_nonexpired_transactions() {
             let tx_result = self.process_transaction(
                 state_update,
                 apply_state,
@@ -2461,7 +2462,7 @@ struct ApplyProcessingState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: &'a [SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ApplyStats,
 }
@@ -2471,7 +2472,7 @@ impl<'a> ApplyProcessingState<'a> {
         apply_state: &'a ApplyState,
         trie: Trie,
         epoch_info_provider: &'a dyn EpochInfoProvider,
-        transactions: &'a [SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'a>,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
@@ -2527,6 +2528,43 @@ impl<'a> ApplyProcessingState<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SignedValidPeriodTransactions<'a> {
+    transactions: &'a [SignedTransaction],
+    /// List of the transactions that are valid and should be processed by `apply`.
+    ///
+    /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
+    /// the index N in this array corresponds to an element at index N in the transactions list.
+    ///
+    /// Transactions for which a `false` is stored here must be ignored/dropped/skipped.
+    ///
+    /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
+    /// enabled.
+    transaction_validity_check_passed: &'a [bool],
+}
+
+impl<'a> SignedValidPeriodTransactions<'a> {
+    pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
+        assert_eq!(transactions.len(), validity_check_results.len());
+        Self { transactions, transaction_validity_check_passed: validity_check_results }
+    }
+
+    pub fn empty() -> Self {
+        Self::new(&[], &[])
+    }
+
+    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
+        self.transactions
+            .into_iter()
+            .zip(self.transaction_validity_check_passed.into_iter())
+            .filter_map(|(t, v)| v.then_some(t))
+    }
+
+    pub fn len(&self) -> usize {
+        self.transactions.len()
+    }
+}
+
 /// Similar to [ApplyProcessingState], with the difference that this contains extra state used
 /// by receipt processing.
 struct ApplyProcessingReceiptState<'a> {
@@ -2535,7 +2573,7 @@ struct ApplyProcessingReceiptState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: &'a [SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ApplyStats,
     outcomes: Vec<ExecutionOutcomeWithId>,

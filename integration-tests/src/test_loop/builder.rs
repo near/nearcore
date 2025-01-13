@@ -746,7 +746,7 @@ impl TestLoopBuilder {
 
         let gc_actor = GCActor::new(
             runtime_adapter.store().clone(),
-            chain_genesis.height,
+            &chain_genesis,
             runtime_adapter.clone(),
             epoch_manager.clone(),
             client_config.gc.clone(),
@@ -756,7 +756,7 @@ impl TestLoopBuilder {
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
 
         let resharding_actor =
-            ReshardingActor::new(runtime_adapter.store().clone(), chain_genesis.height);
+            ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
 
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
