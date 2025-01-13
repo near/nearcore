@@ -741,6 +741,7 @@ impl TestLoopBuilder {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
         );
 
         let gc_actor = GCActor::new(
