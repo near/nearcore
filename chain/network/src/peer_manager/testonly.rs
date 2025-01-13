@@ -30,13 +30,9 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use futures::FutureExt;
-use near_async::futures::DelayedActionRunner;
-use near_async::futures::FutureSpawner;
 use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::Sender;
-use near_async::test_loop::futures::TestLoopFutureSpawner;
-use near_async::test_loop::pending_events_sender::PendingEventsSender;
 use near_async::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
