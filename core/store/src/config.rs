@@ -83,8 +83,10 @@ pub struct StoreConfig {
     /// List of shard UIDs for which we should load the tries in memory.
     /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
     /// strategy for that.
+    #[serde(rename = "load_mem_tries_for_shards")]
     pub load_memtries_for_shards: Vec<ShardUId>,
     /// If true, load mem trie for each shard being tracked; this has priority over `load_memtries_for_shards`.
+    #[serde(rename = "load_mem_tries_for_tracked_shards")]
     pub load_memtries_for_tracked_shards: bool,
 
     /// Path where to create RocksDB checkpoints during database migrations or
