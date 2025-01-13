@@ -353,7 +353,7 @@ fn network_message_to_partial_witness_handler(
                 shared_state
                     .senders_for_account(&target)
                     .partial_witness_sender
-                    .send(PartialEncodedStateWitnessMessage(partial_witness));
+                    .send(PartialEncodedStateWitnessMessage(partial_witness, None));
             }
             None
         }

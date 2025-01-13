@@ -762,7 +762,7 @@ fn process_peer_manager_message_default(
                     if name == account {
                         connectors[i]
                             .partial_witness_sender
-                            .send(PartialEncodedStateWitnessMessage(partial_witness.clone()));
+                            .send(PartialEncodedStateWitnessMessage(partial_witness.clone(), None));
                     }
                 }
             }
