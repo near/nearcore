@@ -65,7 +65,7 @@ use std::iter;
 ///     - Children shard catchup can be cancelled and will resume from the point where it left.
 /// - Resilience to chain forks.
 ///     - Resharding events will perform changes on the state only after their resharding block
-///       becomes final.  
+///       becomes final.
 #[derive(Clone)]
 pub struct FlatStorageResharder {
     runtime: Arc<dyn RuntimeAdapter>,
@@ -166,6 +166,11 @@ impl FlatStorageResharder {
     }
 
     /// Starts the event of splitting a parent shard flat storage into two children.
+    ///
+    /// This method is resilient to chain forks and concurrent resharding requests. First of all, if
+    /// a resharding event has started, no other split shard events will be accepted. Second, if a
+    /// resharding event is already scheduled, the new event will extend the old one (if they are
+    /// the same type) or replace it.
     fn split_shard(
         &self,
         split_params: ReshardingSplitShardParams,
