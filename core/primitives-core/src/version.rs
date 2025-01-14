@@ -189,7 +189,6 @@ pub enum ProtocolFeature {
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
-    #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
     RelaxedChunkValidation,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
@@ -258,6 +257,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold => 74,
+            ProtocolFeature::RelaxedChunkValidation => 75,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -281,8 +281,6 @@ impl ProtocolFeature {
             // protocol upgrades for those features!
             ProtocolFeature::BandwidthScheduler => 145,
             ProtocolFeature::SimpleNightshadeV4 => 146,
-            #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
-            ProtocolFeature::RelaxedChunkValidation => 147,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.
@@ -295,7 +293,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 75;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;
