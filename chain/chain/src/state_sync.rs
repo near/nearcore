@@ -85,12 +85,12 @@ fn remove_old_epochs(
 
 /// Helper to turn DBNotFoundErr() into None. We might get DBNotFoundErr() in the case of epoch sync
 /// where we save individual headers without having all headers that belong to the epoch.
-fn get_block_header<T: ChainStoreAccess>(
+fn maybe_get_block_header<T: ChainStoreAccess>(
     chain_store: &T,
     block_hash: &CryptoHash,
 ) -> Result<Option<BlockHeader>, Error> {
     match chain_store.get_block_header(block_hash) {
-        Ok(h) => Ok(Some(h)),
+        Ok(block_header) => Ok(Some(block_header)),
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
         Err(Error::DBNotFoundErr(_)) => Ok(None),
@@ -128,11 +128,11 @@ fn on_new_header<T: ChainStoreAccess>(
     let epoch_id = header.epoch_id();
     let last_final_hash = header.last_final_block();
 
-    let Some(mut sync) = get_block_header(chain_store, last_final_hash)? else {
+    let Some(mut sync) = maybe_get_block_header(chain_store, last_final_hash)? else {
         return Ok(());
     };
     loop {
-        let Some(sync_prev) = get_block_header(chain_store, sync.prev_hash())? else {
+        let Some(sync_prev) = maybe_get_block_header(chain_store, sync.prev_hash())? else {
             return Ok(());
         };
         if sync_prev.epoch_id() != epoch_id
@@ -144,7 +144,8 @@ fn on_new_header<T: ChainStoreAccess>(
             return Ok(());
         }
 
-        let Some(sync_prev_prev) = get_block_header(chain_store, sync_prev.prev_hash())? else {
+        let Some(sync_prev_prev) = maybe_get_block_header(chain_store, sync_prev.prev_hash())?
+        else {
             return Ok(());
         };
         let Some(prev_prev_done) =
