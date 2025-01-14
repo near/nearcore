@@ -97,7 +97,12 @@ impl ChainStore {
     // 2. `clear_data()` runs GC process for all blocks from the Tail to GC Stop Height provided by Epoch Manager.
     // 3. `clear_data()` executes separately:
     //    a. Forks Clearing runs for each height from Tail up to GC Stop Height.
-    //    b. Canonical Chain Clearing from (Tail + 1) up to GC Stop Height.
+    //    b. Canonical Chain Clearing (CCC) from (Tail + 1) up to GC Stop Height.
+    //       i) After CCC for the last block of an epoch, we check what shards tracked in the epoch qualify for trie State cleanup.
+    //       ii) A shard qualify for trie State cleanup, if we did not care about it up to the Head,
+    //           and we won't care about it in the next epoch after the Head.
+    //       iii) `gc_state()` handles trie State cleanup, and it uses current tracking config (`shard_tracker` and optional validator ID),
+    //            to determine what shards we care about at the Head or in the next epoch after the Head.
     // 4. Before actual clearing is started, Block Reference Map should be built.
     // 5. `clear_data()` executes every time when block at new height is added.
     // 6. In case of State Sync, State Sync Clearing happens.
@@ -1077,6 +1082,12 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 }
 
+/// Returns shards that we tracked in a past epoch, given hash of a block in the epoch.
+/// The block has to be available, so this function has to be called before gc is run for the block.
+///
+/// Note that validator ID or shard tracking config could have change since the epoch,
+/// so we have to rely on what is stored in the database to figure out tracked shards.
+/// We rely on `TrieChanges` column to preserve what shards this node tracked at that time.
 fn get_tracked_shards_in_past_epoch(
     chain_store_update: &ChainStoreUpdate,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
@@ -1101,12 +1112,16 @@ fn get_tracked_shards_in_past_epoch(
 
 /// State cleanup for single shard tracking. Removes State of shards that are no longer in use.
 ///
-/// Potential shards for cleanup are within the set of shards that were tracked between `previous_gc_tail` and `new_gc_tail`.
-/// We filter out shards that were tracked between `new_gc_tail` and `head`, as these need to wait for gc to process them.
-/// We do not clean up shards that we care about this or next epoch (relative to `head`).
+/// It has to be run after we clear block data for the `last_block_hash_in_gced_epoch`.
+/// `tracked_shards_in_gced_epoch` are shards that were tracked in the gc-ed epoch,
+/// and these are shards that we potentially no longer use and that can be cleaned up.
+/// We do not clean up a shard if it has been tracked in any epoch later,
+/// or we care about it in the current or the next epoch (relative to Head).
 ///
-/// With ReshardingV3 we use State mapping strategy (see `DBCol::StateShardUIdMapping`).
-/// Therefore, we look at what ShardUIds were and are no longer in use as a DB key prefix for the State column.
+/// With ReshardingV3, we use State mapping (see DBCol::StateShardUIdMapping),
+/// where each `ShardUId` is potentially mapped to its ancestor to get the database key prefix.
+/// We only remove a shard State if all its descendants are ready to be cleaned up,
+/// in which case, we also remove the mapping from `StateShardUIdMapping`.
 fn gc_state(
     chain_store_update: &mut ChainStoreUpdate,
     last_block_hash_in_gced_epoch: &CryptoHash,
@@ -1127,6 +1142,8 @@ fn gc_state(
     let last_block_hash = chain_store_update.head()?.last_block_hash;
     let last_block_info = epoch_manager.get_block_info(&last_block_hash)?;
     let current_shard_layout = epoch_manager.get_shard_layout(last_block_info.epoch_id())?;
+    // Do not clean up shards that we care about in the current or the next epoch.
+    // Most of the time, `potential_shards_to_cleanup` will become empty as we do not change tracked shards often.
     for shard_uid in current_shard_layout.shard_uids() {
         if !cares_about_shard_this_or_next_epoch(
             me,
@@ -1154,6 +1171,7 @@ fn gc_state(
         }
         block_info = epoch_manager.get_block_info(prev_epoch_last_block_hash)?;
         let shard_layout = epoch_manager.get_shard_layout(block_info.epoch_id())?;
+        // Do not clean up shards that were tracked in any epoch after the gc-ed epoch.
         for shard_uid in shard_layout.shard_uids() {
             if !store
                 .exists(DBCol::TrieChanges, &get_block_shard_uid(&block_info.hash(), &shard_uid))?
@@ -1166,6 +1184,7 @@ fn gc_state(
     }
     let shards_to_cleanup = potential_shards_to_cleanup;
 
+    // Find ShardUId mappings to shards that we will clean up.
     let mut shard_uid_mappings_to_remove = vec![];
     for kv in store.iter_ser::<ShardUId>(DBCol::StateShardUIdMapping) {
         let (child_shard_uid_bytes, parent_shard_uid) = kv?;
@@ -1173,6 +1192,8 @@ fn gc_state(
             shard_uid_mappings_to_remove.push(child_shard_uid_bytes);
         }
     }
+
+    // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
     let mut trie_store_update = store.trie_store().store_update();
     for shard_uid_prefix in shards_to_cleanup {
         trie_store_update.delete_shard_uid_prefixed_state(shard_uid_prefix);
