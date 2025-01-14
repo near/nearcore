@@ -199,8 +199,8 @@ impl BandwidthRequestValues {
         // Without this we could end up in a situation where one shard wants to send
         // a maximum size receipt to another and requests the corresponding value from the list,
         // but the sum of this value and base bandwidth exceeds max_shard_bandwidth.
-        // There's a guarantee that num_shards*base_bandwidth + max_receipt_size <= max_shard_bandwidth,
-        // but there's no guarantee that num_shards*base_bandwidth + request_value <= max_shard_banwdidth.
+        // There's a guarantee that (num_shards - 1) * base_bandwidth + max_receipt_size <= max_shard_bandwidth,
+        // but there's no guarantee that (num_shards - 1) * base_bandwidth + request_value <= max_shard_bandwidth.
         let mut closest_to_max: Bandwidth = 0;
         for value in &values {
             if value.abs_diff(params.max_receipt_size)
@@ -364,9 +364,9 @@ impl BandwidthSchedulerParams {
 
         // A receipt with maximum size must still be able to get through
         // after base bandwidth is granted to everyone. We have to ensure that:
-        // base_bandwidth * num_shards + max_receipt_size <= max_shard_bandwidth
+        // base_bandwidth * (num_shards - 1) + max_receipt_size <= max_shard_bandwidth
         let available_bandwidth = max_shard_bandwidth - max_receipt_size;
-        let mut base_bandwidth = available_bandwidth / num_shards;
+        let mut base_bandwidth = available_bandwidth / std::cmp::max(1, num_shards.get() - 1);
         if base_bandwidth > max_base_bandwidth {
             base_bandwidth = max_base_bandwidth;
         }
@@ -412,7 +412,7 @@ mod tests {
     /// base bandwidth without going over the max_shard_bandwidth limit.
     fn assert_max_size_can_get_through(params: &BandwidthSchedulerParams, num_shards: u64) {
         assert!(
-            num_shards * params.base_bandwidth + params.max_receipt_size
+            (num_shards - 1) * params.base_bandwidth + params.max_receipt_size
                 <= params.max_shard_bandwidth
         )
     }
@@ -444,7 +444,7 @@ mod tests {
         let scheduler_params =
             BandwidthSchedulerParams::new(NonZeroU64::new(num_shards).unwrap(), &runtime_config);
         let expected = BandwidthSchedulerParams {
-            base_bandwidth: (4_500_000 - max_receipt_size) / 6,
+            base_bandwidth: (4_500_000 - max_receipt_size) / 5,
             max_shard_bandwidth: 4_500_000,
             max_receipt_size,
             max_allowance: 4_500_000,
@@ -498,15 +498,15 @@ mod tests {
         assert_eq!(values.values[BANDWIDTH_REQUEST_VALUES_NUM - 1], params.max_shard_bandwidth);
         assert!(values.values.contains(&max_receipt_size));
 
-        assert_eq!(params.base_bandwidth, 50949);
+        assert_eq!(params.base_bandwidth, 61139);
         assert_eq!(
             values.values,
             [
-                162175, 273401, 384627, 495854, 607080, 718306, 829532, 940759, 1051985, 1163211,
-                1274438, 1385664, 1496890, 1608116, 1719343, 1830569, 1941795, 2053021, 2164248,
-                2275474, 2386700, 2497927, 2609153, 2720379, 2831605, 2942832, 3054058, 3165284,
-                3276510, 3387737, 3498963, 3610189, 3721416, 3832642, 3943868, 4055094, 4194304,
-                4277547, 4388773, 4500000
+                172110, 283082, 394053, 505025, 615996, 726968, 837939, 948911, 1059882, 1170854,
+                1281825, 1392797, 1503768, 1614740, 1725711, 1836683, 1947654, 2058626, 2169597,
+                2280569, 2391541, 2502512, 2613484, 2724455, 2835427, 2946398, 3057370, 3168341,
+                3279313, 3390284, 3501256, 3612227, 3723199, 3834170, 3945142, 4056113, 4194304,
+                4278056, 4389028, 4500000
             ]
         );
     }

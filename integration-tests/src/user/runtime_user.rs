@@ -26,6 +26,7 @@ use near_primitives::views::{
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
+use node_runtime::SignedValidPeriodTransactions;
 use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
@@ -114,7 +115,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    &txs,
+                    SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
                     &self.epoch_info_provider,
                     Default::default(),
                 )

@@ -7,7 +7,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, StateRoot};
 
 use crate::trie::mem::arena::ArenaMut;
-use crate::trie::mem::metrics::MEM_TRIE_NUM_ROOTS;
+use crate::trie::mem::metrics::MEMTRIE_NUM_ROOTS;
 use crate::trie::MemTrieChanges;
 use crate::Trie;
 
@@ -18,7 +18,7 @@ use super::arena::FrozenArena;
 use super::flexible_data::value::ValueView;
 use super::iter::STMemTrieIterator;
 use super::lookup::memtrie_lookup;
-use super::mem_trie_update::{construct_root_from_changes, MemTrieUpdate, TrackingMode};
+use super::memtrie_update::{construct_root_from_changes, MemTrieUpdate, TrackingMode};
 use super::node::{MemTrieNodeId, MemTrieNodePtr};
 
 /// `MemTries` (logically) owns the memory of multiple tries.
@@ -119,7 +119,7 @@ impl MemTries {
         if new_ref == 1 {
             self.roots.entry(state_root).or_default().push(mem_root);
         }
-        MEM_TRIE_NUM_ROOTS
+        MEMTRIE_NUM_ROOTS
             .with_label_values(&[&self.shard_uid.to_string()])
             .set(self.roots.len() as i64);
     }
@@ -172,7 +172,7 @@ impl MemTries {
         } else {
             debug_assert!(false, "Deleting non-existent root: {}", state_root);
         }
-        MEM_TRIE_NUM_ROOTS
+        MEMTRIE_NUM_ROOTS
             .with_label_values(&[&self.shard_uid.to_string()])
             .set(self.roots.len() as i64);
     }

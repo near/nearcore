@@ -3,11 +3,11 @@ use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Actor;
 #[cfg(feature = "test_features")]
 use near_async::messaging::Handler;
+use near_chain::ChainGenesis;
 use near_chain::{types::RuntimeAdapter, ChainStore, ChainStoreAccess};
 use near_chain_configs::{GCConfig, MutableValidatorSigner};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::types::BlockHeight;
 use near_store::{metadata::DbKind, Store};
 use std::sync::Arc;
 use tracing::warn;
@@ -30,7 +30,7 @@ pub struct GCActor {
 impl GCActor {
     pub fn new(
         store: Store,
-        genesis_height: BlockHeight,
+        genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
@@ -39,7 +39,12 @@ impl GCActor {
         is_archive: bool,
     ) -> Self {
         GCActor {
-            store: ChainStore::new(store, genesis_height, true),
+            store: ChainStore::new(
+                store,
+                genesis.height,
+                true,
+                genesis.transaction_validity_period,
+            ),
             runtime_adapter,
             gc_config,
             epoch_manager,

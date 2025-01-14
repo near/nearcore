@@ -1,8 +1,8 @@
-use super::metrics::MEM_TRIE_ARENA_ACTIVE_ALLOCS_COUNT;
+use super::metrics::MEMTRIE_ARENA_ACTIVE_ALLOCS_COUNT;
 use super::single_thread::STArenaMemory;
 use super::{ArenaMemory, ArenaPos, ArenaSliceMut};
 use crate::trie::mem::arena::metrics::{
-    MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES, MEM_TRIE_ARENA_MEMORY_USAGE_BYTES,
+    MEMTRIE_ARENA_ACTIVE_ALLOCS_BYTES, MEMTRIE_ARENA_MEMORY_USAGE_BYTES,
 };
 use crate::trie::mem::arena::ArenaMemoryMut;
 use crate::trie::mem::flexible_data::encoding::BorshFixedSize;
@@ -82,11 +82,11 @@ impl Allocator {
             next_alloc_pos: ArenaPos::invalid(),
             active_allocs_bytes: 0,
             active_allocs_count: 0,
-            active_allocs_bytes_gauge: MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES
+            active_allocs_bytes_gauge: MEMTRIE_ARENA_ACTIVE_ALLOCS_BYTES
                 .with_label_values(&[&name]),
-            active_allocs_count_gauge: MEM_TRIE_ARENA_ACTIVE_ALLOCS_COUNT
+            active_allocs_count_gauge: MEMTRIE_ARENA_ACTIVE_ALLOCS_COUNT
                 .with_label_values(&[&name]),
-            memory_usage_gauge: MEM_TRIE_ARENA_MEMORY_USAGE_BYTES.with_label_values(&[&name]),
+            memory_usage_gauge: MEMTRIE_ARENA_MEMORY_USAGE_BYTES.with_label_values(&[&name]),
         }
     }
 

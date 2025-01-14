@@ -2,7 +2,7 @@
 
 Welcome to the nearcore development guide!
 
-The target audience of this guide are developers of nearcore itself. If you are
+The target audience of this guide is developers of nearcore itself. If you are
 a user of NEAR (either a contract developer, or validator running a node),
 please refer to the user docs at <https://docs.near.org>.
 

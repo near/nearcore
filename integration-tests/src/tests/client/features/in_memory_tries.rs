@@ -68,7 +68,7 @@ fn slow_test_in_memory_trie_node_consistency() {
                 TrieConfig::default(), // client 0 does not load in-memory tries
                 TrieConfig {
                     // client 1 loads two of four shards into in-memory tries
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 2 },
                     ],
@@ -133,7 +133,7 @@ fn slow_test_in_memory_trie_node_consistency() {
             vec![
                 TrieConfig::default(),
                 TrieConfig {
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 1 }, // shard 2 changed to shard 1.
                     ],
@@ -171,7 +171,7 @@ fn slow_test_in_memory_trie_node_consistency() {
             vec![
                 // client 0 now loads in-memory tries
                 TrieConfig {
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 1 },
                         ShardUId { version: 1, shard_id: 3 },
                     ],
@@ -400,7 +400,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
         env.clients[client_id]
             .runtime_adapter
             .get_tries()
-            .get_mem_tries(shard)?
+            .get_memtries(shard)?
             .read()
             .unwrap()
             .num_roots(),

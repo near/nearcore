@@ -28,7 +28,7 @@ const MAX_HEIGHTS_AHEAD: BlockHeightDelta = 5;
 pub fn validate_partial_encoded_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
     partial_witness: &PartialEncodedStateWitness,
-    signer: &ValidatorSigner,
+    validator_account_id: &AccountId,
     store: &Store,
 ) -> Result<bool, Error> {
     let ChunkProductionKey { shard_id, epoch_id, height_created } =
@@ -56,7 +56,7 @@ pub fn validate_partial_encoded_state_witness(
     if !validate_chunk_relevant_as_validator(
         epoch_manager,
         &partial_witness.chunk_production_key(),
-        signer.validator_id(),
+        validator_account_id,
         store,
     )? {
         return Ok(false);

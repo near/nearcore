@@ -978,11 +978,12 @@ impl PeerActor {
     async fn receive_routed_message(
         clock: &time::Clock,
         network_state: &Arc<NetworkState>,
-        peer_id: PeerId,
+        msg_author: PeerId,
+        prev_hop: PeerId,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        Ok(network_state.receive_routed_message(clock, peer_id, msg_hash, body).await)
+        Ok(network_state.receive_routed_message(clock, msg_author, prev_hop, msg_hash, body).await)
     }
 
     fn receive_message(
@@ -1029,7 +1030,8 @@ impl PeerActor {
                     Self::receive_routed_message(
                         &clock,
                         &network_state,
-                        peer_id,
+                        msg.msg.author,
+                        peer_id.clone(),
                         msg_hash,
                         msg.msg.body,
                     )

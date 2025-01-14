@@ -26,7 +26,7 @@ use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 use std::iter;
 use std::sync::Arc;
@@ -98,7 +98,7 @@ impl<'c> EstimatorContext<'c> {
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
         if self.config.memtrie {
-            trie_config.load_mem_tries_for_shards = vec![shard_uid];
+            trie_config.load_memtries_for_shards = vec![shard_uid];
         }
         let tries = ShardTries::new(
             store.trie_store(),
@@ -111,7 +111,7 @@ impl<'c> EstimatorContext<'c> {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
             // instead of  letting the loader code to locate it from the ChunkExtra (which is missing from the store).
             tries
-                .load_mem_trie(&shard_uid, Some(root), true)
+                .load_memtrie(&shard_uid, Some(root), true)
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
@@ -355,7 +355,7 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                transactions,
+                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
                 &self.epoch_info_provider,
                 Default::default(),
             )

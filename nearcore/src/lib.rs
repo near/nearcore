@@ -372,11 +372,12 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
+            Arc::new(RayonAsyncComputationSpawner),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
         runtime.store().clone(),
-        chain_genesis.height,
+        &chain_genesis,
         runtime.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
@@ -386,7 +387,7 @@ pub fn start_with_config_and_synchronization(
     ));
 
     let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), chain_genesis.height));
+        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), &chain_genesis));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());

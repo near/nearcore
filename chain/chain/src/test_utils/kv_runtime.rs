@@ -11,7 +11,7 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::{EpochManagerAdapter, RngSeed, ShardUIdAndIndex};
+use near_epoch_manager::{EpochManagerAdapter, RngSeed, ShardInfo};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -54,6 +54,7 @@ use near_store::{
     TrieChanges, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
+use node_runtime::SignedValidPeriodTransactions;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -464,12 +465,12 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
-    ) -> Result<ShardUIdAndIndex, EpochError> {
+    ) -> Result<ShardInfo, EpochError> {
         let shard_layout = self.get_shard_layout(epoch_id)?;
         let shard_id = account_id_to_shard_id(account_id, self.num_shards);
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(ShardUIdAndIndex { shard_uid, shard_index })
+        Ok(ShardInfo { shard_index, shard_uid })
     }
 
     fn shard_id_to_uid(
@@ -1091,7 +1092,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error> {
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
@@ -1128,7 +1129,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        for transaction in transactions {
+        for transaction in transactions.iter_nonexpired_transactions() {
             assert_eq!(
                 account_id_to_shard_id(transaction.transaction.signer_id(), self.num_shards),
                 shard_id

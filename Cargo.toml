@@ -329,7 +329,7 @@ ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"
 rlp = "0.5.2"
-rocksdb = { version = "0.21.0", default-features = false, features = [
+rocksdb = { version = "0.22.0", default-features = false, features = [
     "snappy",
     "lz4",
     "zstd",
