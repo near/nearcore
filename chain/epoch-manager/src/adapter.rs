@@ -26,12 +26,6 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-// // TODO(wacban) rename to ShardInfo
-// pub struct ShardUIdAndIndex {
-//     pub shard_uid: ShardUId,
-//     pub shard_index: ShardIndex,
-// }
-
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
 /// prefer the former whenever possible. The latter is for legacy tests.
