@@ -144,11 +144,13 @@ pub fn setup_mock_node(
             client_runtime.store().clone(),
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
+            config.genesis.config.transaction_validity_period,
         );
         let mut network_chain_store = ChainStore::new(
             mock_network_runtime.store().clone(),
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
+            config.genesis.config.transaction_validity_period,
         );
 
         let network_tail_height = network_chain_store.tail().unwrap();

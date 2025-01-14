@@ -376,11 +376,20 @@ pub fn pre_validate_chunk_state_witness(
 
     let current_protocol_version =
         epoch_manager.get_epoch_protocol_version(&state_witness.epoch_id)?;
-    if !checked_feature!(
+    let transaction_validity_check_results = if checked_feature!(
         "protocol_feature_relaxed_chunk_validation",
         RelaxedChunkValidation,
         current_protocol_version
     ) {
+        if last_chunk_block.header().is_genesis() {
+            vec![true; state_witness.transactions.len()]
+        } else {
+            let prev_block_header =
+                store.get_block_header(last_chunk_block.header().prev_hash())?;
+            let mut check = chain.transaction_validity_check(prev_block_header);
+            state_witness.transactions.iter().map(|t| check(t)).collect::<Vec<_>>()
+        }
+    } else {
         let new_transactions = &state_witness.new_transactions;
         let (new_tx_root_from_state_witness, _) = merklize(&new_transactions);
         let chunk_tx_root = state_witness.chunk_header.tx_root();
@@ -427,7 +436,8 @@ pub fn pre_validate_chunk_state_witness(
                 }
             };
         }
-    }
+        vec![true; state_witness.transactions.len()]
+    };
 
     let main_transition_params = if last_chunk_block.header().is_genesis() {
         let epoch_id = last_chunk_block.header().epoch_id();
@@ -452,6 +462,7 @@ pub fn pre_validate_chunk_state_witness(
         MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(last_chunk_shard_index).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
+            transaction_validity_check_results,
             receipts: receipts_to_apply,
             block: Chain::get_apply_chunk_block_context(
                 epoch_manager,

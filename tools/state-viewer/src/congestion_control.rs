@@ -54,6 +54,7 @@ impl PrintCmd {
             store,
             near_config.genesis.config.genesis_height,
             near_config.client_config.save_trie_changes,
+            near_config.genesis.config.transaction_validity_period,
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();

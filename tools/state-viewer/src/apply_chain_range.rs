@@ -19,6 +19,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
+use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
@@ -72,8 +73,12 @@ fn apply_block_from_range(
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the read store anyway
-    let mut read_chain_store =
-        ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
+    let mut read_chain_store = ChainStore::new(
+        read_store.clone(),
+        genesis.config.genesis_height,
+        false,
+        genesis.config.transaction_validity_period,
+    );
     let block_hash = match read_chain_store.get_block_hash_by_height(height) {
         Ok(block_hash) => block_hash,
         Err(_) => {
@@ -97,6 +102,8 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
@@ -143,6 +150,11 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
+        let transactions = chunk.transactions();
+        let valid_txs = chain_store_update
+            .chain_store()
+            .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
+            .expect("valid transaction calculation");
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
@@ -168,6 +180,7 @@ fn apply_block_from_range(
 
         num_receipt = receipts.len();
         num_tx = chunk.transactions().len();
+
         if only_contracts {
             let mut has_contracts = false;
             for tx in chunk.transactions() {
@@ -200,7 +213,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                chunk.transactions(),
+                SignedValidPeriodTransactions::new(&transactions, &valid_txs),
             )
             .unwrap()
     } else {
@@ -227,13 +240,11 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &[],
-                &[],
+                SignedValidPeriodTransactions::empty(),
             )
             .unwrap()
     };
 
-    let protocol_version =
-        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         protocol_version,
@@ -332,7 +343,7 @@ fn apply_block_from_range(
         (_, StorageSource::Trie | StorageSource::TrieFree | StorageSource::Memtrie) => {
             if let Err(err) = maybe_save_trie_changes(
                 write_store,
-                genesis.config.genesis_height,
+                &genesis.config,
                 apply_result,
                 height,
                 shard_id,
@@ -370,7 +381,12 @@ pub fn apply_chain_range(
         only_contracts,
         ?storage)
     .entered();
-    let chain_store = ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
+    let chain_store = ChainStore::new(
+        read_store.clone(),
+        genesis.config.genesis_height,
+        false,
+        genesis.config.transaction_validity_period,
+    );
     let final_head = chain_store.final_head().unwrap();
     let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
     let shard_uid =

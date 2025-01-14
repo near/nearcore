@@ -78,6 +78,7 @@ fn dump_state_changes(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
 
     let blocks = (height_from..=height_to).filter_map(|block_height| {
@@ -152,6 +153,7 @@ fn apply_state_changes(
         store,
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
 
     let data = std::fs::read(&file).unwrap();
