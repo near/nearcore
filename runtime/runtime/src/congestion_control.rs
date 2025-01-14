@@ -589,7 +589,7 @@ impl ReceiptSinkV2 {
             {
                 let parent_receipt_sizes_iter =
                     parent_metadata.iter_receipt_group_sizes(trie, side_effects);
-                receipt_sizes_iter = Box::new(receipt_sizes_iter.chain(parent_receipt_sizes_iter));
+                receipt_sizes_iter = Box::new(parent_receipt_sizes_iter.chain(receipt_sizes_iter));
             }
         }
 
