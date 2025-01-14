@@ -364,28 +364,27 @@ impl FlatStorageResharder {
         // lock, to prevent multiple parallel resharding attempts (due to forks) to interfere
         // with each other .
         let mut event_lock_guard = self.resharding_event.lock().unwrap();
-        let (resharding_blocks, parent_shard, split_params, execution_status) = if let Some(event) =
-            event_lock_guard.as_mut()
-        {
-            if event.has_started() {
-                info!(target: "resharding", "flat storage shard split task cancelled: resharding already in progress");
-                return SplitShardSchedulingStatus::Cancelled;
-            }
-            match event {
-                FlatStorageReshardingEventStatus::SplitShard(
-                    parent_shard,
-                    split_params,
-                    execution_status,
-                ) => (
-                    split_params.resharding_blocks.clone(),
-                    *parent_shard,
-                    split_params.clone(),
-                    execution_status,
-                ),
-            }
-        } else {
+        let Some(event) = event_lock_guard.as_mut() else {
             info!(target: "resharding", "flat storage shard split task cancelled: no resharding event");
             return SplitShardSchedulingStatus::Cancelled;
+        };
+
+        if event.has_started() {
+            info!(target: "resharding", "flat storage shard split task cancelled: resharding already in progress");
+            return SplitShardSchedulingStatus::Cancelled;
+        }
+
+        let (resharding_blocks, parent_shard, split_params, execution_status) = match event {
+            FlatStorageReshardingEventStatus::SplitShard(
+                parent_shard,
+                split_params,
+                execution_status,
+            ) => (
+                split_params.resharding_blocks.clone(),
+                *parent_shard,
+                split_params.clone(),
+                execution_status,
+            ),
         };
 
         // Wait until one of the candidate resharding blocks becomes final.
@@ -905,7 +904,7 @@ impl FlatStorageResharder {
         for block_info in resharding_blocks {
             match self.compute_scheduled_task_status_at_block(&block_info, chain_store) {
                 CanStart(block_info) => return CanStart(block_info),
-                Failed => {} // Nothing to do on failure.
+                Failed => {} // Nothing to do on failure. This can happen during forks. It's normal for all but one fork to fail.
                 Postponed => at_least_one_postponed = true,
             }
         }
