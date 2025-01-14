@@ -221,7 +221,7 @@ def prepare_ab_test(chain_id: str = 'mainnet') -> ABExecutables:
 
     Args:
         chain_id: Chain id to get latest deployed executable for.  Can be
-            ‘master’, ‘testnet’ or ‘betanet’.
+            'master', 'testnet' or 'betanet'.
     Returns:
         An ABExecutables object where `current` describes executable built at
         current HEAD while `stable` points at executable which is deployed in
