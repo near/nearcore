@@ -106,6 +106,37 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
+/// Deploy global contract action
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+pub struct DeployGlobalContractAction {
+    /// WebAssembly binary
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+
+    /// Enables global contract code to referenced by owner account id
+    /// instead of code hash
+    pub link_account: bool,
+}
+
+impl fmt::Debug for DeployGlobalContractAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeployGlobalContractAction")
+            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("link_account", &format_args!("{}", &self.link_account))
+            .finish()
+    }
+}
+
 #[serde_as]
 #[derive(
     BorshSerialize,
@@ -216,6 +247,7 @@ pub enum Action {
     DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
+    DeployGlobalContract(DeployGlobalContractAction),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     /// Makes a non-refundable transfer for storage allowance.
     /// Only possible during new account creation.
@@ -258,6 +290,12 @@ impl From<CreateAccountAction> for Action {
 impl From<DeployContractAction> for Action {
     fn from(deploy_contract_action: DeployContractAction) -> Self {
         Self::DeployContract(deploy_contract_action)
+    }
+}
+
+impl From<DeployGlobalContractAction> for Action {
+    fn from(deploy_global_contract_action: DeployGlobalContractAction) -> Self {
+        Self::DeployGlobalContract(deploy_global_contract_action)
     }
 }
 
