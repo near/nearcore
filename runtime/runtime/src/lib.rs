@@ -290,43 +290,26 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Parallel validation for all transactions with early short-circuit on first error.
+    /// Validates all transactions in parallel and returns a map of transaction hashes
+    /// to their validation results.
     ///
-    /// If all validations pass, returns a HashMap of tx_hash -> TransactionCost.
-    /// If any validation fails, returns the first InvalidTxError encountered.
+    /// Returns a `HashMap` of `tx_hash -> Result<TransactionCost, InvalidTxError>`.
     fn parallel_validate_transactions(
         config: &RuntimeConfig,
         gas_price: Balance,
         transactions: &[SignedTransaction],
         current_protocol_version: ProtocolVersion,
-    ) -> Result<HashMap<CryptoHash, TransactionCost>, InvalidTxError> {
+    ) -> HashMap<CryptoHash, Result<TransactionCost, InvalidTxError>> {
         tracing::debug!(target: "runtime", "parallel validation: starting threads");
 
-        let results = transactions
+        transactions
             .par_iter()
-            .try_fold(
-                || Vec::new(),
-                |mut acc, tx| {
-                    let cost = validate_transaction(
-                        config,
-                        gas_price,
-                        tx,
-                        true,
-                        current_protocol_version,
-                    )?;
-                    acc.push((tx.get_hash(), cost));
-                    Ok::<_, InvalidTxError>(acc)
-                },
-            )
-            .try_reduce(
-                || Vec::new(),
-                |mut acc1, mut acc2| {
-                    acc1.append(&mut acc2);
-                    Ok::<_, InvalidTxError>(acc1)
-                },
-            )?;
-
-        Ok(results.into_iter().collect())
+            .map(|tx| {
+                let cost_result =
+                    validate_transaction(config, gas_price, tx, true, current_protocol_version);
+                (tx.get_hash(), cost_result)
+            })
+            .collect()
     }
 
     /// Takes one signed transaction, verifies it and converts it to a receipt.
@@ -1614,6 +1597,32 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
+    /// Helper function that checks `RelaxedChunkValidation`. If it is enabled, we log a debug
+    /// message and return `Ok(())` to skip the transaction. Otherwise, we return `Err(e.into())`.
+    fn handle_invalid_transaction<E: std::fmt::Debug + Clone + Into<RuntimeError>>(
+        e: E,
+        tx_hash: &CryptoHash,
+        protocol_version: ProtocolVersion,
+        reason: &str,
+    ) -> Result<(), RuntimeError> {
+        if checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            tracing::debug!(
+                target: "runtime",
+                "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",
+                reason,
+                tx_hash,
+                e
+            );
+            Ok(())
+        } else {
+            Err(e.into())
+        }
+    }
+
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1630,16 +1639,32 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let tx_costs = Self::parallel_validate_transactions(
+        let tx_cost_results = Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
             &processing_state.transactions.transactions,
             apply_state.current_protocol_version,
-        )
-        .map_err(RuntimeError::from)?;
+        );
 
         for signed_transaction in processing_state.transactions.iter_nonexpired_transactions() {
-            let cost = tx_costs.get(&signed_transaction.get_hash()).expect("Must have cost for tx");
+            let tx_hash = signed_transaction.get_hash();
+            let maybe_cost = tx_cost_results
+                .get(&tx_hash)
+                .expect("Must have a validation result for each transaction hash");
+
+            let cost = match maybe_cost {
+                Ok(c) => c,
+                Err(e) => {
+                    Self::handle_invalid_transaction(
+                        e.clone(),
+                        &tx_hash,
+                        processing_state.protocol_version,
+                        "parallel validation error",
+                    )?;
+                    continue;
+                }
+            };
+
             let tx_result = self.process_transaction(
                 state_update,
                 apply_state,
@@ -1648,23 +1673,15 @@ impl Runtime {
                 &mut processing_state.stats,
             );
             let (receipt, outcome_with_id) = match tx_result {
-                Ok(v) => v,
+                Ok(outcome) => outcome,
                 Err(e) => {
-                    if checked_feature!(
-                        "protocol_feature_relaxed_chunk_validation",
-                        RelaxedChunkValidation,
-                        processing_state.protocol_version
-                    ) {
-                        // NB: number of invalid transactions are noted in metrics.
-                        tracing::debug!(
-                            target: "runtime",
-                            message="invalid transaction ignored",
-                            tx_hash=%signed_transaction.get_hash()
-                        );
-                        continue;
-                    } else {
-                        return Err(e.into());
-                    }
+                    Self::handle_invalid_transaction(
+                        e,
+                        &tx_hash,
+                        processing_state.protocol_version,
+                        "process_transaction error",
+                    )?;
+                    continue;
                 }
             };
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
