@@ -585,7 +585,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             match verify_and_charge_transaction(
                 runtime_config,
                 &mut state_update,
-                gas_price,
                 transaction,
                 &cost,
                 // here we do not know which block the transaction will be included
@@ -775,42 +774,36 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let res = validate_transaction(
+                let verify_result = validate_transaction(
                     runtime_config,
                     prev_block.next_gas_price,
                     &tx,
                     true,
                     protocol_version,
-                );
-                match res {
+                )
+                .and_then(|cost| {
+                    verify_and_charge_transaction(
+                        runtime_config,
+                        &mut state_update,
+                        &tx,
+                        &cost,
+                        Some(next_block_height),
+                        protocol_version,
+                    )
+                });
+
+                match verify_result {
                     Ok(cost) => {
-                        match verify_and_charge_transaction(
-                            runtime_config,
-                            &mut state_update,
-                            prev_block.next_gas_price,
-                            &tx,
-                            &cost,
-                            Some(next_block_height),
-                            protocol_version,
-                        ) {
-                            Ok(verification_result) => {
-                                tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
-                                state_update.commit(StateChangeCause::NotWritableToDisk);
-                                total_gas_burnt += verification_result.gas_burnt;
-                                total_size += tx.get_size();
-                                result.transactions.push(tx);
-                                // Take one transaction from this group, no more.
-                                break;
-                            }
-                            Err(err) => {
-                                tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed verification");
-                                rejected_invalid_tx += 1;
-                                state_update.rollback();
-                            }
-                        }
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation and verification");
+                        state_update.commit(StateChangeCause::NotWritableToDisk);
+                        total_gas_burnt += cost.gas_burnt;
+                        total_size += tx.get_size();
+                        result.transactions.push(tx);
+                        // Take one transaction from this group, no more.
+                        break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed initial validation");
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }

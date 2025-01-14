@@ -290,26 +290,26 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Validates all transactions in parallel and returns a map of transaction hashes
-    /// to their validation results.
+    /// Validates all transactions in parallel and returns an iterator of
+    /// transactions paired with their validation results.
     ///
-    /// Returns a `HashMap` of `tx_hash -> Result<TransactionCost, InvalidTxError>`.
-    fn parallel_validate_transactions(
-        config: &RuntimeConfig,
+    /// Returns an `Iterator` of `(&SignedTransaction, Result<TransactionCost, InvalidTxError>)`
+    fn parallel_validate_transactions<'a>(
+        config: &'a RuntimeConfig,
         gas_price: Balance,
-        transactions: &[SignedTransaction],
+        transactions: &'a [SignedTransaction],
         current_protocol_version: ProtocolVersion,
-    ) -> HashMap<CryptoHash, Result<TransactionCost, InvalidTxError>> {
-        tracing::debug!(target: "runtime", "parallel validation: starting threads");
-
-        transactions
+    ) -> impl Iterator<Item = (&'a SignedTransaction, Result<TransactionCost, InvalidTxError>)>
+    {
+        let results: Vec<_> = transactions
             .par_iter()
-            .map(|tx| {
+            .map(move |tx| {
                 let cost_result =
                     validate_transaction(config, gas_price, tx, true, current_protocol_version);
-                (tx.get_hash(), cost_result)
+                (tx, cost_result)
             })
-            .collect()
+            .collect();
+        results.into_iter()
     }
 
     /// Takes one signed transaction, verifies it and converts it to a receipt.
@@ -344,7 +344,6 @@ impl Runtime {
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
-            apply_state.gas_price,
             signed_transaction,
             transaction_cost,
             Some(apply_state.block_height),
@@ -1639,19 +1638,13 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let tx_cost_results = Self::parallel_validate_transactions(
+        for (signed_transaction, maybe_cost) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
             &processing_state.transactions.transactions,
             apply_state.current_protocol_version,
-        );
-
-        for signed_transaction in processing_state.transactions.iter_nonexpired_transactions() {
+        ) {
             let tx_hash = signed_transaction.get_hash();
-            let maybe_cost = tx_cost_results
-                .get(&tx_hash)
-                .expect("Must have a validation result for each transaction hash");
-
             let cost = match maybe_cost {
                 Ok(c) => c,
                 Err(e) => {
@@ -1669,7 +1662,7 @@ impl Runtime {
                 state_update,
                 apply_state,
                 signed_transaction,
-                cost,
+                &cost,
                 &mut processing_state.stats,
             );
             let (receipt, outcome_with_id) = match tx_result {

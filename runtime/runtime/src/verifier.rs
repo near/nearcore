@@ -140,7 +140,6 @@ pub fn validate_transaction(
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
-    _gas_price: Balance,
     signed_transaction: &SignedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
@@ -738,7 +737,6 @@ mod tests {
                 let err = verify_and_charge_transaction(
                     config,
                     state_update,
-                    gas_price,
                     signed_transaction,
                     &cost,
                     None,
@@ -874,7 +872,6 @@ mod tests {
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -953,7 +950,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1023,7 +1019,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1056,7 +1051,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1131,7 +1125,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1183,7 +1176,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1230,7 +1222,6 @@ mod tests {
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1274,7 +1265,6 @@ mod tests {
         let res = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1332,7 +1322,6 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1355,7 +1344,6 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1378,7 +1366,6 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1423,7 +1410,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1475,7 +1461,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1526,7 +1511,6 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
@@ -1582,7 +1566,6 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            gas_price,
             &transaction,
             &cost,
             None,
