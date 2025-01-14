@@ -83,20 +83,14 @@ fn remove_old_epochs(
     Ok(())
 }
 
-/// Helper to turn DBNotFoundErr() or the genesis header into None. We might get DBNotFoundErr() in the case
-/// of epoch sync where we save individual headers without having all headers that belong to the epoch.
+/// Helper to turn DBNotFoundErr() into None. We might get DBNotFoundErr() in the case of epoch sync
+/// where we save individual headers without having all headers that belong to the epoch.
 fn get_block_header<T: ChainStoreAccess>(
     chain_store: &T,
     block_hash: &CryptoHash,
 ) -> Result<Option<BlockHeader>, Error> {
     match chain_store.get_block_header(block_hash) {
-        Ok(h) => {
-            if h.height() != chain_store.get_genesis_height() {
-                Ok(Some(h))
-            } else {
-                Ok(None)
-            }
-        }
+        Ok(h) => Ok(Some(h)),
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
         Err(Error::DBNotFoundErr(_)) => Ok(None),
@@ -141,7 +135,9 @@ fn on_new_header<T: ChainStoreAccess>(
         let Some(sync_prev) = get_block_header(chain_store, sync.prev_hash())? else {
             return Ok(());
         };
-        if sync_prev.epoch_id() != epoch_id {
+        if sync_prev.epoch_id() != epoch_id
+            || sync_prev.height() == chain_store.get_genesis_height()
+        {
             return Ok(());
         }
         if has_enough_new_chunks(chain_store.store(), sync_prev.hash())? != Some(true) {
