@@ -166,6 +166,11 @@ impl FlatStorageResharder {
     }
 
     /// Starts the event of splitting a parent shard flat storage into two children.
+    ///
+    /// This method is resilient to chain forks and concurrent resharding requests. First of all, if
+    /// a resharding event has started, no other split shard events will be accepted. Second, if a
+    /// resharding event is already scheduled, the new event will extend the old one (if they are
+    /// the same type) or replace it.
     fn split_shard(
         &self,
         split_params: ReshardingSplitShardParams,
@@ -181,6 +186,22 @@ impl FlatStorageResharder {
         info!(target: "resharding", ?split_params, "initiating flat storage shard split");
 
         self.check_new_event_is_allowed()?;
+
+        // Get all resharding blocks, if any, from the existing scheduled split shard,
+        // and merge them with the new resharding block.
+        let mut resharding_blocks = vec![resharding_block];
+        if let Some(FlatStorageReshardingEventStatus::SplitShard(parent, params, _)) =
+            self.resharding_event()
+        {
+            if parent_shard == parent
+                && params.left_child_shard == left_child_shard
+                && params.right_child_shard == right_child_shard
+                && params.shard_layout == *shard_layout
+            {
+                resharding_blocks.extend(params.resharding_blocks);
+            }
+        };
+
         // Cancel any scheduled, not yet started event.
         self.cancel_scheduled_event();
 
@@ -192,7 +213,7 @@ impl FlatStorageResharder {
             left_child_shard,
             right_child_shard,
             shard_layout: shard_layout.clone(),
-            resharding_block,
+            resharding_blocks,
             flat_head,
         };
         store_update.set_flat_storage_status(
@@ -241,14 +262,6 @@ impl FlatStorageResharder {
         self.resharding_event.lock().unwrap().clone()
     }
 
-    fn set_resharding_event_execution_status(&self, new_status: TaskExecutionStatus) {
-        self.resharding_event
-            .lock()
-            .unwrap()
-            .as_mut()
-            .map(|event| event.set_execution_status(new_status));
-    }
-
     /// Schedules a task to split a shard.
     fn schedule_split_shard(&self, parent_shard: ShardUId, split_params: &ParentSplitParameters) {
         let event = FlatStorageReshardingEventStatus::SplitShard(
@@ -265,7 +278,7 @@ impl FlatStorageResharder {
         );
         metrics.update_shards_status(&self.runtime.get_flat_storage_manager());
 
-        info!(target: "resharding", ?parent_shard, ?split_params,"scheduling flat storage shard split");
+        info!(target: "resharding", ?parent_shard, ?split_params, "scheduling flat storage shard split");
         let resharder = self.clone();
         // Send a request to schedule the execution of `split_shard_task`, to do the bulk of the
         // splitting work.
@@ -294,18 +307,6 @@ impl FlatStorageResharder {
         Ok(())
     }
 
-    /// Retrieves parent shard UIds and the split shard parameters, only if a resharding event
-    /// is in progress and of type `Split`.
-    fn get_parent_shard_and_split_params(&self) -> Option<(ShardUId, ParentSplitParameters)> {
-        let event = self.resharding_event.lock().unwrap();
-        match event.as_ref() {
-            Some(FlatStorageReshardingEventStatus::SplitShard(parent_shard, split_params, ..)) => {
-                Some((*parent_shard, split_params.clone()))
-            }
-            None => None,
-        }
-    }
-
     /// Task to perform the actual split of a flat storage shard. This may be a long operation
     /// time-wise.
     ///
@@ -314,63 +315,110 @@ impl FlatStorageResharder {
     pub fn split_shard_task(&self, chain_store: &ChainStore) -> FlatStorageReshardingTaskResult {
         info!(target: "resharding", "flat storage shard split task execution");
 
-        // Make sure that the resharding block is final.
-        let resharding_hash = self
-            .resharding_event()
-            .expect("flat storage resharding event must exist!")
-            .resharding_hash();
-        match self.compute_scheduled_task_status(&resharding_hash, chain_store) {
-            FlatStorageReshardingTaskSchedulingStatus::CanStart => {
-                info!(target: "resharding", "flat storage shard split task ready to perform bulk processing");
+        let (resharding_block, parent_shard, split_params) = match self
+            .split_shard_check_readiness(chain_store)
+        {
+            SplitShardSchedulingStatus::CanStart(block, shard_uid, parent_split_parameters) => {
+                (block, shard_uid, parent_split_parameters)
             }
-            FlatStorageReshardingTaskSchedulingStatus::Failed => {
-                // It's important to cancel the scheduled event in case of failure.
-                self.cancel_scheduled_event();
-                error!(target: "resharding", "flat storage shard split task failed during scheduling!");
-                // TODO(resharding): return failed only if scheduling of all resharding blocks have failed.
-                return FlatStorageReshardingTaskResult::Failed;
+            SplitShardSchedulingStatus::Cancelled => {
+                info!(target: "resharding", "flat storage shard split task has been cancelled");
+                return FlatStorageReshardingTaskResult::Cancelled;
             }
-            FlatStorageReshardingTaskSchedulingStatus::Postponed => {
+            SplitShardSchedulingStatus::Postponed => {
                 info!(target: "resharding", "flat storage shard split task has been postponed");
                 return FlatStorageReshardingTaskResult::Postponed;
             }
+            SplitShardSchedulingStatus::Failed => {
+                // It's important to cancel the scheduled event in case of failure.
+                self.cancel_scheduled_event();
+                error!(target: "resharding", "flat storage shard split task failed during scheduling!");
+                return FlatStorageReshardingTaskResult::Failed;
+            }
         };
 
-        #[cfg(feature = "test_features")]
-        {
-            if self.adv_should_delay_task(&resharding_hash, chain_store) {
-                info!(target: "resharding", "flat storage shard split task has been artificially postponed!");
-                return FlatStorageReshardingTaskResult::Postponed;
-            }
-        }
-
-        // We know that the resharding block has become final so let's start the real work.
-        let (parent_shard, split_params) = self
-            .get_parent_shard_and_split_params()
-            .expect("flat storage resharding event must be Split!");
         let metrics = FlatStorageReshardingShardSplitMetrics::new(
             parent_shard,
             split_params.left_child_shard,
             split_params.right_child_shard,
         );
 
-        let task_status = self.split_shard_task_impl(parent_shard, &split_params, &metrics);
-        self.split_shard_task_postprocessing(parent_shard, split_params, &metrics, task_status);
+        let task_status =
+            self.split_shard_task_impl(parent_shard, &split_params, &resharding_block, &metrics);
+        self.split_shard_task_postprocessing(
+            parent_shard,
+            split_params,
+            &resharding_block,
+            &metrics,
+            task_status,
+        );
         info!(target: "resharding", ?task_status, "flat storage shard split task finished");
         task_status
     }
 
-    /// Performs the bulk of [split_shard_task].
+    /// Checks if the resharder is ready to split a shard. In such case it returns the parameters needed for the split.
+    fn split_shard_check_readiness(&self, chain_store: &ChainStore) -> SplitShardSchedulingStatus {
+        info!(target: "resharding", "checking readiness of flat storage shard split task");
+        // The current resharding event must exist and be compatible with the operation of
+        // splitting a shard. All these checks must happen while the resharding event is under
+        // lock, to prevent multiple parallel resharding attempts (due to forks) to interfere
+        // with each other .
+        let mut event_lock_guard = self.resharding_event.lock().unwrap();
+        let Some(event) = event_lock_guard.as_mut() else {
+            info!(target: "resharding", "flat storage shard split task cancelled: no resharding event");
+            return SplitShardSchedulingStatus::Cancelled;
+        };
+
+        if event.has_started() {
+            info!(target: "resharding", "flat storage shard split task cancelled: resharding already in progress");
+            return SplitShardSchedulingStatus::Cancelled;
+        }
+
+        let (resharding_blocks, parent_shard, split_params, execution_status) = match event {
+            FlatStorageReshardingEventStatus::SplitShard(
+                parent_shard,
+                split_params,
+                execution_status,
+            ) => (
+                split_params.resharding_blocks.clone(),
+                *parent_shard,
+                split_params.clone(),
+                execution_status,
+            ),
+        };
+
+        // Wait until one of the candidate resharding blocks becomes final.
+        match self.compute_scheduled_task_status(&resharding_blocks, chain_store) {
+            TaskSchedulingStatus::CanStart(block) => {
+                info!(target: "resharding", "flat storage shard split task ready to perform bulk processing");
+
+                #[cfg(feature = "test_features")]
+                {
+                    if self.adv_should_delay_task(&block.hash, chain_store) {
+                        info!(target: "resharding", "flat storage shard split task has been artificially postponed!");
+                        return SplitShardSchedulingStatus::Postponed;
+                    }
+                }
+
+                // We must mark the task as 'Started'.
+                *execution_status = TaskExecutionStatus::Started;
+                SplitShardSchedulingStatus::CanStart(block, parent_shard, split_params)
+            }
+            TaskSchedulingStatus::Failed => SplitShardSchedulingStatus::Failed,
+            TaskSchedulingStatus::Postponed => SplitShardSchedulingStatus::Postponed,
+        }
+    }
+
+    /// Performs the bulk of [split_shard_task]. This method splits the flat storage of the parent shard.
     ///
     /// Returns `true` if the routine completed successfully.
     fn split_shard_task_impl(
         &self,
         parent_shard: ShardUId,
         split_params: &ParentSplitParameters,
+        resharding_block: &BlockInfo,
         metrics: &FlatStorageReshardingShardSplitMetrics,
     ) -> FlatStorageReshardingTaskResult {
-        self.set_resharding_event_execution_status(TaskExecutionStatus::Started);
-
         // Exit early if the task has already been cancelled.
         if self.controller.is_cancelled() {
             return FlatStorageReshardingTaskResult::Cancelled;
@@ -383,18 +431,18 @@ impl FlatStorageResharder {
         // Delay between every batch.
         let batch_delay = self.resharding_config.get().batch_delay.unsigned_abs();
 
-        info!(target: "resharding", ?parent_shard, ?split_params, ?batch_delay, ?batch_size, "flat storage shard split task: starting key-values copy");
+        info!(target: "resharding", ?parent_shard, ?split_params, ?resharding_block, ?batch_delay, ?batch_size, "flat storage shard split task: starting key-values copy");
 
         // Prepare the store object for commits and the iterator over parent's flat storage.
         let flat_store = self.runtime.store().flat_store();
         let mut iter = match self.flat_storage_iterator(
             &flat_store,
             &parent_shard,
-            &split_params.resharding_block.hash,
+            &resharding_block.hash,
         ) {
             Ok(iter) => iter,
             Err(err) => {
-                error!(target: "resharding", ?parent_shard, block_hash=?split_params.resharding_block.hash, ?err, "failed to build flat storage iterator");
+                error!(target: "resharding", ?parent_shard, block_hash=?resharding_block.hash, ?err, "failed to build flat storage iterator");
                 return FlatStorageReshardingTaskResult::Failed;
             }
         };
@@ -475,18 +523,14 @@ impl FlatStorageResharder {
         &self,
         parent_shard: ShardUId,
         split_params: ParentSplitParameters,
+        resharding_block: &BlockInfo,
         metrics: &FlatStorageReshardingShardSplitMetrics,
         task_status: FlatStorageReshardingTaskResult,
     ) {
-        let ParentSplitParameters {
-            left_child_shard,
-            right_child_shard,
-            flat_head,
-            resharding_block,
-            ..
-        } = split_params;
+        let ParentSplitParameters { left_child_shard, right_child_shard, flat_head, .. } =
+            split_params;
         let flat_store = self.runtime.store().flat_store();
-        info!(target: "resharding", ?parent_shard, ?task_status, ?split_params, "flat storage shard split task: post-processing");
+        info!(target: "resharding", ?parent_shard, ?task_status, ?split_params, ?resharding_block, "flat storage shard split task: post-processing");
 
         let mut store_update = flat_store.store_update();
         match task_status {
@@ -507,7 +551,7 @@ impl FlatStorageResharder {
                     store_update.set_flat_storage_status(
                         child_shard,
                         FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CatchingUp(
-                            resharding_block,
+                            *resharding_block,
                         )),
                     );
                     // Catchup will happen in a separate task, so send a request to schedule the
@@ -847,20 +891,45 @@ impl FlatStorageResharder {
         self.remove_resharding_event();
     }
 
-    /// Computes the scheduling status of a task waiting to be started. The task will be ready to
-    /// start only if its resharding block has become final. Scheduling will fail if the resharding
-    /// block is ends up in a discarded fork.
+    /// Computes the scheduling status of a task waiting to be started, taking into account all possible
+    /// resharding blocks across all forks.
+    /// The task will be ready to start if one resharding block has become final.
     fn compute_scheduled_task_status(
         &self,
-        resharding_hash: &CryptoHash,
+        resharding_blocks: &[BlockInfo],
         chain_store: &ChainStore,
-    ) -> FlatStorageReshardingTaskSchedulingStatus {
+    ) -> TaskSchedulingStatus {
+        use TaskSchedulingStatus::*;
+        let mut at_least_one_postponed = false;
+        for block_info in resharding_blocks {
+            match self.compute_scheduled_task_status_at_block(&block_info, chain_store) {
+                CanStart(block_info) => return CanStart(block_info),
+                Failed => {} // Nothing to do on failure. This can happen during forks. It's normal for all but one fork to fail.
+                Postponed => at_least_one_postponed = true,
+            }
+        }
+        if at_least_one_postponed {
+            // One resharding block can still become final in the future.
+            Postponed
+        } else {
+            // The whole task failed.
+            Failed
+        }
+    }
+
+    /// Computes the scheduling status of a task at a given resharding block.
+    fn compute_scheduled_task_status_at_block(
+        &self,
+        resharding_block_info: &BlockInfo,
+        chain_store: &ChainStore,
+    ) -> TaskSchedulingStatus {
+        let resharding_hash = &resharding_block_info.hash;
         // Retrieve the height of the resharding block.
         let chain_final_head = chain_store.final_head().unwrap();
         let resharding_height_result = chain_store.get_block_height(resharding_hash);
         let Ok(resharding_height) = resharding_height_result else {
-            error!(target: "resharding", ?resharding_hash, err = ?resharding_height_result.unwrap_err(), "can't get resharding block height!");
-            return FlatStorageReshardingTaskSchedulingStatus::Failed;
+            warn!(target: "resharding", ?resharding_hash, err = ?resharding_height_result.unwrap_err(), "can't get resharding block height!");
+            return TaskSchedulingStatus::Failed;
         };
         // If the resharding block is beyond the chain final block, try again later.
         let chain_final_height = chain_final_head.height;
@@ -871,20 +940,20 @@ impl FlatStorageResharder {
                 ?chain_final_height,
                 "resharding block height is higher than final block height: postponing task"
             );
-            return FlatStorageReshardingTaskSchedulingStatus::Postponed;
+            return TaskSchedulingStatus::Postponed;
         }
         // If the resharding block is not in the canonical chain this task has failed.
         match chain_store.get_block_hash_by_height(resharding_height) {
             Ok(hash) if hash == *resharding_hash => {
-                FlatStorageReshardingTaskSchedulingStatus::CanStart
+                TaskSchedulingStatus::CanStart(*resharding_block_info)
             }
             Ok(hash) => {
-                error!(target: "resharding", ?resharding_height, ?resharding_hash, ?hash, "resharding block not in canonical chain!");
-                FlatStorageReshardingTaskSchedulingStatus::Failed
+                info!(target: "resharding", ?resharding_height, ?resharding_hash, ?hash, "resharding block not in canonical chain!");
+                TaskSchedulingStatus::Failed
             }
             Err(err) => {
-                error!(target: "resharding", ?resharding_height, ?resharding_hash, ?err, "can't find resharding block hash by height!");
-                FlatStorageReshardingTaskSchedulingStatus::Failed
+                warn!(target: "resharding", ?resharding_height, ?resharding_hash, ?err, "can't find resharding block hash by height!");
+                TaskSchedulingStatus::Failed
             }
         }
     }
@@ -1116,22 +1185,6 @@ impl FlatStorageReshardingEventStatus {
             }
         }
     }
-
-    fn set_execution_status(&mut self, new_status: TaskExecutionStatus) {
-        match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status) => {
-                *execution_status = new_status
-            }
-        }
-    }
-
-    fn resharding_hash(&self) -> CryptoHash {
-        match self {
-            FlatStorageReshardingEventStatus::SplitShard(_, split_status, ..) => {
-                split_status.resharding_block.hash
-            }
-        }
-    }
 }
 
 /// All different states of task execution for [FlatStorageReshardingEventStatus].
@@ -1152,10 +1205,18 @@ pub enum FlatStorageReshardingTaskResult {
 
 /// Status of scheduling of a flat storage resharding tasks.
 /// It is useful to know whether or not a task can start or has to be delayed.
-enum FlatStorageReshardingTaskSchedulingStatus {
-    CanStart,
+enum TaskSchedulingStatus {
+    CanStart(BlockInfo),
     Failed,
     Postponed,
+}
+
+/// Scheduling status of split shard task. It's an extension of [TaskSchedulingStatus].
+enum SplitShardSchedulingStatus {
+    CanStart(BlockInfo, ShardUId, ParentSplitParameters),
+    Cancelled,
+    Postponed,
+    Failed,
 }
 
 /// Outcome of the task that applies deltas during shard catchup.
@@ -1343,6 +1404,32 @@ mod tests {
         }
     }
 
+    impl FlatStorageResharder {
+        /// Retrieves parent shard UIds and the split shard parameters, only if a resharding event
+        /// is in progress and of type `Split`.
+        fn get_parent_shard_and_split_params(&self) -> Option<(ShardUId, ParentSplitParameters)> {
+            let event = self.resharding_event.lock().unwrap();
+            match event.as_ref() {
+                Some(FlatStorageReshardingEventStatus::SplitShard(
+                    parent_shard,
+                    split_params,
+                    ..,
+                )) => Some((*parent_shard, split_params.clone())),
+                None => None,
+            }
+        }
+    }
+
+    impl FlatStorageReshardingEventStatus {
+        fn set_execution_status(&mut self, new_status: TaskExecutionStatus) {
+            match self {
+                FlatStorageReshardingEventStatus::SplitShard(_, _, execution_status) => {
+                    *execution_status = new_status
+                }
+            }
+        }
+    }
+
     /// Simple shard layout with two shards.
     fn simple_shard_layout() -> ShardLayout {
         let s0 = ShardId::new(0);
@@ -1459,7 +1546,20 @@ mod tests {
             NextBlockHeight::Fixed(height) => height,
         };
         for height in next_block_height..next_block_height + num_blocks {
-            let prev_block = chain.get_block_by_height(prev_block_height).unwrap();
+            // Take the previous block hash by navigating all block hashes at `prev_block_height` across all forks.
+            // We pick the first available hash.
+            let prev_block_hash = *chain
+                .chain_store()
+                .get_all_block_hashes_by_height(prev_block_height)
+                .unwrap()
+                .iter()
+                .next()
+                .unwrap()
+                .1
+                .iter()
+                .next()
+                .unwrap();
+            let prev_block = chain.get_block(&prev_block_hash).unwrap();
             let block = TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
                 .height(height)
                 .build();
@@ -1469,7 +1569,7 @@ mod tests {
         assert_eq!(chain.head().unwrap().height, next_block_height + num_blocks - 1);
     }
 
-    /// Verify that a new resharding event can't be triggered if another one has already started.
+    /// Verify that a new incompatible resharding event can't be triggered if another one has already started.
     #[test]
     fn concurrent_reshardings_are_disallowed() {
         init_test_logger();
@@ -1491,10 +1591,24 @@ mod tests {
             split_params.left_child_shard,
             split_params.right_child_shard,
         );
-        resharder.split_shard_task_impl(parent_shard, &split_params, &metrics);
+        resharder.split_shard_task_impl(
+            parent_shard,
+            &split_params,
+            &split_params.resharding_blocks[0],
+            &metrics,
+        );
+        resharder
+            .resharding_event
+            .lock()
+            .unwrap()
+            .as_mut()
+            .map(|event| event.set_execution_status(TaskExecutionStatus::Started));
 
         assert!(resharder.resharding_event().is_some());
-        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_err());
+        assert_matches!(
+            resharder.start_resharding(resharding_event_type, &new_shard_layout),
+            Err(_)
+        );
     }
 
     /// Flat storage shard status should be set correctly upon starting a shard split.
@@ -1563,11 +1677,11 @@ mod tests {
                 left_child_shard,
                 right_child_shard,
                 shard_layout: new_shard_layout,
-                resharding_block: BlockInfo {
+                resharding_blocks: vec![BlockInfo {
                     hash: CryptoHash::default(),
                     height: 2,
                     prev_hash: CryptoHash::default(),
-                },
+                }],
                 flat_head: BlockInfo {
                     hash: CryptoHash::default(),
                     height: 1,
@@ -2699,5 +2813,75 @@ mod tests {
             // However, the unrelated account should not end up in any child.
             assert!(flat_store.get(child, &key.to_vec()).is_ok_and(|val| val.is_none()));
         }
+    }
+
+    /// Test to validate that split shard resharding works if the chain undergoes a fork across the
+    /// resharding boundary. In this specific test we want to assert that the whole operation
+    /// succeed even if the older fork (chronologically) ends up becoming part of the canonical
+    /// chain.
+    /// The complementary test to this is `resharding_event_not_started_can_be_replaced`, which tests
+    /// forks where the newest path is finalized.
+    ///
+    /// Timeline:
+    /// ------- Fork 1 -------> canonical chain
+    ///    |
+    ///     -------- Fork 2 --> discarded
+    #[test]
+    fn split_shard_in_forks_when_older_branch_is_finalized() {
+        init_test_logger();
+        let (mut chain, resharder, sender) =
+            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
+        let new_shard_layout = shard_layout_after_split();
+        let flat_store = resharder.runtime.store().flat_store();
+
+        // Add two blocks on top of genesis.
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::ChainHead,
+            NextBlockHeight::ChainHeadPlusOne,
+        );
+
+        // Trigger resharding at block 2. Parent shard shouldn't get split yet.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
+
+        // Add two blocks on top of the first block (simulate a fork).
+        add_blocks_to_chain(
+            &mut chain,
+            2,
+            PreviousBlockHeight::Fixed(1),
+            NextBlockHeight::Fixed(3),
+        );
+
+        // Get the new resharding event and re-trigger the shard split.
+        let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
+        let ReshardingSplitShardParams { parent_shard, .. } = match resharding_event_type.clone() {
+            ReshardingEventType::SplitShard(params) => params,
+        };
+        assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
+        assert_eq!(sender.call_split_shard_task(), FlatStorageReshardingTaskResult::Postponed);
+        assert_gt!(flat_store.iter(parent_shard).count(), 0);
+
+        // Add three additional blocks on the fork to make the resharding block (height 2) final.
+        add_blocks_to_chain(
+            &mut chain,
+            3,
+            PreviousBlockHeight::Fixed(2),
+            NextBlockHeight::Fixed(5),
+        );
+
+        // Now the second resharding event should take place.
+        assert_matches!(
+            sender.call_split_shard_task(),
+            FlatStorageReshardingTaskResult::Successful { .. }
+        );
+
+        assert_eq!(flat_store.iter(parent_shard).count(), 0);
     }
 }

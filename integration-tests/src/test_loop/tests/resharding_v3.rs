@@ -709,8 +709,6 @@ fn test_resharding_v3_drop_chunks_all() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and un-ignore this test
-#[ignore]
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
@@ -726,12 +724,10 @@ fn test_resharding_v3_resharding_block_in_fork() {
 }
 
 #[test]
-// TODO(resharding): fix nearcore and un-ignore this test
 // TODO(resharding): duplicate this test so that in one case resharding is performed on block
 //                   B(height=13) and in another case resharding is performed on block B'(height=13).
 //                   In the current scenario the real resharding happens on block B'. Low priority TODO
 //                   since it's a very rare corner case.
-#[ignore]
 #[cfg(feature = "test_features")]
 fn test_resharding_v3_double_sign_resharding_block() {
     test_resharding_v3_base(
