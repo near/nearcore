@@ -1600,7 +1600,7 @@ impl Runtime {
                 Ok(v) => v,
                 Err(e) => {
                     if checked_feature!(
-                        "protocol_feature_relaxed_chunk_validation",
+                        "stable",
                         RelaxedChunkValidation,
                         processing_state.protocol_version
                     ) {

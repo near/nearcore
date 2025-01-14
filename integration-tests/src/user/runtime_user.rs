@@ -263,14 +263,10 @@ impl RuntimeUser {
                 None
             }
         });
-        let status = if cfg!(feature = "protocol_feature_relaxed_chunk_validation") {
-            // If we don't find the transaction at all, it must have been ignored due to having
-            // been an invalid transaction (but due to relaxed validation we do not invalidate the
-            // entire chunk.)
-            status?
-        } else {
-            status.expect("results should resolve to a final outcome")
-        };
+        // If we don't find the transaction at all, it must have been ignored due to having
+        // been an invalid transaction (but due to relaxed validation we do not invalidate the
+        // entire chunk.)
+        let status = status?;
         let receipts = outcomes.split_off(1);
         let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
         Some(FinalExecutionOutcomeView {
