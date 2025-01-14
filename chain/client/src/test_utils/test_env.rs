@@ -97,14 +97,17 @@ impl TestEnv {
         // runs gc
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
         let epoch_manager = self.clients[id].chain.epoch_manager.clone();
+        let shard_tracker = self.clients[id].chain.shard_tracker.clone();
         let gc_config = self.clients[id].config.gc.clone();
+        let signer = self.clients[id].validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id());
 
         // A RPC node should do regular garbage collection.
         if !self.clients[id].config.archive {
             self.clients[id]
                 .chain
                 .mut_chain_store()
-                .clear_data(&gc_config, runtime_adapter, epoch_manager)
+                .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
                 .unwrap();
         } else {
             // An archival node with split storage should perform garbage collection
@@ -117,7 +120,7 @@ impl TestEnv {
                 self.clients[id]
                     .chain
                     .mut_chain_store()
-                    .clear_data(&gc_config, runtime_adapter, epoch_manager)
+                    .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
                     .unwrap();
             } else {
                 // An archival node with legacy storage or in the midst of migration to split

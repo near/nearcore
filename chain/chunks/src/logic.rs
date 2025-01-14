@@ -1,3 +1,4 @@
+use near_chain::sharding::cares_about_shard_this_or_next_epoch;
 use near_chain::ChainStoreAccess;
 use near_chain::{
     types::EpochManagerAdapter, validate::validate_chunk_proofs, BlockHeader, Chain, ChainStore,
@@ -35,18 +36,6 @@ pub fn need_part(
 ) -> Result<bool, EpochError> {
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
     Ok(Some(&epoch_manager.get_part_owner(&epoch_id, part_ord)?) == me)
-}
-
-pub fn cares_about_shard_this_or_next_epoch(
-    account_id: Option<&AccountId>,
-    parent_hash: &CryptoHash,
-    shard_id: ShardId,
-    is_me: bool,
-    shard_tracker: &ShardTracker,
-) -> bool {
-    // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
-    shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
-        || shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
 }
 
 pub fn get_shards_cares_about_this_or_next_epoch(

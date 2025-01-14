@@ -82,8 +82,7 @@ use crate::adapter::ShardsManagerRequestFromClient;
 use crate::chunk_cache::{EncodedChunksCache, EncodedChunksCacheEntry};
 use crate::client::ShardsManagerResponse;
 use crate::logic::{
-    cares_about_shard_this_or_next_epoch, chunk_needs_to_be_fetched_from_archival,
-    decode_encoded_chunk, make_outgoing_receipts_proofs,
+    chunk_needs_to_be_fetched_from_archival, decode_encoded_chunk, make_outgoing_receipts_proofs,
     make_partial_encoded_chunk_from_owned_parts_and_needed_receipts, need_part, need_receipt,
 };
 use crate::metrics;
@@ -96,6 +95,7 @@ use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
+use near_chain::sharding::cares_about_shard_this_or_next_epoch;
 use near_chain::signature_verification::{
     verify_chunk_header_signature_with_epoch_manager,
     verify_chunk_header_signature_with_epoch_manager_and_parts,

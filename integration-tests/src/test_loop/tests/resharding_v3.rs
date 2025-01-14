@@ -566,8 +566,6 @@ fn shard_sequence_to_schedule(mut shard_sequence: Vec<ShardId>) -> Vec<Vec<Shard
 }
 
 #[test]
-// TODO(resharding): fix nearcore and un-ignore this test
-#[ignore]
 fn test_resharding_v3_state_cleanup() {
     // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
     // Eventually, the State column should only contain entries belonging to the last tracked shard.

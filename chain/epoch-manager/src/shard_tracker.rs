@@ -206,6 +206,10 @@ impl ShardTracker {
             }
         }
     }
+
+    pub fn tracks_all_shards(&self) -> bool {
+        matches!(self.tracked_config, TrackedConfig::AllShards)
+    }
 }
 
 #[cfg(test)]

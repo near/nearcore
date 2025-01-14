@@ -374,7 +374,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     }
 
     // Whether we found any value in DB for which we could test the mapping.
-    let mut checked_any_key = false;
+    let mut has_any_parent_shard_uid_prefix = false;
     let trie_store = store.trie_store();
     for kv in store.iter_raw_bytes(DBCol::State) {
         let (key, value) = kv.unwrap();
@@ -384,6 +384,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
         if shard_uid != parent_shard_uid {
             continue;
         }
+        has_any_parent_shard_uid_prefix = true;
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
         let (value, rc) = decode_value_with_rc(&value);
         // It is possible we have delayed receipts leftovers on disk,
@@ -406,9 +407,11 @@ pub fn check_state_shard_uid_mapping_after_resharding(
             let child_value = trie_store.get(*child_shard_uid, &node_hash);
             assert_eq!(&child_value.unwrap()[..], value.unwrap());
         }
-        checked_any_key = true;
     }
-    assert!(checked_any_key);
+    // If ShardUId mapping has not been cleared out yet, it means we still have the parent State.
+    if !shard_uid_mapping.is_empty() {
+        assert!(has_any_parent_shard_uid_prefix);
+    }
 
     let shards_tracked_before_resharding = get_tracked_shards(client, resharding_block_hash);
     let tracked_parent_before_resharding =
@@ -426,7 +429,10 @@ pub fn check_state_shard_uid_mapping_after_resharding(
         .iter()
         .any(|child_shard_uid| shards_tracked_after_resharding.contains(child_shard_uid))
     {
-        assert_eq!(shard_uid_mapping.len(), 2);
+        // If the parent state has not been cleaned up yet, it means the ShardUId mapping is still there.
+        if has_any_parent_shard_uid_prefix {
+            assert_eq!(shard_uid_mapping.len(), 2);
+        }
     } else if tracked_parent_before_resharding {
         // Parent was tracked before resharding, but no child was tracked after resharding.
         // TODO(resharding) Consider not resharding in such case. If fixed, the assert below should change from 2 to 0.

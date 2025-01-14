@@ -748,6 +748,8 @@ impl TestLoopBuilder {
             chain_genesis.height,
             runtime_adapter.clone(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
+            validator_signer.clone(),
             client_config.gc.clone(),
             client_config.archive,
         );
