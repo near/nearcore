@@ -237,6 +237,7 @@ impl ChainStore {
                 }
                 debug_assert_eq!(blocks_current_height.len(), 1);
 
+                // Do not clean up immediatelly, as we still need the State to run gc for this block.
                 let tracked_shards_in_gced_epoch_to_check_for_cleanup = if !shard_tracker
                     .tracks_all_shards()
                     && epoch_manager.is_last_block_in_finished_epoch(block_hash)?
@@ -1130,6 +1131,7 @@ fn gc_state(
     shard_tracker: &ShardTracker,
     me: Option<&AccountId>,
 ) -> Result<(), Error> {
+    let _span = tracing::debug_span!(target: "garbage_collection", "gc_state").entered();
     if tracked_shards_in_gced_epoch.is_empty() || shard_tracker.tracks_all_shards() {
         return Ok(());
     }
@@ -1194,6 +1196,7 @@ fn gc_state(
     }
 
     // Delete State of `shards_to_cleanup` and associated ShardUId mapping.
+    tracing::info!(target: "garbage_collection", ?shards_to_cleanup, ?shard_uid_mappings_to_remove, "state_cleanup");
     let mut trie_store_update = store.trie_store().store_update();
     for shard_uid_prefix in shards_to_cleanup {
         trie_store_update.delete_shard_uid_prefixed_state(shard_uid_prefix);
