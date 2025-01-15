@@ -26,6 +26,7 @@ use near_primitives::views::{
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
+use node_runtime::SignedValidPeriodTransactions;
 use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
@@ -102,7 +103,10 @@ impl RuntimeUser {
                     false,
                 )
             } else {
-                client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root)
+                let shard_uid = ShardUId::single_shard();
+                let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
+                trie.set_charge_gas_for_trie_node_access(true);
+                trie
             };
             let apply_result = client
                 .runtime
@@ -111,7 +115,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    &txs,
+                    SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
                     &self.epoch_info_provider,
                     Default::default(),
                 )

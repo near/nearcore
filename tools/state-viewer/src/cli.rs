@@ -219,7 +219,7 @@ impl StorageSource {
             StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
             StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
             // This is the same as FlatStorage handling. That's because memtrie initialization
-            // happens as part of `ShardTries::load_mem_trie` function call.
+            // happens as part of `ShardTries::load_memtrie` function call.
             StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
         }
     }

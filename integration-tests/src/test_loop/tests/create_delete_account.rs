@@ -33,7 +33,7 @@ fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &Acc
         nonce,
     );
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
 }
 
 /// Tracks latest block heights and checks that all chunks are produced.

@@ -2334,9 +2334,12 @@ fn test_validate_chunk_extra() {
     // using `capture`
 
     env.pause_block_processing(&mut capture, block2.hash());
-
-    let mut chain_store =
-        ChainStore::new(env.clients[0].chain.chain_store().store().clone(), genesis_height, true);
+    let mut chain_store = ChainStore::new(
+        env.clients[0].chain.chain_store().store().clone(),
+        genesis_height,
+        true,
+        genesis.config.transaction_validity_period,
+    );
     let chunk_header = encoded_chunk.cloned_header();
     let signer = env.clients[0].validator_signer.get();
     let validator_id = signer.as_ref().unwrap().validator_id().clone();

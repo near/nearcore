@@ -11,7 +11,7 @@ This approach has the following benefits:
 
 The main drawbacks of synthetic benchmarks are:
 
-- Drawing conclusions is limited as real world traffic is not homogenous.
+- Drawing conclusions is limited as real world traffic is not homogeneous.
 - Calibrating traffic generation parameters can be cumbersome.
 
 The tooling for synthetic benchmarks is available in [`benchmarks/bm-synth`](../../../benchmarks/bm-synth).

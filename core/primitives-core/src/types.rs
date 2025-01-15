@@ -54,7 +54,7 @@ pub type ProtocolVersion = u32;
 /// used instead.
 pub type ShardIndex = usize;
 
-/// The shard identifier. It may be a arbitrary number - it does not need to be
+/// The shard identifier. It may be an arbitrary number - it does not need to be
 /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
 /// sequential or contiguous.
 ///

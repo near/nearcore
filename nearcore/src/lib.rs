@@ -372,11 +372,12 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
+            Arc::new(RayonAsyncComputationSpawner),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
         runtime.store().clone(),
-        chain_genesis.height,
+        &chain_genesis,
         runtime.clone(),
         epoch_manager.clone(),
         config.client_config.gc.clone(),
@@ -384,11 +385,12 @@ pub fn start_with_config_and_synchronization(
     ));
 
     let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), chain_genesis.height));
+        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), &chain_genesis));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
+    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
     let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -397,7 +399,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone())),
+        state_sync_spawner.clone(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -434,6 +436,7 @@ pub fn start_with_config_and_synchronization(
         runtime,
         validator: config.validator_signer.clone(),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: state_sync_spawner,
         handle: None,
     };
     state_sync_dumper.start()?;

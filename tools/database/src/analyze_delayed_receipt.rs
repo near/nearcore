@@ -50,6 +50,7 @@ impl AnalyzeDelayedReceiptCommand {
             store.clone(),
             near_config.genesis.config.genesis_height,
             false,
+            near_config.genesis.config.transaction_validity_period,
         ));
         let epoch_manager =
             EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)

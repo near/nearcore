@@ -88,9 +88,8 @@ fn slow_test_fix_validator_stake_threshold() {
     // prior to threshold fix
     // threshold = min_stake_ratio * total_stake
     //           = (1 / 62_500) * total_stake
-    // TODO Chunk producer stake threshold is dependent on the number of shards, which should no
-    // longer be the case.  Get rid of num_shards once protocol is updated to correct the ratio.
-    assert_eq!(epoch_info.seat_price() * num_shards as u128 / ONE_NEAR, 600_000);
+    // Chunk producer stake threshold used to be dependent on the number of shards.
+    assert_eq!(epoch_info.seat_price() / ONE_NEAR, 600_000 / num_shards as u128);
 
     test_loop.run_until(
         |test_loop_data: &mut TestLoopData| {
@@ -112,12 +111,11 @@ fn slow_test_fix_validator_stake_threshold() {
                 client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             if protocol_version >= ProtocolFeature::FixStakingThreshold.protocol_version() {
                 let epoch_info = client.epoch_manager.get_epoch_info(&epoch_id).unwrap();
-                let num_shards =
-                    epoch_config_store.get_config(protocol_version).shard_layout.num_shards();
                 // after threshold fix
                 // threshold = min_stake_ratio * total_stake / (1 - min_stake_ratio)
                 //           = (1 / 62_500) * total_stake / (62_499 / 62_500)
-                assert_eq!(epoch_info.seat_price() * num_shards as u128 / ONE_NEAR, 600_001);
+                //           = total_stake / 62_499
+                assert_eq!(epoch_info.seat_price() / ONE_NEAR, total_stake / 62_499 / ONE_NEAR);
                 true
             } else {
                 false

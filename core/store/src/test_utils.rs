@@ -136,7 +136,7 @@ impl TestTriesBuilder {
         let tries = ShardTries::new(
             store.trie_store(),
             TrieConfig {
-                load_mem_tries_for_tracked_shards: self.enable_in_memory_tries,
+                load_memtries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
             },
             &shard_uids,
@@ -187,7 +187,7 @@ impl TestTriesBuilder {
             }
             update_for_chunk_extra.commit().unwrap();
 
-            tries.load_mem_tries_for_enabled_shards(&shard_uids, &[].into(), false).unwrap();
+            tries.load_memtries_for_enabled_shards(&shard_uids, &[].into(), false).unwrap();
         }
         tries
     }

@@ -55,7 +55,7 @@ pub static CHUNK_STATE_WITNESS_ENCODE_TIME: LazyLock<HistogramVec> = LazyLock::n
 pub static PROCESS_CONTRACT_CODE_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_process_contract_code_request_time",
-        "Total time taken to process contract code reuqest from a chunk validator",
+        "Total time taken to process contract code request from a chunk validator",
         &["shard_id"],
         Some(exponential_buckets(0.001, 2.0, 10).unwrap()),
     )
@@ -73,7 +73,7 @@ pub static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: LazyLock<IntCounter> = LazyLock
 pub static CHUNK_WITNESS_VALIDATION_FAILED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_chunk_witness_validation_failed_total",
-        "Witnesss validation failure count",
+        "Witness validation failure count",
         &["shard_id", "error"],
     )
     .unwrap()

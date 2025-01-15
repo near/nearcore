@@ -30,7 +30,7 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
@@ -44,7 +44,9 @@ use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
+use super::utils::network::{
+    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
+};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -62,6 +64,8 @@ enum DropConditionKind {
     /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
     /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
+    // Drops Block broadcast messages with height in `self.0`
+    BlocksByHeight(HashSet<BlockHeight>),
 }
 
 pub(crate) struct TestLoopBuilder {
@@ -82,7 +86,7 @@ pub(crate) struct TestLoopBuilder {
     archival_clients: HashSet<AccountId>,
     /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    /// Conditions under which chunks/endorsements are dropped.
+    /// Conditions under which chunks/endorsements/blocks are dropped.
     drop_condition_kinds: Vec<DropConditionKind>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
@@ -95,7 +99,7 @@ pub(crate) struct TestLoopBuilder {
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
     /// Overrides to test database behavior.
@@ -278,6 +282,9 @@ fn register_drop_condition(
                 drop_chunks_condition,
             ));
         }
+        DropConditionKind::BlocksByHeight(heights) => {
+            peer_manager_actor.register_override_handler(block_dropper_by_height(heights.clone()));
+        }
     }
 }
 
@@ -298,7 +305,7 @@ impl TestLoopBuilder {
             config_modifier: None,
             warmup: true,
             track_all_shards: false,
-            load_mem_tries_for_tracked_shards: true,
+            load_memtries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
             test_store_flags: Default::default(),
         }
@@ -388,6 +395,13 @@ impl TestLoopBuilder {
         self
     }
 
+    pub(crate) fn drop_blocks_by_height(mut self, heights: HashSet<BlockHeight>) -> Self {
+        if !heights.is_empty() {
+            self.drop_condition_kinds.push(DropConditionKind::BlocksByHeight(heights));
+        }
+        self
+    }
+
     pub(crate) fn gc_num_epochs_to_keep(mut self, num_epochs: u64) -> Self {
         self.gc_num_epochs_to_keep = Some(num_epochs);
         self
@@ -417,8 +431,8 @@ impl TestLoopBuilder {
         self
     }
 
-    pub fn load_mem_tries_for_tracked_shards(mut self, load_mem_tries: bool) -> Self {
-        self.load_mem_tries_for_tracked_shards = load_mem_tries;
+    pub fn load_memtries_for_tracked_shards(mut self, load_memtries: bool) -> Self {
+        self.load_memtries_for_tracked_shards = load_memtries;
         self
     }
 
@@ -503,6 +517,7 @@ impl TestLoopBuilder {
         let genesis = self.genesis.as_ref().unwrap();
         let epoch_config_store = self.epoch_config_store.as_ref().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
+        client_config.epoch_length = genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
         client_config.state_sync_external_timeout = Duration::milliseconds(100);
@@ -555,7 +570,7 @@ impl TestLoopBuilder {
 
         let store_config = StoreConfig {
             path: Some(homedir.clone()),
-            load_mem_tries_for_tracked_shards: self.load_mem_tries_for_tracked_shards,
+            load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             ..Default::default()
         };
 
@@ -592,6 +607,7 @@ impl TestLoopBuilder {
             self.runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
+            client_config.gc.gc_num_epochs_to_keep,
         );
 
         let state_snapshot = StateSnapshotActor::new(
@@ -670,6 +686,7 @@ impl TestLoopBuilder {
                     self.runtime_config_store.clone(),
                     TrieConfig::from_store_config(&store_config),
                     StateSnapshotType::EveryEpoch,
+                    client_config.gc.gc_num_epochs_to_keep,
                 );
                 (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
             } else {
@@ -724,11 +741,12 @@ impl TestLoopBuilder {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
         );
 
         let gc_actor = GCActor::new(
             runtime_adapter.store().clone(),
-            chain_genesis.height,
+            &chain_genesis,
             runtime_adapter.clone(),
             epoch_manager.clone(),
             client_config.gc.clone(),
@@ -738,7 +756,7 @@ impl TestLoopBuilder {
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
 
         let resharding_actor =
-            ReshardingActor::new(runtime_adapter.store().clone(), chain_genesis.height);
+            ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
 
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
@@ -753,6 +771,7 @@ impl TestLoopBuilder {
                 future_spawner.spawn_boxed("state_sync_dumper", future);
                 Box::new(|| {})
             }),
+            future_spawner: Arc::new(self.test_loop.future_spawner()),
             handle: None,
         };
         let state_sync_dumper_handle = self.test_loop.data.register_data(state_sync_dumper);

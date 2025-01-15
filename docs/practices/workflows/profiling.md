@@ -136,7 +136,7 @@ $ cargo build --release -p bytehound-preload
 $ cargo build --release -p bytehound-cli
 ```
 
-You will also need a build of your `neard`, once you have that, give it some ambient cabapilities
+You will also need a build of your `neard`, once you have that, give it some ambient capabilities
 necessary for profiling:
 
 ```command
