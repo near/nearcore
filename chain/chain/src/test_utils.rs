@@ -297,7 +297,8 @@ mod test {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {
-                    shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
+                    receipt.send_to_all_shards()
+                        || shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
                 })
                 .cloned()
                 .collect();

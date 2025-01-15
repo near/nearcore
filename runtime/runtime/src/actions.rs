@@ -9,6 +9,7 @@ use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::{DeployGlobalContractAction, UseGlobalContractAction};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -653,6 +654,19 @@ pub(crate) fn action_deploy_contract(
     Ok(())
 }
 
+pub(crate) fn action_deploy_global_contract(
+    account_id: &AccountId,
+    deploy_contract: &DeployGlobalContractAction,
+    result: &mut ActionResult,
+) -> Result<(), StorageError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
+    result.new_receipts.push(Receipt::new_global_contract_distribution(
+        account_id.clone(),
+        deploy_contract.code.clone(),
+    ));
+    Ok(())
+}
+
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
@@ -880,6 +894,25 @@ pub(crate) fn apply_delegate_action(
     Ok(())
 }
 
+pub(crate) fn action_use_global_contract(
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    action: &UseGlobalContractAction,
+) -> Result<(), RuntimeError> {
+    if !state_update.contains_key(&near_primitives::trie_key::TrieKey::GlobalContractCode {
+        code_hash: action.global_code_hash,
+    })? {
+        // TODO: error instead of panic
+        panic!("Global contract does not exist");
+    }
+    if account.code_hash() != CryptoHash::default() {
+        todo!("update storage when non-global contract was previously used")
+    }
+    // TODO: change Account struct to natively support global contracts
+    account.set_code_hash(action.global_code_hash);
+    Ok(())
+}
+
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match receipt.receipt() {
@@ -899,7 +932,9 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
             required_gas
         }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_)
+        | ReceiptEnum::GlobalContractDitribution(_) => 0,
     })
 }
 
@@ -1025,7 +1060,12 @@ pub(crate) fn check_actor_permissions(
     account_id: &AccountId,
 ) -> Result<(), ActionError> {
     match action {
-        Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
+        Action::DeployContract(_)
+        | Action::DeployGlobalContract(_)
+        | Action::Stake(_)
+        | Action::AddKey(_)
+        | Action::UseGlobalContract(_)
+        | Action::DeleteKey(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1137,7 +1177,9 @@ pub(crate) fn check_account_existence(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_)
-        | Action::Delegate(_) => {
+        | Action::Delegate(_)
+        | Action::DeployGlobalContract(_)
+        | Action::UseGlobalContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

@@ -65,7 +65,9 @@ fn receipt_cost(
             }
             total_cost
         }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_)
+        | ReceiptEnum::GlobalContractDitribution(_) => 0,
     })
 }
 
@@ -258,6 +260,10 @@ fn potential_postponed_receipt_ids(
                     account_id.clone(),
                     data_receipt.data_id,
                 ))),
+                ReceiptEnum::GlobalContractDitribution(_) => {
+                    // TODO(#12639): handle global contract distribution
+                    None
+                }
             }
         })
         .collect::<Result<HashSet<_>, StorageError>>()

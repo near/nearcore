@@ -360,6 +360,7 @@ impl StateChanges {
                 TrieKey::BandwidthSchedulerState => {}
                 TrieKey::BufferedReceiptGroupsQueueData { .. } => {}
                 TrieKey::BufferedReceiptGroupsQueueItem { .. } => {}
+                TrieKey::GlobalContractCode { .. } => {}
             }
         }
 
