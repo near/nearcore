@@ -377,37 +377,37 @@ fn run_state_sync_with_dumped_parts(
 #[test]
 fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 2, 5);
+    run_state_sync_with_dumped_parts(false, 2, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 2, 5);
+    run_state_sync_with_dumped_parts(true, 2, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 3, 5);
+    run_state_sync_with_dumped_parts(false, 3, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 3, 5);
+    run_state_sync_with_dumped_parts(true, 3, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 4, 5);
+    run_state_sync_with_dumped_parts(false, 4, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 4, 5);
+    run_state_sync_with_dumped_parts(true, 4, 8);
 }
 
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {
