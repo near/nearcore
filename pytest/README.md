@@ -81,7 +81,7 @@ the `__main__` condition like so:
         unittest.main()
 
 Alternatively, using the legacy way, the tests can be defined as
-`test_<foo>` functions with test bodies and than executed in
+`test_<foo>` functions with test bodies and then executed in
 a code fragment guarded by `if __name__ == '__main__'` condition.
 
 If the test operates on the nodes running in a cluster, it will very

@@ -244,6 +244,12 @@ def _clear_state_parts_if_exists(location, nodes):
     if location is None:
         return
 
+    state_dumper_node = next(filter(lambda n: n.want_state_dump, nodes), None)
+    if state_dumper_node is None:
+        logger.info('No state dumper node found, skipping state parts cleanup.')
+        return
+    logger.info('State dumper node found, cleaning up state parts.')
+
     if location.get('Filesystem') is not None:
         root_dir = location['Filesystem']['root_dir']
         shutil.rmtree(root_dir)
@@ -253,13 +259,7 @@ def _clear_state_parts_if_exists(location, nodes):
     # bucket where it dumped the parts.
     bucket_name = location['GCS']['bucket']
 
-    state_dumper_node = next(filter(lambda n: n.want_state_dump, nodes), None)
-    if state_dumper_node is None:
-        logger.info('No state dumper node found, skipping state parts cleanup.')
-        return
-
-    logger.info('State dumper node found, cleaning up state parts.')
-    state_dumper_node.run_cmd(f'gsutil -m rm -r gs://{bucket_name}/chain_id=\*',
+    state_dumper_node.run_cmd(f'gsutil -m rm -r gs://{bucket_name}/chain_id=*',
                               return_on_fail=True)
 
 
@@ -276,11 +276,7 @@ def _get_state_parts_location(args):
                         'state-parts')
             }
         }
-    else:
-        if args.gcs_state_sync:
-            return {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
-        else:
-            return None
+    return {"GCS": {"bucket": _get_state_parts_bucket_name(args)}}
 
 
 def new_test_cmd(args, traffic_generator, nodes):
@@ -320,7 +316,9 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             args.genesis_protocol_version,
             genesis_time=genesis_time), targeted)
 
-    location = _get_state_parts_location(args)
+    location = None
+    if args.gcs_state_sync:
+        location = _get_state_parts_location(args)
     logger.info('Applying default config changes')
     pmap(lambda node: _apply_config_changes(node, location), targeted)
 
@@ -624,7 +622,12 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--new-chain-id', type=str)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--stateless-setup', action='store_true')
-    new_test_parser.add_argument('--gcs-state-sync', action='store_true')
+    new_test_parser.add_argument(
+        '--gcs-state-sync',
+        action='store_true',
+        help=
+        """Enable state dumper nodes to sync state to GCS. On localtest, it will dump locally."""
+    )
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test_cmd)
 

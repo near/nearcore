@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
-use near_primitives::bandwidth_scheduler::{BandwidthSchedulerParams, BandwidthSchedulerState};
+use near_primitives::bandwidth_scheduler::{
+    BandwidthSchedulerParams, BandwidthSchedulerState, BandwidthSchedulerStateV1,
+};
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -12,6 +14,7 @@ use scheduler::{BandwidthScheduler, GrantedBandwidth, ShardStatus};
 
 use crate::ApplyState;
 
+mod distribute_remaining;
 mod scheduler;
 #[cfg(test)]
 mod simulator;
@@ -41,17 +44,18 @@ pub fn run_bandwidth_scheduler(
         target: "runtime",
         "run_bandwidth_scheduler",
         height = apply_state.block_height,
-        shard_id = ?apply_state.shard_id);
+        shard_id = ?apply_state.shard_id)
+    .entered();
 
     // Read the current scheduler state from the Trie
     let mut scheduler_state = match get_bandwidth_scheduler_state(state_update)? {
         Some(prev_state) => prev_state,
         None => {
             tracing::debug!(target: "runtime", "Bandwidth scheduler state not found - initializing");
-            BandwidthSchedulerState {
+            BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
                 link_allowances: Vec::new(),
                 sanity_check_hash: CryptoHash::default(),
-            }
+            })
         }
     };
 
@@ -103,10 +107,14 @@ pub fn run_bandwidth_scheduler(
     // This is a sanity check to make sure that all shards run the scheduler with the same inputs.
     // It would be a bit nicer to hash all inputs, but that could be slow and the serialization
     // format of the hashed structs would become part of the protocol.
-    let mut sanity_check_bytes = Vec::new();
-    sanity_check_bytes.extend_from_slice(scheduler_state.sanity_check_hash.as_ref());
-    sanity_check_bytes.extend_from_slice(CryptoHash::hash_borsh(&all_shards).as_ref());
-    scheduler_state.sanity_check_hash = CryptoHash::hash_bytes(&sanity_check_bytes);
+    match &mut scheduler_state {
+        BandwidthSchedulerState::V1(scheduler_state) => {
+            let mut sanity_check_bytes = Vec::new();
+            sanity_check_bytes.extend_from_slice(scheduler_state.sanity_check_hash.as_ref());
+            sanity_check_bytes.extend_from_slice(CryptoHash::hash_borsh(&all_shards).as_ref());
+            scheduler_state.sanity_check_hash = CryptoHash::hash_bytes(&sanity_check_bytes);
+        }
+    };
 
     // Save the updated scheduler state to the trie.
     set_bandwidth_scheduler_state(state_update, &scheduler_state);

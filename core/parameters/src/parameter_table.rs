@@ -584,7 +584,7 @@ mod tests {
         check_parameter_table("", &[], []);
     }
 
-    /// Reading reading a normally formatted base parameter file with no diffs
+    /// Reading a normally formatted base parameter file with no diffs
     #[test]
     fn test_basic_parameter_table() {
         check_parameter_table(
@@ -605,7 +605,7 @@ mod tests {
         );
     }
 
-    /// Reading reading a slightly funky formatted base parameter file with no diffs
+    /// Reading a slightly funky formatted base parameter file with no diffs
     #[test]
     fn test_basic_parameter_table_weird_syntax() {
         check_parameter_table(

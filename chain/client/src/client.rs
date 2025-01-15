@@ -1682,7 +1682,7 @@ impl Client {
             // layout is changing we need to reshard the transaction pool.
             // TODO make sure transactions don't get added for the old shard
             // layout after the pool resharding
-            // TODO check if this logic works in resharding V3
+            // TODO(resharding) check if this logic works in resharding V3
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
                     self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
@@ -2253,7 +2253,8 @@ impl Client {
             validators.remove(account_id);
         }
         for validator in validators {
-            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, ?shard_id, "Routing a transaction");
+            let tx_hash = tx.get_hash();
+            trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, ?shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -2331,15 +2332,14 @@ impl Client {
         let me = signer.as_ref().map(|vs| vs.validator_id());
         let cur_block = self.chain.get_head_block()?;
         let cur_block_header = cur_block.header();
-        let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
-        if let Err(e) = self.chain.chain_store().check_transaction_validity_period(
-            &cur_block_header,
-            tx.transaction.block_hash(),
-            transaction_validity_period,
-        ) {
+        if let Err(e) = self
+            .chain
+            .chain_store()
+            .check_transaction_validity_period(&cur_block_header, tx.transaction.block_hash())
+        {
             debug!(target: "client", ?tx, "Invalid tx: expired or from a different fork");
             return Ok(ProcessTxResponse::InvalidTx(e));
         }

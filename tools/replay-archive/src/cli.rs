@@ -39,7 +39,7 @@ use std::sync::Arc;
 
 /// This command assumes that it is run from an archival node
 /// and not all the operations data that is available for a
-/// regular validator may not be available in the archival database.
+/// regular validator might not be available in the archival database.
 #[derive(clap::Parser)]
 pub struct ReplayArchiveCommand {
     #[clap(long)]
@@ -116,7 +116,12 @@ impl ReplayController {
         let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
-        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(
+            store.clone(),
+            genesis_height,
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
         let start_height = start_height.unwrap_or(genesis_height);
@@ -341,6 +346,8 @@ impl ReplayController {
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
                 transactions: chunk.transactions().to_vec(),
+                // FIXME: see the `validate_chunk` thing above.
+                transaction_validity_check_results: vec![true; chunk.transactions().len()],
                 receipts,
                 block: block_context,
                 is_first_block_with_chunk_of_version,
@@ -438,6 +445,8 @@ impl ReplayController {
         {
             bail!("Failed to validate chunk proofs");
         }
+        // FIXME: this should be using Chain::validate_chunk_transactions instead of doing its own
+        // thing?
         if !validate_transactions_order(chunk.transactions()) {
             bail!("Failed to validate transactions order in the chunk");
         }
@@ -499,7 +508,7 @@ impl ReplayController {
     }
 
     /// Saves the ChunkExtras for the shards in the genesis block.
-    /// Note that there is no chunks in the genesis block, so we directly generate the ChunkExtras
+    /// Note that there are no chunks in the genesis block, so we directly generate the ChunkExtras
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
         let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);

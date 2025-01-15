@@ -58,7 +58,7 @@ For example:
 
 (Currently the package name is ignored but it may change in the future
 so make sure it’s set correctly).  The path to the test function must
-match exactly an the test binary is called with `--exact` argument.
+match exactly the test binary is called with `--exact` argument.
 
 ### Other arguments
 

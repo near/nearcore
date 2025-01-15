@@ -652,7 +652,7 @@ impl EpochSync {
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
-                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period))
+                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
                 >= status.source_peer_height
             {
                 tracing::error!(
@@ -994,7 +994,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
         let network_adapter = self.client.network_adapter.clone();
         let requester_peer_id = msg.from_peer;
         let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
-        let transaction_validity_period = self.client.chain.transaction_validity_period;
+        let transaction_validity_period = self.client.chain.transaction_validity_period();
         self.client.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync request",
             move || {

@@ -172,7 +172,7 @@ impl NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
@@ -614,6 +614,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(&(&prev_block.block_hash))?;
@@ -635,7 +636,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // flat storage by not charging gas for trie nodes.
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
                 let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.dont_charge_gas_for_trie_node_access();
+                trie.set_charge_gas_for_trie_node_access(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
@@ -650,15 +651,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads();
+            let proof_size_limit =
+                runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
+            trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
         }
         let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
-
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         let transactions_gas_limit =
             chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
@@ -799,7 +800,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
         }
-        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
+        debug!(target: "runtime", limited_by=?result.limited_by, "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         let shard_label = shard_id.to_string();
         metrics::PREPARE_TX_SIZE.with_label_values(&[&shard_label]).observe(total_size as f64);
         metrics::PREPARE_TX_REJECTED
@@ -838,7 +839,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error> {
         let shard_id = chunk.shard_id;
         let _timer = metrics::APPLYING_CHUNKS_TIME
@@ -862,7 +863,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     storage_config.state_root,
                     false,
                 )?;
-                trie.dont_charge_gas_for_trie_node_access();
+                trie.set_charge_gas_for_trie_node_access(false);
                 trie
             }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
@@ -882,7 +883,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads();
+            let epoch_id =
+                self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let config = self.runtime_config_store.get_config(protocol_version);
+            let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
+            trie = trie.recording_reads_with_proof_size_limit(proof_limit);
         }
 
         match self.process_state_update(

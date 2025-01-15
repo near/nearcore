@@ -1,11 +1,11 @@
 use super::arena::single_thread::STArena;
-use super::mem_tries::MemTries;
+use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 use crate::adapter::StoreAdapter;
 use crate::flat::FlatStorageStatus;
 use crate::trie::mem::arena::Arena;
 use crate::trie::mem::construction::TrieConstructor;
-use crate::trie::mem::mem_trie_update::TrackingMode;
+use crate::trie::mem::memtrie_update::TrackingMode;
 use crate::trie::mem::parallel_loader::load_memtrie_in_parallel;
 use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::{DBCol, NibbleSlice, Store};
@@ -137,7 +137,7 @@ pub fn load_trie_from_flat_state_and_delta(
         None => get_state_root(store, flat_head.hash, shard_uid)?,
     };
 
-    let mut mem_tries =
+    let mut memtries =
         load_trie_from_flat_state(&store, shard_uid, state_root, flat_head.height, parallelize)
             .unwrap();
 
@@ -156,7 +156,7 @@ pub fn load_trie_from_flat_state_and_delta(
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
             let new_state_root = get_state_root(store, hash, shard_uid)?;
 
-            let mut trie_update = mem_tries.update(old_state_root, TrackingMode::None)?;
+            let mut trie_update = memtries.update(old_state_root, TrackingMode::None)?;
             for (key, value) in changes.0 {
                 match value {
                     Some(value) => {
@@ -166,15 +166,15 @@ pub fn load_trie_from_flat_state_and_delta(
                 };
             }
 
-            let mem_trie_changes = trie_update.to_mem_trie_changes_only();
-            let new_root_after_apply = mem_tries.apply_memtrie_changes(height, &mem_trie_changes);
+            let memtrie_changes = trie_update.to_memtrie_changes_only();
+            let new_root_after_apply = memtries.apply_memtrie_changes(height, &memtrie_changes);
             assert_eq!(new_root_after_apply, new_state_root);
         }
         debug!(target: "memtrie", %shard_uid, "Applied memtrie changes for height {}", height);
     }
 
     debug!(target: "memtrie", %shard_uid, "Done loading memtries for shard");
-    Ok(mem_tries)
+    Ok(memtries)
 }
 
 #[cfg(test)]
@@ -446,30 +446,30 @@ mod tests {
         // Load into memory. It should load the base flat state (block 0), plus all
         // four deltas. We'll check against the state roots at each block; they should
         // all exist in the loaded memtrie.
-        let mem_tries = load_trie_from_flat_state_and_delta(&store, shard_uid, None, true).unwrap();
+        let memtries = load_trie_from_flat_state_and_delta(&store, shard_uid, None, true).unwrap();
 
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None)
+            memtrie_lookup(memtries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None)
                 .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val0))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_1).unwrap(), &test_key.to_vec(), None)
+            memtrie_lookup(memtries.get_root(&state_root_1).unwrap(), &test_key.to_vec(), None)
                 .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val1))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_2).unwrap(), &test_key.to_vec(), None)
+            memtrie_lookup(memtries.get_root(&state_root_2).unwrap(), &test_key.to_vec(), None)
                 .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val2))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_3).unwrap(), &test_key.to_vec(), None)
+            memtrie_lookup(memtries.get_root(&state_root_3).unwrap(), &test_key.to_vec(), None)
                 .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val3))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_4).unwrap(), &test_key.to_vec(), None)
+            memtrie_lookup(memtries.get_root(&state_root_4).unwrap(), &test_key.to_vec(), None)
                 .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val4))
         );

@@ -293,14 +293,17 @@ pub(crate) fn validate_receipt(
     limit_config: &LimitConfig,
     receipt: &Receipt,
     current_protocol_version: ProtocolVersion,
+    mode: ValidateReceiptMode,
 ) -> Result<(), ReceiptValidationError> {
-    let receipt_size: u64 =
-        borsh::to_vec(receipt).unwrap().len().try_into().expect("Can't convert usize to u64");
-    if receipt_size > limit_config.max_receipt_size {
-        return Err(ReceiptValidationError::ReceiptSizeExceeded {
-            size: receipt_size,
-            limit: limit_config.max_receipt_size,
-        });
+    if mode == ValidateReceiptMode::NewReceipt {
+        let receipt_size: u64 =
+            borsh::to_vec(receipt).unwrap().len().try_into().expect("Can't convert usize to u64");
+        if receipt_size > limit_config.max_receipt_size {
+            return Err(ReceiptValidationError::ReceiptSizeExceeded {
+                size: receipt_size,
+                limit: limit_config.max_receipt_size,
+            });
+        }
     }
 
     // We retain these checks here as to maintain backwards compatibility
@@ -323,6 +326,21 @@ pub(crate) fn validate_receipt(
             validate_data_receipt(limit_config, data_receipt)
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValidateReceiptMode {
+    /// Used for validating new receipts that were just created.
+    /// More strict than `OldReceipt` mode, which has to handle older receipts.
+    NewReceipt,
+    /// Used for validating older receipts that were saved in the state/received. Less strict than
+    /// NewReceipt validation. Tolerates some receipts that wouldn't pass new validation. It has to
+    /// be less strict because:
+    /// 1) Older receipts might have been created before new validation rules.
+    /// 2) There is a bug which allows to create receipts that are above the size limit. Runtime has
+    ///    to handle them gracefully until the receipt size limit bug is fixed.
+    ///    See https://github.com/near/nearcore/issues/12606 for details.
+    ExistingReceipt,
 }
 
 /// Validates given ActionReceipt. Checks validity of the number of input data dependencies and all actions.
@@ -1540,6 +1558,7 @@ mod tests {
             &limit_config,
             &Receipt::new_balance_refund(&alice_account(), 10, ReceiptPriority::NoPriority),
             PROTOCOL_VERSION,
+            ValidateReceiptMode::NewReceipt,
         )
         .expect("valid receipt");
     }

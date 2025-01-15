@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// is to crash or maybe ban a peer and/or send a challenge.
 ///
 /// A `VMOutcome` is a graceful completion of a VM execution. It can also contain
-/// an guest error message in the `aborted` field. But these are not errors in
+/// a guest error message in the `aborted` field. But these are not errors in
 /// the real sense, those are just reasons why execution failed at some point.
 /// Such as when a smart contract code panics.
 /// Note that the fact that `VMOutcome` contains is tracked on the blockchain.

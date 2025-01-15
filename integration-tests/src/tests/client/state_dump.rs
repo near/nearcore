@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 
+use near_async::futures::ActixFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -66,6 +67,7 @@ fn slow_test_state_dump() {
         runtime,
         validator,
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: Arc::new(ActixFutureSpawner),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -171,6 +173,7 @@ fn run_state_sync_with_dumped_parts(
         runtime,
         validator,
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: Arc::new(ActixFutureSpawner),
         handle: None,
     };
     state_sync_dumper.start().unwrap();

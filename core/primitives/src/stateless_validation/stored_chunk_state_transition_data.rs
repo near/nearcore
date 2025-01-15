@@ -23,7 +23,7 @@ impl StoredChunkStateTransitionData {
 #[derive(Debug, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct StoredChunkStateTransitionDataV1 {
     /// The partial state that is needed to apply the state transition,
-    /// whether it is a new chunk state transition or a implicit missing chunk
+    /// whether it is a new chunk state transition or an implicit missing chunk
     /// state transition.
     pub base_state: PartialState,
     /// If this is a new chunk state transition, the hash of the receipts that
