@@ -22,23 +22,32 @@ use tokio::time;
 
 #[derive(Args, Debug)]
 pub struct BenchmarkMpcSignArgs {
+    /// RPC node to which transactions are sent.
     #[arg(long)]
     pub rpc_url: String,
+    /// Directory containing data of the users that sign transactions.
     #[arg(long)]
     pub user_data_dir: PathBuf,
+    /// The number of transactions to send per second. May be lower when reaching hardware limits or
+    /// network congestion.
     #[arg(long)]
     pub transactions_per_second: u64,
+    /// The total number of transactions to send.
     #[arg(long)]
     pub num_transfers: u64,
+    /// The id of the account to which the MPC contract has been deployed.
     #[arg(long)]
     pub receiver_id: AccountId,
     /// The `key_version` passed as argument to `sign`.
     #[arg(long)]
     pub key_version: u32,
+    /// Acts as upper bound on the number of concurrently open RPC requests.
     #[arg(long)]
     pub channel_buffer_size: usize,
+    /// The gas (in yoctoNEAR) attached to each `sign` function call transaction.
     #[arg(long)]
     pub gas: u64,
+    /// The deposit (in yoctoNEAR) attached to each `sign` function call transaction.
     #[arg(long)]
     pub deposit: u128,
 }
