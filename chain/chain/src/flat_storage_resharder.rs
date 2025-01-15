@@ -575,8 +575,8 @@ impl FlatStorageResharder {
                 }
             }
             FlatStorageReshardingTaskResult::Cancelled => {
-                // Remove children shards leftovers, but keep their state and the state of the
-                // parent as they are, so resharding can resume.
+                // Remove children shards leftovers, but keep intact their current status and deltas
+                // plus the current status of the parent, so resharding can resume later.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.remove_all_values(child_shard);
                 }
