@@ -62,7 +62,7 @@ http localhost:3030/metrics | grep transaction_processed
 
 ### Benchmark calls to the `sign` method of an MPC contract
 
-Assumes the accounts that send the transactions invoking `sign` have been created as described above. Transactions can be sent to a RPC of a network that on which an instance of the [`mpc/chain-signatures`](https://github.com/near/mpc/tree/79ec50759146221e7ad8bb04520f13333b75ca07/chain-signatures/contract) is deployed.
+Assumes the accounts that send the transactions invoking `sign` have been created as described above. Transactions can be sent to a RPC of a network on which an instance of the [`mpc/chain-signatures`](https://github.com/near/mpc/tree/79ec50759146221e7ad8bb04520f13333b75ca07/chain-signatures/contract) is deployed.
 
 Transactions are sent to the RPC with `wait_until: EXECUTED_OPTIMISTIC` as the throughput for `sign` is at a level at which neither the network nor the RPC are expected to be a bottleneck.
 
