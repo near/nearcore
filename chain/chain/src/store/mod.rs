@@ -932,12 +932,13 @@ impl ChainStore {
         )
     }
 
-    /// For each value stored, this returs an (EpochId, bool), where the bool tells whether it's finished
+    /// For each value stored, this returns an (EpochId, bool), where the bool tells whether it's finished
     /// because those are the only fields we really care about.
     pub fn iter_state_sync_dump_progress<'a>(
         &'a self,
     ) -> impl Iterator<Item = io::Result<(ShardId, (EpochId, bool))>> + 'a {
         self.store
+            .store_ref()
             .iter_prefix_ser::<StateSyncDumpProgress>(DBCol::BlockMisc, STATE_SYNC_DUMP_KEY)
             .map(|item| {
                 item.and_then(|(key, progress)| {

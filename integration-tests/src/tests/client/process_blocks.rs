@@ -2335,7 +2335,7 @@ fn test_validate_chunk_extra() {
 
     env.pause_block_processing(&mut capture, block2.hash());
     let mut chain_store = ChainStore::new(
-        env.clients[0].chain.chain_store().store().clone(),
+        env.clients[0].chain.chain_store().store(),
         genesis_height,
         true,
         genesis.config.transaction_validity_period,
