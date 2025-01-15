@@ -2178,25 +2178,40 @@ fn test_data_reset_before_state_sync() {
 #[test]
 fn test_sync_hash_validity() {
     init_test_logger();
-    let epoch_length = 5;
+    let epoch_length = 8;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    for i in 1..19 {
-        env.produce_block(0, i);
+    let mut height = 1;
 
-        let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
-        let block_hash = *header.hash();
-        let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
-        println!("height {} -> {}", i, valid);
-        if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            // This assumes that all shards have new chunks in every block, which should be true
-            // with TestEnv::produce_block()
-            assert_eq!(valid, (i % epoch_length) == 4);
-        } else {
-            assert_eq!(valid, header.epoch_id() != &EpochId::default() && (i % epoch_length) == 1);
+    for _num_epochs in 0..4 {
+        let epoch_start = height;
+        for _ in 0..epoch_length {
+            env.produce_block(0, height);
+            height += 1;
+        }
+        let expected_sync_height =
+            if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+                // This assumes that all shards have new chunks in every block, which should be true
+                // with TestEnv::produce_block()
+                epoch_start + 3
+            } else {
+                // No sync hash in the first epoch
+                if epoch_start < epoch_length {
+                    continue;
+                }
+                epoch_start
+            };
+
+        for h in epoch_start..height {
+            let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
+            let valid = env.clients[0].chain.check_sync_hash_validity(header.hash()).unwrap();
+
+            println!("height {} -> {}", header.height(), valid);
+            assert_eq!(valid, header.height() == expected_sync_height);
         }
     }
+
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
     println!("bad hash -> {:?}", res.is_ok());
