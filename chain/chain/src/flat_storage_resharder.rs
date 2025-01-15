@@ -564,17 +564,23 @@ impl FlatStorageResharder {
                     );
                 }
             }
-            FlatStorageReshardingTaskResult::Failed
-            | FlatStorageReshardingTaskResult::Cancelled => {
-                // We got an error or a cancellation request.
+            FlatStorageReshardingTaskResult::Failed => {
                 // Reset parent.
                 store_update.set_flat_storage_status(
                     parent_shard,
                     FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
                 );
-                // Remove children shards leftovers.
+                // Remove children shards entirely.
                 for child_shard in [left_child_shard, right_child_shard] {
                     store_update.remove_flat_storage(child_shard);
+                }
+            }
+            FlatStorageReshardingTaskResult::Cancelled => {
+                // Remove children shards leftovers, but keep their state and the state of the
+                // parent as they are, so resharding can resume.
+                for child_shard in [left_child_shard, right_child_shard] {
+                    store_update.remove_all_deltas(child_shard);
+                    store_update.remove_all_values(child_shard);
                 }
             }
             FlatStorageReshardingTaskResult::Postponed => {
@@ -1839,8 +1845,7 @@ mod tests {
         // Perform resharding.
         assert!(resharder.start_resharding(resharding_event_type, &new_shard_layout).is_ok());
         let (parent_shard, split_params) = resharder.get_parent_shard_and_split_params().unwrap();
-        let ParentSplitParameters { left_child_shard, right_child_shard, flat_head, .. } =
-            split_params;
+        let ParentSplitParameters { left_child_shard, right_child_shard, .. } = split_params;
 
         // Cancel the task before it starts.
         resharder.controller.handle.stop();
@@ -1848,16 +1853,17 @@ mod tests {
         // Run the task.
         sender.call_split_shard_task();
 
-        // Check that resharding was effectively cancelled.
+        // Check that the resharding task was effectively cancelled.
+        // Note that resharding as a whole is not cancelled: it should resume if the node restarts.
         let flat_store = resharder.runtime.store().flat_store();
-        assert_eq!(
+        assert_matches!(
             flat_store.get_flat_storage_status(parent_shard),
-            Ok(FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }))
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(_)))
         );
         for child_shard in [left_child_shard, right_child_shard] {
             assert_eq!(
                 flat_store.get_flat_storage_status(child_shard),
-                Ok(FlatStorageStatus::Empty)
+                Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::CreatingChild))
             );
             assert_eq!(flat_store.iter(child_shard).count(), 0);
         }
