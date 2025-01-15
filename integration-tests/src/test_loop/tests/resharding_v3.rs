@@ -671,7 +671,7 @@ fn test_resharding_v3_stop_track_child_for_5_epochs() {
 
 // Track parent shard before resharding, and track the first child after resharding.
 // Then track unrelated shard for 2 epochs, track the second child for one epoch,
-// track unrelated shard for 2 epochs, and track the original (first) child again. 
+// track unrelated shard for 2 epochs, and track the original (first) child again.
 // We expect the mapping to parent to be preserved, because there were not enough
 // epochs where we did not track any child for mapping to be removed.
 #[test]
