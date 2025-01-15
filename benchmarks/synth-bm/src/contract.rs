@@ -34,7 +34,7 @@ pub struct BenchmarkMpcSignArgs {
     pub transactions_per_second: u64,
     /// The total number of transactions to send.
     #[arg(long)]
-    pub num_transfers: u64,
+    pub num_transactions: u64,
     /// The id of the account to which the MPC contract has been deployed.
     #[arg(long)]
     pub receiver_id: AccountId,
@@ -78,7 +78,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     // Hence `wait_until: EXECUTED_OPTIMISTIC` as it provides most insights.
     let wait_until = TxExecutionStatus::ExecutedOptimistic;
     let wait_until_channel = wait_until.clone();
-    let num_expected_responses = args.num_transfers;
+    let num_expected_responses = args.num_transactions;
     let response_handler_task = tokio::task::spawn(async move {
         let mut rpc_response_handler = RpcResponseHandler::new(
             channel_rx,
@@ -91,7 +91,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
 
     info!("Setup complete, starting to send transactions");
     let timer = Instant::now();
-    for i in 0..args.num_transfers {
+    for i in 0..args.num_transactions {
         let sender_idx = usize::try_from(i).unwrap() % accounts.len();
         let sender = &accounts[sender_idx];
 
@@ -133,7 +133,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
 
     info!(
         "Done sending {} transactions in {:.2} seconds",
-        args.num_transfers,
+        args.num_transactions,
         timer.elapsed().as_secs_f64()
     );
 
