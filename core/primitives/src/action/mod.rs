@@ -106,6 +106,30 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+#[repr(u8)]
+pub enum GlobalContractDeployMode {
+    /// Contract is deployed under its code hash.
+    /// Users will be able reference it by that hash.
+    /// This effectively makes the contract immutable.
+    CodeHash,
+    /// Contract is deployed under the onwer account id.
+    /// Users will be able reference it by that account id.
+    /// This allows the owner to update the contract for all its users.
+    AccountId,
+}
+
 /// Deploy global contract action
 #[serde_as]
 #[derive(
@@ -123,16 +147,14 @@ pub struct DeployGlobalContractAction {
     #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
 
-    /// Enables global contract code to referenced by owner account id
-    /// instead of code hash
-    pub link_account: bool,
+    pub deploy_mode: GlobalContractDeployMode,
 }
 
 impl fmt::Debug for DeployGlobalContractAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DeployGlobalContractAction")
             .field("code", &format_args!("{}", base64(&self.code)))
-            .field("link_account", &format_args!("{}", &self.link_account))
+            .field("deploy_mode", &format_args!("{:?}", &self.deploy_mode))
             .finish()
     }
 }
