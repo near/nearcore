@@ -2407,7 +2407,7 @@ fn test_validate_chunk_extra() {
 #[test]
 fn slow_test_catchup_gas_price_change() {
     init_test_logger();
-    let epoch_length = 5;
+    let epoch_length = 8;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -2442,9 +2442,9 @@ fn slow_test_catchup_gas_price_change() {
 
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
-    // We go up to height 10 because height 6 is the first block of the new epoch, and we want at least
-    // 3 more blocks (plus one more for nodes to create snapshots) if syncing to the current epoch's state
-    for i in 3..=10 {
+    // We go up to the end of the next epoch because we want at least 3 more blocks from the start
+    // (plus one more for nodes to create snapshots) if syncing to the current epoch's state
+    for i in 3..=epoch_length * 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
