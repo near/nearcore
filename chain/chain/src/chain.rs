@@ -569,7 +569,7 @@ impl Chain {
         // of blocks_in_processing, which is set to 5 now.
         let (sc, rc) = unbounded();
         let resharding_manager = ReshardingManager::new(
-            chain_store.store().clone(),
+            chain_store.store(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
             chain_config.resharding_config,
@@ -664,7 +664,7 @@ impl Chain {
         congestion_info: Option<CongestionInfo>,
     ) -> Result<ChunkExtra, Error> {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let state_root = *get_genesis_state_roots(self.chain_store.store())?
+        let state_root = *get_genesis_state_roots(&self.chain_store.store())?
             .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
             .get(shard_index)
             .ok_or_else(|| {
