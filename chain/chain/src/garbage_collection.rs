@@ -18,7 +18,6 @@ use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, StoreUpdate};
 
-use crate::sharding::cares_about_shard_this_or_next_epoch;
 use crate::types::RuntimeAdapter;
 use crate::{metrics, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
@@ -237,19 +236,13 @@ impl ChainStore {
                 }
                 debug_assert_eq!(blocks_current_height.len(), 1);
 
-                // Do not clean up immediatelly, as we still need the State to run gc for this block.
-                let tracked_shards_in_gced_epoch_to_check_for_cleanup = if !shard_tracker
-                    .tracks_all_shards()
-                    && epoch_manager.is_last_block_in_finished_epoch(block_hash)?
-                {
-                    Some(get_tracked_shards_in_past_epoch(
-                        &chain_store_update,
-                        &epoch_manager,
-                        block_hash,
-                    )?)
-                } else {
-                    None
-                };
+                // Do not clean up immediately, as we still need the State in order to run gc for this block.
+                let potential_shards_for_cleanup = get_potential_shards_for_cleanup(
+                    &chain_store_update,
+                    &epoch_manager,
+                    shard_tracker,
+                    block_hash,
+                )?;
 
                 chain_store_update.clear_block_data(
                     epoch_manager.as_ref(),
@@ -258,9 +251,7 @@ impl ChainStore {
                 )?;
                 gc_blocks_remaining -= 1;
 
-                if let Some(potential_shards_for_cleanup) =
-                    tracked_shards_in_gced_epoch_to_check_for_cleanup
-                {
+                if let Some(potential_shards_for_cleanup) = potential_shards_for_cleanup {
                     gc_state(
                         &mut chain_store_update,
                         block_hash,
@@ -1083,19 +1074,25 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 }
 
-/// Returns shards that we tracked in a past epoch, given hash of a block in the epoch.
+/// Returns shards that we tracked in an epoch, given a hash of the last block in the epoch.
 /// The block has to be available, so this function has to be called before gc is run for the block.
 ///
-/// Note that validator ID or shard tracking config could have change since the epoch,
+/// Note that validator ID or shard tracking config could have change since the epoch passed,
 /// so we have to rely on what is stored in the database to figure out tracked shards.
 /// We rely on `TrieChanges` column to preserve what shards this node tracked at that time.
-fn get_tracked_shards_in_past_epoch(
+fn get_potential_shards_for_cleanup(
     chain_store_update: &ChainStoreUpdate,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
-    past_epoch_block_hash: &CryptoHash,
-) -> Result<Vec<ShardUId>, Error> {
+    shard_tracker: &ShardTracker,
+    block_hash: &CryptoHash,
+) -> Result<Option<Vec<ShardUId>>, Error> {
+    if shard_tracker.tracks_all_shards()
+        || !epoch_manager.is_last_block_in_finished_epoch(block_hash)?
+    {
+        return Ok(None);
+    }
     let block = chain_store_update
-        .get_block(past_epoch_block_hash)
+        .get_block(block_hash)
         .expect("block data is not expected to be already cleaned");
     let epoch_id = block.header().epoch_id();
     let shard_layout = epoch_manager.get_shard_layout(epoch_id).expect("epoch id must exist");
@@ -1103,18 +1100,18 @@ fn get_tracked_shards_in_past_epoch(
     for shard_uid in shard_layout.shard_uids() {
         if chain_store_update
             .store()
-            .exists(DBCol::TrieChanges, &get_block_shard_uid(&past_epoch_block_hash, &shard_uid))?
+            .exists(DBCol::TrieChanges, &get_block_shard_uid(&block_hash, &shard_uid))?
         {
             tracked_shards.push(shard_uid);
         }
     }
-    Ok(tracked_shards)
+    Ok(Some(tracked_shards))
 }
 
 /// State cleanup for single shard tracking. Removes State of shards that are no longer in use.
 ///
 /// It has to be run after we clear block data for the `last_block_hash_in_gced_epoch`.
-/// `tracked_shards_in_gced_epoch` are shards that were tracked in the gc-ed epoch,
+/// `potential_shards_for_cleanup` are shards that were tracked in the gc-ed epoch,
 /// and these are shards that we potentially no longer use and that can be cleaned up.
 /// We do not clean up a shard if it has been tracked in any epoch later,
 /// or we care about it in the current or the next epoch (relative to Head).
@@ -1126,17 +1123,17 @@ fn get_tracked_shards_in_past_epoch(
 fn gc_state(
     chain_store_update: &mut ChainStoreUpdate,
     last_block_hash_in_gced_epoch: &CryptoHash,
-    tracked_shards_in_gced_epoch: Vec<ShardUId>,
+    potential_shards_for_cleanup: Vec<ShardUId>,
     epoch_manager: &Arc<dyn EpochManagerAdapter>,
     shard_tracker: &ShardTracker,
     me: Option<&AccountId>,
 ) -> Result<(), Error> {
     let _span = tracing::debug_span!(target: "garbage_collection", "gc_state").entered();
-    if tracked_shards_in_gced_epoch.is_empty() || shard_tracker.tracks_all_shards() {
+    if potential_shards_for_cleanup.is_empty() || shard_tracker.tracks_all_shards() {
         return Ok(());
     }
     let store = chain_store_update.store();
-    let mut potential_shards_to_cleanup: HashSet<ShardUId> = tracked_shards_in_gced_epoch
+    let mut potential_shards_to_cleanup: HashSet<ShardUId> = potential_shards_for_cleanup
         .iter()
         .map(|shard_uid| get_shard_uid_mapping(store, *shard_uid))
         .collect();
@@ -1147,12 +1144,11 @@ fn gc_state(
     // Do not clean up shards that we care about in the current or the next epoch.
     // Most of the time, `potential_shards_to_cleanup` will become empty as we do not change tracked shards often.
     for shard_uid in current_shard_layout.shard_uids() {
-        if !cares_about_shard_this_or_next_epoch(
+        if !shard_tracker.cares_about_shard_this_or_next_epoch(
             me,
             last_block_info.prev_hash(),
             shard_uid.shard_id(),
             true,
-            shard_tracker,
         ) {
             continue;
         }

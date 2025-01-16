@@ -1,4 +1,3 @@
-use near_chain::sharding::cares_about_shard_this_or_next_epoch;
 use near_chain::ChainStoreAccess;
 use near_chain::{
     types::EpochManagerAdapter, validate::validate_chunk_proofs, BlockHeader, Chain, ChainStore,
@@ -24,7 +23,7 @@ pub fn need_receipt(
     me: Option<&AccountId>,
     shard_tracker: &ShardTracker,
 ) -> bool {
-    cares_about_shard_this_or_next_epoch(me, prev_block_hash, shard_id, true, shard_tracker)
+    shard_tracker.cares_about_shard_this_or_next_epoch(me, prev_block_hash, shard_id, true)
 }
 
 /// Returns true if we need this part to sign the block.
@@ -50,12 +49,11 @@ pub fn get_shards_cares_about_this_or_next_epoch(
         .unwrap()
         .into_iter()
         .filter(|&shard_id| {
-            cares_about_shard_this_or_next_epoch(
+            shard_tracker.cares_about_shard_this_or_next_epoch(
                 account_id,
                 block_header.prev_hash(),
                 shard_id,
                 is_me,
-                shard_tracker,
             )
         })
         .collect()
@@ -120,12 +118,11 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
     shard_tracker: &ShardTracker,
 ) -> PartialEncodedChunk {
     let prev_block_hash = header.prev_block_hash();
-    let cares_about_shard = cares_about_shard_this_or_next_epoch(
+    let cares_about_shard = shard_tracker.cares_about_shard_this_or_next_epoch(
         me,
         prev_block_hash,
         header.shard_id(),
         true,
-        shard_tracker,
     );
     let parts = parts
         .filter(|entry| {
