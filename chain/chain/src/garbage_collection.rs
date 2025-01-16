@@ -455,7 +455,6 @@ impl<'a> ChainStoreUpdate<'a> {
                 let mut store_update = self.store().store_update();
                 let key: &[u8] = header_hash.as_bytes();
                 store_update.delete(DBCol::BlockHeader, key);
-                self.chain_store().headers.pop(key);
                 self.merge(store_update);
             }
             let key = index_to_bytes(height);
@@ -858,10 +857,8 @@ impl<'a> ChainStoreUpdate<'a> {
         let key = &index_to_bytes(height)[..];
         if epoch_to_hashes.is_empty() {
             store_update.delete(DBCol::BlockPerHeight, key);
-            self.chain_store().block_hash_per_height.pop(key);
         } else {
             store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
-            self.chain_store().block_hash_per_height.put(key.to_vec(), Arc::new(epoch_to_hashes));
         }
         if self.is_height_processed(height)? {
             self.gc_col(DBCol::ProcessedBlockHeights, key);
@@ -887,7 +884,6 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         let key = get_block_shard_id(block_hash, shard_id);
         store_update.delete(DBCol::OutgoingReceipts, &key);
-        self.chain_store().outgoing_receipts.pop(&key);
         self.merge(store_update);
     }
 
@@ -924,7 +920,6 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::IncomingReceipts => {
                 store_update.delete(col, key);
-                self.chain_store().incoming_receipts.pop(key);
             }
             DBCol::StateHeaders => {
                 store_update.delete(col, key);
@@ -935,20 +930,16 @@ impl<'a> ChainStoreUpdate<'a> {
                 // When that happens we should make sure that block headers is
                 // copied to the cold storage.
                 store_update.delete(col, key);
-                self.chain_store().headers.pop(key);
                 unreachable!();
             }
             DBCol::Block => {
                 store_update.delete(col, key);
-                self.chain_store().blocks.pop(key);
             }
             DBCol::BlockExtra => {
                 store_update.delete(col, key);
-                self.chain_store().block_extras.pop(key);
             }
             DBCol::NextBlockHashes => {
                 store_update.delete(col, key);
-                self.chain_store().next_block_hashes.pop(key);
             }
             DBCol::ChallengedBlocks => {
                 store_update.delete(col, key);
@@ -961,31 +952,24 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::BlockRefCount => {
                 store_update.delete(col, key);
-                self.chain_store().block_refcounts.pop(key);
             }
             DBCol::Transactions => {
                 store_update.decrement_refcount(col, key);
-                self.chain_store().transactions.pop(key);
             }
             DBCol::Receipts => {
                 store_update.decrement_refcount(col, key);
-                self.chain_store().receipts.pop(key);
             }
             DBCol::Chunks => {
                 store_update.delete(col, key);
-                self.chain_store().chunks.pop(key);
             }
             DBCol::ChunkExtra => {
                 store_update.delete(col, key);
-                self.chain_store().chunk_extras.pop(key);
             }
             DBCol::PartialChunks => {
                 store_update.delete(col, key);
-                self.chain_store().partial_chunks.pop(key);
             }
             DBCol::InvalidChunks => {
                 store_update.delete(col, key);
-                self.chain_store().invalid_chunks.pop(key);
             }
             DBCol::ChunkHashesByHeight => {
                 store_update.delete(col, key);
@@ -1016,7 +1000,6 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             DBCol::ProcessedBlockHeights => {
                 store_update.delete(col, key);
-                self.chain_store().processed_block_heights.pop(key);
             }
             DBCol::HeaderHashesByHeight => {
                 store_update.delete(col, key);

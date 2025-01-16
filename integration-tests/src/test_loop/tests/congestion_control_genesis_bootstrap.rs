@@ -70,7 +70,7 @@ fn check_genesis_congestion_info_in_store(client: &mut Client) {
     let me = signer.as_ref().map(|signer| signer.validator_id());
     client.chain.clear_data(&gc_config, me).unwrap();
 
-    let infos = near_store::get_genesis_congestion_infos(client.chain.chain_store().store())
+    let infos = near_store::get_genesis_congestion_infos(&client.chain.chain_store().store())
         .unwrap()
         .unwrap();
     assert_eq!(infos.len(), NUM_SHARDS);
