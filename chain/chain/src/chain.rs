@@ -3246,7 +3246,7 @@ impl Chain {
     ) -> Result<ApplyChunkBlockContext, Error> {
         // Before `FixApplyChunks` feature, gas price was taken from current
         // block by mistake. Preserve it for backwards compatibility.
-        let gas_price = if protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
+        let gas_price = if ProtocolFeature::FixApplyChunks.enabled(protocol_version)
             || is_new_chunk
         {
             prev_block_header.next_gas_price()
