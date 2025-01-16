@@ -804,13 +804,19 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
     ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
-        while let Some(receipt) = self.queue.pop_front(trie_update)? {
+        loop {
+            // Check proof size limit before each receipt is popped.
+            if trie_update.trie.check_proof_size_limit_exceed() {
+                break;
+            }
+            let Some(receipt) = self.queue.pop_front(trie_update)? else {
+                break;
+            };
             let delayed_gas = receipt_congestion_gas(&receipt, &config)?;
             let delayed_bytes = receipt_size(&receipt)? as u64;
             self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
             self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
 
-            // TODO(resharding): The filter function check here is bypassing the limit check for state witness.
             // Track gas and bytes for receipt above and return only receipt that belong to the shard.
             if self.receipt_filter_fn(&receipt) {
                 return Ok(Some(receipt));

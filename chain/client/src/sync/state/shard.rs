@@ -127,7 +127,7 @@ pub(super) async fn run_state_sync_for_shard(
 
     return_if_cancelled!(cancel);
     *status.lock().unwrap() = ShardSyncStatus::StateApplyInProgress;
-    runtime.get_tries().unload_mem_trie(&shard_uid);
+    runtime.get_tries().unload_memtrie(&shard_uid);
     let mut store_update = store.store_update();
     runtime
         .get_flat_storage_manager()
@@ -182,7 +182,7 @@ pub(super) async fn run_state_sync_for_shard(
         let shard_uids_pending_resharding = epoch_manager
             .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
         handle.set_status("Loading memtrie");
-        runtime.get_tries().load_mem_trie_on_catchup(
+        runtime.get_tries().load_memtrie_on_catchup(
             &shard_uid,
             &state_root,
             &shard_uids_pending_resharding,

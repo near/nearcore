@@ -172,7 +172,7 @@ impl NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
@@ -566,6 +566,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
 
+        let cost = match validate_transaction(
+            runtime_config,
+            gas_price,
+            transaction,
+            verify_signature,
+            current_protocol_version,
+        ) {
+            Ok(cost) => cost,
+            Err(e) => return Ok(Some(e)),
+        };
+
         if let Some(state_root) = state_root {
             let shard_uid =
                 self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
@@ -574,9 +585,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             match verify_and_charge_transaction(
                 runtime_config,
                 &mut state_update,
-                gas_price,
                 transaction,
-                verify_signature,
+                &cost,
                 // here we do not know which block the transaction will be included
                 // and therefore skip the check on the nonce upper bound.
                 None,
@@ -586,17 +596,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Err(e) => Ok(Some(e)),
             }
         } else {
-            // Doing basic validation without a state root
-            match validate_transaction(
-                runtime_config,
-                gas_price,
-                transaction,
-                verify_signature,
-                current_protocol_version,
-            ) {
-                Ok(_) => Ok(None),
-                Err(e) => Ok(Some(e)),
-            }
+            // Without a state root, verification is skipped
+            Ok(None)
         }
     }
 
@@ -614,6 +615,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         let next_epoch_id =
             self.epoch_manager.get_next_epoch_id_from_prev_block(&(&prev_block.block_hash))?;
@@ -650,15 +652,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads_new_recorder();
+            let proof_size_limit =
+                runtime_config.witness_config.new_transactions_validation_state_size_soft_limit;
+            trie = trie.recording_reads_with_proof_size_limit(proof_size_limit);
         }
         let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
-
-        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         let transactions_gas_limit =
             chunk_tx_gas_limit(protocol_version, runtime_config, &prev_block, shard_id, gas_limit);
@@ -772,27 +774,36 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                // Verifying the validity of the transaction based on the current state.
-                match verify_and_charge_transaction(
+                let verify_result = validate_transaction(
                     runtime_config,
-                    &mut state_update,
                     prev_block.next_gas_price,
                     &tx,
-                    false,
-                    Some(next_block_height),
+                    true,
                     protocol_version,
-                ) {
-                    Ok(verification_result) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                )
+                .and_then(|cost| {
+                    verify_and_charge_transaction(
+                        runtime_config,
+                        &mut state_update,
+                        &tx,
+                        &cost,
+                        Some(next_block_height),
+                        protocol_version,
+                    )
+                });
+
+                match verify_result {
+                    Ok(cost) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation and verification");
                         state_update.commit(StateChangeCause::NotWritableToDisk);
-                        total_gas_burnt += verification_result.gas_burnt;
+                        total_gas_burnt += cost.gas_burnt;
                         total_size += tx.get_size();
                         result.transactions.push(tx);
                         // Take one transaction from this group, no more.
                         break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }
@@ -838,7 +849,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error> {
         let shard_id = chunk.shard_id;
         let _timer = metrics::APPLYING_CHUNKS_TIME
@@ -882,7 +893,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         if ProtocolFeature::StatelessValidation.enabled(next_protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
-            trie = trie.recording_reads_new_recorder();
+            let epoch_id =
+                self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
+            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+            let config = self.runtime_config_store.get_config(protocol_version);
+            let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
+            trie = trie.recording_reads_with_proof_size_limit(proof_limit);
         }
 
         match self.process_state_update(

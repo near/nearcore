@@ -26,6 +26,7 @@ use near_store::genesis::initialize_genesis_state;
 use near_vm_runner::{
     get_contract_cache_key, CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache,
 };
+use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -244,6 +245,8 @@ impl TestEnv {
                 .collect();
             BlockCongestionInfo::new(shards_congestion_info)
         };
+        let transaction_validity = vec![true; transactions.len()];
+        let transactions = SignedValidPeriodTransactions::new(transactions, &transaction_validity);
         self.runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(state_root, true),
@@ -1659,11 +1662,7 @@ fn prepare_transactions(
         &mut |tx: &SignedTransaction| -> bool {
             chain
                 .chain_store()
-                .check_transaction_validity_period(
-                    &block.header(),
-                    tx.transaction.block_hash(),
-                    chain.transaction_validity_period,
-                )
+                .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),

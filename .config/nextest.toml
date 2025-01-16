@@ -26,7 +26,7 @@ slow-timeout = { period = "30m", terminate-after = 2, grace-period = "1s" }
 [profile.ci]
 slow-timeout = { period = "5s", terminate-after = 5, grace-period = "1s" }
 default-filter = "not test(/^(.*::ultra_slow_test|ultra_slow_test)/)"
-# Try a few times before failing the whole test suite on a potentially spurious tests.
+# Try a few times before failing the whole test suite on potentially spurious tests.
 # The hope is that people will fix the spurious tests as they encounter them locally...
 retries = { backoff = "fixed", count = 3, delay = "1s" }
 failure-output = "final"

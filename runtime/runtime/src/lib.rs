@@ -11,7 +11,7 @@ pub use crate::verifier::{
     validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
 };
 use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
-use config::total_prepaid_send_fees;
+use config::{total_prepaid_send_fees, TransactionCost};
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
 use itertools::Itertools;
@@ -70,6 +70,7 @@ use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use pipelining::ReceiptPreparationPipeline;
+use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -289,9 +290,31 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
+    /// Validates all transactions in parallel and returns an iterator of
+    /// transactions paired with their validation results.
+    ///
+    /// Returns an `Iterator` of `(&SignedTransaction, Result<TransactionCost, InvalidTxError>)`
+    fn parallel_validate_transactions<'a>(
+        config: &'a RuntimeConfig,
+        gas_price: Balance,
+        transactions: &'a [SignedTransaction],
+        current_protocol_version: ProtocolVersion,
+    ) -> impl Iterator<Item = (&'a SignedTransaction, Result<TransactionCost, InvalidTxError>)>
+    {
+        let results: Vec<_> = transactions
+            .par_iter()
+            .map(move |tx| {
+                let cost_result =
+                    validate_transaction(config, gas_price, tx, true, current_protocol_version);
+                (tx, cost_result)
+            })
+            .collect();
+        results.into_iter()
+    }
+
     /// Takes one signed transaction, verifies it and converts it to a receipt.
     ///
-    /// Add the produced receipt receipt either to the new local receipts if the signer is the same
+    /// Add the produced receipt either to the new local receipts if the signer is the same
     /// as receiver or to the new outgoing receipts.
     ///
     /// When transaction is converted to a receipt, the account is charged for the full value of
@@ -312,6 +335,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
+        transaction_cost: &TransactionCost,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
@@ -320,9 +344,8 @@ impl Runtime {
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
-            apply_state.gas_price,
             signed_transaction,
-            true,
+            transaction_cost,
             Some(apply_state.block_height),
             apply_state.current_protocol_version,
         ) {
@@ -1421,7 +1444,7 @@ impl Runtime {
         validator_accounts_update: &Option<ValidatorAccountsUpdate>,
         apply_state: &ApplyState,
         incoming_receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
@@ -1573,6 +1596,32 @@ impl Runtime {
         state_update.commit(StateChangeCause::Migration);
     }
 
+    /// Helper function that checks `RelaxedChunkValidation`. If it is enabled, we log a debug
+    /// message and return `Ok(())` to skip the transaction. Otherwise, we return `Err(e.into())`.
+    fn handle_invalid_transaction<E: std::fmt::Debug + Clone + Into<RuntimeError>>(
+        e: E,
+        tx_hash: &CryptoHash,
+        protocol_version: ProtocolVersion,
+        reason: &str,
+    ) -> Result<(), RuntimeError> {
+        if checked_feature!(
+            "protocol_feature_relaxed_chunk_validation",
+            RelaxedChunkValidation,
+            protocol_version
+        ) {
+            tracing::debug!(
+                target: "runtime",
+                "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",
+                reason,
+                tx_hash,
+                e
+            );
+            Ok(())
+        } else {
+            Err(e.into())
+        }
+    }
+
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1588,31 +1637,44 @@ impl Runtime {
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
-        for signed_transaction in processing_state.transactions {
+
+        for (signed_transaction, maybe_cost) in Self::parallel_validate_transactions(
+            &apply_state.config,
+            apply_state.gas_price,
+            &processing_state.transactions.transactions,
+            apply_state.current_protocol_version,
+        ) {
+            let tx_hash = signed_transaction.get_hash();
+            let cost = match maybe_cost {
+                Ok(c) => c,
+                Err(e) => {
+                    Self::handle_invalid_transaction(
+                        e.clone(),
+                        &tx_hash,
+                        processing_state.protocol_version,
+                        "parallel validation error",
+                    )?;
+                    continue;
+                }
+            };
+
             let tx_result = self.process_transaction(
                 state_update,
                 apply_state,
                 signed_transaction,
+                &cost,
                 &mut processing_state.stats,
             );
             let (receipt, outcome_with_id) = match tx_result {
-                Ok(v) => v,
+                Ok(outcome) => outcome,
                 Err(e) => {
-                    if checked_feature!(
-                        "protocol_feature_relaxed_chunk_validation",
-                        RelaxedChunkValidation,
-                        processing_state.protocol_version
-                    ) {
-                        // NB: number of invalid transactions are noted in metrics.
-                        tracing::debug!(
-                            target: "runtime",
-                            message="invalid transaction ignored",
-                            tx_hash=%signed_transaction.get_hash()
-                        );
-                        continue;
-                    } else {
-                        return Err(e.into());
-                    }
+                    Self::handle_invalid_transaction(
+                        e,
+                        &tx_hash,
+                        processing_state.protocol_version,
+                        "process_transaction error",
+                    )?;
+                    continue;
                 }
             };
             if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
@@ -1656,11 +1718,14 @@ impl Runtime {
             compute_usage = tracing::field::Empty,
         )
         .entered();
+
         let state_update = &mut processing_state.state_update;
-        let node_counter_before = state_update.trie().get_trie_nodes_count();
-        let recorded_storage_size_before = state_update.trie().recorded_storage_size();
-        let storage_proof_size_upper_bound_before =
-            state_update.trie().recorded_storage_size_upper_bound();
+        let trie = state_update.trie();
+        let node_counter_before = trie.get_trie_nodes_count();
+        let recorded_storage_size_before = trie.recorded_storage_size();
+        let storage_proof_size_upper_bound_before = trie.recorded_storage_size_upper_bound();
+
+        // Main logic
         let result = self.process_receipt(
             processing_state,
             receipt,
@@ -1668,42 +1733,38 @@ impl Runtime {
             &mut validator_proposals,
         );
 
-        let total = &mut processing_state.total;
-        let state_update = &mut processing_state.state_update;
-        let node_counter_after = state_update.trie().get_trie_nodes_count();
-        tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
-        let recorded_storage_diff = state_update
-            .trie()
-            .recorded_storage_size()
-            .saturating_sub(recorded_storage_size_before)
-            as f64;
-        let recorded_storage_upper_bound_diff = state_update
-            .trie()
-            .recorded_storage_size_upper_bound()
-            .saturating_sub(storage_proof_size_upper_bound_before)
-            as f64;
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
+        let trie = processing_state.state_update.trie();
+
+        let node_counter_after = trie.get_trie_nodes_count();
+        tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+
+        let recorded_storage_diff = trie.recorded_storage_size() - recorded_storage_size_before;
+        let recorded_storage_upper_bound_diff =
+            trie.recorded_storage_size_upper_bound() - storage_proof_size_upper_bound_before;
         metrics::RECEIPT_RECORDED_SIZE
             .with_label_values(&[shard_id_str.as_str()])
-            .observe(recorded_storage_diff);
+            .observe(recorded_storage_diff as f64);
         metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND
             .with_label_values(&[shard_id_str.as_str()])
-            .observe(recorded_storage_upper_bound_diff);
+            .observe(recorded_storage_upper_bound_diff as f64);
         let recorded_storage_proof_ratio =
-            recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
+            recorded_storage_upper_bound_diff as f64 / f64::max(1.0, recorded_storage_diff as f64);
         // Record the ratio only for large receipts, small receipts can have a very high ratio,
         // but the ratio is not that important for them.
-        if recorded_storage_upper_bound_diff > 100_000. {
+        if recorded_storage_upper_bound_diff > 100_000 {
             metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO
                 .with_label_values(&[shard_id_str.as_str()])
                 .observe(recorded_storage_proof_ratio);
         }
+
         if let Some(outcome_with_id) = result? {
             let gas_burnt = outcome_with_id.outcome.gas_burnt;
             let compute_usage = outcome_with_id
                 .outcome
                 .compute_usage
                 .expect("`process_receipt` must populate compute usage");
+            let total = &mut processing_state.total;
             total.add(gas_burnt, compute_usage)?;
             span.record("gas_burnt", gas_burnt);
             span.record("compute_usage", compute_usage);
@@ -1726,7 +1787,6 @@ impl Runtime {
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
-        proof_size_limit: Option<usize>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let local_processing_start = std::time::Instant::now();
@@ -1750,9 +1810,7 @@ impl Runtime {
 
         for receipt in local_receipts.iter() {
             if processing_state.total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
+                || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
@@ -1808,7 +1866,6 @@ impl Runtime {
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
-        proof_size_limit: Option<usize>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<Vec<Receipt>, RuntimeError> {
         let delayed_processing_start = std::time::Instant::now();
@@ -1828,9 +1885,7 @@ impl Runtime {
 
         loop {
             if processing_state.total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
+                || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
                 break;
             }
@@ -1910,7 +1965,6 @@ impl Runtime {
         mut processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
         compute_limit: u64,
-        proof_size_limit: Option<usize>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), RuntimeError> {
         let incoming_processing_start = std::time::Instant::now();
@@ -1940,9 +1994,7 @@ impl Runtime {
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if processing_state.total.compute >= compute_limit
-                || proof_size_limit.is_some_and(|limit| {
-                    processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-                })
+                || processing_state.state_update.trie.check_proof_size_limit_exceed()
             {
                 processing_state.delayed_receipts.push(
                     &mut processing_state.state_update,
@@ -1992,24 +2044,17 @@ impl Runtime {
         receipt_sink: &mut ReceiptSink,
     ) -> Result<ProcessReceiptsResult, RuntimeError> {
         let mut validator_proposals = vec![];
-        let protocol_version = processing_state.protocol_version;
         let apply_state = &processing_state.apply_state;
 
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
-        let proof_size_limit = if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-            Some(apply_state.config.witness_config.main_storage_proof_size_soft_limit)
-        } else {
-            None
-        };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         self.process_local_receipts(
             processing_state,
             receipt_sink,
             compute_limit,
-            proof_size_limit,
             &mut validator_proposals,
         )?;
 
@@ -2018,7 +2063,6 @@ impl Runtime {
             processing_state,
             receipt_sink,
             compute_limit,
-            proof_size_limit,
             &mut validator_proposals,
         )?;
 
@@ -2027,26 +2071,19 @@ impl Runtime {
             processing_state,
             receipt_sink,
             compute_limit,
-            proof_size_limit,
             &mut validator_proposals,
         )?;
 
         // Resolve timed-out PromiseYield receipts
-        let promise_yield_result = resolve_promise_yield_timeouts(
-            processing_state,
-            receipt_sink,
-            compute_limit,
-            proof_size_limit,
-        )?;
+        let promise_yield_result =
+            resolve_promise_yield_timeouts(processing_state, receipt_sink, compute_limit)?;
 
         let shard_id_str = processing_state.apply_state.shard_id.to_string();
         if processing_state.total.compute >= compute_limit {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
                 .with_label_values(&[shard_id_str.as_str(), "compute_limit"])
                 .inc();
-        } else if proof_size_limit.is_some_and(|limit| {
-            processing_state.state_update.trie.recorded_storage_size_upper_bound() > limit
-        }) {
+        } else if processing_state.state_update.trie.check_proof_size_limit_exceed() {
             metrics::CHUNK_RECEIPTS_LIMITED_BY
                 .with_label_values(&[shard_id_str.as_str(), "storage_proof_size_limit"])
                 .inc();
@@ -2351,7 +2388,6 @@ fn resolve_promise_yield_timeouts(
     processing_state: &mut ApplyProcessingReceiptState,
     receipt_sink: &mut ReceiptSink,
     compute_limit: u64,
-    proof_size_limit: Option<usize>,
 ) -> Result<ResolvePromiseYieldTimeoutsResult, RuntimeError> {
     let mut state_update = &mut processing_state.state_update;
     let total = &mut processing_state.total;
@@ -2366,10 +2402,7 @@ fn resolve_promise_yield_timeouts(
     let mut timeout_receipts = vec![];
     let yield_processing_start = std::time::Instant::now();
     while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
-        if total.compute >= compute_limit
-            || proof_size_limit
-                .is_some_and(|limit| state_update.trie.recorded_storage_size_upper_bound() > limit)
-        {
+        if total.compute >= compute_limit || state_update.trie.check_proof_size_limit_exceed() {
             break;
         }
 
@@ -2490,7 +2523,7 @@ struct ApplyProcessingState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: &'a [SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ApplyStats,
 }
@@ -2500,7 +2533,7 @@ impl<'a> ApplyProcessingState<'a> {
         apply_state: &'a ApplyState,
         trie: Trie,
         epoch_info_provider: &'a dyn EpochInfoProvider,
-        transactions: &'a [SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'a>,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
@@ -2556,6 +2589,43 @@ impl<'a> ApplyProcessingState<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SignedValidPeriodTransactions<'a> {
+    transactions: &'a [SignedTransaction],
+    /// List of the transactions that are valid and should be processed by `apply`.
+    ///
+    /// This list is exactly the length of the corresponding `Self::transactions` field. Element at
+    /// the index N in this array corresponds to an element at index N in the transactions list.
+    ///
+    /// Transactions for which a `false` is stored here must be ignored/dropped/skipped.
+    ///
+    /// All elements will be true for protocol versions where `RelaxedChunkValidation` is not
+    /// enabled.
+    transaction_validity_check_passed: &'a [bool],
+}
+
+impl<'a> SignedValidPeriodTransactions<'a> {
+    pub fn new(transactions: &'a [SignedTransaction], validity_check_results: &'a [bool]) -> Self {
+        assert_eq!(transactions.len(), validity_check_results.len());
+        Self { transactions, transaction_validity_check_passed: validity_check_results }
+    }
+
+    pub fn empty() -> Self {
+        Self::new(&[], &[])
+    }
+
+    pub fn iter_nonexpired_transactions(&self) -> impl Iterator<Item = &'a SignedTransaction> {
+        self.transactions
+            .into_iter()
+            .zip(self.transaction_validity_check_passed.into_iter())
+            .filter_map(|(t, v)| v.then_some(t))
+    }
+
+    pub fn len(&self) -> usize {
+        self.transactions.len()
+    }
+}
+
 /// Similar to [ApplyProcessingState], with the difference that this contains extra state used
 /// by receipt processing.
 struct ApplyProcessingReceiptState<'a> {
@@ -2564,7 +2634,7 @@ struct ApplyProcessingReceiptState<'a> {
     prefetcher: Option<TriePrefetcher>,
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
-    transactions: &'a [SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ApplyStats,
     outcomes: Vec<ExecutionOutcomeWithId>,

@@ -19,7 +19,7 @@ communicated through the CHANGELOG next to this file.
 
 1. We only add the APIs to the data that is already available in nearcore
    storage.
-2. We don't violate the guaranties described in the section above.
+2. We don't violate the guarantees described in the section above.
 3. We prefix new APIs with `EXPERIMENTAL_` (see the Experimental API Policies
    below).
 4. We document the API change on [NEAR Docs](https://docs.near.org/api/rpc/introduction)

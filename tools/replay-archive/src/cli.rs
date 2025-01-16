@@ -116,7 +116,12 @@ impl ReplayController {
         let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
-        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(
+            store.clone(),
+            genesis_height,
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
         let start_height = start_height.unwrap_or(genesis_height);
@@ -341,6 +346,8 @@ impl ReplayController {
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
                 transactions: chunk.transactions().to_vec(),
+                // FIXME: see the `validate_chunk` thing above.
+                transaction_validity_check_results: vec![true; chunk.transactions().len()],
                 receipts,
                 block: block_context,
                 is_first_block_with_chunk_of_version,
@@ -438,6 +445,8 @@ impl ReplayController {
         {
             bail!("Failed to validate chunk proofs");
         }
+        // FIXME: this should be using Chain::validate_chunk_transactions instead of doing its own
+        // thing?
         if !validate_transactions_order(chunk.transactions()) {
             bail!("Failed to validate transactions order in the chunk");
         }

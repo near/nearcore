@@ -194,8 +194,9 @@ pub struct ParentSplitParameters {
     pub right_child_shard: ShardUId,
     /// The new shard layout.
     pub shard_layout: ShardLayout,
-    /// Info of the last block having the old shard layout.
-    pub resharding_block: BlockInfo,
+    /// List of all possible blocks of the old shard layout. They might be more than one because of
+    /// forks. Only one will become final.
+    pub resharding_blocks: Vec<BlockInfo>,
     /// Parent's flat head state when the split began.
     pub flat_head: BlockInfo,
 }
