@@ -243,15 +243,30 @@ fn send_txs_between_shards(
 // Check that no block with height `skip_block_height` made it on the canonical chain, so we're testing
 // what we think we should be.
 fn assert_fork_happened(env: &TestLoopEnv, skip_block_height: BlockHeight) {
-    let handle = env.datas[0].client_sender.actor_handle();
-    let client = &env.test_loop.data.get(&handle).client;
+    let client_handles =
+        env.datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+    let clients =
+        client_handles.iter().map(|handle| &env.test_loop.data.get(handle).client).collect_vec();
 
     // Here we assume the one before the skipped block will exist, since it's easier that way and it should
     // be true in this test.
-    let prev_hash = client.chain.get_block_hash_by_height(skip_block_height - 1).unwrap();
-    let next_hash = client.chain.chain_store.get_next_block_hash(&prev_hash).unwrap();
-    let header = client.chain.get_block_header(&next_hash).unwrap();
+    let prev_hash = clients[0].chain.get_block_hash_by_height(skip_block_height - 1).unwrap();
+    let next_hash = clients[0].chain.chain_store.get_next_block_hash(&prev_hash).unwrap();
+    let header = clients[0].chain.get_block_header(&next_hash).unwrap();
     assert!(header.height() > skip_block_height);
+
+    // The way it's implemented currently, only one client will be aware of the fork
+    for client in clients {
+        let hashes =
+            client.chain.chain_store.get_all_block_hashes_by_height(skip_block_height).unwrap();
+        if !hashes.is_empty() {
+            return;
+        }
+    }
+    panic!(
+        "Intended to have a fork at height {}, but no client knows about any blocks at that height",
+        skip_block_height
+    );
 }
 
 /// runs the network and sends transactions at the beginning of each epoch. At the end the condition we're
