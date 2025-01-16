@@ -150,6 +150,10 @@ pub fn total_send_fees(
                         &delegate_action.receiver_id,
                     )?
             }
+            DeployGlobalContract(_deploy_global_contract_action) => {
+                // TODO(#12717): implement send fees for global contract deploy
+                1
+            }
         };
         result = safe_add_gas(result, delta)?;
     }
@@ -241,6 +245,10 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         DeleteKey(_) => fees.fee(ActionCosts::delete_key).exec_fee(),
         DeleteAccount(_) => fees.fee(ActionCosts::delete_account).exec_fee(),
         Delegate(_) => fees.fee(ActionCosts::delegate).exec_fee(),
+        DeployGlobalContract(_deploy_global_contract_action) => {
+            // TODO(#12717): implement exec fees for global contract deploys
+            1
+        }
     }
 }
 

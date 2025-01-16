@@ -484,6 +484,9 @@ impl Runtime {
                     apply_state.current_protocol_version,
                 )?;
             }
+            Action::DeployGlobalContract(deploy_global_contract) => {
+                action_deploy_global_contract(account_id, deploy_global_contract, &mut result)?;
+            }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let contract = preparation_pipeline.get_contract(
