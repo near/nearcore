@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
+    hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
@@ -169,6 +170,40 @@ impl fmt::Debug for DeployGlobalContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    Debug,
+)]
+pub enum GlobalContractIdentifier {
+    CodeHash(CryptoHash),
+    AccountId(AccountId),
+}
+
+/// Use global contract action
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+pub struct UseGlobalContractAction {
+    pub contract_identifier: GlobalContractIdentifier,
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
 )]
 pub struct FunctionCallAction {
     pub method_name: String,
@@ -270,6 +305,7 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
     DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(Box<UseGlobalContractAction>),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     /// Makes a non-refundable transfer for storage allowance.
     /// Only possible during new account creation.

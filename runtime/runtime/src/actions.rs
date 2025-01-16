@@ -9,7 +9,7 @@ use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-use near_primitives::action::DeployGlobalContractAction;
+use near_primitives::action::{DeployGlobalContractAction, UseGlobalContractAction};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -664,6 +664,16 @@ pub(crate) fn action_deploy_global_contract(
     Ok(())
 }
 
+pub(crate) fn action_use_global_contract(
+    _state_update: &mut TrieUpdate,
+    _account: &mut Account,
+    _action: &UseGlobalContractAction,
+) -> Result<(), RuntimeError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
+    // TODO(#12716): implement global contract usage
+    Ok(())
+}
+
 pub(crate) fn action_delete_account(
     state_update: &mut TrieUpdate,
     account: &mut Option<Account>,
@@ -1040,7 +1050,8 @@ pub(crate) fn check_actor_permissions(
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
-        | Action::DeployGlobalContract(_) => {
+        | Action::DeployGlobalContract(_)
+        | Action::UseGlobalContract(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1153,7 +1164,8 @@ pub(crate) fn check_account_existence(
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_)
         | Action::Delegate(_)
-        | Action::DeployGlobalContract(_) => {
+        | Action::DeployGlobalContract(_)
+        | Action::UseGlobalContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

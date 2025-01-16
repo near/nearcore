@@ -437,6 +437,9 @@ pub fn validate_action(
         Action::DeployGlobalContract(a) => {
             validate_deploy_global_contract_action(limit_config, a, current_protocol_version)
         }
+        Action::UseGlobalContract(_) => {
+            validate_use_global_contract_action(current_protocol_version)
+        }
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -482,12 +485,8 @@ fn validate_deploy_global_contract_action(
     action: &DeployGlobalContractAction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionsValidationError> {
-    if !checked_feature!("stable", GlobalContracts, current_protocol_version) {
-        return Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: "GlobalContracts".to_owned(),
-            version: current_protocol_version,
-        });
-    }
+    check_global_contracts_enabled(current_protocol_version)?;
+
     if action.code.len() as u64 > limit_config.max_contract_size {
         return Err(ActionsValidationError::ContractSizeExceeded {
             size: action.code.len() as u64,
@@ -496,6 +495,13 @@ fn validate_deploy_global_contract_action(
     }
 
     Ok(())
+}
+
+/// Validates `UseGlobalContractAction`.
+fn validate_use_global_contract_action(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    check_global_contracts_enabled(current_protocol_version)
 }
 
 /// Validates `FunctionCallAction`. Checks that the method name length doesn't exceed the limit and
@@ -616,6 +622,18 @@ fn truncate_string(s: &str, limit: usize) -> String {
         }
     }
     unreachable!()
+}
+
+fn check_global_contracts_enabled(
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    if !checked_feature!("stable", GlobalContracts, current_protocol_version) {
+        return Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: "GlobalContracts".to_owned(),
+            version: current_protocol_version,
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
