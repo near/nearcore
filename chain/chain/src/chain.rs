@@ -3667,7 +3667,7 @@ impl Chain {
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
 
         let mut maybe_jobs = vec![];
-        let chunks = &block.chunks();
+        let chunk_headers = &block.chunks();
         for (shard_index, prev_chunk_header) in prev_chunk_headers.iter().enumerate() {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
@@ -3680,7 +3680,7 @@ impl Chain {
             let stateful_job = self.get_update_shard_job(
                 me,
                 block.header(),
-                chunks,
+                chunk_headers,
                 shard_index,
                 prev_block,
                 prev_chunk_header,
@@ -3745,7 +3745,7 @@ impl Chain {
         // TODO(#10584): introduce separate structure which can be derived from
         // both Block and OptimisticBlock.
         block_metadata: &BlockHeader,
-        chunks: &Chunks,
+        chunk_headers: &Chunks,
         shard_index: ShardIndex,
         prev_block: &Block,
         prev_chunk_header: &ShardChunkHeader,
@@ -3758,7 +3758,7 @@ impl Chain {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = shard_layout.get_shard_id(shard_index)?;
-        let chunk_header = &chunks[shard_index];
+        let chunk_header = &chunk_headers[shard_index];
         let shard_context = self.get_shard_context(me, prev_hash, &epoch_id, shard_id, mode)?;
         let block_height = block_metadata.height();
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
@@ -3767,7 +3767,7 @@ impl Chain {
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let block_context = Self::get_apply_chunk_block_context_from_block_metadata(
                 block_metadata,
-                &chunks,
+                &chunk_headers,
                 prev_block.header(),
                 is_new_chunk,
                 protocol_version,
@@ -3805,7 +3805,7 @@ impl Chain {
                     match self.create_chunk_state_challenge(
                         prev_block,
                         block_metadata,
-                        chunks,
+                        chunk_headers,
                         &chunk_header,
                     ) {
                         Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
@@ -3815,7 +3815,7 @@ impl Chain {
 
                 let tx_valid_list = self.validate_chunk_transactions(
                     &block_metadata,
-                    &chunks,
+                    &chunk_headers,
                     prev_block.header(),
                     &chunk,
                 )?;
