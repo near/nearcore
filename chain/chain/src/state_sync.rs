@@ -205,8 +205,9 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
 ///. Returns whether `block_hash` is the block that will appear immediately before the "sync_hash" block. That is,
 /// whether it is going to be the prev_hash of the "sync_hash" block, when it is found.
 ///
-/// `block_hash` is the prev_hash of the future "sync_hash" block iff the number of new chunks in the epoch in
-/// each shard is at least 2, and at least one shard of the block `prev_hash` doesn't yet have 2 new chunks in it.
+/// `block_hash` is the prev_hash of the future "sync_hash" block iff it is the first block for which the
+/// number of new chunks in the epoch in each shard is at least 2
+///
 /// This function can only return true before we save the "sync_hash" block to the `StateSyncHashes` column,
 /// because it relies on data stored in the `StateSyncNewChunks` column, which is cleaned up after that.
 ///
