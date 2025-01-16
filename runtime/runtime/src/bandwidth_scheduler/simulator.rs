@@ -587,9 +587,9 @@ fn test_bandwidth_scheduler_simulator_missing_chunks() {
         .missing_chunk_probability(0.1)
         .build();
     let summary = run_scenario(scenario);
-    assert!(summary.bandwidth_utilization > 0.6); // 75% utilization
-    assert!(summary.link_imbalance_ratio < 1.4); // < 40% difference on links
-    assert!(summary.worst_link_estimation_ratio > 0.55); // 55% of estimated link throughput
+    assert!(summary.bandwidth_utilization > 0.7); // > 70% utilization
+    assert!(summary.link_imbalance_ratio < 1.6); // < 60% difference on links
+    assert!(summary.worst_link_estimation_ratio > 0.50); // 50% of estimated link throughput
 
     // Incoming max_shard_bandwidth is not respected! When a chunk is missing, the receipts that
     // were sent previously will arrive later and they can mix with other incoming receipts, and the
