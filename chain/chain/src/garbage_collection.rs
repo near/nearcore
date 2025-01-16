@@ -1118,7 +1118,7 @@ fn gc_state(
     let store = chain_store_update.store();
     let mut potential_shards_to_cleanup: HashSet<ShardUId> = potential_shards_for_cleanup
         .iter()
-        .map(|shard_uid| get_shard_uid_mapping(store, *shard_uid))
+        .map(|shard_uid| get_shard_uid_mapping(&store, *shard_uid))
         .collect();
 
     let last_block_hash = chain_store_update.head()?.last_block_hash;
@@ -1135,7 +1135,7 @@ fn gc_state(
         ) {
             continue;
         }
-        let mapped_shard_uid = get_shard_uid_mapping(store, shard_uid);
+        let mapped_shard_uid = get_shard_uid_mapping(&store, shard_uid);
         potential_shards_to_cleanup.remove(&mapped_shard_uid);
     }
 
@@ -1159,7 +1159,7 @@ fn gc_state(
             {
                 continue;
             }
-            let mapped_shard_uid = get_shard_uid_mapping(store, shard_uid);
+            let mapped_shard_uid = get_shard_uid_mapping(&store, shard_uid);
             potential_shards_to_cleanup.remove(&mapped_shard_uid);
         }
     }
