@@ -3952,13 +3952,15 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    let Some(sync_hash) = self.get_sync_hash(&head.last_block_hash)? else {
-                        return Ok(SnapshotAction::None);
-                    };
-                    if sync_hash == head.last_block_hash {
-                        // note that here we're returning prev_block_hash instead of last_block_hash because in this case
-                        // we can't detect the right sync hash until it is actually applied as the head block
-                        Ok(SnapshotAction::MakeSnapshot(head.prev_block_hash))
+                    let is_sync_prev = crate::state_sync::is_sync_prev_hash(
+                        &self.chain_store.store(),
+                        &head.last_block_hash,
+                        &head.prev_block_hash,
+                    )?;
+                    if is_sync_prev {
+                        // Here the head block is the prev block of what the sync hash will be, and the previous
+                        // block is the point in the chain we want to snapshot state for
+                        Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
                     } else {
                         Ok(SnapshotAction::None)
                     }
@@ -4074,6 +4076,12 @@ fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
+// TODO(state-sync): After the changes in https://github.com/near/nearcore/pull/12617,
+// this needs to be changed to be aware of what shards can be applied now. Otherwise we have
+// a bug in the rare case where we have something like this sequence of tracked shards in consecutive epochs:
+// (s0) -> (s1) -> (s0, s2)
+// In this case we don't state sync s0 since we already have the state, but we apply chunks with mode `NotCaughtUp`
+// in the middle epoch there because we're downloading state for s2.
 fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,

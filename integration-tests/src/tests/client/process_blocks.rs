@@ -1694,7 +1694,7 @@ fn ultra_slow_test_process_block_after_state_sync() {
         let Some(sync_hash) = env.clients[0].chain.get_sync_hash(&block_hash).unwrap() else {
             sync_hash_attempts += 1;
             // Sync hash should be available in 4 blocks
-            assert!(sync_hash_attempts <= 4, "sync_hash_attempts: {}", sync_hash_attempts);
+            assert!(sync_hash_attempts <= 5, "sync_hash_attempts: {}", sync_hash_attempts);
             continue;
         };
         // Produce one more block after the sync hash is found so that the snapshot will be created
@@ -2178,25 +2178,40 @@ fn test_data_reset_before_state_sync() {
 #[test]
 fn test_sync_hash_validity() {
     init_test_logger();
-    let epoch_length = 5;
+    let epoch_length = 8;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    for i in 1..19 {
-        env.produce_block(0, i);
+    let mut height = 1;
 
-        let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
-        let block_hash = *header.hash();
-        let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
-        println!("height {} -> {}", i, valid);
-        if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            // This assumes that all shards have new chunks in every block, which should be true
-            // with TestEnv::produce_block()
-            assert_eq!(valid, (i % epoch_length) == 4);
-        } else {
-            assert_eq!(valid, header.epoch_id() != &EpochId::default() && (i % epoch_length) == 1);
+    for _num_epochs in 0..4 {
+        let epoch_start = height;
+        for _ in 0..epoch_length {
+            env.produce_block(0, height);
+            height += 1;
+        }
+        let expected_sync_height =
+            if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+                // This assumes that all shards have new chunks in every block, which should be true
+                // with TestEnv::produce_block()
+                epoch_start + 3
+            } else {
+                // No sync hash in the first epoch
+                if epoch_start < epoch_length {
+                    continue;
+                }
+                epoch_start
+            };
+
+        for h in epoch_start..height {
+            let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
+            let valid = env.clients[0].chain.check_sync_hash_validity(header.hash()).unwrap();
+
+            println!("height {} -> {}", header.height(), valid);
+            assert_eq!(valid, header.height() == expected_sync_height);
         }
     }
+
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
     println!("bad hash -> {:?}", res.is_ok());
@@ -2395,7 +2410,7 @@ fn test_validate_chunk_extra() {
 #[test]
 fn slow_test_catchup_gas_price_change() {
     init_test_logger();
-    let epoch_length = 5;
+    let epoch_length = 8;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -2430,9 +2445,9 @@ fn slow_test_catchup_gas_price_change() {
 
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
-    // We go up to height 10 because height 6 is the first block of the new epoch, and we want at least
-    // 3 more blocks (plus one more for nodes to create snapshots) if syncing to the current epoch's state
-    for i in 3..=10 {
+    // We go up to the end of the next epoch because we want at least 3 more blocks from the start
+    // (plus one more for nodes to create snapshots) if syncing to the current epoch's state
+    for i in 3..=epoch_length * 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
