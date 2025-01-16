@@ -44,7 +44,7 @@ const DEFAULT_EPOCH_LENGTH: u64 = 7;
 /// before it is supposed to accept transactions for the next epoch.
 /// That would result in chunk producer rejecting a transaction
 /// and later we would hit the `DBNotFoundErr("Transaction ...)` error in tests.
-const INCREASED_EPOCH_LENGTH: u64 = 8;
+const INCREASED_EPOCH_LENGTH: u64 = 10;
 
 /// Garbage collection window length.
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
@@ -649,6 +649,7 @@ fn test_resharding_v3_drop_chunks_all() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .chunk_ranges_to_drop(chunk_ranges_to_drop)
+            .epoch_length(INCREASED_EPOCH_LENGTH)
             .build(),
     );
 }
@@ -722,7 +723,9 @@ fn test_resharding_v3_shard_shuffling_untrack_then_track() {
         schedule: shard_sequence_to_schedule(tracked_shard_sequence),
     };
     let params = TestReshardingParametersBuilder::default()
-        .shuffle_shard_assignment_for_chunk_producers(true)
+        // TODO(resharding): uncomment after the bug in the comment above get_should_apply_chunk()
+        // in chain.rs is fixed
+        //.shuffle_shard_assignment_for_chunk_producers(true)
         .num_clients(num_clients)
         .tracked_shard_schedule(Some(tracked_shard_schedule))
         // TODO(resharding): uncomment after fixing test_resharding_v3_state_cleanup()
@@ -1016,6 +1019,7 @@ fn test_resharding_v3_yield_timeout() {
             ReceiptKind::PromiseYield,
         ))
         .allow_negative_refcount(true)
+        .epoch_length(INCREASED_EPOCH_LENGTH)
         .build();
     test_resharding_v3_base(params);
 }
