@@ -487,6 +487,10 @@ impl Runtime {
             Action::DeployGlobalContract(deploy_global_contract) => {
                 action_deploy_global_contract(account_id, deploy_global_contract, &mut result)?;
             }
+            Action::UseGlobalContract(use_global_contract) => {
+                let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
+                action_use_global_contract(state_update, account, use_global_contract)?;
+            }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let contract = preparation_pipeline.get_contract(
