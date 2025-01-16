@@ -30,7 +30,7 @@ fn save_epoch_new_chunks<T: ChainStoreAccess>(
     header: &BlockHeader,
 ) -> Result<bool, Error> {
     let Some(mut num_new_chunks) =
-        get_state_sync_new_chunks(chain_store.store(), header.prev_hash())?
+        get_state_sync_new_chunks(&chain_store.store(), header.prev_hash())?
     else {
         // This might happen in the case of epoch sync where we save individual headers without having all
         // headers that belong to the epoch.
@@ -143,7 +143,7 @@ fn on_new_header<T: ChainStoreAccess>(
         {
             return Ok(());
         }
-        if has_enough_new_chunks(chain_store.store(), sync_prev.hash())? != Some(true) {
+        if has_enough_new_chunks(&chain_store.store(), sync_prev.hash())? != Some(true) {
             return Ok(());
         }
 
@@ -152,7 +152,7 @@ fn on_new_header<T: ChainStoreAccess>(
             return Ok(());
         };
         let Some(prev_prev_done) =
-            has_enough_new_chunks(chain_store.store(), sync_prev_prev.hash())?
+            has_enough_new_chunks(&chain_store.store(), sync_prev_prev.hash())?
         else {
             return Ok(());
         };
@@ -196,7 +196,7 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
         // columnn for this block. This means we will no longer remember sync hashes for these old epochs, which
         // should be fine as we only care to state sync to (and provide state parts for) the latest state
         on_new_epoch(store_update, header)?;
-        return remove_old_epochs(chain_store.store(), store_update, header, &prev_header);
+        return remove_old_epochs(&chain_store.store(), store_update, header, &prev_header);
     }
 
     on_new_header(chain_store, store_update, header)

@@ -189,7 +189,8 @@ impl ReceiptPreparationPipeline {
                 | Action::Stake(_)
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
-                | Action::DeleteAccount(_) => {}
+                | Action::DeleteAccount(_)
+                | Action::DeployGlobalContract(_) => {}
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 Action::NonrefundableStorageTransfer(_) => {}
             }
