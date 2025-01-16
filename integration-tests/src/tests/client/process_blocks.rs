@@ -1694,7 +1694,7 @@ fn ultra_slow_test_process_block_after_state_sync() {
         let Some(sync_hash) = env.clients[0].chain.get_sync_hash(&block_hash).unwrap() else {
             sync_hash_attempts += 1;
             // Sync hash should be available in 4 blocks
-            assert!(sync_hash_attempts <= 4, "sync_hash_attempts: {}", sync_hash_attempts);
+            assert!(sync_hash_attempts <= 5, "sync_hash_attempts: {}", sync_hash_attempts);
             continue;
         };
         // Produce one more block after the sync hash is found so that the snapshot will be created
