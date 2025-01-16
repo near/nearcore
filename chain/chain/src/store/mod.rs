@@ -74,7 +74,7 @@ pub enum ReceiptFilter {
 pub trait ChainStoreAccess {
     /// Returns underlying chain store
     fn chain_store(&self) -> &ChainStore;
-    /// Returns underlaying store.
+    /// Returns underlying store.
     fn store(&self) -> Store;
     /// The chain head.
     fn head(&self) -> Result<Tip, Error>;
