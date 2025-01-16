@@ -1,6 +1,6 @@
 # Speedy sync (a.k.a PoorMan's EpochSync)
 
-The goal of the speedy sync is to allow people to cathup quickly with mainnet, before we have fully implemented the EpochSync feature.
+The goal of the speedy sync is to allow people to catchup quickly with mainnet, before we have fully implemented the EpochSync feature.
 
 Currently, in order to catchup with mainnet there are two possible options:
 * download a DB backup that Pagoda provides (around 200GB)
