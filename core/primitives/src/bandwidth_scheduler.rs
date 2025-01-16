@@ -145,10 +145,11 @@ impl BandwidthRequest {
         let mut bitmap = BandwidthRequestBitmap::new();
         let values = BandwidthRequestValues::new(params).values;
 
+        // Find the first value which allows to send a max size receipt
         let max_receipt_size_value_pos = values
             .iter()
-            .position(|&value| value == params.max_receipt_size)
-            .expect("max_receipt_size should be in the values list");
+            .position(|&value| value >= params.max_receipt_size)
+            .expect("max_receipt_size is less than max_single_grant, a value should be found");
         bitmap.set_bit(max_receipt_size_value_pos, true);
 
         BandwidthRequest { to_shard: to_shard.into(), requested_values_bitmap: bitmap }
