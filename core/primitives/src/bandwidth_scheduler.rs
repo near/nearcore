@@ -351,9 +351,24 @@ impl BandwidthSchedulerParams {
         let max_shard_bandwidth: Bandwidth = 4_500_000;
         let max_allowance = max_shard_bandwidth;
         let max_base_bandwidth = 100_000;
-
         let max_receipt_size = runtime_config.wasm_config.limit_config.max_receipt_size;
 
+        Self::calculate(
+            max_shard_bandwidth,
+            max_allowance,
+            max_base_bandwidth,
+            max_receipt_size,
+            num_shards.get(),
+        )
+    }
+
+    fn calculate(
+        max_shard_bandwidth: Bandwidth,
+        max_allowance: Bandwidth,
+        max_base_bandwidth: Bandwidth,
+        max_receipt_size: Bandwidth,
+        num_shards: u64,
+    ) -> BandwidthSchedulerParams {
         if max_shard_bandwidth < max_receipt_size {
             panic!(
                 "max_shard_bandwidth is smaller than max_receipt_size! ({} < {}).
@@ -366,7 +381,7 @@ impl BandwidthSchedulerParams {
         // after base bandwidth is granted to everyone. We have to ensure that:
         // base_bandwidth * (num_shards - 1) + max_receipt_size <= max_shard_bandwidth
         let available_bandwidth = max_shard_bandwidth - max_receipt_size;
-        let mut base_bandwidth = available_bandwidth / std::cmp::max(1, num_shards.get() - 1);
+        let mut base_bandwidth = available_bandwidth / std::cmp::max(1, num_shards - 1);
         if base_bandwidth > max_base_bandwidth {
             base_bandwidth = max_base_bandwidth;
         }
@@ -377,6 +392,22 @@ impl BandwidthSchedulerParams {
             max_receipt_size,
             max_allowance,
         }
+    }
+
+    /// Example params, used only in tests
+    pub fn for_test(num_shards: u64) -> BandwidthSchedulerParams {
+        let max_shard_bandwidth = 4_500_000;
+        let max_allowance = max_shard_bandwidth;
+        let max_base_bandwidth = 100_000;
+        let max_receipt_size = 4 * 1024 * 1024;
+
+        Self::calculate(
+            max_shard_bandwidth,
+            max_allowance,
+            max_base_bandwidth,
+            max_receipt_size,
+            num_shards,
+        )
     }
 }
 

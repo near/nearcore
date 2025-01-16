@@ -697,12 +697,7 @@ mod tests {
     /// `max_receipt_size` is set to `max_receipt_size`, which causes the diff to be smaller.
     #[test]
     fn test_receipt_groups_produce_optimal_bandwidth_request() {
-        let scheduler_params = BandwidthSchedulerParams {
-            base_bandwidth: 50_000,
-            max_shard_bandwidth: 4_500_000,
-            max_receipt_size: 4 * 1024 * 1024,
-            max_allowance: 4_500_000,
-        };
+        let scheduler_params = BandwidthSchedulerParams::for_test(6);
         let request_values = BandwidthRequestValues::new(&scheduler_params).values;
         assert!(request_values[1] - request_values[0] > 110_000);
 

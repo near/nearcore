@@ -419,12 +419,7 @@ impl ChainSimulator {
 
     fn scheduler_params(&self) -> BandwidthSchedulerParams {
         // TODO(bandwidth_scheduler) - use current RuntimeConfig?
-        BandwidthSchedulerParams {
-            base_bandwidth: (4_500_000 - 4 * 1024 * 1024) / self.shard_layout.num_shards() as u64,
-            max_shard_bandwidth: 4_500_000,
-            max_receipt_size: 4 * 1024 * 1024,
-            max_allowance: 4_500_000,
-        }
+        BandwidthSchedulerParams::for_test(self.shard_layout.num_shards())
     }
 
     /// Make sure that post state of previous chunk application is always pre state for the next application.
