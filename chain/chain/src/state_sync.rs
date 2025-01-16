@@ -109,6 +109,9 @@ fn has_enough_new_chunks(store: &Store, block_hash: &CryptoHash) -> Result<Optio
 
 /// Save num new chunks info and store the state sync hash if it has been found. We store it only
 /// once it becomes final.
+/// This should only be called if DBCol::StateSyncHashes does not yet have an entry for header.epoch_id().
+/// The logic should still be correct if it is, but it's unnecessary and will waste a lot of time if called
+/// on a header far away from the epoch start.
 fn on_new_header<T: ChainStoreAccess>(
     chain_store: &T,
     store_update: &mut StoreUpdate,
