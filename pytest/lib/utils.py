@@ -11,6 +11,7 @@ import tempfile
 import time
 import typing
 import requests
+import subprocess
 from prometheus_client.parser import text_string_to_metric_families
 from retrying import retry
 from rc import gcloud
@@ -245,9 +246,10 @@ def load_binary_file(filepath):
 def load_test_contract(
         filename: str = 'backwards_compatible_rs_contract.wasm') -> bytearray:
     """Loads a WASM file from near-test-contracts package."""
-    output = subprocess.check_output(['cargo', 'run', '-p', 'near-test-contracts', filename],
-                          cwd=_REPO_DIR)
-    return output.stdout
+    output = subprocess.check_output(
+        ['cargo', 'run', '-p', 'near-test-contracts', filename], cwd=_REPO_DIR)
+    return output
+
 
 def user_name():
     username = os.getlogin()
