@@ -19,6 +19,7 @@ import cluster
 from configured_logger import logger
 import key
 import transaction
+from branches import _REPO_DIR
 
 
 class TxContext:
@@ -126,7 +127,7 @@ class LogTracker:
 
 class MetricsTracker:
     """Helper class to collect prometheus metrics from the node.
-    
+
     Usage:
         tracker = MetricsTracker(node)
         assert tracker.get_int_metric_value("near-connections") == 2
@@ -243,16 +244,10 @@ def load_binary_file(filepath):
 
 def load_test_contract(
         filename: str = 'backwards_compatible_rs_contract.wasm') -> bytearray:
-    """Loads a WASM file from near-test-contracts package.
-
-    This is just a convenience function around load_binary_file which loads
-    files from ../runtime/near-test-contracts/res directory.  By default
-    test_contract_rs.wasm is loaded.
-    """
-    repo_dir = pathlib.Path(__file__).resolve().parents[2]
-    path = repo_dir / 'runtime/near-test-contracts/res' / filename
-    return load_binary_file(path)
-
+    """Loads a WASM file from near-test-contracts package."""
+    output = subprocess.check_output(['cargo', 'run', '-p', 'near-test-contracts', filename],
+                          cwd=_REPO_DIR)
+    return output.stdout
 
 def user_name():
     username = os.getlogin()
