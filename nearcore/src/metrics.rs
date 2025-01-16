@@ -112,6 +112,7 @@ fn export_postponed_receipt_count(near_config: &NearConfig, store: &Store) -> an
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let epoch_manager =
         EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?;

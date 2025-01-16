@@ -21,6 +21,7 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::DBCol;
 use near_store::Store;
+use node_runtime::SignedValidPeriodTransactions;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -177,6 +178,15 @@ pub(crate) fn apply_chunk(
         shard_id,
     )?;
 
+    let new_epoch_id =
+        epoch_manager.get_epoch_id_from_prev_block(prev_block_hash).context("new epoch id")?;
+    let protocol_version = epoch_manager
+        .get_epoch_protocol_version(&new_epoch_id)
+        .context("epoch protocol version")?;
+    let valid_txs = chain_store
+        .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
+        .context("compute transaction validity")?;
+
     Ok((
         runtime.apply_chunk(
             storage.create_runtime_storage(prev_state_root),
@@ -203,7 +213,7 @@ pub(crate) fn apply_chunk(
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
-            transactions,
+            SignedValidPeriodTransactions::new(transactions, &valid_txs),
         )?,
         chunk_header.gas_limit(),
     ))
@@ -339,14 +349,19 @@ fn apply_tx_in_chunk(
 }
 
 pub(crate) fn apply_tx(
-    genesis_height: BlockHeight,
+    genesis_config: &near_chain_configs::GenesisConfig,
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
     store: Store,
     tx_hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
+    let mut chain_store = ChainStore::new(
+        store.clone(),
+        genesis_config.genesis_height,
+        false,
+        genesis_config.transaction_validity_period,
+    );
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
     if let Some(outcome) = outcomes.first() {
@@ -478,14 +493,19 @@ fn apply_receipt_in_chunk(
 }
 
 pub(crate) fn apply_receipt(
-    genesis_height: BlockHeight,
+    genesis_config: &near_chain_configs::GenesisConfig,
     epoch_manager: &EpochManagerHandle,
     runtime: &dyn RuntimeAdapter,
     store: Store,
     id: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
+    let mut chain_store = ChainStore::new(
+        store.clone(),
+        genesis_config.genesis_height,
+        false,
+        genesis_config.transaction_validity_period,
+    );
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
         Ok(vec![apply_receipt_in_block(
@@ -554,7 +574,12 @@ mod test {
         );
 
         let store = create_test_store();
-        let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+        let mut chain_store = ChainStore::new(
+            store.clone(),
+            genesis.config.genesis_height,
+            false,
+            genesis.config.transaction_validity_period,
+        );
 
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -642,7 +667,12 @@ mod test {
         );
 
         let store = create_test_store();
-        let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+        let chain_store = ChainStore::new(
+            store.clone(),
+            genesis.config.genesis_height,
+            false,
+            genesis.config.transaction_validity_period,
+        );
 
         initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
@@ -699,7 +729,7 @@ mod test {
 
                     for tx in chunk.transactions() {
                         let results = crate::apply_chunk::apply_tx(
-                            genesis.config.genesis_height,
+                            &genesis.config,
                             &epoch_manager,
                             runtime.as_ref(),
                             store.clone(),
@@ -717,7 +747,7 @@ mod test {
                         let to_shard_index = shard_layout.get_shard_index(to_shard_id).unwrap();
 
                         let results = crate::apply_chunk::apply_receipt(
-                            genesis.config.genesis_height,
+                            &genesis.config,
                             &epoch_manager,
                             runtime.as_ref(),
                             store.clone(),
@@ -747,7 +777,7 @@ mod test {
 
             for tx in chunk.transactions() {
                 let results = crate::apply_chunk::apply_tx(
-                    genesis.config.genesis_height,
+                    &genesis.config,
                     &epoch_manager,
                     runtime.as_ref(),
                     store.clone(),
@@ -768,7 +798,7 @@ mod test {
             }
             for receipt in chunk.prev_outgoing_receipts() {
                 let results = crate::apply_chunk::apply_receipt(
-                    genesis.config.genesis_height,
+                    &genesis.config,
                     &epoch_manager,
                     runtime.as_ref(),
                     store.clone(),

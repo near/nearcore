@@ -369,7 +369,7 @@ class NeardRunner:
                 logging.warning(
                     f'ignoring validator ID "{validator_id}" for traffic generator node'
                 )
-        subprocess.check_call(cmd)
+        self.execute_neard_subcmd(cmd)
 
         with open(self.tmp_near_home_path('config.json'), 'r') as f:
             config = json.load(f)
@@ -403,7 +403,7 @@ class NeardRunner:
                 'run-migrations',
             ]
             logging.info(f'running {" ".join(cmd)}')
-            subprocess.check_call(cmd)
+            self.execute_neard_subcmd(cmd)
             cmd = [
                 self.data['binaries'][0]['system_path'],
                 '--home',
@@ -414,7 +414,7 @@ class NeardRunner:
                 self.target_near_home_path(),
             ]
             logging.info(f'running {" ".join(cmd)}')
-            subprocess.check_call(cmd)
+            self.execute_neard_subcmd(cmd)
 
     def move_init_files(self):
         try:
@@ -794,15 +794,34 @@ class NeardRunner:
                 requests.exceptions.ReadTimeout, KeyError):
             return self.data['current_neard_path']
 
-    def run_neard(self, cmd, out_file=None):
-        assert (self.neard is None)
-        assert (self.data['neard_process'] is None)
+    """
+    Load the env variables from files. The order of override is:
+    1. Environment variables of the process
+    2. ~/.secrets
+    3. $NEARD_RUNNER_HOME/.env
+    """
+
+    def get_env(self):
         home_path = os.path.expanduser('~')
-        env = {
+        return {
             **os.environ,  # override loaded values with environment variables
             **dotenv.dotenv_values(os.path.join(home_path, '.secrets')),  # load sensitive variables
             **dotenv.dotenv_values(self.home_path('.env')),  # load neard variables
         }
+
+    """
+    Used to execute neard cli commands and wait for them to finish.
+    Do not use this for commands that are expected to run indefinitely.
+    """
+
+    def execute_neard_subcmd(self, cmd):
+        env = self.get_env()
+        return subprocess.check_call(cmd, env=env)
+
+    def run_neard(self, cmd, out_file=None):
+        assert (self.neard is None)
+        assert (self.data['neard_process'] is None)
+        env = self.get_env()
         logging.info(f'running {" ".join(cmd)}')
         self.neard = subprocess.Popen(
             cmd,
@@ -1136,7 +1155,7 @@ class NeardRunner:
                     'finalize',
                 ]
                 logging.info(f'running {" ".join(cmd)}')
-                subprocess.check_call(cmd)
+                self.execute_neard_subcmd(cmd)
                 logging.info(
                     f'neard fork-network finalize succeeded. Node is ready')
                 self.make_initial_backup()
@@ -1236,7 +1255,7 @@ class NeardRunner:
             'make-snapshot', '--destination', backup_dir
         ]
         logging.info(f'running {" ".join(cmd)}')
-        exit_code = subprocess.check_call(cmd)
+        exit_code = self.execute_neard_subcmd(cmd)
         logging.info(
             f'copying data dir to {backup_dir} finished with code {exit_code}')
         # Copy config, genesis and node_key to the backup folder to use them to restore the db.
@@ -1303,7 +1322,7 @@ class NeardRunner:
             self.target_near_home_path()
         ]
         logging.info(f'running {" ".join(cmd)}')
-        exit_code = subprocess.check_call(cmd)
+        exit_code = self.execute_neard_subcmd(cmd)
         logging.info(
             f'snapshot restoration of {backup_path} terminated with code {exit_code}'
         )

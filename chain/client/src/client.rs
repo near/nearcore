@@ -2334,15 +2334,14 @@ impl Client {
         let me = signer.as_ref().map(|vs| vs.validator_id());
         let cur_block = self.chain.get_head_block()?;
         let cur_block_header = cur_block.header();
-        let transaction_validity_period = self.chain.transaction_validity_period;
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
-        if let Err(e) = self.chain.chain_store().check_transaction_validity_period(
-            &cur_block_header,
-            tx.transaction.block_hash(),
-            transaction_validity_period,
-        ) {
+        if let Err(e) = self
+            .chain
+            .chain_store()
+            .check_transaction_validity_period(&cur_block_header, tx.transaction.block_hash())
+        {
             debug!(target: "client", ?tx, "Invalid tx: expired or from a different fork");
             return Ok(ProcessTxResponse::InvalidTx(e));
         }

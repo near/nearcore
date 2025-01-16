@@ -45,7 +45,7 @@ use borsh::BorshSerialize as _;
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
-use near_primitives::transaction::{Action, SignedTransaction};
+use near_primitives::transaction::Action;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
@@ -54,7 +54,7 @@ use sha2::Digest;
 use std::str::FromStr;
 use tracing::{debug, warn};
 
-use crate::metrics;
+use crate::{metrics, SignedValidPeriodTransactions};
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
@@ -195,10 +195,10 @@ impl TriePrefetcher {
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
         &mut self,
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
-            for t in transactions {
+            for t in transactions.iter_nonexpired_transactions() {
                 let account_id = t.transaction.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;

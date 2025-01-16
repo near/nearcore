@@ -26,7 +26,7 @@ use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 use std::iter;
 use std::sync::Arc;
@@ -355,7 +355,7 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                transactions,
+                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
                 &self.epoch_info_provider,
                 Default::default(),
             )
@@ -453,12 +453,19 @@ impl Testbed<'_> {
         let verify_signature = true;
 
         let clock = GasCost::measure(metric);
-        node_runtime::verify_and_charge_transaction(
+        let cost = node_runtime::validate_transaction(
             &self.apply_state.config,
-            &mut state_update,
             gas_price,
             tx,
             verify_signature,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected no validation error");
+        node_runtime::verify_and_charge_transaction(
+            &self.apply_state.config,
+            &mut state_update,
+            tx,
+            &cost,
             block_height,
             PROTOCOL_VERSION,
         )
