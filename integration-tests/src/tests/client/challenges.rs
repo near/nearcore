@@ -451,7 +451,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         .chain
         .create_chunk_state_challenge(
             &last_block,
-            &block.header(),
+            block.header().height(),
             &block.chunks(),
             &block.chunks()[0],
         )
