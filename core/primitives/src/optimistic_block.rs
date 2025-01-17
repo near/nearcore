@@ -4,10 +4,12 @@ use near_crypto::Signature;
 use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::combine_hash;
+use crate::stateless_validation::SignatureDifferentiator;
 use crate::types::BlockHeight;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct OptimisticBlockInner {
+    signature_differentiator: SignatureDifferentiator,
     pub block_height: BlockHeight,
     pub block_timestamp: u64,
     // Data to confirm the correctness of randomness beacon output
@@ -55,6 +57,7 @@ impl OptimisticBlock {
         };
 
         let inner = OptimisticBlockInner {
+            signature_differentiator: "OptimisticBlock".to_owned(),
             block_height: height,
             block_timestamp: time,
             random_value,
