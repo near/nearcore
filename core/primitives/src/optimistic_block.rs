@@ -20,6 +20,8 @@ pub struct OptimisticBlockInner {
 
 /// An optimistic block is independent of specific chunks and can be generated
 /// and distributed immediately after the previous block is processed.
+/// This block is shared with the validators and used to optimistically process
+/// chunks before they get included in the block.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 #[borsh(init=init)]
 pub struct OptimisticBlock {
