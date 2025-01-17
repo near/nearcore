@@ -660,46 +660,11 @@ impl Block {
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
-        let mut result = BTreeMap::new();
-
-        for chunk in self.chunks().iter_deprecated() {
-            let shard_id = chunk.shard_id();
-
-            if let Some(congestion_info) = chunk.congestion_info() {
-                let height_included = chunk.height_included();
-                let height_current = self.header().height();
-                let missed_chunks_count = height_current.checked_sub(height_included);
-                let missed_chunks_count = missed_chunks_count
-                    .expect("The chunk height included must be less or equal than block height!");
-
-                let extended_congestion_info =
-                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-                result.insert(shard_id, extended_congestion_info);
-            }
-        }
-        BlockCongestionInfo::new(result)
+        self.chunks().block_congestion_info()
     }
 
     pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
-        let mut result = BTreeMap::new();
-
-        for chunk in self.chunks().iter() {
-            // It's okay to take bandwidth requests from a missing chunk,
-            // the chunk was missing so it didn't send anything and still
-            // wants to send out the same receipts.
-            let chunk = match chunk {
-                MaybeNew::New(new_chunk) => new_chunk,
-                MaybeNew::Old(missing_chunk) => missing_chunk,
-            };
-
-            let shard_id = chunk.shard_id();
-
-            if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
-                result.insert(shard_id, bandwidth_requests.clone());
-            }
-        }
-
-        BlockBandwidthRequests { shards_bandwidth_requests: result }
+        self.chunks().block_bandwidth_requests()
     }
 
     pub fn hash(&self) -> &CryptoHash {
@@ -861,6 +826,49 @@ impl<'a> Chunks<'a> {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),
         }
+    }
+
+    pub fn block_congestion_info(&self) -> BlockCongestionInfo {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.iter_deprecated() {
+            let shard_id = chunk.shard_id();
+
+            if let Some(congestion_info) = chunk.congestion_info() {
+                let height_included = chunk.height_included();
+                let height_current = self.block_height;
+                let missed_chunks_count = height_current.checked_sub(height_included);
+                let missed_chunks_count = missed_chunks_count
+                    .expect("The chunk height included must be less or equal than block height!");
+
+                let extended_congestion_info =
+                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
+                result.insert(shard_id, extended_congestion_info);
+            }
+        }
+        BlockCongestionInfo::new(result)
+    }
+
+    pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.iter() {
+            // It's okay to take bandwidth requests from a missing chunk,
+            // the chunk was missing so it didn't send anything and still
+            // wants to send out the same receipts.
+            let chunk = match chunk {
+                MaybeNew::New(new_chunk) => new_chunk,
+                MaybeNew::Old(missing_chunk) => missing_chunk,
+            };
+
+            let shard_id = chunk.shard_id();
+
+            if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
+                result.insert(shard_id, bandwidth_requests.clone());
+            }
+        }
+
+        BlockBandwidthRequests { shards_bandwidth_requests: result }
     }
 }
 
