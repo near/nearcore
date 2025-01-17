@@ -149,6 +149,7 @@ fn check_buffered_receipts_exist_in_memtrie(
     let memtrie = get_memtrie_for_shard(client, shard_uid, prev_block_hash);
     let indices: BufferedReceiptIndices =
         get(&memtrie, &TrieKey::BufferedReceiptIndices).unwrap().unwrap();
+
     // There should be at least one buffered receipt going to some other shard. It's not very precise but good enough.
     assert_ne!(indices.shard_buffers.values().fold(0, |acc, buffer| acc + buffer.len()), 0);
 }
