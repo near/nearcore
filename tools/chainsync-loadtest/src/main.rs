@@ -4,12 +4,12 @@ mod network;
 
 use anyhow::{anyhow, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::futures::StdThreadAsyncComputationSpawnerForTest;
 use near_async::messaging::noop;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::IntoSender;
 use near_async::messaging::LateBoundSender;
 use near_async::time;
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain_configs::Genesis;
 use near_chain_configs::MutableConfigValue;
 use near_network::concurrency::ctx;
@@ -52,7 +52,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),
         },
-        Arc::new(StdThreadAsyncComputationSpawnerForTest),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .context("PeerManagerActor::spawn()")?;
     network_adapter.bind(network_actor.with_auto_span_context());
