@@ -725,18 +725,13 @@ impl NetworkState {
     {
         // For now, we don't allow some types of messages to be sent to self.
         debug_assert!(msg.allow_sending_to_self());
-
-        let this = self.clone(); // or clone the Arc<Self> if needed
+        let this = self.clone();
         let clock = clock.clone();
         let my_peer_id = self.config.node_id();
-
-        // Sign the message with the "self" target.
         let msg = this.sign_message(
             &clock,
             RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
         );
-
-        // Spawn the async future using the provided spawner.
         spawner(Box::pin(async move {
             let hash = msg.hash();
             this.receive_routed_message(
