@@ -3714,7 +3714,6 @@ impl Chain {
                     if let Error::InvalidChunkTransactionsOrder(chunk) = err {
                         let merkle_paths =
                             Block::compute_chunk_headers_root(block.chunks().iter_deprecated()).1;
-
                         let chunk_proof = ChunkProofs {
                             block_header: borsh::to_vec(&block.header())
                                 .expect("Failed to serialize"),
