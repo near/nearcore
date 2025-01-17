@@ -363,7 +363,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     let mut tracked_mapped_children = vec![];
     let store = client.chain.chain_store.store();
     for child_shard_uid in &children_shard_uids {
-        let mapped_shard_uid = get_shard_uid_mapping(store, *child_shard_uid);
+        let mapped_shard_uid = get_shard_uid_mapping(&store, *child_shard_uid);
         if &mapped_shard_uid == child_shard_uid {
             continue;
         }

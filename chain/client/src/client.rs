@@ -291,7 +291,7 @@ impl Client {
             chain.genesis().clone(),
             async_computation_spawner.clone(),
             config.epoch_sync.clone(),
-            chain.chain_store.store(),
+            &chain.chain_store.store(),
         );
         let header_sync = HeaderSync::new(
             clock.clone(),
@@ -339,10 +339,8 @@ impl Client {
             config.max_block_wait_delay,
             doomslug_threshold_mode,
         );
-        let chunk_endorsement_tracker = ChunkEndorsementTracker::new(
-            epoch_manager.clone(),
-            chain.chain_store().store().clone(),
-        );
+        let chunk_endorsement_tracker =
+            ChunkEndorsementTracker::new(epoch_manager.clone(), chain.chain_store().store());
         let chunk_validator = ChunkValidator::new(
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
