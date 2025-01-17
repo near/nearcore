@@ -57,6 +57,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, StateSyncInfo,
@@ -94,6 +95,9 @@ const BLOCK_HORIZON: u64 = 500;
 
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
+
+/// Cache size for the produced optimistic blocks.
+pub const PRODUCED_OPTIMISTIC_BLOCK_POOL: usize = 10;
 
 /// Defines whether in case of adversarial block production invalid blocks can
 /// be produced.
@@ -198,6 +202,8 @@ pub struct Client {
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
     /// Upgrade schedule which determines when the client starts voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    /// Produced optimistic blocks.
+    optimistic_blocks_cache: lru::LruCache<BlockHeight, OptimisticBlock>,
 }
 
 impl AsRef<Client> for Client {
@@ -399,6 +405,9 @@ impl Client {
             partial_witness_adapter,
             chunk_distribution_network,
             upgrade_schedule,
+            optimistic_blocks_cache: lru::LruCache::new(
+                NonZeroUsize::new(PRODUCED_OPTIMISTIC_BLOCK_POOL).unwrap(),
+            ),
         })
     }
 
@@ -592,6 +601,91 @@ impl Client {
             }
         }
         Ok(())
+    }
+
+    pub fn is_optimistic_block_done(&self, next_height: BlockHeight) -> bool {
+        self.optimistic_blocks_cache.contains(&next_height)
+    }
+
+    pub fn save_optimistic_block(
+        &mut self,
+        optimistic_block: &OptimisticBlock,
+    ) -> Result<(), Error> {
+        if let Some((height, block)) = self.optimistic_blocks_cache.push(optimistic_block.inner.block_height, optimistic_block.clone()) {
+            if height == optimistic_block.inner.block_height {
+                warn!(target: "client",
+                    height=height,
+                    old_previous_hash=?block.inner.prev_block_hash,
+                    new_previous_hash=?optimistic_block.inner.prev_block_hash,
+                    "Optimistic block already exists, replacing");
+            }
+        }
+        Ok(())
+    }
+
+    pub fn produce_optimistic_block(
+        &mut self,
+        height: BlockHeight,
+    ) -> Result<Option<OptimisticBlock>, Error> {
+        self.produce_optimistic_block_on_head(height)
+    }
+
+    /// Produce optimistic block for given `height` on top of chain head.
+    /// Either returns optimistic block or error.
+    pub fn produce_optimistic_block_on_head(
+        &mut self,
+        height: BlockHeight,
+    ) -> Result<Option<OptimisticBlock>, Error> {
+        let _span =
+            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height)
+                .entered();
+
+        let head = self.chain.head()?;
+        assert_eq!(
+            head.epoch_id,
+            self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
+        );
+
+        let prev_hash = head.last_block_hash;
+        let prev_header = self.chain.get_block_header(&prev_hash)?;
+
+        let validator_signer: Arc<ValidatorSigner> =
+            self.validator_signer.get().ok_or_else(|| {
+                Error::BlockProducer("Called without block producer info.".to_string())
+            })?;
+
+        if let Err(err) = self.pre_production_check(&prev_header, height, &validator_signer) {
+            debug!(target: "client", height, ?err, "Skipping optimistic block production.");
+            return Ok(None);
+        }
+
+        debug!(
+            target: "client",
+            validator=?validator_signer.validator_id(),
+            height=height,
+            prev_height=prev_header.height(),
+            prev_hash=format_hash(prev_hash),
+            "Producing optimistic block",
+        );
+
+        #[cfg(feature = "sandbox")]
+        let sandbox_delta_time = Some(self.sandbox_delta_time());
+        #[cfg(not(feature = "sandbox"))]
+        let sandbox_delta_time = None;
+
+        // TODO(#10584): Add debug information about the block production in self.block_production_info
+
+        let optimistic_block = OptimisticBlock::produce(
+            &prev_header,
+            height,
+            &*validator_signer,
+            self.clock.clone(),
+            sandbox_delta_time,
+        );
+
+        // TODO(#10584): metrics::OPTIMISTIC_BLOCK_PRODUCED_TOTAL.inc();
+
+        Ok(Some(optimistic_block))
     }
 
     /// Produce block if we are block producer for given block `height`.
