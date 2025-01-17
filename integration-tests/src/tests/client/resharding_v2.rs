@@ -269,7 +269,8 @@ impl TestReshardingEnv {
             }
             // manually invoke gc
             let gc_config = client.config.gc.clone();
-            client.chain.clear_data(&gc_config).unwrap();
+            let me = signer.as_ref().map(|signer| signer.validator_id());
+            client.chain.clear_data(&gc_config, me).unwrap();
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[])?;
             }

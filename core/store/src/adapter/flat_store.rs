@@ -279,6 +279,7 @@ impl<'a> FlatStoreUpdateAdapter<'a> {
 
     // helper
     fn remove_range_by_shard_uid(&mut self, shard_uid: ShardUId, col: DBCol) {
+        assert!(col != DBCol::State, "can't range delete State column");
         let key_from = shard_uid.to_bytes();
         let key_to = ShardUId::get_upper_bound_db_key(&key_from);
         self.store_update.delete_range(col, &key_from, &key_to);

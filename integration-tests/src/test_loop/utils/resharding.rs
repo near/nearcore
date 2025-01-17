@@ -18,6 +18,7 @@ use near_primitives::types::{AccountId, BlockId, BlockReference, Gas, ShardId};
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::{DBCol, ShardUId};
@@ -621,7 +622,14 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
 }
 
 /// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.
-fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
+///
+/// `expect_shard_uid_is_mapped` means that `the_only_shard_uid` should use an ancestor
+/// ShardUId as the db key prefix.
+fn check_has_the_only_shard_state(
+    client: &Client,
+    the_only_shard_uid: ShardUId,
+    expect_shard_uid_is_mapped: bool,
+) {
     let store = client.chain.chain_store.store().trie_store();
     let mut shard_uid_prefixes = HashSet::new();
     for kv in store.store().iter_raw_bytes(DBCol::State) {
@@ -629,20 +637,30 @@ fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId)
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
+    let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
+    if expect_shard_uid_is_mapped {
+        assert_ne!(mapped_shard_uid, the_only_shard_uid);
+    } else {
+        assert_eq!(mapped_shard_uid, the_only_shard_uid);
+    };
     let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
-    assert_eq!(shard_uid_prefixes, [the_only_shard_uid]);
+    assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
 }
 
-// Loop action testing state cleanup after resharding.
-// It assumes single shard tracking and it waits for gc after resharding.
-// Then it checks whether the last shard tracked by the client
-// is the only ShardUId prefix for nodes in the State column.
-pub(crate) fn check_state_cleanup_after_resharding(
+/// Loop action testing state cleanup.
+/// It assumes single shard tracking and it waits for `num_epochs_to_wait`.
+/// Then it checks whether the last shard tracked by the client
+/// is the only ShardUId prefix for nodes in the State column.
+///
+/// Pass `expect_shard_uid_is_mapped` as true if it is expected at the end of the test
+/// that the last tracked shard will use an ancestor ShardUId as a db key prefix.
+pub(crate) fn check_state_cleanup(
     tracked_shard_schedule: TrackedShardSchedule,
+    num_epochs_to_wait: u64,
+    expect_shard_uid_is_mapped: bool,
 ) -> LoopAction {
     let client_index = tracked_shard_schedule.client_index;
     let latest_height = Cell::new(0);
-    let target_height = Cell::new(None);
 
     let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
@@ -677,22 +695,11 @@ pub(crate) fn check_state_cleanup_after_resharding(
             }
             latest_height.set(tip.height);
 
-            if target_height.get().is_none() {
-                if !this_block_has_new_shard_layout(client.epoch_manager.as_ref(), &tip) {
-                    return;
-                }
-                // Just resharded. Set the target height high enough so that gc will kick in.
-                let epoch_length = client.config.epoch_length;
-                let gc_num_epochs_to_keep = client.config.gc.gc_num_epochs_to_keep;
-                target_height
-                    .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
-            }
-
-            if latest_height.get() < target_height.get().unwrap() {
+            if epoch_height < num_epochs_to_wait {
                 return;
             }
             // At this point, we should only have State from the last tracked shard.
-            check_has_the_only_shard_state(&client, tracked_shard_uid);
+            check_has_the_only_shard_state(&client, tracked_shard_uid, expect_shard_uid_is_mapped);
             done.set(true);
         },
     );
