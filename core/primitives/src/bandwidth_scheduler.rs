@@ -131,28 +131,6 @@ impl BandwidthRequest {
 
         Ok(Some(BandwidthRequest { to_shard: to_shard.into(), requested_values_bitmap: bitmap }))
     }
-
-    /// Create a basic bandwidth request when receipt sizes are not available.
-    /// It'll request a single value - max_receipt_size. Bandwidth scheduler will
-    /// grant all the bandwidth to one of the shards that requests max_receipt_size.
-    /// The resulting behaviour will be similar to the previous approach with allowed shard.
-    /// It is used only during the protocol upgrade while the outgoing buffer metadata
-    /// is not built for receipts that were buffered before the upgrade.
-    pub fn make_max_receipt_size_request(
-        to_shard: ShardId,
-        params: &BandwidthSchedulerParams,
-    ) -> BandwidthRequest {
-        let mut bitmap = BandwidthRequestBitmap::new();
-        let values = BandwidthRequestValues::new(params).values;
-
-        let max_receipt_size_value_pos = values
-            .iter()
-            .position(|&value| value == params.max_receipt_size)
-            .expect("max_receipt_size should be in the values list");
-        bitmap.set_bit(max_receipt_size_value_pos, true);
-
-        BandwidthRequest { to_shard: to_shard.into(), requested_values_bitmap: bitmap }
-    }
 }
 
 /// There are this many predefined values of bandwidth that can be requested in a BandwidthRequest.
