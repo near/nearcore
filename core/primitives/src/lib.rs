@@ -20,6 +20,7 @@ pub mod epoch_info;
 pub mod epoch_manager;
 pub mod epoch_sync;
 pub mod errors;
+pub mod hacky_cache;
 pub mod merkle;
 pub mod network;
 pub mod profile_data_v2;

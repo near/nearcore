@@ -27,6 +27,7 @@ use near_primitives::errors::{
     ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
     TxExecutionError,
 };
+use near_primitives::hacky_cache::HackyCache;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
@@ -269,11 +270,13 @@ impl Default for ActionResult {
     }
 }
 
-pub struct Runtime {}
+pub struct Runtime {
+    pub hacky_cache: HackyCache,
+}
 
 impl Runtime {
     pub fn new() -> Self {
-        Self {}
+        Self { hacky_cache: Default::default() }
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -2820,7 +2823,7 @@ pub mod estimator {
             apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
-        let apply_result = Runtime {}.apply_action_receipt(
+        let apply_result = Runtime::new().apply_action_receipt(
             state_update,
             apply_state,
             &empty_pipeline,
