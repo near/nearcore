@@ -362,7 +362,8 @@ impl ReceiptSinkV2 {
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<(), RuntimeError> {
         let shard = epoch_info_provider
-            .account_id_to_shard_id(receipt.receiver_id(), &apply_state.epoch_id)?;
+            .shard_layout(&apply_state.epoch_id)?
+            .account_id_to_shard_id(receipt.receiver_id());
 
         let size = compute_receipt_size(&receipt)?;
         let gas = compute_receipt_congestion_gas(&receipt, &apply_state.config)?;
@@ -792,8 +793,9 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         let receiver_id = receipt.get_receipt().receiver_id();
         let receipt_shard_id = self
             .epoch_info_provider
-            .account_id_to_shard_id(receiver_id, &self.epoch_id)
-            .expect("account_id_to_shard_id should never fail");
+            .shard_layout(&self.epoch_id)
+            .unwrap()
+            .account_id_to_shard_id(receiver_id);
         receipt_shard_id == self.shard_id
     }
 
