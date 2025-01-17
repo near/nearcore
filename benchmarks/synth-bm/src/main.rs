@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 mod account;
 use account::{create_sub_accounts, CreateSubAccountsArgs};
 mod block_service;
+mod contract;
+use contract::BenchmarkMpcSignArgs;
 mod native_transfer;
 mod rpc;
 
@@ -19,6 +21,7 @@ enum Commands {
     /// Creates sub accounts for the signer.
     CreateSubAccounts(CreateSubAccountsArgs),
     BenchmarkNativeTransfers(native_transfer::BenchmarkArgs),
+    BenchmarkMpcSign(BenchmarkMpcSignArgs),
 }
 
 #[tokio::main]
@@ -34,6 +37,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::BenchmarkNativeTransfers(args) => {
             native_transfer::benchmark(args).await?;
+        }
+        Commands::BenchmarkMpcSign(args) => {
+            contract::benchmark_mpc_sign(args).await?;
         }
     }
     Ok(())
