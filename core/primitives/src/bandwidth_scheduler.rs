@@ -359,7 +359,7 @@ impl BandwidthSchedulerParams {
         );
         assert!(
             max_single_grant <= max_shard_bandwidth,
-            "A single grant must always be less than max_shard_bandwidth"
+            "A single grant must not be greater than max_shard_bandwidth"
         );
 
         // Granting `max_single_grant` on one link and `base_bandwidth` on all other links can't
