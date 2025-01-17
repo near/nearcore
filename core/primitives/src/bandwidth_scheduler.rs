@@ -145,10 +145,11 @@ impl BandwidthRequest {
         let mut bitmap = BandwidthRequestBitmap::new();
         let values = BandwidthRequestValues::new(params).values;
 
+        // Find the first value which allows to send a max size receipt
         let max_receipt_size_value_pos = values
             .iter()
-            .position(|&value| value == params.max_receipt_size)
-            .expect("max_receipt_size should be in the values list");
+            .position(|&value| value >= params.max_receipt_size)
+            .expect("max_receipt_size is less than max_single_grant, a value should be found");
         bitmap.set_bit(max_receipt_size_value_pos, true);
 
         BandwidthRequest { to_shard: to_shard.into(), requested_values_bitmap: bitmap }
@@ -177,7 +178,7 @@ fn interpolate(min: u64, max: u64, i: u64, n: u64) -> u64 {
 impl BandwidthRequestValues {
     pub fn new(params: &BandwidthSchedulerParams) -> BandwidthRequestValues {
         // values[-1] = base_bandwidth
-        // values[values.len() - 1] = max_shard_bandwidth
+        // values[values.len() - 1] = max_single_grant
         // values[i] = linear interpolation between values[-1] and values[values.len() - 1]
         // TODO(bandwidth_scheduler) - consider using exponential interpolation.
         let mut values = [0; BANDWIDTH_REQUEST_VALUES_NUM];
@@ -187,32 +188,8 @@ impl BandwidthRequestValues {
         for i in 0..values.len() {
             let i_u64: u64 = i.try_into().expect("Converting usize to u64 shouldn't fail");
 
-            values[i] = interpolate(
-                params.base_bandwidth,
-                params.max_shard_bandwidth,
-                i_u64 + 1,
-                values_len,
-            );
-        }
-
-        // The value that is closest to max_receipt_size is set to max_receipt_size.
-        // Without this we could end up in a situation where one shard wants to send
-        // a maximum size receipt to another and requests the corresponding value from the list,
-        // but the sum of this value and base bandwidth exceeds max_shard_bandwidth.
-        // There's a guarantee that (num_shards - 1) * base_bandwidth + max_receipt_size <= max_shard_bandwidth,
-        // but there's no guarantee that (num_shards - 1) * base_bandwidth + request_value <= max_shard_bandwidth.
-        let mut closest_to_max: Bandwidth = 0;
-        for value in &values {
-            if value.abs_diff(params.max_receipt_size)
-                < closest_to_max.abs_diff(params.max_receipt_size)
-            {
-                closest_to_max = *value;
-            }
-        }
-        for value in values.iter_mut() {
-            if *value == closest_to_max {
-                *value = params.max_receipt_size;
-            }
+            values[i] =
+                interpolate(params.base_bandwidth, params.max_single_grant, i_u64 + 1, values_len);
         }
 
         BandwidthRequestValues { values }
@@ -335,9 +312,13 @@ pub struct LinkAllowance {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BandwidthSchedulerParams {
     /// This much bandwidth is granted by default.
+    /// base_bandwidth = (max_shard_bandwidth - max_single_grant) / (num_shards - 1)
     pub base_bandwidth: Bandwidth,
     /// The maximum amount of data that a shard can send or receive at a single height.
     pub max_shard_bandwidth: Bandwidth,
+    /// The maximum amount of bandwidth that can be granted on a single link.
+    /// Should be at least as big as `max_receipt_size`.
+    pub max_single_grant: Bandwidth,
     /// Maximum size of a single receipt.
     pub max_receipt_size: Bandwidth,
     /// Maximum bandwidth allowance that a link can accumulate.
@@ -348,25 +329,46 @@ impl BandwidthSchedulerParams {
     /// Calculate values of scheduler params based on the current configuration
     pub fn new(num_shards: NonZeroU64, runtime_config: &RuntimeConfig) -> BandwidthSchedulerParams {
         // TODO(bandwidth_scheduler) - put these parameters in RuntimeConfig.
-        let max_shard_bandwidth: Bandwidth = 4_500_000;
+        let max_shard_bandwidth = 4_500_000;
+        let max_single_grant = 4 * 1024 * 1024;
         let max_allowance = max_shard_bandwidth;
         let max_base_bandwidth = 100_000;
-
         let max_receipt_size = runtime_config.wasm_config.limit_config.max_receipt_size;
 
-        if max_shard_bandwidth < max_receipt_size {
-            panic!(
-                "max_shard_bandwidth is smaller than max_receipt_size! ({} < {}).
-                Invalid configuration - it'll be impossible to send a maximum size receipt.",
-                max_shard_bandwidth, max_receipt_size
-            );
-        }
+        Self::calculate(
+            max_shard_bandwidth,
+            max_single_grant,
+            max_allowance,
+            max_base_bandwidth,
+            max_receipt_size,
+            num_shards.get(),
+        )
+    }
 
-        // A receipt with maximum size must still be able to get through
-        // after base bandwidth is granted to everyone. We have to ensure that:
-        // base_bandwidth * (num_shards - 1) + max_receipt_size <= max_shard_bandwidth
-        let available_bandwidth = max_shard_bandwidth - max_receipt_size;
-        let mut base_bandwidth = available_bandwidth / std::cmp::max(1, num_shards.get() - 1);
+    fn calculate(
+        max_shard_bandwidth: Bandwidth,
+        max_single_grant: Bandwidth,
+        max_allowance: Bandwidth,
+        max_base_bandwidth: Bandwidth,
+        max_receipt_size: Bandwidth,
+        num_shards: u64,
+    ) -> BandwidthSchedulerParams {
+        assert!(
+            max_single_grant >= max_receipt_size,
+            "A max_single_grant can't be lower than max_receipt_size - it'll be impossible to send a max size receipt"
+        );
+        assert!(
+            max_single_grant <= max_shard_bandwidth,
+            "A single grant must not be greater than max_shard_bandwidth"
+        );
+
+        // Granting `max_single_grant` on one link and `base_bandwidth` on all other links can't
+        // exceed `max_shard_bandwidth`, we have to ensure that:
+        // base_bandwidth * (num_shards - 1) + max_single_grant <= max_shard_bandwidth
+        // Base bandwidth is calculated by taking the bandwidth that would remain available after
+        // granting `max_single_grant` on one link and dividing it equally between the other links.
+        let available_bandwidth = max_shard_bandwidth - max_single_grant;
+        let mut base_bandwidth = available_bandwidth / std::cmp::max(1, num_shards - 1);
         if base_bandwidth > max_base_bandwidth {
             base_bandwidth = max_base_bandwidth;
         }
@@ -374,9 +376,28 @@ impl BandwidthSchedulerParams {
         BandwidthSchedulerParams {
             base_bandwidth,
             max_shard_bandwidth,
+            max_single_grant,
             max_receipt_size,
             max_allowance,
         }
+    }
+
+    /// Example params, used only in tests
+    pub fn for_test(num_shards: u64) -> BandwidthSchedulerParams {
+        let max_shard_bandwidth = 4_500_000;
+        let max_single_grant = 4 * 1024 * 1024;
+        let max_allowance = max_shard_bandwidth;
+        let max_base_bandwidth = 100_000;
+        let max_receipt_size = 4 * 1024 * 1024;
+
+        Self::calculate(
+            max_shard_bandwidth,
+            max_single_grant,
+            max_allowance,
+            max_base_bandwidth,
+            max_receipt_size,
+            num_shards,
+        )
     }
 }
 
@@ -428,6 +449,7 @@ mod tests {
         let expected = BandwidthSchedulerParams {
             base_bandwidth: 100_000,
             max_shard_bandwidth: 4_500_000,
+            max_single_grant: 4 * 1024 * 1024,
             max_receipt_size,
             max_allowance: 4_500_000,
         };
@@ -446,6 +468,7 @@ mod tests {
         let expected = BandwidthSchedulerParams {
             base_bandwidth: (4_500_000 - max_receipt_size) / 5,
             max_shard_bandwidth: 4_500_000,
+            max_single_grant: 4 * 1024 * 1024,
             max_receipt_size,
             max_allowance: 4_500_000,
         };
@@ -495,18 +518,17 @@ mod tests {
         let values = BandwidthRequestValues::new(&params);
 
         assert!(values.values[0] > params.base_bandwidth);
-        assert_eq!(values.values[BANDWIDTH_REQUEST_VALUES_NUM - 1], params.max_shard_bandwidth);
-        assert!(values.values.contains(&max_receipt_size));
+        assert_eq!(values.values[BANDWIDTH_REQUEST_VALUES_NUM - 1], params.max_single_grant);
 
         assert_eq!(params.base_bandwidth, 61139);
         assert_eq!(
             values.values,
             [
-                172110, 283082, 394053, 505025, 615996, 726968, 837939, 948911, 1059882, 1170854,
-                1281825, 1392797, 1503768, 1614740, 1725711, 1836683, 1947654, 2058626, 2169597,
-                2280569, 2391541, 2502512, 2613484, 2724455, 2835427, 2946398, 3057370, 3168341,
-                3279313, 3390284, 3501256, 3612227, 3723199, 3834170, 3945142, 4056113, 4194304,
-                4278056, 4389028, 4500000
+                164468, 267797, 371126, 474455, 577784, 681113, 784442, 887772, 991101, 1094430,
+                1197759, 1301088, 1404417, 1507746, 1611075, 1714405, 1817734, 1921063, 2024392,
+                2127721, 2231050, 2334379, 2437708, 2541038, 2644367, 2747696, 2851025, 2954354,
+                3057683, 3161012, 3264341, 3367671, 3471000, 3574329, 3677658, 3780987, 3884316,
+                3987645, 4090974, 4194304
             ]
         );
     }
