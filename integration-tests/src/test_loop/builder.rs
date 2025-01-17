@@ -741,13 +741,16 @@ impl TestLoopBuilder {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
         );
 
         let gc_actor = GCActor::new(
             runtime_adapter.store().clone(),
-            chain_genesis.height,
+            &chain_genesis,
             runtime_adapter.clone(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
+            validator_signer.clone(),
             client_config.gc.clone(),
             client_config.archive,
         );
@@ -755,7 +758,7 @@ impl TestLoopBuilder {
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
 
         let resharding_actor =
-            ReshardingActor::new(runtime_adapter.store().clone(), chain_genesis.height);
+            ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
 
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {

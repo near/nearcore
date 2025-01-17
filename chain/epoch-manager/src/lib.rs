@@ -41,11 +41,11 @@ use validator_stats::{
 };
 
 pub use crate::adapter::EpochManagerAdapter;
-pub use crate::adapter::ShardUIdAndIndex;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::{EpochInfoAggregator, RngSeed};
+pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
 mod metrics;
@@ -124,14 +124,6 @@ impl EpochInfoProvider for EpochManagerHandle {
     fn chain_id(&self) -> String {
         let epoch_manager = self.read();
         epoch_manager.config.chain_id().into()
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
     }
 
     fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {

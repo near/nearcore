@@ -34,8 +34,12 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
         env.process_block(0, block, Provenance::PRODUCED);
     }
 
-    let mut chain_store =
-        ChainStore::new(store.clone(), genesis.config.genesis_height, save_trie_changes);
+    let mut chain_store = ChainStore::new(
+        store.clone(),
+        genesis.config.genesis_height,
+        save_trie_changes,
+        genesis.config.transaction_validity_period,
+    );
 
     let current_head = chain_store.head().unwrap();
     let prev_block_hash = current_head.prev_block_hash;

@@ -617,10 +617,11 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Deletes the given key range from the database including `from`
-    /// and excluding `to` keys.
+    /// Deletes the given key range from the database including `from` and excluding `to` keys.
+    ///
+    /// Be aware when using with `DBCol::State`! Keys prefixed with a `ShardUId` might be used
+    /// by a descendant shard. See `DBCol::StateShardUIdMapping` for more context.
     pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
-        assert!(column != DBCol::State, "can't range delete State column");
         self.transaction.delete_range(column, from.to_vec(), to.to_vec());
     }
 

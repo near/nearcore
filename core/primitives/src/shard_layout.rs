@@ -1072,8 +1072,8 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
 }
 
 pub struct ShardInfo {
-    shard_index: ShardIndex,
-    shard_uid: ShardUId,
+    pub shard_index: ShardIndex,
+    pub shard_uid: ShardUId,
 }
 
 impl ShardInfo {

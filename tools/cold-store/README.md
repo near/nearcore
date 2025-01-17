@@ -3,7 +3,7 @@
 ## Workflow
 
 Start by trying something on localnet,
-then move on to test you code on a dedicated machine
+then move on to test your code on a dedicated machine
 with real archival data.  
 Ideally, on archival machine we only need to do every step before experimenting once.
 But accidents happen, and we should be mindful of the time it takes us

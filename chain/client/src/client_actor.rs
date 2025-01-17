@@ -492,7 +492,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                     self.client.epoch_manager.clone(),
                     self.client.shard_tracker.clone(),
                     self.client.runtime_adapter.clone(),
-                    self.client.chain.chain_store().store().clone(),
+                    self.client.chain.chain_store().store(),
                     self.adv.is_archival(),
                 );
                 store_validator.set_timeout(timeout);
@@ -1908,7 +1908,7 @@ impl ClientActorInner {
                 return Ok(false);
             }
             if epoch_sync_boundary_block_header.height()
-                + self.client.chain.transaction_validity_period
+                + self.client.chain.transaction_validity_period()
                 > current_epoch_start
             {
                 // We also do not want to state sync, if by doing so we would not have enough headers to

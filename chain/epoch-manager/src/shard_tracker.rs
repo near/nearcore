@@ -206,6 +206,23 @@ impl ShardTracker {
             }
         }
     }
+
+    // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
+    pub fn cares_about_shard_this_or_next_epoch(
+        &self,
+        account_id: Option<&AccountId>,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+        is_me: bool,
+    ) -> bool {
+        self.care_about_shard(account_id, parent_hash, shard_id, is_me)
+            || self.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
+    }
+
+    /// Returns whether the node is configured for all shards tracking.
+    pub fn tracks_all_shards(&self) -> bool {
+        matches!(self.tracked_config, TrackedConfig::AllShards)
+    }
 }
 
 #[cfg(test)]

@@ -2,11 +2,10 @@ use super::types::{
     FlatStorageShardCatchupRequest, FlatStorageSplitShardRequest, MemtrieReloadRequest,
 };
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageReshardingTaskResult};
-use crate::ChainStore;
+use crate::{ChainGenesis, ChainStore};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::{self, Handler, HandlerWithContext};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::BlockHeight;
 use near_store::Store;
 use time::Duration;
 
@@ -44,8 +43,15 @@ impl Handler<MemtrieReloadRequest> for ReshardingActor {
 }
 
 impl ReshardingActor {
-    pub fn new(store: Store, genesis_height: BlockHeight) -> Self {
-        Self { chain_store: ChainStore::new(store, genesis_height, false) }
+    pub fn new(store: Store, genesis: &ChainGenesis) -> Self {
+        Self {
+            chain_store: ChainStore::new(
+                store,
+                genesis.height,
+                false,
+                genesis.transaction_validity_period,
+            ),
+        }
     }
 
     fn handle_flat_storage_split_shard(

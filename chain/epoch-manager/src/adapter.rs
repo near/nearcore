@@ -7,7 +7,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
@@ -25,12 +25,6 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
-
-// TODO(wacban) rename to ShardInfo
-pub struct ShardUIdAndIndex {
-    pub shard_uid: ShardUId,
-    pub shard_index: ShardIndex,
-}
 
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
@@ -75,7 +69,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
-    ) -> Result<ShardUIdAndIndex, EpochError>;
+    ) -> Result<ShardInfo, EpochError>;
 
     /// Converts `ShardId` (index of shard in the *current* layout) to
     /// `ShardUId` (`ShardId` + the version of shard layout itself.)
@@ -517,13 +511,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
-    ) -> Result<ShardUIdAndIndex, EpochError> {
+    ) -> Result<ShardInfo, EpochError> {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         let shard_id = shard_layout.account_id_to_shard_id(account_id);
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(ShardUIdAndIndex { shard_uid, shard_index })
+        Ok(ShardInfo { shard_index, shard_uid })
     }
 
     fn shard_id_to_uid(

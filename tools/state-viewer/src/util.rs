@@ -39,6 +39,7 @@ pub fn load_trie_stop_at_height(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
 
     let epoch_manager =
