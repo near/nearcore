@@ -57,7 +57,7 @@ Wasmer is not only fast, but also designed to be *highly customizable*:
   is possible to serialize it in a file for example, and later execute
   it with Wasmer with headless mode turned on. Headless Wasmer has no
   compiler, which makes it more portable and faster to load. It's
-  ideal for constrainted environments.
+  ideal for constrained environments.
 
 * **Cross-compilation** — Most compilers support cross-compilation. It
   means it possible to pre-compile a WebAssembly module targetting a

@@ -442,11 +442,13 @@ fn ultra_slow_test_sync_state_dump() {
 }
 
 #[test]
-// Test that state sync behaves well when the chunks are absent at the end of the epoch.
+// Test that state sync behaves well when the chunks are absent before the sync_hash block.
+// TODO: consider adding more scenarios for the CurrentEpochStateSync case, because with only one shard,
+// it's not possible to have the block before the sync_hash block miss any chunks.
 fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
-        let epoch_length = 10;
+        let epoch_length = 12;
         let shard_id = ShardId::new(0);
 
         for num_chunks_missing in 0..6 {
@@ -478,28 +480,30 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                 .unwrap();
             // Note that the height to skip here refers to the height at which not to produce chunks for the next block, so really
             // one before the block height that will have no chunks. The sync_height is the height of the sync_hash block.
-            let (start_skipping_chunks, sync_height) =
+            let (start_skipping_chunks, stop_skipping_chunks, sync_height) =
                 if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-                    // At the beginning of the epoch, produce one block with chunks and then start skipping chunks.
+                    // At the beginning of the epoch, produce two blocks with chunks and then start skipping chunks.
+                    // The very first block in the epoch does not count towards the number of new chunks we tally when computing
+                    // the sync hash. So after those two blocks, the tally is 1.
                     let start_skipping_chunks = next_epoch_start + 1;
-                    // Then we will skip `num_chunks_missing` chunks, and produce one more with chunks, which will be the sync height.
-                    let sync_height = start_skipping_chunks + num_chunks_missing + 1;
-                    (start_skipping_chunks, sync_height)
+                    // Then we will skip `num_chunks_missing` chunks.
+                    let stop_skipping_chunks = start_skipping_chunks + num_chunks_missing;
+                    // Then after one more with new chunks, the next one after that will be the sync block.
+                    let sync_height = stop_skipping_chunks + 2;
+                    (start_skipping_chunks, stop_skipping_chunks, sync_height)
                 } else {
                     // here the sync hash is the first hash of the epoch
                     let sync_height = next_epoch_start;
                     // skip chunks before the epoch start, but not including the one right before the epochs start.
                     let start_skipping_chunks = sync_height - num_chunks_missing - 1;
-                    (start_skipping_chunks, sync_height)
+                    let stop_skipping_chunks = sync_height - 1;
+                    (start_skipping_chunks, stop_skipping_chunks, sync_height)
                 };
-
-            // produce chunks right before the sync hash block, so that the sync hash block itself will have new chunks.
-            let stop_skipping_chunks = sync_height - 1;
 
             assert!(sync_height < 2 * epoch_length + 1);
 
-            // Produce blocks up to sync_height + 2 to give nodes a chance to create the necessary state snapshot
-            for i in 1..=sync_height + 2 {
+            // Produce blocks up to sync_height + 3 so that the sync_height block will become final
+            for i in 1..=sync_height + 3 {
                 tracing::info!(
                     target: "test",
                     height=i,

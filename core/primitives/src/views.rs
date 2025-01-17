@@ -5,6 +5,10 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
+use crate::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
+};
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::BlockHeaderInnerLite;
@@ -1170,6 +1174,20 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     },
+    DeployGlobalContract {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+    },
+    DeployGlobalContractByAccountId {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+    },
+    UseGlobalContract {
+        code_hash: CryptoHash,
+    },
+    UseGlobalContractByAccountId {
+        account_id: AccountId,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -1205,6 +1223,23 @@ impl From<Action> for ActionView {
             Action::Delegate(action) => ActionView::Delegate {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
+            },
+            Action::DeployGlobalContract(action) => {
+                let code = hash(&action.code).as_ref().to_vec();
+                match action.deploy_mode {
+                    GlobalContractDeployMode::CodeHash => ActionView::DeployGlobalContract { code },
+                    GlobalContractDeployMode::AccountId => {
+                        ActionView::DeployGlobalContractByAccountId { code }
+                    }
+                }
+            }
+            Action::UseGlobalContract(action) => match action.contract_identifier {
+                GlobalContractIdentifier::CodeHash(code_hash) => {
+                    ActionView::UseGlobalContract { code_hash }
+                }
+                GlobalContractIdentifier::AccountId(account_id) => {
+                    ActionView::UseGlobalContractByAccountId { account_id }
+                }
             },
         }
     }
@@ -1246,6 +1281,28 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
+            }
+            ActionView::DeployGlobalContract { code } => {
+                Action::DeployGlobalContract(DeployGlobalContractAction {
+                    code,
+                    deploy_mode: GlobalContractDeployMode::CodeHash,
+                })
+            }
+            ActionView::DeployGlobalContractByAccountId { code } => {
+                Action::DeployGlobalContract(DeployGlobalContractAction {
+                    code,
+                    deploy_mode: GlobalContractDeployMode::AccountId,
+                })
+            }
+            ActionView::UseGlobalContract { code_hash } => {
+                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                    contract_identifier: GlobalContractIdentifier::CodeHash(code_hash),
+                }))
+            }
+            ActionView::UseGlobalContractByAccountId { account_id } => {
+                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                    contract_identifier: GlobalContractIdentifier::AccountId(account_id),
+                }))
             }
         })
     }

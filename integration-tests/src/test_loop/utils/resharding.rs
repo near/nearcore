@@ -413,19 +413,30 @@ pub(crate) fn call_promise_yield(
                 (Some(_resharding), _latest) => {}
                 // Resharding didn't happen in the past.
                 (None, _) => {
+                    let epoch_manager = client_actor.client.epoch_manager.as_ref();
                     // Check if resharding will happen in this block.
-                    if next_block_has_new_shard_layout(
-                        client_actor.client.epoch_manager.as_ref(),
-                        &tip,
-                    ) {
+                    if next_block_has_new_shard_layout(epoch_manager, &tip) {
                         tracing::debug!(target: "test", height=tip.height, "resharding height set");
                         resharding_height.set(Some(tip.height));
                         return;
                     }
-                    // Before resharding, send a set of promise transactions, just once.
+                    // Before resharding, send a set of promise transactions close to the resharding boundary, just once.
                     if promise_txs_sent.get() {
                         return;
                     }
+
+                    let will_reshard =
+                        epoch_manager.will_shard_layout_change(&tip.prev_block_hash).unwrap();
+                    if !will_reshard {
+                        return;
+                    }
+                    let epoch_length = client_actor.client.config.epoch_length;
+                    let epoch_start =
+                        epoch_manager.get_epoch_start_height(&tip.last_block_hash).unwrap();
+                    if tip.height + 5 < epoch_start + epoch_length {
+                        return;
+                    }
+
                     for (signer_id, receiver_id) in
                         signer_ids.clone().into_iter().zip(receiver_ids.clone().into_iter())
                     {
