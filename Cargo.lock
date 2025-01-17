@@ -1292,7 +1292,6 @@ dependencies = [
  "futures",
  "log",
  "near-async",
- "near-chain",
  "near-chain-configs",
  "near-config-utils",
  "near-crypto",

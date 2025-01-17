@@ -29,7 +29,6 @@ rand.workspace = true
 time.workspace = true
 tokio.workspace = true
 
-near-chain.workspace = true
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-config-utils.workspace = true
