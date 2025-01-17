@@ -403,13 +403,8 @@ impl TestEnv {
     }
 
     pub fn view_account(&self, account_id: &AccountId) -> AccountView {
-        let shard_id = EpochInfoProvider::account_id_to_shard_id(
-            &*self.epoch_manager,
-            account_id,
-            &self.head.epoch_id,
-        )
-        .unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
+        let shard_id = shard_layout.account_id_to_shard_id(account_id);
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
         self.runtime
