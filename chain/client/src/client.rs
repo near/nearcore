@@ -541,6 +541,59 @@ impl Client {
         Ok(true)
     }
 
+    fn pre_production_check(
+        &self,
+        prev_header: &BlockHeader,
+        height: BlockHeight,
+        validator_signer: &Arc<ValidatorSigner>,
+    ) -> Result<(), Error> {
+        // Check that we are were called at the block that we are producer for.
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_header.hash()).unwrap();
+        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
+
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&epoch_id)
+            .expect("Epoch info should be ready at this point");
+        if protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+        }
+
+        if !self.can_produce_block(
+            &prev_header,
+            height,
+            validator_signer.validator_id(),
+            &next_block_proposer,
+        )? {
+            debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "Should reschedule block");
+            return Err(Error::BlockProducer("Should reschedule".to_string()));
+        }
+
+        let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(
+            &epoch_id,
+            &prev_header.hash(),
+            &next_block_proposer,
+        )?;
+
+        let validator_pk = validator_stake.take_public_key();
+        if validator_pk != validator_signer.public_key() {
+            debug!(target: "client",
+                local_validator_key = ?validator_signer.public_key(),
+                ?validator_pk,
+                "Local validator key does not match expected validator key, skipping optimistic block production");
+            let err = Error::BlockProducer("Local validator key mismatch".to_string());
+            #[cfg(not(feature = "test_features"))]
+            return Err(err);
+            #[cfg(feature = "test_features")]
+            match self.adv_produce_blocks {
+                None | Some(AdvProduceBlocksMode::OnlyValid) => return Err(err),
+                Some(AdvProduceBlocksMode::All) => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
@@ -586,46 +639,20 @@ impl Client {
 
         // Check that we are were called at the block that we are producer for.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
-        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
 
         let prev = self.chain.get_block_header(&prev_hash)?;
         let prev_height = prev.height();
         let prev_epoch_id = *prev.epoch_id();
         let prev_next_bp_hash = *prev.next_bp_hash();
 
+        if let Err(err) = self.pre_production_check(&prev, height, &validator_signer) {
+            debug!(target: "client", height, ?err, "Skipping block production");
+            return Ok(None);
+        }
+
         // Check and update the doomslug tip here. This guarantees that our endorsement will be in the
         // doomslug witness. Have to do it before checking the ability to produce a block.
         let _ = self.check_and_update_doomslug_tip()?;
-
-        if !self.can_produce_block(
-            &prev,
-            height,
-            validator_signer.validator_id(),
-            &next_block_proposer,
-        )? {
-            debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "Should reschedule block");
-            return Ok(None);
-        }
-        let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(
-            &epoch_id,
-            &prev_hash,
-            &next_block_proposer,
-        )?;
-
-        let validator_pk = validator_stake.take_public_key();
-        if validator_pk != validator_signer.public_key() {
-            debug!(target: "client",
-                local_validator_key = ?validator_signer.public_key(),
-                ?validator_pk,
-                "Local validator key does not match expected validator key, skipping block production");
-            #[cfg(not(feature = "test_features"))]
-            return Ok(None);
-            #[cfg(feature = "test_features")]
-            match self.adv_produce_blocks {
-                None | Some(AdvProduceBlocksMode::OnlyValid) => return Ok(None),
-                Some(AdvProduceBlocksMode::All) => {}
-            }
-        }
 
         let new_chunks = self
             .chunk_inclusion_tracker
