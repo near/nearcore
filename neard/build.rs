@@ -3,8 +3,7 @@
 //! The build script sets `NEARD_VERSION` and `NEARD_BUILD` to be neard version
 //! and build respectively.  Version is the official semver such as 1.24.1 if
 //! the executable is built from a release branch or `trunk` if it’s built from
-//! master.  Build is a `git describe` of the commit the binary was built at
-//! (for official releases it should be the same as version).
+//! master.  Build is a `git describe` of the commit the binary was built at.
 
 use anyhow::{anyhow, Result};
 
@@ -50,8 +49,7 @@ fn command(prog: &str, args: &[&str], cwd: Option<std::path::PathBuf>) -> Result
 /// Returns version read from git repository or ‘unknown’ if could not be
 /// determined.
 ///
-/// Uses `git describe --always --dirty=-modified` to get the version.  For
-/// builds on release tags this will return that tag.  In other cases the
+/// Uses `git describe --always --dirty=-modified` to get the version. The
 /// version will describe the commit by including its hash.  If the working
 /// directory isn’t clean, the version will include `-modified` suffix.
 fn get_git_version() -> Result<String> {
@@ -84,7 +82,8 @@ fn get_git_version() -> Result<String> {
     // * --tags → consider tags even if they are unnanotated
     // * --match=[0-9]* → only consider tags starting with a digit; this
     //   prevents tags such as `crates-0.14.0` from being considered
-    let args = &["describe", "--always", "--dirty=-modified", "--tags", "--match=[0-9]*"];
+    // * --long → always output the abbreviated commit name even it matches a tag
+    let args = &["describe", "--always", "--dirty=-modified", "--tags", "--long", "--match=[0-9]*"];
     let out = command("git", args, None)?;
     match String::from_utf8_lossy(&out) {
         std::borrow::Cow::Borrowed(version) => Ok(version.trim().to_string()),
