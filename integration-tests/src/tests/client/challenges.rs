@@ -118,6 +118,7 @@ fn test_verify_block_double_sign_challenge() {
         block_merkle_tree.root(),
         Clock::real(),
         None,
+        None,
     );
     let epoch_id = *b1.header().epoch_id();
     let valid_challenge = Challenge::produce(
@@ -444,6 +445,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
         Clock::real(),
+        None,
         None,
     );
 

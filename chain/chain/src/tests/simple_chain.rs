@@ -92,6 +92,7 @@ fn build_chain_with_orphans() {
         CryptoHash::default(),
         clock,
         None,
+        None,
     );
     assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
     assert_matches!(

@@ -611,7 +611,10 @@ impl Client {
         &mut self,
         optimistic_block: &OptimisticBlock,
     ) -> Result<(), Error> {
-        if let Some((height, block)) = self.optimistic_blocks_cache.push(optimistic_block.inner.block_height, optimistic_block.clone()) {
+        if let Some((height, block)) = self
+            .optimistic_blocks_cache
+            .push(optimistic_block.inner.block_height, optimistic_block.clone())
+        {
             if height == optimistic_block.inner.block_height {
                 warn!(target: "client",
                     height=height,
@@ -730,7 +733,10 @@ impl Client {
         let validator_signer = self.validator_signer.get().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
-
+        let optimistic_block = self.optimistic_blocks_cache.get(&height).filter(|ob| {
+            // Make sure that the optimistic block is produced on the same previous block.
+            ob.inner.prev_block_hash == prev_hash
+        });
         // Check that we are were called at the block that we are producer for.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
 
@@ -933,6 +939,7 @@ impl Client {
             block_merkle_root,
             self.clock.clone(),
             sandbox_delta_time,
+            optimistic_block,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.

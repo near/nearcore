@@ -815,6 +815,7 @@ mod test {
                 block_merkle_tree.root(),
                 clock.clock(),
                 None,
+                None,
             );
             block_merkle_tree.insert(*block.hash());
             chain2.process_block_header(block.header(), &mut Vec::new()).unwrap(); // just to validate
