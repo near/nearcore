@@ -213,11 +213,14 @@ impl ReceiptSink {
     pub(crate) fn generate_bandwidth_requests(
         &self,
         trie: &dyn TrieAccess,
+        shard_layout: &ShardLayout,
         side_effects: bool,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
         match self {
             ReceiptSink::V1(_) => Ok(None),
-            ReceiptSink::V2(inner) => inner.generate_bandwidth_requests(trie, side_effects),
+            ReceiptSink::V2(inner) => {
+                inner.generate_bandwidth_requests(trie, shard_layout, side_effects)
+            }
         }
     }
 }
@@ -505,6 +508,7 @@ impl ReceiptSinkV2 {
     fn generate_bandwidth_requests(
         &self,
         trie: &dyn TrieAccess,
+        shard_layout: &ShardLayout,
         side_effects: bool,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
         if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
@@ -518,10 +522,14 @@ impl ReceiptSinkV2 {
             .params;
 
         let mut requests = Vec::new();
-        for shard_id in self.outgoing_buffers.shards() {
-            if let Some(request) =
-                self.generate_bandwidth_request(shard_id, trie, side_effects, &params)?
-            {
+        for shard_id in shard_layout.shard_ids() {
+            if let Some(request) = self.generate_bandwidth_request(
+                shard_id,
+                trie,
+                shard_layout,
+                side_effects,
+                &params,
+            )? {
                 requests.push(request);
             }
         }
@@ -533,15 +541,60 @@ impl ReceiptSinkV2 {
         &self,
         to_shard: ShardId,
         trie: &dyn TrieAccess,
+        shard_layout: &ShardLayout,
         side_effects: bool,
         params: &BandwidthSchedulerParams,
     ) -> Result<Option<BandwidthRequest>, StorageError> {
+        // Get (group) sizes of receipts stored in outgoing buffer to the shard.
+        let mut receipt_sizes_iter =
+            self.get_receipt_group_sizes_for_buffer_to_shard(to_shard, trie, side_effects, params);
+
+        // When making a bandwidth request to a child shard which has been split from a parent
+        // shard, we have to include the receipts stored in the outgoing buffer to the parent shard
+        // in the bandwidth request for sending receipts to the child shard. Forwarding receipts
+        // from the buffer to parent uses bandwidth granted for sending receipts to one of the
+        // children. Not including the parent receipts in the bandwidth request could lead to a
+        // situation where a receipt can't be sent because the grant for sending receipts to a child
+        // is too small to send out a receipt from a buffer aimed at a parent.
+        if let Ok(parent_shard_id) = shard_layout.get_parent_shard_id(to_shard) {
+            let parent_receipt_sizes_iter = self.get_receipt_group_sizes_for_buffer_to_shard(
+                parent_shard_id,
+                trie,
+                side_effects,
+                params,
+            );
+
+            receipt_sizes_iter = Box::new(parent_receipt_sizes_iter.chain(receipt_sizes_iter));
+        }
+
+        // There's a bug which allows to create receipts above `max_receipt_size` (https://github.com/near/nearcore/issues/12606).
+        // This could cause problems with bandwidth scheduler which would generate requests for size above max size, and these
+        // requests would never be fulfilled. For bandwidth requests let's pretend that all sizes are below `max_receipt_size`.
+        // The same pretending logic is also present in `try_forward` which compares receipt size with outgoing limit.
+        // This logic should also make it possible to do protocol upgrades that lower `max_receipt_size` without too much trouble.
+        let sizes_iter = receipt_sizes_iter
+            .map_ok(|group_size| std::cmp::min(group_size, params.max_receipt_size));
+
+        // Create the bandwidth request based on buffered receipt (group) sizes
+        BandwidthRequest::make_from_receipt_sizes(to_shard, sizes_iter, params)
+    }
+
+    /// Get iterator over receipt group sizes for receipts stored in the outgoing buffer to some shard.
+    /// If outgoing buffer metadata isn't fully initialized yet, returns an iterator where the only
+    /// item is `max_receipt_size`.
+    fn get_receipt_group_sizes_for_buffer_to_shard<'a>(
+        &'a self,
+        to_shard: ShardId,
+        trie: &'a dyn TrieAccess,
+        side_effects: bool,
+        params: &BandwidthSchedulerParams,
+    ) -> Box<dyn Iterator<Item = Result<u64, StorageError>> + 'a> {
         let outgoing_receipts_buffer_len = self.outgoing_buffers.buffer_len(to_shard).unwrap_or(0);
 
         if outgoing_receipts_buffer_len == 0 {
-            // No receipts in the outgoing buffer, nothing to request.
-            return Ok(None);
-        };
+            // No receipts in the outgoing buffer, return an empty iterator.
+            return Box::new(std::iter::empty());
+        }
 
         // To make a proper bandwidth request we need the metadata for the outgoing buffer to be fully initialized
         // (i.e. contain data about all of the receipts in the outgoing buffer). There is a moment right after the
@@ -554,27 +607,17 @@ impl ReceiptSinkV2 {
         // Over time these old receipts will be removed from the outgoing buffer and eventually metadata will contain
         // information about every receipt in the buffer. From that point on we will be able to make
         // proper bandwidth requests.
-        let Some(metadata) = self.outgoing_metadatas.get_metadata_for_shard(&to_shard) else {
-            // Metadata not ready, make a basic request.
-            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(to_shard, params)));
-        };
 
-        if metadata.total_receipts_num() != outgoing_receipts_buffer_len {
-            // Metadata not ready, contains less receipts than the outgoing buffer. Make a basic request.
-            return Ok(Some(BandwidthRequest::make_max_receipt_size_request(to_shard, params)));
+        match self.outgoing_metadatas.get_metadata_for_shard(&to_shard) {
+            Some(metadata) if metadata.total_receipts_num() == outgoing_receipts_buffer_len => {
+                // Metadata fully initialized, use it to read receipt group sizes.
+                Box::new(metadata.iter_receipt_group_sizes(trie, side_effects))
+            }
+            _ => {
+                // Metadata not initialized. Make a basic request which requests only `max_receipt_size`.
+                Box::new([Ok(params.max_receipt_size)].into_iter())
+            }
         }
-
-        // Metadata is fully initialized, make a proper bandwidth request using it.
-        let receipt_sizes_iter = metadata.iter_receipt_group_sizes(trie, side_effects);
-
-        // There's a bug which allows to create receipts above `max_receipt_size` (https://github.com/near/nearcore/issues/12606).
-        // This could cause problems with bandwidth scheduler which would generate requests for size above max size, and these
-        // requests would never be fulfilled. For bandwidth requests let's pretend that all sizes are below `max_receipt_size`.
-        // The same pretending logic is also present in `try_forward` which compares receipt size with outgoing limit.
-        // This logic should also make it possible to do protocol upgrades that lower `max_receipt_size` without too much trouble.
-        let sizes_iter = receipt_sizes_iter
-            .map_ok(|group_size| std::cmp::min(group_size, params.max_receipt_size));
-        BandwidthRequest::make_from_receipt_sizes(to_shard, sizes_iter, params)
     }
 }
 

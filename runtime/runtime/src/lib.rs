@@ -2122,6 +2122,7 @@ impl Runtime {
         let pending_delayed_receipts = processing_state.delayed_receipts;
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
+        let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
 
         if promise_yield_result.promise_yield_indices
             != promise_yield_result.initial_promise_yield_indices
@@ -2143,7 +2144,6 @@ impl Runtime {
 
             let (all_shards, shard_seed) =
                 if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
-                    let shard_layout = epoch_info_provider.shard_layout(&apply_state.epoch_id)?;
                     let shard_ids = shard_layout.shard_ids().collect_vec();
                     let shard_index = shard_layout
                         .get_shard_index(apply_state.shard_id)
@@ -2164,7 +2164,8 @@ impl Runtime {
             );
         }
 
-        let bandwidth_requests = receipt_sink.generate_bandwidth_requests(&state_update, true)?;
+        let bandwidth_requests =
+            receipt_sink.generate_bandwidth_requests(&state_update, &shard_layout, true)?;
 
         if cfg!(debug_assertions) {
             if let Err(err) = check_balance(

@@ -103,11 +103,12 @@ pub fn next_block_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, 
         return false;
     }
 
-    let this_epoch_id = tip.epoch_id;
-    let next_epoch_id = epoch_manager.get_next_epoch_id(&tip.last_block_hash).unwrap();
+    next_epoch_has_new_shard_layout(epoch_manager, tip)
+}
 
-    let this_shard_layout = epoch_manager.get_shard_layout(&this_epoch_id).unwrap();
-    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+pub fn next_epoch_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, tip: &Tip) -> bool {
+    let this_shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let next_shard_layout = epoch_manager.get_shard_layout(&tip.next_epoch_id).unwrap();
 
     this_shard_layout != next_shard_layout
 }
