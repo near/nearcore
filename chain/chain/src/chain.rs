@@ -2465,12 +2465,12 @@ impl Chain {
     /// where we'll go from tracking it to not tracking it and back to tracking it in consecutive epochs,
     /// then we can just continue to apply chunks as if we were tracking it in epoch T, and there's no need to state sync.
     fn should_catch_up_shard(
-        epoch_manager: &dyn EpochManagerAdapter,
+        _epoch_manager: &dyn EpochManagerAdapter,
         shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
         epoch_id: &EpochId,
         epoch_last_block: &CryptoHash,
-        epoch_last_block_prev: &CryptoHash,
+        _epoch_last_block_prev: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         // Won't care about it next epoch, no need to state sync it.
@@ -2488,19 +2488,20 @@ impl Chain {
             return Ok(true);
         }
 
-        let (_layout, parent_shard_id, _index) =
-            epoch_manager.get_prev_shard_id_from_prev_hash(epoch_last_block, shard_id)?;
-        // Note that here passing `epoch_last_block_prev` to care_about_shard() will have us check whether we were tracking it in
-        // the previous epoch, because it is the "parent_hash" of the last block of the previous epoch.
-        // TODO: consider refactoring these ShardTracker functions to accept an epoch_id
-        // to make this less tricky.
-        let tracked_before = shard_tracker.care_about_shard(
-            me.as_ref(),
-            epoch_last_block_prev,
-            parent_shard_id,
-            true,
-        );
-        Ok(!tracked_before)
+        // let (_layout, parent_shard_id, _index) =
+        //     epoch_manager.get_prev_shard_id_from_prev_hash(epoch_last_block, shard_id)?;
+        // // Note that here passing `epoch_last_block_prev` to care_about_shard() will have us check whether we were tracking it in
+        // // the previous epoch, because it is the "parent_hash" of the last block of the previous epoch.
+        // // TODO: consider refactoring these ShardTracker functions to accept an epoch_id
+        // // to make this less tricky.
+        // let tracked_before = shard_tracker.care_about_shard(
+        //     me.as_ref(),
+        //     epoch_last_block_prev,
+        //     parent_shard_id,
+        //     true,
+        // );
+        // TODO(resharding) Uncomment or remove above, and accordingly `_epoch_manager` and `_epoch_last_block_prev`.
+        Ok(true)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks

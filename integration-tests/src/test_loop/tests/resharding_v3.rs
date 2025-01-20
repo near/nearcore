@@ -49,8 +49,11 @@ const INCREASED_EPOCH_LENGTH: u64 = 10;
 const GC_NUM_EPOCHS_TO_KEEP: u64 = 3;
 
 /// Default number of epochs for resharding testloop to run.
-// TODO(resharding) Fix nearcore and set it to 10.
 const DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT: u64 = 8;
+
+/// Increased number of epochs for resharding testloop to run.
+/// To be used in tests with shard shuffling enabled, to cover more configurations of shard assignment.
+const INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT: u64 = 12;
 
 /// Default shard layout version used in resharding tests.
 const DEFAULT_SHARD_LAYOUT_VERSION: u64 = 2;
@@ -832,6 +835,7 @@ fn test_resharding_v3_double_sign_resharding_block() {
 fn test_resharding_v3_shard_shuffling() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
+        .num_epochs_to_wait(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
         .build();
     test_resharding_v3_base(params);
 }
@@ -854,15 +858,14 @@ fn test_resharding_v3_shard_shuffling_untrack_then_track() {
     let tracked_shard_sequence =
         vec![parent_shard_id, parent_shard_id, unrelated_shard_id, child_shard_id];
     let num_clients = 8;
-    let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
+    let num_epochs_to_wait = INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT;
     let tracked_shard_schedule = TrackedShardSchedule {
         client_index: (num_clients - 1) as usize,
         schedule: shard_sequence_to_schedule(tracked_shard_sequence, num_epochs_to_wait),
     };
     let params = TestReshardingParametersBuilder::default()
-        // TODO(resharding): uncomment after the bug in the comment above get_should_apply_chunk()
-        // in chain.rs is fixed
-        //.shuffle_shard_assignment_for_chunk_producers(true)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .num_epochs_to_wait(num_epochs_to_wait)
         .num_clients(num_clients)
         .tracked_shard_schedule(Some(tracked_shard_schedule.clone()))
         .add_loop_action(check_state_cleanup(tracked_shard_schedule, num_epochs_to_wait, true))
@@ -875,7 +878,7 @@ fn test_resharding_v3_shard_shuffling_intense() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
     let params = TestReshardingParametersBuilder::default()
         .num_accounts(8)
-        .epoch_length(INCREASED_EPOCH_LENGTH)
+        .epoch_length(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .chunk_ranges_to_drop(chunk_ranges_to_drop)
         .add_loop_action(execute_money_transfers(
@@ -1103,6 +1106,7 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
+        .num_epochs_to_wait(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
         .delay_flat_state_resharding(2)
         .epoch_length(INCREASED_EPOCH_LENGTH)
         .build();
