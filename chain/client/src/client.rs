@@ -550,7 +550,7 @@ impl Client {
         Ok(true)
     }
 
-    fn pre_production_check(
+    fn pre_block_production_check(
         &self,
         prev_header: &BlockHeader,
         height: BlockHeight,
@@ -622,13 +622,6 @@ impl Client {
         }
     }
 
-    pub fn produce_optimistic_block(
-        &mut self,
-        height: BlockHeight,
-    ) -> Result<Option<OptimisticBlock>, Error> {
-        self.produce_optimistic_block_on_head(height)
-    }
-
     /// Produce optimistic block for given `height` on top of chain head.
     /// Either returns optimistic block or error.
     pub fn produce_optimistic_block_on_head(
@@ -653,7 +646,7 @@ impl Client {
                 Error::BlockProducer("Called without block producer info.".to_string())
             })?;
 
-        if let Err(err) = self.pre_production_check(&prev_header, height, &validator_signer) {
+        if let Err(err) = self.pre_block_production_check(&prev_header, height, &validator_signer) {
             debug!(target: "client", height, ?err, "Skipping optimistic block production.");
             return Ok(None);
         }
@@ -745,7 +738,7 @@ impl Client {
         let prev_epoch_id = *prev.epoch_id();
         let prev_next_bp_hash = *prev.next_bp_hash();
 
-        if let Err(err) = self.pre_production_check(&prev, height, &validator_signer) {
+        if let Err(err) = self.pre_block_production_check(&prev, height, &validator_signer) {
             debug!(target: "client", height, ?err, "Skipping block production");
             return Ok(None);
         }

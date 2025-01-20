@@ -1387,7 +1387,8 @@ impl ClientActorInner {
             return Ok(());
         }
 
-        let Some(optimistic_block) = self.client.produce_optimistic_block(next_height)? else {
+        let Some(optimistic_block) = self.client.produce_optimistic_block_on_head(next_height)?
+        else {
             return Ok(());
         };
 
