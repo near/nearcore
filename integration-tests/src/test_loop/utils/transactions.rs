@@ -18,7 +18,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -659,10 +659,10 @@ enum TxProcessingResult {
 pub fn store_and_submit_tx(
     node_datas: &[TestData],
     rpc_id: &AccountId,
-    txs: &Cell<Vec<(CryptoHash, u64)>>,
+    txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
     signer_id: &AccountId,
     receiver_id: &AccountId,
-    height: u64,
+    height: BlockHeight,
     tx: SignedTransaction,
 ) {
     let mut txs_vec = txs.take();
@@ -674,7 +674,7 @@ pub fn store_and_submit_tx(
 
 /// Checks status of the provided transactions. Panics if transaction result is an error.
 /// Removes transactions that finished successfully from the list.
-pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, u64)>>, client: &Client) {
+pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
     let mut unfinished_txs = Vec::new();
     for (tx_hash, tx_height) in txs.take() {
         let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
