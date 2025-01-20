@@ -727,7 +727,15 @@ impl Client {
             .get(&height)
             .filter(|ob| {
                 // Make sure that the optimistic block is produced on the same previous block.
-                ob.inner.prev_block_hash == prev_hash
+                if ob.inner.prev_block_hash == prev_hash {
+                    return true;
+                }
+                warn!(target: "client",
+                    height=height,
+                    prev_hash=?prev_hash,
+                    optimistic_block_prev_hash=?ob.inner.prev_block_hash,
+                    "Optimistic block was constructed on different block, discarding it");
+                false
             })
             .cloned();
         // Check that we are were called at the block that we are producer for.
