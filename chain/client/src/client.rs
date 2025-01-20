@@ -733,10 +733,14 @@ impl Client {
         let validator_signer = self.validator_signer.get().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
-        let optimistic_block = self.optimistic_blocks_cache.get(&height).filter(|ob| {
-            // Make sure that the optimistic block is produced on the same previous block.
-            ob.inner.prev_block_hash == prev_hash
-        });
+        let optimistic_block = self
+            .optimistic_blocks_cache
+            .get(&height)
+            .filter(|ob| {
+                // Make sure that the optimistic block is produced on the same previous block.
+                ob.inner.prev_block_hash == prev_hash
+            })
+            .cloned();
         // Check that we are were called at the block that we are producer for.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
 
