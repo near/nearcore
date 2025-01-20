@@ -22,6 +22,14 @@ pub use chunk_validator_stats::ChunkStats;
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
 
+/// An arbitrary static string to make sure that this struct cannot be
+/// serialized to look identical to another serialized struct. For chunk
+/// production we are signing a chunk hash, so we need to make sure that
+/// this signature means something different.
+///
+/// This is a messy workaround until we know what to do with NEP 483.
+pub(crate) type SignatureDifferentiator = String;
+
 /// Different types of finality.
 #[derive(
     serde::Serialize, serde::Deserialize, Default, Clone, Debug, PartialEq, Eq, arbitrary::Arbitrary,
