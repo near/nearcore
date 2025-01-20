@@ -581,10 +581,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             let shard_uid =
                 self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
             let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
+            let mut hacky_cache = self.runtime.hacky_cache.write().unwrap();
 
             match verify_and_charge_transaction(
                 runtime_config,
                 &mut state_update,
+                Some(&mut hacky_cache),
                 transaction,
                 &cost,
                 // here we do not know which block the transaction will be included
@@ -785,6 +787,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_transaction(
                         runtime_config,
                         &mut state_update,
+                        None,
                         &tx,
                         &cost,
                         Some(next_block_height),

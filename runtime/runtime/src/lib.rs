@@ -74,7 +74,7 @@ use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
 
@@ -271,7 +271,10 @@ impl Default for ActionResult {
 }
 
 pub struct Runtime {
-    pub hacky_cache: HackyCache,
+    /// Some of the methods relevant for transaction application take immutable `&self`.
+    /// Use `Arc<RwLock<HackyCache>>` as workaround for PoC to let them modify the cache.
+    /// TODO check if `Arc` is required.
+    pub hacky_cache: Arc<RwLock<HackyCache>>,
 }
 
 impl Runtime {
@@ -347,6 +350,7 @@ impl Runtime {
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
+            None,
             signed_transaction,
             transaction_cost,
             Some(apply_state.block_height),

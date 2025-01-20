@@ -10,6 +10,7 @@ use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
+use near_primitives::hacky_cache::HackyCache;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
@@ -141,6 +142,7 @@ pub fn validate_transaction(
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
+    _hacky_cache: Option<&mut HackyCache>,
     signed_transaction: &SignedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
@@ -781,6 +783,7 @@ mod tests {
                 let err = verify_and_charge_transaction(
                     config,
                     state_update,
+                    None,
                     signed_transaction,
                     &cost,
                     None,
@@ -916,6 +919,7 @@ mod tests {
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -994,6 +998,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1063,6 +1068,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1095,6 +1101,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1169,6 +1176,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1220,6 +1228,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1266,6 +1275,7 @@ mod tests {
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1309,6 +1319,7 @@ mod tests {
         let res = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1366,6 +1377,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1388,6 +1400,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1410,6 +1423,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1454,6 +1468,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1505,6 +1520,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1555,6 +1571,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
@@ -1610,6 +1627,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
+            None,
             &transaction,
             &cost,
             None,
