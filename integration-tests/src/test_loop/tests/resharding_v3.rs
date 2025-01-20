@@ -22,7 +22,8 @@ use crate::test_loop::utils::receipts::{
 use crate::test_loop::utils::resharding::fork_before_resharding_block;
 use crate::test_loop::utils::resharding::{
     call_burn_gas_contract, call_promise_yield, check_state_cleanup, execute_money_transfers,
-    execute_storage_operations, temporary_account_during_resharding, TrackedShardSchedule,
+    execute_storage_operations, send_large_cross_shard_receipts,
+    temporary_account_during_resharding, TrackedShardSchedule,
 };
 use crate::test_loop::utils::sharding::print_and_assert_shard_accounts;
 use crate::test_loop::utils::transactions::{
@@ -471,7 +472,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             .loop_actions
             .iter()
             .for_each(|action| action.call(&env.datas, test_loop_data, client_account_id.clone()));
-
         let clients =
             client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
 
@@ -1029,6 +1029,47 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v1() {
 #[cfg_attr(not(feature = "test_features"), ignore)]
 fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v2() {
     test_resharding_v3_buffered_receipts_towards_splitted_shard_base(2);
+}
+
+/// This test sends large (3MB) receipts from a stable shard to shard that will be split into two.
+/// These large receipts are buffered and at the resharding boundary the stable shard's outgoing
+/// buffer contains receipts to the shard that was split. Bandwidth requests to the child where the
+/// receipts will be sent must include the receipts stored in outgoing buffer to the parent shard,
+/// otherwise there will be no bandwidth grants to send them.
+fn test_resharding_v3_large_receipts_towards_splitted_shard_base(base_shard_layout_version: u64) {
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let account_in_stable_shard: AccountId = "account1".parse().unwrap();
+
+    let params = TestReshardingParametersBuilder::default()
+        .base_shard_layout_version(base_shard_layout_version)
+        .deploy_test_contract(account_in_left_child.clone())
+        .deploy_test_contract(account_in_right_child.clone())
+        .deploy_test_contract(account_in_stable_shard.clone())
+        .add_loop_action(send_large_cross_shard_receipts(
+            vec![account_in_stable_shard.clone()],
+            vec![account_in_left_child, account_in_right_child],
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            vec![account_in_stable_shard.clone()],
+            ReceiptKind::Buffered,
+        ))
+        .add_loop_action(check_receipts_presence_after_resharding_block(
+            vec![account_in_stable_shard],
+            ReceiptKind::Buffered,
+        ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+fn slow_test_resharding_v3_large_receipts_towards_splitted_shard_v1() {
+    test_resharding_v3_large_receipts_towards_splitted_shard_base(1);
+}
+
+#[test]
+fn slow_test_resharding_v3_large_receipts_towards_splitted_shard_v2() {
+    test_resharding_v3_large_receipts_towards_splitted_shard_base(2);
 }
 
 #[test]
