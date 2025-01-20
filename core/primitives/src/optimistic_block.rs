@@ -1,11 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
+use near_schema_checker_lib::ProtocolSchema;
 
 use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{BlockHeight, SignatureDifferentiator};
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, ProtocolSchema)]
 pub struct OptimisticBlockInner {
     pub prev_block_hash: CryptoHash,
     pub block_height: BlockHeight,
@@ -21,7 +22,7 @@ pub struct OptimisticBlockInner {
 /// and distributed immediately after the previous block is processed.
 /// This block is shared with the validators and used to optimistically process
 /// chunks before they get included in the block.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, ProtocolSchema)]
 #[borsh(init=init)]
 pub struct OptimisticBlock {
     pub inner: OptimisticBlockInner,
