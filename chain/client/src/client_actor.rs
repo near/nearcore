@@ -1398,10 +1398,7 @@ impl ClientActorInner {
         */
 
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.
-        if let Err(err) = self.client.save_optimistic_block(&optimistic_block) {
-            error!(target: "client", next_height, ?err, "Failed to store optimistic block");
-            return Err(err);
-        }
+        self.client.save_optimistic_block(&optimistic_block);
 
         Ok(())
     }

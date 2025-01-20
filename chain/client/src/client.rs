@@ -607,10 +607,7 @@ impl Client {
         self.optimistic_blocks_cache.contains(&next_height)
     }
 
-    pub fn save_optimistic_block(
-        &mut self,
-        optimistic_block: &OptimisticBlock,
-    ) -> Result<(), Error> {
+    pub fn save_optimistic_block(&mut self, optimistic_block: &OptimisticBlock) {
         if let Some((height, block)) = self
             .optimistic_blocks_cache
             .push(optimistic_block.inner.block_height, optimistic_block.clone())
@@ -623,7 +620,6 @@ impl Client {
                     "Optimistic block already exists, replacing");
             }
         }
-        Ok(())
     }
 
     pub fn produce_optimistic_block(
