@@ -329,7 +329,7 @@ impl Client {
     /// that those receipts really originate from the right chunks.
     /// TODO(resharding): `get_incoming_receipts_for_shard` generates invalid proofs on resharding
     /// boundaries, because it removes the receipts that target the other half of a split shard,
-    /// which makes the proof invalid. We need to collect the original proof and later, after verifcation,
+    /// which makes the proof invalid. We need to collect the original proof and later, after verification,
     /// filter it to remove the receipts that were meant for the other half of the split shard.
     fn collect_source_receipt_proofs(
         &self,

@@ -193,7 +193,7 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
     }
     if prev_header.epoch_id() != header.epoch_id() {
         // Here we remove any sync hashes stored for old epochs after saving [0,...,0] in the StateSyncNewChunks
-        // columnn for this block. This means we will no longer remember sync hashes for these old epochs, which
+        // column for this block. This means we will no longer remember sync hashes for these old epochs, which
         // should be fine as we only care to state sync to (and provide state parts for) the latest state
         on_new_epoch(store_update, header)?;
         return remove_old_epochs(&chain_store.store(), store_update, header, &prev_header);

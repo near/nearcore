@@ -948,7 +948,7 @@ impl ChainStore {
                     let int_part = int_part.try_into().map_err(|_| {
                         io::Error::new(
                             io::ErrorKind::InvalidData,
-                            format!("Bad StateSyncDump columnn key length: {}", key.len()),
+                            format!("Bad StateSyncDump column key length: {}", key.len()),
                         )
                     })?;
                     let shard_id = ShardId::from_le_bytes(int_part);
