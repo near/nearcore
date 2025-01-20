@@ -340,6 +340,7 @@ pub(crate) fn send_large_cross_shard_receipts(
     signer_ids: Vec<AccountId>,
     receiver_ids: Vec<AccountId>,
 ) -> LoopAction {
+    // Height of the last block with the old shard layout
     let resharding_height = Cell::new(None);
     let nonce = Cell::new(102);
     let txs = Cell::new(vec![]); // FIXME: Wouldn't RefCell be better?
@@ -405,15 +406,15 @@ pub(crate) fn send_large_cross_shard_receipts(
                         epoch_manager.get_epoch_start_height(&tip.last_block_hash).unwrap();
                     let cur_epoch_length =
                         epoch_manager.get_epoch_config(&tip.epoch_id).unwrap().epoch_length;
-                    let cur_epoch_estimated_end = cur_epoch_start + cur_epoch_length;
+                    let cur_epoch_estimated_end = cur_epoch_start + cur_epoch_length - 1;
                     cur_epoch_estimated_end
                 }
                 _ => tip.height + 99999999999999, // Not in the next epoch, set to infinity into the future
             };
 
             // Send large cross-shard receipts a moment before the resharding happens.
-            if tip.height + 5 >= estimated_resharding_height
-                && tip.height <= estimated_resharding_height - 3
+            if tip.height + 4 >= estimated_resharding_height
+                && tip.height <= estimated_resharding_height - 2
             {
                 for signer_id in &signer_ids {
                     for receiver_id in &receiver_ids {
