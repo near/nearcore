@@ -3,19 +3,19 @@ use near_crypto::Signature;
 
 use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::combine_hash;
 use crate::stateless_validation::SignatureDifferentiator;
 use crate::types::BlockHeight;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct OptimisticBlockInner {
-    signature_differentiator: SignatureDifferentiator,
+    pub prev_block_hash: CryptoHash,
     pub block_height: BlockHeight,
     pub block_timestamp: u64,
     // Data to confirm the correctness of randomness beacon output
     pub random_value: CryptoHash,
     pub vrf_value: near_crypto::vrf::Value,
     pub vrf_proof: near_crypto::vrf::Proof,
+    signature_differentiator: SignatureDifferentiator,
 }
 
 /// An optimistic block is independent of specific chunks and can be generated
@@ -25,7 +25,6 @@ pub struct OptimisticBlockInner {
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 #[borsh(init=init)]
 pub struct OptimisticBlock {
-    pub prev_block_hash: CryptoHash,
     pub inner: OptimisticBlockInner,
     /// Signature of the block producer.
     pub signature: Signature,
@@ -59,24 +58,23 @@ impl OptimisticBlock {
         };
 
         let inner = OptimisticBlockInner {
-            signature_differentiator: "OptimisticBlock".to_owned(),
+            prev_block_hash,
             block_height: height,
             block_timestamp: time,
             random_value,
             vrf_value,
             vrf_proof,
+            signature_differentiator: "OptimisticBlock".to_owned(),
         };
 
-        let inner_hash = hash(&borsh::to_vec(&inner).expect("Failed to serialize"));
-        let hash = combine_hash(&inner_hash, &prev_block_hash);
+        let hash = hash(&borsh::to_vec(&inner).expect("Failed to serialize"));
         let signature = signer.sign_bytes(hash.as_ref());
 
-        Self { prev_block_hash, inner, signature, hash }
+        Self { inner, signature, hash }
     }
 
     /// Recompute the hash after deserialization.
     pub fn init(&mut self) {
-        let inner_hash = hash(&borsh::to_vec(&self.inner).expect("Failed to serialize"));
-        self.hash = combine_hash(&inner_hash, &self.prev_block_hash);
+        self.hash = hash(&borsh::to_vec(&self.inner).expect("Failed to serialize"));
     }
 }
