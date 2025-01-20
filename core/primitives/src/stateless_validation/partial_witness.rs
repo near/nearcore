@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Formatter};
 
-use super::{ChunkProductionKey, SignatureDifferentiator};
+use super::ChunkProductionKey;
 use crate::sharding::ShardChunkHeader;
-use crate::types::EpochId;
+use crate::types::{EpochId, SignatureDifferentiator};
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
