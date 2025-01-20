@@ -675,7 +675,7 @@ impl Client {
             sandbox_delta_time,
         );
 
-        // TODO(#10584): metrics::OPTIMISTIC_BLOCK_PRODUCED_TOTAL.inc();
+        metrics::OPTIMISTIC_BLOCK_PRODUCED_TOTAL.inc();
 
         Ok(Some(optimistic_block))
     }

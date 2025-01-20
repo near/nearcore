@@ -14,6 +14,14 @@ pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub(crate) static OPTIMISTIC_BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_optimistic_block_produced_total",
+        "Total number of optimistic blocks produced since starting this node",
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_chunk_produced_total",
