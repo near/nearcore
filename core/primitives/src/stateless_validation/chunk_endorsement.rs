@@ -1,14 +1,14 @@
 use std::fmt::Debug;
 
 use crate::sharding::{ChunkHash, ShardChunkHeader};
-use crate::types::EpochId;
+use crate::types::{EpochId, SignatureDifferentiator};
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::types::{AccountId, BlockHeight, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
-use super::{ChunkProductionKey, SignatureDifferentiator};
+use super::ChunkProductionKey;
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
 /// chunk validator has verified that the chunk state witness is correct.

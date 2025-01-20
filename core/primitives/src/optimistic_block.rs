@@ -3,8 +3,7 @@ use near_crypto::Signature;
 
 use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
-use crate::stateless_validation::SignatureDifferentiator;
-use crate::types::BlockHeight;
+use crate::types::{BlockHeight, SignatureDifferentiator};
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct OptimisticBlockInner {
