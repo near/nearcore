@@ -18,7 +18,7 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
-use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
+use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1};
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use crate::sharding::{
@@ -1961,6 +1961,11 @@ pub enum ReceiptEnumView {
         #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
     },
+    GlobalContractDistribution {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+        identifier: GlobalContractIdentifier,
+    },
 }
 
 // Default value used when deserializing ReceiptEnumViews which are missing either the
@@ -2008,6 +2013,14 @@ impl From<Receipt> for ReceiptView {
                         data_id: data_receipt.data_id,
                         data: data_receipt.data,
                         is_promise_resume,
+                    }
+                }
+                ReceiptEnum::GlobalContractDistribution(data) => {
+                    // Following the same pattern as Action::DeployContract here
+                    let code_hash = hash(&data.code).0.to_vec();
+                    ReceiptEnumView::GlobalContractDistribution {
+                        code: code_hash,
+                        identifier: data.identifier,
                     }
                 }
             },
@@ -2066,6 +2079,9 @@ impl TryFrom<ReceiptView> for Receipt {
                     } else {
                         ReceiptEnum::Data(data_receipt)
                     }
+                }
+                ReceiptEnumView::GlobalContractDistribution { code, identifier } => {
+                    ReceiptEnum::GlobalContractDistribution(GlobalContractData { code, identifier })
                 }
             },
             priority: receipt_view.priority,

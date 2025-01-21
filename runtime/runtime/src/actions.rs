@@ -920,7 +920,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
             required_gas
         }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) | ReceiptEnum::GlobalContractDistribution(_) => 0,
     })
 }
 

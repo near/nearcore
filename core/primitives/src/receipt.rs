@@ -1,3 +1,4 @@
+use crate::action::{base64, GlobalContractIdentifier};
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -590,6 +591,7 @@ pub enum ReceiptEnum {
     Data(DataReceipt),
     PromiseYield(ActionReceipt),
     PromiseResume(DataReceipt),
+    GlobalContractDistribution(GlobalContractData)
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -709,6 +711,34 @@ pub struct PromiseYieldTimeout {
     pub data_id: CryptoHash,
     /// The block height before which the data must be submitted
     pub expires_at: BlockHeight,
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+pub struct GlobalContractData {
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+
+    pub identifier: GlobalContractIdentifier,
+}
+
+impl fmt::Debug for GlobalContractData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlobalContractData")
+            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("identifier", &format_args!("{:?}", self.identifier))
+            .finish()
+    }
 }
 
 /// Stores indices for a persistent queue in the state trie.

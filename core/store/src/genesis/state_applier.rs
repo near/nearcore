@@ -314,7 +314,7 @@ impl GenesisStateApplier {
                         set_promise_yield_receipt(state_update, &receipt);
                     });
                 }
-                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) | ReceiptEnum::GlobalContractDistribution(_) => {
                     panic!("Expected action receipt")
                 }
             }

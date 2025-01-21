@@ -960,6 +960,19 @@ impl Runtime {
         })
     }
 
+    fn apply_global_contract_distribution_receipt(
+        &self,
+        _receipt: &Receipt,
+        _state_update: &mut TrieUpdate,
+    ) {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_global_contract_distribution_receipt",
+        )
+        .entered();
+        // TODO(#12715): save global contract code to state
+    }
+
     fn generate_refund_receipts(
         &self,
         current_gas_price: Balance,
@@ -1231,6 +1244,8 @@ impl Runtime {
                     // ignore all but the first.
                     return Ok(None);
                 }
+            }
+            ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
             }
         };
         // We didn't trigger execution, so we need to commit the state.
