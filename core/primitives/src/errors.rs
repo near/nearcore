@@ -366,6 +366,8 @@ pub enum ReceiptValidationError {
     ActionsValidation(ActionsValidationError),
     /// Receipt is bigger than the limit.
     ReceiptSizeExceeded { size: u64, limit: u64 },
+    /// Global contract code is bigger than the limit.
+    ContractSizeExceeded { size: u64, limit: u64 },
 }
 
 impl Display for ReceiptValidationError {
@@ -399,6 +401,11 @@ impl Display for ReceiptValidationError {
             ReceiptValidationError::ReceiptSizeExceeded { size, limit } => write!(
                 f,
                 "The size of the receipt exceeded the limit: {} > {}",
+                size, limit
+            ),
+            ReceiptValidationError::ContractSizeExceeded { size, limit } => write!(
+                f,
+                "The size of the global contract exceeded the limit: {} > {}",
                 size, limit
             ),
         }

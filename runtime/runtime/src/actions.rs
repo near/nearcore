@@ -655,12 +655,16 @@ pub(crate) fn action_deploy_contract(
 }
 
 pub(crate) fn action_deploy_global_contract(
-    _account_id: &AccountId,
-    _deploy_contract: &DeployGlobalContractAction,
-    _result: &mut ActionResult,
+    account_id: &AccountId,
+    deploy_contract: &DeployGlobalContractAction,
+    result: &mut ActionResult,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
-    // TODO(#12715): implement global contract distribution
+
+    result.new_receipts.push(Receipt::new_global_contract_distribution(
+        account_id.clone(),
+        deploy_contract.code.clone(),
+    ));
     Ok(())
 }
 
@@ -920,7 +924,9 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
             required_gas
         }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::GlobalContractDistribution(_)
+        | ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 

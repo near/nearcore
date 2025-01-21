@@ -1232,6 +1232,9 @@ impl Runtime {
                     return Ok(None);
                 }
             }
+            ReceiptEnum::GlobalContractDistribution(_data) => {
+                todo!("Apply the global contract")
+            }
         };
         // We didn't trigger execution, so we need to commit the state.
         state_update
@@ -2757,6 +2760,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                     };
                     return handle_receipt(mgr, state_update, receiver, account_id, &yr);
                 }
+                ReceiptEnum::GlobalContractDistribution(_) => false,
             }
         }
         handle_receipt(pipeline_manager, state_update, &receiver, account_id, peek)

@@ -367,6 +367,7 @@ fn try_find_actions_spawned_by_receipt(
                                 .get_or_insert_with(Default::default)
                                 .insert(ActionType::DataReceipt);
                         }
+                        ReceiptEnum::GlobalContractDistribution(_) => {}
                     }
                 }
             }
@@ -561,8 +562,8 @@ mod tests {
         write!(&mut output, "{summary}").unwrap();
         insta::assert_snapshot!(output, @r###"
         ACCOUNT_ID                                                         SIZE[B]   RCPTS_IN  RCPTS_OUT ACTIONS
-        alice.near                                                             100          0          0 
-        bob.near                                                               200          0          0 
+        alice.near                                                             100          0          0
+        bob.near                                                               200          0          0
 
         Finished without errors!
         "###);
@@ -631,7 +632,7 @@ mod tests {
         write!(&mut output, "{summary}").unwrap();
         insta::assert_snapshot!(output, @r###"
         ACCOUNT_ID                                                         SIZE[B]   RCPTS_IN  RCPTS_OUT ACTIONS
-        alice.near                                                             100          1          0 
+        alice.near                                                             100          1          0
         bob.near                                                               200          1          1 CreateAccount,DeployContract,Transfer
 
         Finished without errors!
