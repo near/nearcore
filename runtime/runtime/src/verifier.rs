@@ -21,7 +21,8 @@ use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
+    get_access_key, get_account, get_account_with_cache, set_access_key, set_account, StorageError,
+    TrieUpdate,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -142,7 +143,7 @@ pub fn validate_transaction(
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
-    _hacky_cache: Option<&mut HackyCache>,
+    hacky_cache: Option<&mut HackyCache>,
     signed_transaction: &SignedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
@@ -156,7 +157,11 @@ pub fn verify_and_charge_transaction(
     let transaction = &signed_transaction.transaction;
     let signer_id = transaction.signer_id();
 
-    let mut signer = match get_account(state_update, signer_id)? {
+    let signer = match hacky_cache {
+        Some(cache) => get_account_with_cache(state_update, cache, signer_id)?,
+        None => get_account(state_update, signer_id)?,
+    };
+    let mut signer = match signer {
         Some(signer) => signer,
         None => {
             return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
