@@ -29,6 +29,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::bandwidth_scheduler::BandwidthSchedulerState;
 use near_primitives::congestion_info::CongestionInfo;
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::hacky_cache::{HackyCache, HackyCacheKey, HackyCacheValue};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
@@ -822,6 +823,30 @@ pub fn get_account(
     account_id: &AccountId,
 ) -> Result<Option<Account>, StorageError> {
     get(trie, &TrieKey::Account { account_id: account_id.clone() })
+}
+
+/// Inserts into cache if the account exists but it is not yet in the cache.
+pub fn get_account_with_cache(
+    trie: &dyn TrieAccess,
+    cache: &mut HackyCache,
+    account_id: &AccountId,
+) -> Result<Option<Account>, StorageError> {
+    match cache.get(&HackyCacheKey::AccountId(account_id.clone())) {
+        Some(HackyCacheValue::Account(account)) => {
+            tracing::info!("cache hit for get_account");
+            return Ok(Some(account));
+        }
+        None => {}
+    };
+
+    let trie_value = get_account(trie, account_id)?;
+    if let Some(account) = trie_value.clone() {
+        cache.set(
+            HackyCacheKey::AccountId(account_id.clone()),
+            HackyCacheValue::Account(account.clone()),
+        );
+    }
+    return Ok(trie_value);
 }
 
 pub fn set_received_data(
