@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use near_chain::types::Tip;
 use near_client::Client;
 use near_epoch_manager::EpochManagerAdapter;
@@ -145,4 +146,28 @@ pub fn get_tracked_shards_from_prev_block(
 pub fn get_tracked_shards(client: &Client, block_hash: &CryptoHash) -> Vec<ShardUId> {
     let block_header = client.chain.get_block_header(block_hash).unwrap();
     get_tracked_shards_from_prev_block(client, block_header.prev_hash())
+}
+
+pub fn get_shards_needs_for_next_epoch(client: &Client, block_hash: &CryptoHash) -> Vec<ShardUId> {
+    let signer = client.validator_signer.get();
+    let account_id = signer.as_ref().map(|s| s.validator_id());
+    let prev_block_hash = *client.chain.get_block_header(block_hash).unwrap().prev_hash();
+    let shard_layout =
+        client.epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash).unwrap();
+    let mut shards_needs_for_next_epoch = vec![];
+    for shard_uid in shard_layout.shard_uids() {
+        if client.shard_tracker.will_care_about_shard(
+            account_id,
+            &prev_block_hash,
+            shard_uid.shard_id(),
+            true,
+        ) {
+            shards_needs_for_next_epoch.push(shard_uid);
+        }
+    }
+    shards_needs_for_next_epoch
+}
+
+pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
+    shard_uids.iter().map(|shard_uid| shard_uid.shard_id()).collect_vec()
 }

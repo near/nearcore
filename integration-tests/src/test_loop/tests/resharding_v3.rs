@@ -28,7 +28,10 @@ use crate::test_loop::utils::resharding::{
 use crate::test_loop::utils::setups::{
     derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule,
 };
-use crate::test_loop::utils::sharding::print_and_assert_shard_accounts;
+use crate::test_loop::utils::sharding::{
+    get_shards_needs_for_next_epoch, get_tracked_shards, print_and_assert_shard_accounts,
+    shard_uids_to_ids,
+};
 use crate::test_loop::utils::transactions::{
     check_txs, create_account, deploy_contract, get_smallest_height_head,
 };
@@ -40,6 +43,13 @@ use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
 
 /// Default and minimal epoch length used in resharding tests.
 const DEFAULT_EPOCH_LENGTH: u64 = 7;
+
+/// Epoch length to use in tests involving two reshardings.
+/// Using smaller epoch length resulted in 1 block producer not being assigned to any block
+/// for the entire second epoch (bad luck). Because of that, it was not included in
+/// `EpochInfoAggregator::version_tracker` and the second shard split happened two epochs
+/// (instead of 1 epoch) after the first resharding.
+const TWO_RESHARDINGS_EPOCH_LENGTH: u64 = 9;
 
 /// Increased epoch length that has to be used in some tests due to the delay caused by catch up.
 ///
@@ -200,7 +210,9 @@ impl TestReshardingParametersBuilder {
         let archivals = archivals.to_vec();
 
         if let Some(tracked_shard_schedule) = &tracked_shard_schedule {
-            assert!(clients_without_role.contains(&clients[tracked_shard_schedule.client_index]));
+            let extra_node_account_id = &clients[tracked_shard_schedule.client_index];
+            println!("Extra node: {extra_node_account_id}\ntracked_shard_schedule: {tracked_shard_schedule:?}");
+            assert!(clients_without_role.contains(&extra_node_account_id));
             let schedule_length = tracked_shard_schedule.schedule.len();
             assert!(schedule_length > num_epochs_to_wait as usize);
             for i in (num_epochs_to_wait - GC_NUM_EPOCHS_TO_KEEP - 1) as usize..schedule_length {
@@ -379,18 +391,23 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .add_user_accounts_simple(&params.accounts, params.initial_balance)
         .build();
 
-    if let Some(second_resharding_boundary_account) = params.second_resharding_boundary_account {
+    if let Some(second_resharding_boundary_account) = &params.second_resharding_boundary_account {
         let second_resharding_epoch_config = derive_new_epoch_config_from_boundary(
             &epoch_config,
-            &second_resharding_boundary_account,
+            second_resharding_boundary_account,
         );
         epoch_configs.push((base_protocol_version + 2, Arc::new(second_resharding_epoch_config)));
         let upgrade_schedule = two_upgrades_voting_schedule(base_protocol_version + 2);
         builder = builder.protocol_upgrade_schedule(upgrade_schedule);
-        new_boundary_account = second_resharding_boundary_account;
+        new_boundary_account = second_resharding_boundary_account.clone();
     }
     let initial_num_shards = epoch_configs.first().unwrap().1.shard_layout.num_shards();
     let expected_num_shards = epoch_configs.last().unwrap().1.shard_layout.num_shards();
+    if params.second_resharding_boundary_account.is_some() {
+        assert_eq!(expected_num_shards, initial_num_shards + 2);
+    } else {
+        assert_eq!(expected_num_shards, initial_num_shards + 1);
+    }
     let parent_shard_uid =
         base_epoch_config.shard_layout.account_id_to_shard_uid(&new_boundary_account);
     let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(epoch_configs));
@@ -484,6 +501,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     let num_epochs_to_wait = params.num_epochs_to_wait;
     let latest_block_height = Cell::new(0u64);
+    let epoch_height_after_first_resharding = Cell::new(None);
     let resharding_block_hash = Cell::new(None);
     let epoch_height_after_resharding = Cell::new(None);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
@@ -503,22 +521,33 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         let client = clients[client_index];
         let block_header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+        let current_num_shards = shard_layout.num_shards();
 
         if latest_block_height.get() == 0 {
             println!("State before resharding:");
             print_and_assert_shard_accounts(&clients, &tip);
-            assert_eq!(shard_layout.num_shards(), initial_num_shards);
+            assert_eq!(current_num_shards, initial_num_shards);
         }
         latest_block_height.set(tip.height);
 
         println!(
-            "new block #{} shards: {:?} chunk mask {:?} block hash {} epoch id {:?}",
+            "\nnew block #{}\nshards: {:?}\nchunk mask {:?}\nblock hash {}\nepoch id {:?}\n",
             tip.height,
             shard_layout.shard_ids().collect_vec(),
             block_header.chunk_mask().to_vec(),
             tip.last_block_hash,
             tip.epoch_id.0,
         );
+        for (client_index, client) in clients.iter().enumerate() {
+            let tracked_shards =
+                shard_uids_to_ids(&get_tracked_shards(client, &tip.last_block_hash));
+            // That's not accurate in case of tracked shard schedule: it won't return parent shard before resharding boundary, if we track child after resharding.
+            let shards_needs_for_next_epoch =
+                shard_uids_to_ids(&get_shards_needs_for_next_epoch(client, &tip.last_block_hash));
+            let signer = client.validator_signer.get().unwrap();
+            let account_id = signer.validator_id().as_str();
+            println!("client_{client_index}: id={account_id:?} tracks={tracked_shards:?}\tneeds_for_next_epoch={shards_needs_for_next_epoch:?}");
+        }
 
         // Check that all chunks are included.
         if params.all_chunks_expected && params.chunk_ranges_to_drop.is_empty() {
@@ -530,10 +559,16 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         let epoch_height =
             client.epoch_manager.get_epoch_height_from_prev_block(&tip.prev_block_hash).unwrap();
 
+        if epoch_height_after_first_resharding.get().is_none()
+            && current_num_shards != initial_num_shards
+        {
+            epoch_height_after_first_resharding.set(Some(epoch_height));
+        }
+
         // Return false if we have not resharded yet.
         if epoch_height_after_resharding.get().is_none() {
             assert!(epoch_height < 5);
-            if shard_layout.num_shards() != expected_num_shards {
+            if current_num_shards != expected_num_shards {
                 return false;
             }
             // Just resharded.
@@ -543,6 +578,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             assert!(epoch_height + GC_NUM_EPOCHS_TO_KEEP < num_epochs_to_wait);
             println!("State after resharding:");
             print_and_assert_shard_accounts(&clients, &tip);
+            // In case of second resharding, we want it 1 epoch after the first resharding.
+            if params.second_resharding_boundary_account.is_some() {
+                assert_eq!(epoch_height, epoch_height_after_first_resharding.get().unwrap() + 1);
+            }
         }
 
         for client in clients {
@@ -589,6 +628,7 @@ fn test_resharding_v3_two_independent_splits() {
             .second_resharding_boundary_account(Some(second_resharding_boundary_account))
             // TODO(resharding) Adjust temporary account test to work with two reshardings.
             .disable_temporary_account_test(true)
+            .epoch_length(TWO_RESHARDINGS_EPOCH_LENGTH)
             .build(),
     );
 }
@@ -607,8 +647,6 @@ fn shard_sequence_to_schedule(
 }
 
 #[test]
-// TODO(resharding) fix nearcore and unignore this test
-#[ignore]
 fn test_resharding_v3_two_splits_one_after_another_at_single_node() {
     let first_resharding_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let second_resharding_boundary_account: AccountId = "account2".parse().unwrap();
@@ -652,8 +690,12 @@ fn test_resharding_v3_two_splits_one_after_another_at_single_node() {
         TestReshardingParametersBuilder::default()
             .num_clients(num_clients)
             .num_epochs_to_wait(num_epochs_to_wait)
+            // Make the test more challenging by enabling shard shuffling.
+            .shuffle_shard_assignment_for_chunk_producers(true)
             .second_resharding_boundary_account(Some(second_resharding_boundary_account))
             .tracked_shard_schedule(Some(tracked_shard_schedule))
+            .epoch_length(TWO_RESHARDINGS_EPOCH_LENGTH)
+            // TODO(resharding) Adjust temporary account test to work with two reshardings.
             .disable_temporary_account_test(true)
             .build(),
     );
