@@ -3,7 +3,9 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+* Add cross-shard bandwidth scheduler which manages transferring receipts between shards,
+  enabling higher throughput of cross-shard receipts and better horizontal scalability.
+  NEP-584 (https://github.com/near/NEPs/pull/584)
 
 ### Non-protocol Changes
 **No Changes**
