@@ -606,6 +606,59 @@ fn shard_sequence_to_schedule(
     shard_sequence.iter().map(|shard_id| vec![*shard_id]).collect()
 }
 
+#[test]
+// TODO(resharding) fix nearcore and unignore this test
+#[ignore]
+fn test_resharding_v3_two_splits_one_after_another_at_single_node() {
+    let first_resharding_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
+    let second_resharding_boundary_account: AccountId = "account2".parse().unwrap();
+
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let first_resharding_shard_layout = ShardLayout::derive_shard_layout(
+        &base_shard_layout,
+        first_resharding_boundary_account.clone(),
+    );
+    let second_resharding_shard_layout = ShardLayout::derive_shard_layout(
+        &first_resharding_shard_layout,
+        second_resharding_boundary_account.clone(),
+    );
+
+    let first_resharding_parent_shard_id =
+        base_shard_layout.account_id_to_shard_id(&first_resharding_boundary_account);
+    let first_resharding_child_shard_id =
+        first_resharding_shard_layout.account_id_to_shard_id(&first_resharding_boundary_account);
+    let second_resharding_parent_shard_id =
+        first_resharding_shard_layout.account_id_to_shard_id(&second_resharding_boundary_account);
+    let second_resharding_child_shard_id =
+        second_resharding_shard_layout.account_id_to_shard_id(&second_resharding_boundary_account);
+
+    let num_epochs_to_wait = DEFAULT_TESTLOOP_NUM_EPOCHS_TO_WAIT;
+    let mut tracked_shard_schedule = vec![
+        vec![first_resharding_parent_shard_id],
+        vec![first_resharding_parent_shard_id],
+        vec![first_resharding_child_shard_id, second_resharding_parent_shard_id],
+        vec![second_resharding_child_shard_id],
+    ];
+    tracked_shard_schedule.extend(
+        std::iter::repeat(tracked_shard_schedule.last().unwrap().clone())
+            .take(num_epochs_to_wait as usize),
+    );
+    let num_clients = 8;
+    let tracked_shard_schedule = TrackedShardSchedule {
+        client_index: (num_clients - 1) as usize,
+        schedule: tracked_shard_schedule,
+    };
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(num_clients)
+            .num_epochs_to_wait(num_epochs_to_wait)
+            .second_resharding_boundary_account(Some(second_resharding_boundary_account))
+            .tracked_shard_schedule(Some(tracked_shard_schedule))
+            .disable_temporary_account_test(true)
+            .build(),
+    );
+}
+
 // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
 // Eventually, the State column should only contain entries belonging to the last tracked shard.
 #[test]
