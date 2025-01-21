@@ -305,19 +305,14 @@ pub struct BandwidthSchedulerParams {
 impl BandwidthSchedulerParams {
     /// Calculate values of scheduler params based on the current configuration
     pub fn new(num_shards: NonZeroU64, runtime_config: &RuntimeConfig) -> BandwidthSchedulerParams {
-        // TODO(bandwidth_scheduler) - put these parameters in RuntimeConfig.
-        let max_shard_bandwidth = 4_500_000;
-        let max_single_grant = 4 * 1024 * 1024;
-        let max_allowance = max_shard_bandwidth;
-        let max_base_bandwidth = 100_000;
-        let max_receipt_size = runtime_config.wasm_config.limit_config.max_receipt_size;
+        let scheduler_config = runtime_config.bandwidth_scheduler_config;
 
         Self::calculate(
-            max_shard_bandwidth,
-            max_single_grant,
-            max_allowance,
-            max_base_bandwidth,
-            max_receipt_size,
+            scheduler_config.max_shard_bandwidth,
+            scheduler_config.max_single_grant,
+            scheduler_config.max_allowance,
+            scheduler_config.max_base_bandwidth,
+            runtime_config.wasm_config.limit_config.max_receipt_size,
             num_shards.get(),
         )
     }
