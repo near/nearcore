@@ -1,3 +1,4 @@
+use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -485,6 +486,10 @@ impl Receipt {
         *self.receipt_id()
     }
 
+    pub fn send_to_all_shards(&self) -> bool {
+        matches!(self.receipt(), ReceiptEnum::GlobalContractDistribution(..))
+    }
+
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
     /// This should be used for token refunds instead of gas refunds. It inherits priority from the parent receipt.
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
@@ -571,6 +576,19 @@ impl Receipt {
             }),
         }
     }
+
+    pub fn new_global_contract_distribution(
+        predecessor_id: AccountId,
+        code: Vec<u8>,
+        id: GlobalContractIdentifier,
+    ) -> Self {
+        Self::V0(ReceiptV0 {
+            predecessor_id,
+            receiver_id: "system".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData { code, id }),
+        })
+    }
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
@@ -590,6 +608,7 @@ pub enum ReceiptEnum {
     Data(DataReceipt),
     PromiseYield(ActionReceipt),
     PromiseResume(DataReceipt),
+    GlobalContractDistribution(GlobalContractData),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -667,6 +686,30 @@ impl fmt::Debug for ReceivedData {
         f.debug_struct("ReceivedData")
             .field("data", &format_args!("{}", AbbrBytes(self.data.as_deref())))
             .finish()
+    }
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    ProtocolSchema,
+)]
+pub struct GlobalContractData {
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+    pub id: GlobalContractIdentifier,
+}
+
+impl fmt::Debug for GlobalContractData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlobalContractData").finish()
     }
 }
 
