@@ -62,6 +62,7 @@ pub mod col {
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
+    pub const GLOBAL_CONTRACT_CODE: u8 = 18;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -77,7 +78,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 17] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 18] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -95,7 +96,43 @@ pub mod col {
         (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
+        (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
     ];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+pub enum GlobalContractCodeIdentifier {
+    AccountId(AccountId),
+    CodeHash(CryptoHash),
+}
+
+impl GlobalContractCodeIdentifier {
+    pub fn len(&self) -> usize {
+        self.discriminator().len()
+            + match self {
+                Self::AccountId(account_id) => account_id.len(),
+                Self::CodeHash(hash) => hash.as_bytes().len(),
+            }
+    }
+
+    pub fn append_into(&self, buf: &mut Vec<u8>) {
+        buf.push(self.discriminator());
+        match self {
+            Self::AccountId(account_id) => {
+                buf.extend(account_id.as_bytes());
+            }
+            Self::CodeHash(hash) => {
+                buf.extend(hash.as_ref());
+            }
+        }
+    }
+
+    pub fn discriminator(&self) -> u8 {
+        match self {
+            Self::AccountId(_) => 0,
+            Self::CodeHash(_) => 1,
+        }
+    }
 }
 
 /// Describes the key of a specific key-value record in a state trie.
@@ -193,6 +230,9 @@ pub enum TrieKey {
         receiving_shard: ShardId,
         index: u64,
     },
+    GlobalContractCode {
+        identifier: GlobalContractCodeIdentifier,
+    },
 }
 
 /// Provides `len` function.
@@ -276,6 +316,9 @@ impl TrieKey {
                 col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM.len()
                     + std::mem::size_of::<u64>()
                     + std::mem::size_of_val(index)
+            }
+            TrieKey::GlobalContractCode { identifier } => {
+                col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
         }
     }
@@ -370,6 +413,10 @@ impl TrieKey {
                 buf.extend(&receiving_shard.to_le_bytes());
                 buf.extend(&index.to_le_bytes());
             }
+            TrieKey::GlobalContractCode { identifier } => {
+                buf.push(col::GLOBAL_CONTRACT_CODE);
+                identifier.append_into(buf);
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -401,6 +448,9 @@ impl TrieKey {
             TrieKey::BandwidthSchedulerState => None,
             TrieKey::BufferedReceiptGroupsQueueData { .. } => None,
             TrieKey::BufferedReceiptGroupsQueueItem { .. } => None,
+            // Even though global contract code might be deployed under account id, it doesn't
+            // correspond to the data stored for that account id, so always returning None here.
+            TrieKey::GlobalContractCode { .. } => None,
         }
     }
 }
