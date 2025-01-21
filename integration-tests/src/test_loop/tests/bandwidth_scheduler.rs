@@ -46,7 +46,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, Nonce, ShardId, ShardIndex};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::trie::outgoing_metadata::{ReceiptGroupsConfig, ReceiptGroupsQueue};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -67,10 +67,6 @@ use crate::test_loop::utils::TGAS;
 /// 3 shards, random receipt sizes
 #[test]
 fn slow_test_bandwidth_scheduler_three_shards_random_receipts() {
-    if !ProtocolFeature::BandwidthScheduler.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let scenario = TestScenarioBuilder::new()
         .num_shards(3)
         .default_link_generator(|| Box::new(RandomReceiptSizeGenerator))
@@ -86,10 +82,6 @@ fn slow_test_bandwidth_scheduler_three_shards_random_receipts() {
 /// 4 shards, random receipt sizes, 10% probability of missing chunks
 #[test]
 fn slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks() {
-    if !ProtocolFeature::BandwidthScheduler.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
     let scenario = TestScenarioBuilder::new()
         .num_shards(5)
         .default_link_generator(|| Box::new(RandomReceiptSizeGenerator))

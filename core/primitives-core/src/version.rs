@@ -258,7 +258,11 @@ impl ProtocolFeature {
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
-            | ProtocolFeature::FixChunkProducerStakingThreshold => 74,
+            | ProtocolFeature::FixChunkProducerStakingThreshold
+            // BandwidthScheduler must be enabled before ReshardingV3! When
+            // releasing this feature please make sure to schedule separate
+            // protocol upgrades for those features!
+            | ProtocolFeature::BandwidthScheduler => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -277,10 +281,6 @@ impl ProtocolFeature {
             // releasing this feature please make sure to schedule separate
             // protocol upgrades for those features!
             ProtocolFeature::CurrentEpochStateSync => 144,
-            // BandwidthScheduler must be enabled before ReshardingV3! When
-            // releasing this feature please make sure to schedule separate
-            // protocol upgrades for those features!
-            ProtocolFeature::BandwidthScheduler => 145,
             ProtocolFeature::SimpleNightshadeV4 => 146,
             #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
             ProtocolFeature::RelaxedChunkValidation => 147,

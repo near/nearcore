@@ -649,13 +649,7 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
                         .chain
                         .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
                         .unwrap();
-                    let expected_height = if ProtocolFeature::BandwidthScheduler
-                        .enabled(genesis.config.protocol_version)
-                    {
-                        height
-                    } else {
-                        sync_prev_height_included
-                    };
+                    let expected_height = height;
                     let expected_chunk_extra = env.clients[0]
                         .chain
                         .get_chunk_extra(
