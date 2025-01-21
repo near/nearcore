@@ -960,6 +960,14 @@ impl Runtime {
         })
     }
 
+    fn apply_global_contract_distribution_receipt(
+        &self,
+        _receipt: &Receipt,
+        _state_update: &mut TrieUpdate,
+    ) {
+        todo!("TrieKey not done")
+    }
+
     fn generate_refund_receipts(
         &self,
         current_gas_price: Balance,
@@ -1232,8 +1240,9 @@ impl Runtime {
                     return Ok(None);
                 }
             }
-            ReceiptEnum::GlobalContractDistribution(_data) => {
-                todo!("Apply the global contract")
+            ReceiptEnum::GlobalContractDistribution(_) => {
+                self.apply_global_contract_distribution_receipt(receipt, state_update);
+                return Ok(None);
             }
         };
         // We didn't trigger execution, so we need to commit the state.

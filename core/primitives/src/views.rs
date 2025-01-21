@@ -18,7 +18,9 @@ use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
-use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
+use crate::receipt::{
+    ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1,
+};
 use crate::serialize::dec_format;
 use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use crate::sharding::{
@@ -1961,6 +1963,9 @@ pub enum ReceiptEnumView {
         #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
     },
+    GlobalContractDistribution {
+        data: GlobalContractData,
+    },
 }
 
 // Default value used when deserializing ReceiptEnumViews which are missing either the
@@ -2010,8 +2015,8 @@ impl From<Receipt> for ReceiptView {
                         is_promise_resume,
                     }
                 }
-                ReceiptEnum::GlobalContractDistribution(_data) => {
-                    todo!()
+                ReceiptEnum::GlobalContractDistribution(data) => {
+                    ReceiptEnumView::GlobalContractDistribution { data }
                 }
             },
             priority,
@@ -2069,6 +2074,9 @@ impl TryFrom<ReceiptView> for Receipt {
                     } else {
                         ReceiptEnum::Data(data_receipt)
                     }
+                }
+                ReceiptEnumView::GlobalContractDistribution { data } => {
+                    ReceiptEnum::GlobalContractDistribution(data)
                 }
             },
             priority: receipt_view.priority,

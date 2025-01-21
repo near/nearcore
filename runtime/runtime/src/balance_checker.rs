@@ -100,6 +100,7 @@ fn total_accounts_balance(
 enum PostponedReceiptType {
     Action,
     PromiseYield,
+    GlobalContractDistribution,
 }
 
 /// Calculates and returns total costs of all the postponed receipts.
@@ -123,6 +124,13 @@ fn total_postponed_receipts_cost(
                     None => return Ok(total),
                     Some(receipt) => receipt_cost(config, &receipt)?,
                 }
+            }
+            PostponedReceiptType::GlobalContractDistribution => {
+                // match get_global_contract_distribution_receipt(state, account_id, *lookup_id)? {
+                //     None => return Ok(total),
+                //     Some(receipt) => receipt_cost(config, &receipt)?,
+                // }
+                todo!()
             }
         };
 
@@ -260,11 +268,11 @@ fn potential_postponed_receipt_ids(
                     account_id.clone(),
                     data_receipt.data_id,
                 ))),
-                ReceiptEnum::GlobalContractDistribution(_) => {
-                    // TODO(#12639): handle global contract distribution
-                    todo!()
-                    // None
-                }
+                ReceiptEnum::GlobalContractDistribution(_) => Some(Ok((
+                    PostponedReceiptType::GlobalContractDistribution,
+                    account_id.clone(),
+                    *receipt.receipt_id(),
+                ))),
             }
         })
         .collect::<Result<HashSet<_>, StorageError>>()
