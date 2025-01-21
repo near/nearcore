@@ -926,8 +926,8 @@ impl ForkNetworkCommand {
         let epoch_config = self.override_epoch_configs(
             genesis_protocol_version,
             num_seats,
-            &boundary_account_1,
             &boundary_account_2,
+            &boundary_account_1,
             home_dir,
         )?;
 
