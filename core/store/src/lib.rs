@@ -818,6 +818,16 @@ pub fn set_account(state_update: &mut TrieUpdate, account_id: AccountId, account
     set(state_update, TrieKey::Account { account_id }, account)
 }
 
+pub fn set_account_with_cache(
+    state_update: &mut TrieUpdate,
+    cache: &mut HackyCache,
+    account_id: AccountId,
+    account: &Account,
+) {
+    set(state_update, TrieKey::Account { account_id: account_id.clone() }, account);
+    cache.set(HackyCacheKey::AccountId(account_id), HackyCacheValue::Account(account.clone()));
+}
+
 pub fn get_account(
     trie: &dyn TrieAccess,
     account_id: &AccountId,

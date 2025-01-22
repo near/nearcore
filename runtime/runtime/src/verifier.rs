@@ -286,7 +286,10 @@ pub fn verify_and_charge_transaction(
     };
 
     set_access_key(state_update, signer_id.clone(), transaction.public_key().clone(), &access_key);
-    set_account(state_update, signer_id.clone(), &signer);
+    match hacky_cache {
+        Some(cache) => set_account_with_cache(state_update, cache, signer_id.clone(), &signer),
+        None => set_account(state_update, signer_id.clone(), &signer),
+    }
 
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
 }
