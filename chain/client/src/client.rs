@@ -909,8 +909,25 @@ impl Client {
                 ))
             })?;
         let last_chunk = self.chain.get_chunk(&last_chunk_header.chunk_hash())?;
-        let prepared_transactions =
-            self.prepare_transactions(shard_uid, prev_block, &last_chunk, chunk_extra.as_ref())?;
+        let prepared_transactions = {
+            #[cfg(feature = "test_features")]
+            match self.adv_produce_chunks {
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions {
+                    transactions: Vec::new(),
+                    limited_by: None,
+                    storage_proof: None,
+                },
+                _ => self.prepare_transactions(
+                    shard_uid,
+                    prev_block,
+                    &last_chunk,
+                    chunk_extra.as_ref(),
+                )?,
+            }
+            #[cfg(not(feature = "test_features"))]
+            self.prepare_transactions(shard_uid, prev_block, &last_chunk, chunk_extra.as_ref())?
+        };
+
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,
@@ -1075,7 +1092,15 @@ impl Client {
                 },
                 prev_block.into(),
                 &mut iter,
-                &mut chain.transaction_validity_check(prev_block.header().clone()),
+                &mut |tx| {
+                    #[cfg(features = "test_features")]
+                    match self.adv_produce_chunks {
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
+                        _ => chain.transaction_validity_check(prev_block.header().clone())(tx),
+                    }
+                    #[cfg(not(features = "test_features"))]
+                    chain.transaction_validity_check(prev_block.header().clone())(tx)
+                },
                 self.config.produce_chunk_add_transactions_time_limit.get(),
             )?
         } else {
