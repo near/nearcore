@@ -918,16 +918,14 @@ impl ForkNetworkCommand {
         near_config.genesis.config.epoch_length = epoch_length;
 
         // let boundary_account = "part".parse::<AccountId>().unwrap();
-        let boundary_account_1 = "409de3f5388e7b3cc9b15971ee61ad8f75332a6e7af949c34f6ca843807b2c82"
-            .parse::<AccountId>()
-            .unwrap();
+        let boundary_account_1 = "game_changer777.tg".parse::<AccountId>().unwrap();
         let boundary_account_2 = "v2.ref-finance.near".parse::<AccountId>().unwrap();
 
         let epoch_config = self.override_epoch_configs(
             genesis_protocol_version,
             num_seats,
-            &boundary_account_2,
             &boundary_account_1,
+            &boundary_account_2,
             home_dir,
         )?;
 
