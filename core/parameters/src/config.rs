@@ -271,9 +271,13 @@ impl WitnessConfig {
 /// Configuration specific to BandwidthScheduler
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BandwidthSchedulerConfig {
-    // TODO: Comments
+    /// The maximum amount of data that a shard can send or receive at a single height.
     pub max_shard_bandwidth: u64,
+    /// The maximum amount of bandwidth that can be granted on a single link.
+    /// Should be at least as big as `max_receipt_size`.
     pub max_single_grant: u64,
+    /// Maximum bandwidth allowance that a link can accumulate.
     pub max_allowance: u64,
+    /// Max value of `base_bandwidth` that is granted on all links by default.
     pub max_base_bandwidth: u64,
 }
