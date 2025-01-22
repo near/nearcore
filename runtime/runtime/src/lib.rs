@@ -350,7 +350,7 @@ impl Runtime {
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
-            None,
+            &mut None,
             signed_transaction,
             transaction_cost,
             Some(apply_state.block_height),

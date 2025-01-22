@@ -21,8 +21,8 @@ use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    get_access_key, get_account, get_account_with_cache, set_access_key, set_account, StorageError,
-    TrieUpdate,
+    get_access_key, get_account, get_account_with_cache, set_access_key, set_account,
+    set_account_with_cache, StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -143,7 +143,7 @@ pub fn validate_transaction(
 pub fn verify_and_charge_transaction(
     config: &RuntimeConfig,
     state_update: &mut TrieUpdate,
-    hacky_cache: Option<&mut HackyCache>,
+    hacky_cache: &mut Option<&mut HackyCache>,
     signed_transaction: &SignedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
@@ -791,7 +791,7 @@ mod tests {
                 let err = verify_and_charge_transaction(
                     config,
                     state_update,
-                    None,
+                    &mut None,
                     signed_transaction,
                     &cost,
                     None,
@@ -927,7 +927,7 @@ mod tests {
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1006,7 +1006,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1076,7 +1076,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1109,7 +1109,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1184,7 +1184,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1236,7 +1236,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1283,7 +1283,7 @@ mod tests {
         let verification_result = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1327,7 +1327,7 @@ mod tests {
         let res = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1385,7 +1385,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1408,7 +1408,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1431,7 +1431,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1476,7 +1476,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1528,7 +1528,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1579,7 +1579,7 @@ mod tests {
         let err = verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,
@@ -1635,7 +1635,7 @@ mod tests {
         verify_and_charge_transaction(
             &config,
             &mut state_update,
-            None,
+            &mut None,
             &transaction,
             &cost,
             None,

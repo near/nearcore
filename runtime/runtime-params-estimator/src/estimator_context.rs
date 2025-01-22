@@ -464,7 +464,7 @@ impl Testbed<'_> {
         node_runtime::verify_and_charge_transaction(
             &self.apply_state.config,
             &mut state_update,
-            None,
+            &mut None,
             tx,
             &cost,
             block_height,

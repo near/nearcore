@@ -586,7 +586,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             match verify_and_charge_transaction(
                 runtime_config,
                 &mut state_update,
-                Some(&mut hacky_cache),
+                &mut Some(&mut hacky_cache),
                 transaction,
                 &cost,
                 // here we do not know which block the transaction will be included
@@ -787,7 +787,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     verify_and_charge_transaction(
                         runtime_config,
                         &mut state_update,
-                        None,
+                        &mut None,
                         &tx,
                         &cost,
                         Some(next_block_height),
