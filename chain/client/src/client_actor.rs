@@ -1128,11 +1128,6 @@ impl ClientActorInner {
                 continue;
             }
 
-            if let Err(err) = self.produce_optimistic_block(height) {
-                // If there is an error, report it and let it retry on the next loop step.
-                error!(target: "client", height, "Optimistic block production failed: {}", err);
-            }
-
             self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                 prev_block_hash,
                 &mut self.client.chunk_endorsement_tracker,
@@ -1159,6 +1154,16 @@ impl ClientActorInner {
                     self.post_block_production();
                 }
             }
+        }
+
+        let optimistic_block_height = self.client.doomslug.get_timer_height();
+        if self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? != me {
+            return Ok(());
+        }
+
+        if let Err(err) = self.produce_optimistic_block(optimistic_block_height) {
+            // If there is an error, report it and let it retry.
+            error!(target: "client", optimistic_block_height, ?err, "Optimistic block production failed!");
         }
 
         Ok(())
