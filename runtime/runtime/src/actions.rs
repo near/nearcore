@@ -661,7 +661,7 @@ pub(crate) fn action_deploy_global_contract(
     account_id: &AccountId,
     deploy_contract: &DeployGlobalContractAction,
     result: &mut ActionResult,
-) -> Result<(), StorageError> {
+) {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
 
     let id = match deploy_contract.deploy_mode {
@@ -678,7 +678,6 @@ pub(crate) fn action_deploy_global_contract(
         deploy_contract.code.clone(),
         id,
     ));
-    Ok(())
 }
 
 pub(crate) fn action_use_global_contract(

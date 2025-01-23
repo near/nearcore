@@ -130,7 +130,7 @@ fn total_postponed_receipts_cost(
                 //     None => return Ok(total),
                 //     Some(receipt) => receipt_cost(config, &receipt)?,
                 // }
-                todo!()
+                0
             }
         };
 

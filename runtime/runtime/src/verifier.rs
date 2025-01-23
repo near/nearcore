@@ -10,9 +10,7 @@ use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
-use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, GlobalContractData, Receipt, ReceiptEnum,
-};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
@@ -323,9 +321,7 @@ pub(crate) fn validate_receipt(
         ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
             validate_data_receipt(limit_config, data_receipt)
         }
-        ReceiptEnum::GlobalContractDistribution(data) => {
-            validate_global_contract_distribution_receipt(limit_config, data)
-        }
+        ReceiptEnum::GlobalContractDistribution(_) => Ok(()), // Distribution receipt can't be issued without a valid contract
     }
 }
 
@@ -358,19 +354,6 @@ fn validate_action_receipt(
     }
     validate_actions(limit_config, &receipt.actions, current_protocol_version)
         .map_err(ReceiptValidationError::ActionsValidation)
-}
-
-fn validate_global_contract_distribution_receipt(
-    limit_config: &LimitConfig,
-    data: &GlobalContractData,
-) -> Result<(), ReceiptValidationError> {
-    if data.code.len() as u64 > limit_config.max_contract_size {
-        return Err(ReceiptValidationError::ContractSizeExceeded {
-            size: data.code.len() as u64,
-            limit: limit_config.max_contract_size,
-        });
-    }
-    Ok(())
 }
 
 /// Validates given data receipt. Checks validity of the length of the returned data.
