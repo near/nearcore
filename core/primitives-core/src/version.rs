@@ -195,6 +195,8 @@ pub enum ProtocolFeature {
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
     BlockHeightForReceiptId,
+    /// Enable optimistic block production.
+    ProduceOptimisticBlock,
     GlobalContracts,
 }
 
@@ -283,7 +285,9 @@ impl ProtocolFeature {
             ProtocolFeature::CurrentEpochStateSync => 144,
             ProtocolFeature::SimpleNightshadeV4 => 146,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::BlockHeightForReceiptId => 149,
+            ProtocolFeature::BlockHeightForReceiptId | ProtocolFeature::ProduceOptimisticBlock => {
+                149
+            }
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::GlobalContracts => 200,
         }

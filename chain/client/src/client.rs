@@ -96,9 +96,6 @@ const BLOCK_HORIZON: u64 = 500;
 /// number of blocks at the epoch start for which we will log more detailed info
 pub const EPOCH_START_INFO_BLOCKS: u64 = 500;
 
-/// Cache size for the produced optimistic blocks.
-pub const PRODUCED_OPTIMISTIC_BLOCK_POOL: usize = 10;
-
 /// Defines whether in case of adversarial block production invalid blocks can
 /// be produced.
 #[cfg(feature = "test_features")]

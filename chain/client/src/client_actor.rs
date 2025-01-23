@@ -1156,11 +1156,14 @@ impl ClientActorInner {
             }
         }
 
+        let protocol_version = self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if !ProtocolFeature::ProduceOptimisticBlock.enabled(protocol_version) {
+            return Ok(());
+        }
         let optimistic_block_height = self.client.doomslug.get_timer_height();
         if self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? != me {
             return Ok(());
         }
-
         if let Err(err) = self.produce_optimistic_block(optimistic_block_height) {
             // If there is an error, report it and let it retry.
             error!(target: "client", optimistic_block_height, ?err, "Optimistic block production failed!");
