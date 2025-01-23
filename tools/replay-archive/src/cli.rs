@@ -497,7 +497,7 @@ impl ReplayController {
         let shuffle_salt = if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
             block.header().prev_hash()
         } else {
-            block.hash()
+            block_hash
         };
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id.into_iter() {
             shuffle_receipt_proofs(&mut receipts, shuffle_salt);
