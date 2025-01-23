@@ -10,6 +10,7 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
+use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -1211,6 +1212,7 @@ pub struct ChainStoreUpdate<'a> {
     add_state_sync_infos: Vec<StateSyncInfo>,
     remove_state_sync_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
+    chunk_apply_stats: HashMap<(CryptoHash, ShardId), ChunkApplyStats>,
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1234,6 +1236,7 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_sync_infos: vec![],
             remove_state_sync_infos: vec![],
             challenged_blocks: HashSet::default(),
+            chunk_apply_stats: HashMap::default(),
         }
     }
 }
@@ -1881,6 +1884,15 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.processed_block_heights.insert(height);
     }
 
+    pub fn save_chunk_apply_stats(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        stats: ChunkApplyStatsV0,
+    ) {
+        self.chunk_apply_stats.insert((block_hash, shard_id), ChunkApplyStats::V0(stats));
+    }
+
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
         let refcount = match self.get_block_refcount(block_hash) {
             Ok(refcount) => refcount,
@@ -2407,6 +2419,13 @@ impl<'a> ChainStoreUpdate<'a> {
                 DBCol::ProcessedBlockHeights,
                 &index_to_bytes(*block_height),
                 &(),
+            )?;
+        }
+        for ((block_hash, shard_id), stats) in self.chunk_apply_stats.iter() {
+            store_update.set_ser(
+                DBCol::ChunkApplyStats,
+                &get_block_shard_id(block_hash, *shard_id),
+                stats,
             )?;
         }
         for other in self.store_updates.drain(..) {
