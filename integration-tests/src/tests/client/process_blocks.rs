@@ -1656,7 +1656,9 @@ fn ultra_slow_test_gc_after_state_sync() {
     assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    env.clients[1].chain.clear_data(&Default::default()).unwrap();
+    let signer = env.clients[1].validator_signer.get();
+    let me = signer.as_ref().map(|signer| signer.validator_id());
+    env.clients[1].chain.clear_data(&Default::default(), me).unwrap();
 }
 
 #[test]

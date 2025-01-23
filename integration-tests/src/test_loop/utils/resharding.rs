@@ -1,9 +1,10 @@
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::num::NonZero;
 
 use assert_matches::assert_matches;
 use borsh::BorshDeserialize;
+use bytesize::ByteSize;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_chain::ChainStoreAccess;
@@ -12,25 +13,29 @@ use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptOrStateStoredReceipt;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, Gas, ShardId};
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
+use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{DBCol, ShardUId};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
-use super::sharding::this_block_has_new_shard_layout;
+use super::sharding::{next_epoch_has_new_shard_layout, this_block_has_new_shard_layout};
 use crate::test_loop::env::TestData;
 use crate::test_loop::utils::loop_action::LoopAction;
-use crate::test_loop::utils::sharding::next_block_has_new_shard_layout;
+use crate::test_loop::utils::sharding::{get_memtrie_for_shard, next_block_has_new_shard_layout};
 use crate::test_loop::utils::transactions::{
-    check_txs, delete_account, get_anchor_hash, get_next_nonce, store_and_submit_tx, submit_tx,
+    check_txs, check_txs_remove_successful, delete_account, get_anchor_hash, get_next_nonce,
+    store_and_submit_tx, submit_tx,
 };
 use crate::test_loop::utils::{get_node_data, retrieve_client_actor, ONE_NEAR, TGAS};
 
@@ -329,6 +334,144 @@ pub(crate) fn call_burn_gas_contract(
     LoopAction::new(action_fn, succeeded)
 }
 
+/// Send 3MB receipts from `signer_ids` shards to `receiver_ids` shards.
+/// Receipts are sent just before the resharding boundary.
+pub(crate) fn send_large_cross_shard_receipts(
+    signer_ids: Vec<AccountId>,
+    receiver_ids: Vec<AccountId>,
+) -> LoopAction {
+    // Height of the last block with the old shard layout
+    let resharding_height = Cell::new(None);
+    let nonce = Cell::new(102);
+    let txs = Cell::new(vec![]); // FIXME: Wouldn't RefCell be better?
+    let latest_height = Cell::new(0);
+    let (action_success_setter, succeeded) = LoopAction::shared_success_flag();
+
+    let action_fn = Box::new(
+        move |node_datas: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+            let epoch_manager = &client_actor.client.epoch_manager;
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            // Set resharding height once known
+            if resharding_height.get().is_none()
+                && next_block_has_new_shard_layout(epoch_manager.as_ref(), &tip)
+            {
+                tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                resharding_height.set(Some(tip.height));
+            }
+
+            for shard_uid in epoch_manager.get_shard_layout(&tip.epoch_id).unwrap().shard_uids() {
+                let mut outgoing_receipt_sizes: BTreeMap<ShardId, Vec<ByteSize>> = BTreeMap::new();
+
+                let memtrie =
+                    get_memtrie_for_shard(&client_actor.client, &shard_uid, &tip.prev_block_hash);
+                let mut outgoing_buffers = ShardsOutgoingReceiptBuffer::load(&memtrie).unwrap();
+                for target_shard in outgoing_buffers.shards() {
+                    let mut receipt_sizes = Vec::new();
+                    for receipt in outgoing_buffers.to_shard(target_shard).iter(&memtrie, false) {
+                        let receipt_size = match receipt {
+                            Ok(ReceiptOrStateStoredReceipt::StateStoredReceipt(
+                                state_stored_receipt,
+                            )) => state_stored_receipt.metadata().congestion_size,
+                            _ => panic!("receipt is {:?}", receipt),
+                        };
+                        receipt_sizes.push(ByteSize::b(receipt_size));
+                    }
+                    if !receipt_sizes.is_empty() {
+                        outgoing_receipt_sizes.insert(target_shard, receipt_sizes);
+                    }
+                }
+                tracing::info!(target: "test", "outgoing buffers from shard {}: {:?}", shard_uid.shard_id(), outgoing_receipt_sizes);
+            }
+
+            let is_epoch_before_resharding =
+                next_epoch_has_new_shard_layout(epoch_manager.as_ref(), &tip);
+
+            // Estimate the resharding boundary to know when to start sending transactions.
+            let estimated_resharding_height = match resharding_height.get() {
+                Some(h) => h, // Resharding boundary known, use it.
+                None if is_epoch_before_resharding => {
+                    // Resharding boundary unknown, estimate it.
+                    let cur_epoch_start =
+                        epoch_manager.get_epoch_start_height(&tip.last_block_hash).unwrap();
+                    let cur_epoch_length =
+                        epoch_manager.get_epoch_config(&tip.epoch_id).unwrap().epoch_length;
+                    let cur_epoch_estimated_end = cur_epoch_start + cur_epoch_length - 1;
+                    cur_epoch_estimated_end
+                }
+                _ => tip.height + 99999999999999, // Not in the next epoch, set to infinity into the future
+            };
+
+            // Send large cross-shard receipts a moment before the resharding happens.
+            if tip.height + 4 >= estimated_resharding_height
+                && tip.height <= estimated_resharding_height - 2
+            {
+                for signer_id in &signer_ids {
+                    for receiver_id in &receiver_ids {
+                        // Send a 3MB cross-shard receipt from signer_id's shard to receiver_id's shard.
+                        let signer: Signer = create_user_test_signer(signer_id).into();
+                        nonce.set(nonce.get() + 1);
+                        let tx = SignedTransaction::call(
+                            nonce.get(),
+                            signer_id.clone(),
+                            signer_id.clone(),
+                            &signer,
+                            1,
+                            "generate_large_receipt".into(),
+                            format!(
+                                "{{\"account_id\": \"{}\", \"method_name\": \"noop\", \"total_args_size\": 3000000}}",
+                                receiver_id
+                            ).into(),
+                            300 * TGAS,
+                            tip.last_block_hash,
+                        );
+                        tracing::info!(
+                            target: "test",
+                            "Sending 3MB receipt from {} to {}. tx_hash: {:?}",
+                            signer_id,
+                            receiver_id,
+                            tx.get_hash()
+                        );
+                        store_and_submit_tx(
+                            &node_datas,
+                            &client_account_id,
+                            &txs,
+                            &signer_id,
+                            &receiver_id,
+                            tip.height,
+                            tx,
+                        );
+                    }
+                }
+            }
+
+            // Check status of transactions, remove successful ones from the list.
+            check_txs_remove_successful(&txs, &client_actor.client);
+
+            // If the chain is past the resharding boundary and all transactions finished
+            // successfully, declare the action as successful.
+            if let Some(height) = resharding_height.get() {
+                let taken_txs = txs.take();
+                if tip.height > height + 2 && taken_txs.is_empty() {
+                    action_success_setter.set(true);
+                }
+                txs.set(taken_txs);
+            }
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
+}
+
 /// Sends a promise-yield transaction before resharding. Then, if `call_resume` is `true` also sends
 /// a yield-resume transaction after resharding, otherwise it lets the promise-yield go into timeout.
 ///
@@ -621,7 +764,14 @@ fn retain_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
 }
 
 /// Asserts that all other shards State except `the_only_shard_uid` have been cleaned-up.
-fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId) {
+///
+/// `expect_shard_uid_is_mapped` means that `the_only_shard_uid` should use an ancestor
+/// ShardUId as the db key prefix.
+fn check_has_the_only_shard_state(
+    client: &Client,
+    the_only_shard_uid: ShardUId,
+    expect_shard_uid_is_mapped: bool,
+) {
     let store = client.chain.chain_store.store().trie_store();
     let mut shard_uid_prefixes = HashSet::new();
     for kv in store.store().iter_raw_bytes(DBCol::State) {
@@ -629,20 +779,30 @@ fn check_has_the_only_shard_state(client: &Client, the_only_shard_uid: ShardUId)
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         shard_uid_prefixes.insert(shard_uid);
     }
+    let mapped_shard_uid = get_shard_uid_mapping(&store.store(), the_only_shard_uid);
+    if expect_shard_uid_is_mapped {
+        assert_ne!(mapped_shard_uid, the_only_shard_uid);
+    } else {
+        assert_eq!(mapped_shard_uid, the_only_shard_uid);
+    };
     let shard_uid_prefixes = shard_uid_prefixes.into_iter().collect_vec();
-    assert_eq!(shard_uid_prefixes, [the_only_shard_uid]);
+    assert_eq!(shard_uid_prefixes, [mapped_shard_uid]);
 }
 
-// Loop action testing state cleanup after resharding.
-// It assumes single shard tracking and it waits for gc after resharding.
-// Then it checks whether the last shard tracked by the client
-// is the only ShardUId prefix for nodes in the State column.
-pub(crate) fn check_state_cleanup_after_resharding(
+/// Loop action testing state cleanup.
+/// It assumes single shard tracking and it waits for `num_epochs_to_wait`.
+/// Then it checks whether the last shard tracked by the client
+/// is the only ShardUId prefix for nodes in the State column.
+///
+/// Pass `expect_shard_uid_is_mapped` as true if it is expected at the end of the test
+/// that the last tracked shard will use an ancestor ShardUId as a db key prefix.
+pub(crate) fn check_state_cleanup(
     tracked_shard_schedule: TrackedShardSchedule,
+    num_epochs_to_wait: u64,
+    expect_shard_uid_is_mapped: bool,
 ) -> LoopAction {
     let client_index = tracked_shard_schedule.client_index;
     let latest_height = Cell::new(0);
-    let target_height = Cell::new(None);
 
     let (done, succeeded) = LoopAction::shared_success_flag();
     let action_fn = Box::new(
@@ -677,22 +837,11 @@ pub(crate) fn check_state_cleanup_after_resharding(
             }
             latest_height.set(tip.height);
 
-            if target_height.get().is_none() {
-                if !this_block_has_new_shard_layout(client.epoch_manager.as_ref(), &tip) {
-                    return;
-                }
-                // Just resharded. Set the target height high enough so that gc will kick in.
-                let epoch_length = client.config.epoch_length;
-                let gc_num_epochs_to_keep = client.config.gc.gc_num_epochs_to_keep;
-                target_height
-                    .set(Some(latest_height.get() + (gc_num_epochs_to_keep + 1) * epoch_length));
-            }
-
-            if latest_height.get() < target_height.get().unwrap() {
+            if epoch_height < num_epochs_to_wait {
                 return;
             }
             // At this point, we should only have State from the last tracked shard.
-            check_has_the_only_shard_state(&client, tracked_shard_uid);
+            check_has_the_only_shard_state(&client, tracked_shard_uid, expect_shard_uid_is_mapped);
             done.set(true);
         },
     );

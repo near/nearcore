@@ -3,10 +3,13 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+* Add cross-shard bandwidth scheduler which manages transferring receipts between shards,
+  enabling higher throughput of cross-shard receipts and better horizontal scalability.
+  NEP-584 (https://github.com/near/NEPs/pull/584)
 
 ### Non-protocol Changes
-**No Changes**
+* Parallelize transaction validation (including signature checks) before `verify_and_charge_transaction`,
+  significantly improving throughput for transaction processing on the nodes. [#12654](https://github.com/near/nearcore/pull/12654)
 
 ## 2.4.0
 

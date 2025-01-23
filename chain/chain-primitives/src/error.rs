@@ -1,5 +1,5 @@
 use near_primitives::block::BlockValidityError;
-use near_primitives::challenge::{ChunkProofs, ChunkState};
+use near_primitives::challenge::{ChunkProofs, ChunkState, MaybeEncodedShardChunk};
 use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
@@ -125,6 +125,9 @@ pub enum Error {
     /// Invalid chunk.
     #[error("Invalid Chunk")]
     InvalidChunk(String),
+    /// One of the chunks has invalid transactions order
+    #[error("Invalid Chunk Transactions Order")]
+    InvalidChunkTransactionsOrder(Box<MaybeEncodedShardChunk>),
     /// One of the chunks has invalid proofs
     #[error("Invalid Chunk Proofs")]
     InvalidChunkProofs(Box<ChunkProofs>),
@@ -292,6 +295,7 @@ impl Error {
             | Error::InvalidBlockHeight(_)
             | Error::InvalidBlockProposer
             | Error::InvalidChunk(_)
+            | Error::InvalidChunkTransactionsOrder(_)
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
             | Error::InvalidChunkStateWitness(_)
@@ -374,6 +378,7 @@ impl Error {
             Error::InvalidBlockHeight(_) => "invalid_block_height",
             Error::InvalidBlockProposer => "invalid_block_proposer",
             Error::InvalidChunk(_) => "invalid_chunk",
+            Error::InvalidChunkTransactionsOrder(_) => "invalid_chunk_transactions_order",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
