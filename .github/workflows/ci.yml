@@ -270,6 +270,12 @@ jobs:
           tool: just
       - run: just doctests
 
+  spellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: streetsidesoftware/cspell-action@v6
+
   check_cargo_deny:
     name: "Cargo Deny"
     runs-on: ubuntu-latest
