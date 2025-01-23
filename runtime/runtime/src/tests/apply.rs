@@ -2363,14 +2363,7 @@ fn test_empty_apply() {
     let mut store_update = tries.store_update();
     let root_after =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-        assert!(
-            root_before != root_after,
-            "state root not changed - did the bandwidth scheduler run?"
-        );
-    } else {
-        assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
-    }
+    assert!(root_before != root_after, "state root not changed - did the bandwidth scheduler run?");
 }
 
 /// Test that delayed receipts are accounted for in the congestion info of

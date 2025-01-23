@@ -1423,13 +1423,8 @@ fn test_archival_save_trie_changes() {
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
 
             if let Some(trie_changes) = trie_changes {
-                // We don't do any transactions in this test so the root should remain unchanged.
-                if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
-                    // After BandwidthScheduler there's a state change at every height, even when there are no transactions
-                    assert!(trie_changes.old_root != trie_changes.new_root);
-                } else {
-                    assert_eq!(trie_changes.old_root, trie_changes.new_root);
-                }
+                // After BandwidthScheduler there's a state change at every height, even when there are no transactions
+                assert!(trie_changes.old_root != trie_changes.new_root);
             }
         }
     }
