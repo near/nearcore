@@ -9,11 +9,14 @@ use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-use near_primitives::action::{DeployGlobalContractAction, UseGlobalContractAction};
+use near_primitives::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
+};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
 };
@@ -661,9 +664,19 @@ pub(crate) fn action_deploy_global_contract(
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
 
+    let id = match deploy_contract.deploy_mode {
+        GlobalContractDeployMode::CodeHash => {
+            GlobalContractIdentifier::CodeHash(hash(&deploy_contract.code))
+        }
+        GlobalContractDeployMode::AccountId => {
+            GlobalContractIdentifier::AccountId(account_id.clone())
+        }
+    };
+
     result.new_receipts.push(Receipt::new_global_contract_distribution(
         account_id.clone(),
         deploy_contract.code.clone(),
+        id,
     ));
     Ok(())
 }

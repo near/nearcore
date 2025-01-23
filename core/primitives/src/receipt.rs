@@ -1,3 +1,4 @@
+use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -576,12 +577,16 @@ impl Receipt {
         }
     }
 
-    pub fn new_global_contract_distribution(predecessor_id: AccountId, code: Vec<u8>) -> Self {
+    pub fn new_global_contract_distribution(
+        predecessor_id: AccountId,
+        code: Vec<u8>,
+        id: GlobalContractIdentifier,
+    ) -> Self {
         Self::V0(ReceiptV0 {
             predecessor_id,
             receiver_id: "system".parse().unwrap(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData { code }),
+            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData { code, id }),
         })
     }
 }
@@ -699,6 +704,7 @@ impl fmt::Debug for ReceivedData {
 pub struct GlobalContractData {
     #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
+    pub id: GlobalContractIdentifier,
 }
 
 impl fmt::Debug for GlobalContractData {

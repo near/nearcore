@@ -166,6 +166,7 @@ impl fmt::Debug for DeployGlobalContractAction {
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    Hash,
     PartialEq,
     Eq,
     Clone,
