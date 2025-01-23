@@ -10,6 +10,10 @@ def _is_dumper(node):
     return node.name().endswith('dumper')
 
 
+def _is_archival(node):
+    return '-archival-' in node.name()
+
+
 REMOTE_CONFIG = [
     {
         'node_matches': _is_dumper,
@@ -22,6 +26,12 @@ REMOTE_CONFIG = [
         'can_validate': False,
         'want_state_dump': False,
         'want_neard_runner': False,
+    },
+    {
+        'node_matches': _is_archival,
+        'can_validate': False,
+        'want_state_dump': False,
+        'want_neard_runner': True,
     },
 ]
 
