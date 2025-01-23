@@ -73,6 +73,8 @@ pub fn derive_new_epoch_config_from_boundary(
     epoch_config
 }
 
+/// Two protocol upgrades would happen as soon as possible,
+/// usually in two consecutive epochs, unless upgrade voting decides differently.
 pub fn two_upgrades_voting_schedule(
     target_protocol_version: ProtocolVersion,
 ) -> ProtocolUpgradeVotingSchedule {

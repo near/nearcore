@@ -5,7 +5,7 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{shard_uids_to_ids, ShardLayout};
 use near_primitives::types::{AccountId, BlockHeightDelta, ShardId, ShardIndex};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use std::cell::Cell;
@@ -29,8 +29,7 @@ use crate::test_loop::utils::setups::{
     derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule,
 };
 use crate::test_loop::utils::sharding::{
-    get_shards_needs_for_next_epoch, get_tracked_shards, print_and_assert_shard_accounts,
-    shard_uids_to_ids,
+    get_shards_will_care_about, get_tracked_shards, print_and_assert_shard_accounts,
 };
 use crate::test_loop::utils::transactions::{
     check_txs, create_account, deploy_contract, get_smallest_height_head,
@@ -539,14 +538,14 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             tip.epoch_id.0,
         );
         for (client_index, client) in clients.iter().enumerate() {
-            let tracked_shards =
-                shard_uids_to_ids(&get_tracked_shards(client, &tip.last_block_hash));
+            let tracked_shards = get_tracked_shards(client, &tip.last_block_hash);
+            let tracked_shards = shard_uids_to_ids(&tracked_shards);
             // That's not accurate in case of tracked shard schedule: it won't return parent shard before resharding boundary, if we track child after resharding.
-            let shards_needs_for_next_epoch =
-                shard_uids_to_ids(&get_shards_needs_for_next_epoch(client, &tip.last_block_hash));
+            let shards_will_care_about = &get_shards_will_care_about(client, &tip.last_block_hash);
+            let shards_will_care_about = shard_uids_to_ids(shards_will_care_about);
             let signer = client.validator_signer.get().unwrap();
             let account_id = signer.validator_id().as_str();
-            println!("client_{client_index}: id={account_id:?} tracks={tracked_shards:?}\tneeds_for_next_epoch={shards_needs_for_next_epoch:?}");
+            println!("client_{client_index}: id={account_id:?} tracks={tracked_shards:?}\twill_care_about={shards_will_care_about:?}");
         }
 
         // Check that all chunks are included.

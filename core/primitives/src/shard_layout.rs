@@ -94,6 +94,10 @@ type ShardsSplitMapV2 = BTreeMap<ShardId, Vec<ShardId>>;
 /// A mapping from the child shard to the parent shard.
 type ShardsParentMapV2 = BTreeMap<ShardId, ShardId>;
 
+pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
+    shard_uids.iter().map(|shard_uid| shard_uid.shard_id()).collect_vec()
+}
+
 fn new_shard_ids_vec(shard_ids: Vec<u64>) -> Vec<ShardId> {
     shard_ids.into_iter().map(Into::into).collect()
 }
