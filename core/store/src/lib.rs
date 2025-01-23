@@ -847,15 +847,13 @@ pub fn get_account_with_cache(
             tracing::info!("cache hit for get_account");
             return Ok(Some(account));
         }
+        Some(_) => panic!("unexpected HackyCacheValue variant"),
         None => {}
     };
 
     let trie_value = get_account(trie, account_id)?;
     if let Some(account) = trie_value.clone() {
-        cache.set(
-            HackyCacheKey::AccountId(account_id.clone()),
-            HackyCacheValue::Account(account.clone()),
-        );
+        cache.set(HackyCacheKey::AccountId(account_id.clone()), HackyCacheValue::Account(account));
     }
     return Ok(trie_value);
 }
@@ -1031,6 +1029,24 @@ pub fn set_access_key(
     set(state_update, TrieKey::AccessKey { account_id, public_key }, access_key);
 }
 
+pub fn set_access_key_with_cache(
+    state_update: &mut TrieUpdate,
+    cache: &mut HackyCache,
+    account_id: AccountId,
+    public_key: PublicKey,
+    access_key: &AccessKey,
+) {
+    set(
+        state_update,
+        TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
+        access_key,
+    );
+    cache.set(
+        HackyCacheKey::AccessKey(account_id, public_key),
+        HackyCacheValue::AccessKey(access_key.clone()),
+    );
+}
+
 pub fn remove_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
@@ -1048,6 +1064,32 @@ pub fn get_access_key(
         trie,
         &TrieKey::AccessKey { account_id: account_id.clone(), public_key: public_key.clone() },
     )
+}
+
+/// Inserts into cache if the access key exists but it is not yet in the cache.
+pub fn get_access_key_with_cache(
+    trie: &dyn TrieAccess,
+    cache: &mut HackyCache,
+    account_id: &AccountId,
+    public_key: &PublicKey,
+) -> Result<Option<AccessKey>, StorageError> {
+    match cache.get(&HackyCacheKey::AccessKey(account_id.clone(), public_key.clone())) {
+        Some(HackyCacheValue::AccessKey(access_key)) => {
+            tracing::info!("cache hit for get_access_key");
+            return Ok(Some(access_key));
+        }
+        Some(_) => panic!("unexpected HackyCacheValue variant"),
+        None => {}
+    };
+
+    let trie_value = get_access_key(trie, account_id, public_key)?;
+    if let Some(access_key) = trie_value.clone() {
+        cache.set(
+            HackyCacheKey::AccessKey(account_id.clone(), public_key.clone()),
+            HackyCacheValue::AccessKey(access_key),
+        );
+    }
+    return Ok(trie_value);
 }
 
 pub fn get_access_key_raw(

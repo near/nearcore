@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use near_primitives_core::{account::Account, types::AccountId};
+use near_crypto::PublicKey;
+use near_primitives_core::{
+    account::{AccessKey, Account},
+    types::AccountId,
+};
 
 #[derive(Default)]
 pub struct HackyCache {
@@ -19,10 +23,12 @@ impl HackyCache {
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub enum HackyCacheKey {
+    AccessKey(AccountId, PublicKey),
     AccountId(AccountId),
 }
 
 #[derive(Clone)]
 pub enum HackyCacheValue {
+    AccessKey(AccessKey),
     Account(Account),
 }
