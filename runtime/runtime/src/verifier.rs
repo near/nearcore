@@ -21,8 +21,8 @@ use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    get_access_key, get_account, get_account_with_cache, set_access_key, set_account,
-    set_account_with_cache, StorageError, TrieUpdate,
+    get_access_key, get_access_key_with_cache, get_account, get_account_with_cache, set_access_key,
+    set_access_key_with_cache, set_account, set_account_with_cache, StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -168,7 +168,13 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    let mut access_key = match get_access_key(state_update, signer_id, transaction.public_key())? {
+    let access_key = match hacky_cache {
+        Some(cache) => {
+            get_access_key_with_cache(state_update, cache, signer_id, transaction.public_key())?
+        }
+        None => get_access_key(state_update, signer_id, transaction.public_key())?,
+    };
+    let mut access_key = match access_key {
         Some(access_key) => access_key,
         None => {
             return Err(InvalidTxError::InvalidAccessKeyError(
@@ -285,10 +291,26 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, signer_id.clone(), transaction.public_key().clone(), &access_key);
     match hacky_cache {
-        Some(cache) => set_account_with_cache(state_update, cache, signer_id.clone(), &signer),
-        None => set_account(state_update, signer_id.clone(), &signer),
+        Some(cache) => {
+            set_account_with_cache(state_update, cache, signer_id.clone(), &signer);
+            set_access_key_with_cache(
+                state_update,
+                cache,
+                signer_id.clone(),
+                transaction.public_key().clone(),
+                &access_key,
+            );
+        }
+        None => {
+            set_account(state_update, signer_id.clone(), &signer);
+            set_access_key(
+                state_update,
+                signer_id.clone(),
+                transaction.public_key().clone(),
+                &access_key,
+            );
+        }
     }
 
     Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
