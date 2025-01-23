@@ -3198,11 +3198,8 @@ impl Chain {
     ) -> Result<Vec<bool>, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let relaxed_chunk_validation = checked_feature!(
-            "protocol_feature_relaxed_chunk_validation",
-            RelaxedChunkValidation,
-            protocol_version
-        );
+        let relaxed_chunk_validation =
+            checked_feature!("stable", RelaxedChunkValidation, protocol_version);
 
         if !relaxed_chunk_validation {
             if !validate_transactions_order(chunk.transactions()) {
