@@ -844,7 +844,6 @@ pub fn get_account_with_cache(
 ) -> Result<Option<Account>, StorageError> {
     match cache.get(&HackyCacheKey::AccountId(account_id.clone())) {
         Some(HackyCacheValue::Account(account)) => {
-            tracing::info!("cache hit for get_account");
             return Ok(Some(account));
         }
         Some(_) => panic!("unexpected HackyCacheValue variant"),
@@ -1075,7 +1074,6 @@ pub fn get_access_key_with_cache(
 ) -> Result<Option<AccessKey>, StorageError> {
     match cache.get(&HackyCacheKey::AccessKey(account_id.clone(), public_key.clone())) {
         Some(HackyCacheValue::AccessKey(access_key)) => {
-            tracing::info!("cache hit for get_access_key");
             return Ok(Some(access_key));
         }
         Some(_) => panic!("unexpected HackyCacheValue variant"),
