@@ -1,6 +1,6 @@
 use crate::account::{AccessKey, Account};
 use crate::hash::{hash, CryptoHash};
-use crate::receipt::{Receipt, ReceivedData};
+use crate::receipt::{Receipt, ReceiptOrStateStoredReceipt, ReceivedData};
 use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
@@ -100,7 +100,7 @@ impl StateRecord {
                 None
             }
             col::DELAYED_RECEIPT_OR_INDICES => {
-                let receipt = Receipt::try_from_slice(&value)?;
+                let receipt = ReceiptOrStateStoredReceipt::try_from_slice(&value)?.into_receipt();
                 Some(StateRecord::DelayedReceipt(Box::new(receipt)))
             }
             _ => {
