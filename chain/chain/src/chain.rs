@@ -13,7 +13,7 @@ use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
-use crate::sharding::shuffle_receipt_proofs;
+use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_with_epoch_manager,
@@ -2348,17 +2348,12 @@ impl Chain {
 
         self.ping_missing_chunks(me, prev_hash, block)?;
 
-        let shuffle_receipts_salt =
-            if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
-                &prev_hash
-            } else {
-                block.hash()
-            };
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_chunks(
             me,
             &block.chunks(),
             &prev_hash,
-            shuffle_receipts_salt,
+            receipts_shuffle_salt,
         )?;
 
         // Check if block can be finalized and drop it otherwise.
@@ -3181,19 +3176,13 @@ impl Chain {
             let prev_block = self.chain_store.get_block(block.header().prev_hash())?.clone();
             let prev_hash = *prev_block.hash();
 
-            let protocol_version =
-                self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-            let shuffle_receipts_salt =
-                if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
-                    &prev_hash
-                } else {
-                    block.hash()
-                };
+            let receipts_shuffle_salt =
+                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
             let receipts_by_shard = self.collect_incoming_receipts_from_chunks(
                 me,
                 &block.chunks(),
                 &prev_hash,
-                shuffle_receipts_salt,
+                receipts_shuffle_salt,
             )?;
 
             let work = self.apply_chunks_preprocessing(

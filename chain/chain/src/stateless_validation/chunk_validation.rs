@@ -5,7 +5,7 @@ use crate::chain::{
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
 use crate::resharding::manager::ReshardingManager;
-use crate::sharding::shuffle_receipt_proofs;
+use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{
@@ -34,7 +34,6 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
-use near_primitives::version::ProtocolFeature;
 use near_store::flat::BlockInfo;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::{PartialStorage, Trie};
@@ -550,14 +549,8 @@ fn validate_source_receipt_proofs(
         );
 
         // Arrange the receipts in the order in which they should be applied.
-        let protocol_version =
-            epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-        let shuffle_salt = if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
-            block.header().prev_hash()
-        } else {
-            block.hash()
-        };
-        shuffle_receipt_proofs(&mut block_receipt_proofs, &shuffle_salt);
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, block)?;
+        shuffle_receipt_proofs(&mut block_receipt_proofs, receipts_shuffle_salt);
         for proof in block_receipt_proofs {
             receipts_to_apply.extend(proof.0.iter().cloned());
         }
