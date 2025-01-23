@@ -843,6 +843,7 @@ fn data_receipt_creation_base(ctx: &mut EstimatorContext) -> GasCost {
     total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / 1000
 }
 
+/// Number of receipts might be too small here, see https://github.com/near/nearcore/issues/12781
 fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // NB: there isn't `ExtCosts` for data receipt creation, so we ignore (`_`) the counts.
     // The function returns a chain of two promises.
