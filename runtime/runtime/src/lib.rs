@@ -977,17 +977,18 @@ impl Runtime {
             unreachable!("given receipt should be an global contract distribution receipt")
         };
 
-        let key = match &global_contract_data.id {
-            GlobalContractIdentifier::CodeHash(hash) => {
-                GlobalContractCodeIdentifier::CodeHash(*hash)
-            }
-            GlobalContractIdentifier::AccountId(account_id) => {
-                GlobalContractCodeIdentifier::AccountId(account_id.clone())
-            }
+        let trie_key = TrieKey::GlobalContractCode {
+            identifier: match &global_contract_data.id {
+                GlobalContractIdentifier::CodeHash(hash) => {
+                    GlobalContractCodeIdentifier::CodeHash(*hash)
+                }
+                GlobalContractIdentifier::AccountId(account_id) => {
+                    GlobalContractCodeIdentifier::AccountId(account_id.clone())
+                }
+            },
         };
-        let key = TrieKey::GlobalContractCode { identifier: key };
 
-        state_update.set(key, global_contract_data.code.clone());
+        state_update.set(trie_key, global_contract_data.code.clone());
         state_update
             .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
     }
