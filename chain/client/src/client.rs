@@ -202,8 +202,8 @@ pub struct Client {
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
     /// Upgrade schedule which determines when the client starts voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
-    /// Produced optimistic blocks.
-    optimistic_blocks_cache: lru::LruCache<BlockHeight, OptimisticBlock>,
+    /// Produced optimistic block.
+    last_optimistic_block_produced: Option<OptimisticBlock>,
 }
 
 impl AsRef<Client> for Client {
@@ -405,9 +405,7 @@ impl Client {
             partial_witness_adapter,
             chunk_distribution_network,
             upgrade_schedule,
-            optimistic_blocks_cache: lru::LruCache::new(
-                NonZeroUsize::new(PRODUCED_OPTIMISTIC_BLOCK_POOL).unwrap(),
-            ),
+            last_optimistic_block_produced: None,
         })
     }
 
@@ -604,22 +602,23 @@ impl Client {
     }
 
     pub fn is_optimistic_block_done(&self, next_height: BlockHeight) -> bool {
-        self.optimistic_blocks_cache.contains(&next_height)
+        self.last_optimistic_block_produced
+            .as_ref()
+            .filter(|ob| ob.inner.block_height == next_height)
+            .is_some()
     }
 
     pub fn save_optimistic_block(&mut self, optimistic_block: &OptimisticBlock) {
-        if let Some((height, block)) = self
-            .optimistic_blocks_cache
-            .push(optimistic_block.inner.block_height, optimistic_block.clone())
-        {
-            if height == optimistic_block.inner.block_height {
+        if let Some(old_block) = self.last_optimistic_block_produced.as_ref() {
+            if old_block.inner.block_height == optimistic_block.inner.block_height {
                 warn!(target: "client",
-                    height=height,
-                    old_previous_hash=?block.inner.prev_block_hash,
+                    height=old_block.inner.block_height,
+                    old_previous_hash=?old_block.inner.prev_block_hash,
                     new_previous_hash=?optimistic_block.inner.prev_block_hash,
                     "Optimistic block already exists, replacing");
             }
         }
+        self.last_optimistic_block_produced = Some(optimistic_block.clone());
     }
 
     /// Produce optimistic block for given `height` on top of chain head.
@@ -723,8 +722,8 @@ impl Client {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
         let optimistic_block = self
-            .optimistic_blocks_cache
-            .get(&height)
+            .last_optimistic_block_produced
+            .as_ref()
             .filter(|ob| {
                 // Make sure that the optimistic block is produced on the same previous block.
                 if ob.inner.prev_block_hash == prev_hash {
