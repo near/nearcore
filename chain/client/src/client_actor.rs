@@ -1161,7 +1161,7 @@ impl ClientActorInner {
             return Ok(());
         }
         let optimistic_block_height = self.client.doomslug.get_timer_height();
-        if self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? != me {
+        if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
             return Ok(());
         }
         if let Err(err) = self.produce_optimistic_block(optimistic_block_height) {
