@@ -492,8 +492,15 @@ impl ReplayController {
         }
 
         let mut store_update = self.chain_store.store_update();
+        let protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+        let shuffle_salt = if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
+            block.header().prev_hash()
+        } else {
+            block.hash()
+        };
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id.into_iter() {
-            shuffle_receipt_proofs(&mut receipts, block_hash);
+            shuffle_receipt_proofs(&mut receipts, shuffle_salt);
             store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
         }
         store_update.commit().unwrap();
