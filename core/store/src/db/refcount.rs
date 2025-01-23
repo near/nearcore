@@ -18,7 +18,6 @@
 //! values by adding the reference counts.  When the reference count reaches
 //! zero RocksDB removes the key from the database.
 
-use std::cmp::Ordering;
 use std::io;
 
 use rocksdb::compaction_filter::Decision;
@@ -126,10 +125,10 @@ pub(crate) fn refcount_merge<'a>(
         rc += delta;
     }
 
-    match rc.cmp(&0) {
-        Ordering::Less => rc.to_le_bytes().to_vec(),
-        Ordering::Equal => Vec::new(),
-        Ordering::Greater => [payload.unwrap_or(b""), &rc.to_le_bytes()].concat(),
+    if rc <= 0 {
+        Vec::new()
+    } else {
+        [payload.unwrap_or(b""), &rc.to_le_bytes()].concat()
     }
 }
 
