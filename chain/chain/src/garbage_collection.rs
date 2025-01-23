@@ -1016,6 +1016,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::StateSyncNewChunks => {
                 store_update.delete(col, key);
             }
+            DBCol::ChunkApplyStats => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount
