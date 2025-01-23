@@ -848,10 +848,10 @@ fn data_receipt_creation_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // The function returns a chain of two promises.
     let block_latency = 2;
     let (total_cost, _) =
-        fn_cost_count(ctx, "data_receipt_100kib_1000", ExtCosts::base, block_latency);
+        fn_cost_count(ctx, "data_receipt_100kib_40", ExtCosts::base, block_latency);
     // The function returns a chain of two promises.
     let block_latency = 2;
-    let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_1000", ExtCosts::base, block_latency);
+    let (base_cost, _) = fn_cost_count(ctx, "data_receipt_10b_40", ExtCosts::base, block_latency);
 
     let bytes_per_transaction = 1000 * 100 * 1024;
 
