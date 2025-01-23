@@ -57,7 +57,7 @@ pub enum LinkError {
     #[error("Error while importing {0:?}.{1:?}: {2}")]
     Import(String, String, Box<ImportError>),
 
-    /// A trap ocurred during linking.
+    /// A trap occurred during linking.
     #[error("RuntimeError occurred during linking: {0}")]
     Trap(#[source] RuntimeError),
 
@@ -75,7 +75,7 @@ pub enum LinkError {
 /// start function.
 #[derive(Error, Debug)]
 pub enum InstantiationError {
-    /// A linking ocurred during instantiation.
+    /// A linking occurred during instantiation.
     #[error(transparent)]
     Link(LinkError),
 
