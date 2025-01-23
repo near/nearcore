@@ -4484,6 +4484,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "clap",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
