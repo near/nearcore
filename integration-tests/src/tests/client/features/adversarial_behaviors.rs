@@ -1,28 +1,21 @@
-use std::collections::HashSet;
-
-use near_async::{
-    messaging::CanSend,
-    time::{FakeClock, Utc},
-};
+use near_async::messaging::CanSend;
+use near_async::time::{FakeClock, Utc};
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_chunks::{
-    shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
-    test_utils::ShardsManagerResendChunkRequests,
-};
+use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
+use near_chunks::test_utils::ShardsManagerResendChunkRequests;
 use near_client::test_utils::TestEnv;
-use near_network::{
-    shards_manager::ShardsManagerRequestFromNetwork,
-    types::{NetworkRequests, PeerManagerMessageRequest},
-};
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::{
-    shard_layout::ShardLayout,
-    types::{AccountId, EpochId, ShardId},
-};
-use near_primitives::{stateless_validation::ChunkProductionKey, utils::from_timestamp};
-use near_primitives_core::{checked_feature, version::PROTOCOL_VERSION};
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::utils::from_timestamp;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use std::collections::HashSet;
 use tracing::log::debug;
 
 struct AdversarialBehaviorTestData {
@@ -258,6 +251,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                     })
                     .unwrap()
                     .take_account_id();
+
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {
@@ -379,10 +373,14 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
 
 #[test]
 #[cfg(feature = "test_features")]
-#[cfg_attr(feature = "protocol_feature_relaxed_chunk_validation", ignore)]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
-    init_test_logger();
-    let mut test = AdversarialBehaviorTestData::new();
-    test.env.clients[7].produce_invalid_tx_in_chunks = true;
-    test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
+    let relaxed_chunk_validation =
+        checked_feature!("stable", RelaxedChunkValidation, PROTOCOL_VERSION);
+    if !relaxed_chunk_validation {
+        init_test_logger();
+        let mut test = AdversarialBehaviorTestData::new();
+        test.env.clients[7].produce_invalid_tx_in_chunks = true;
+        test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
+    }
+    // Otherwise the chunks aren't considered invalid and there will be no banning.
 }

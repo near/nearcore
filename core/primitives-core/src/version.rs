@@ -189,7 +189,6 @@ pub enum ProtocolFeature {
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
-    #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
     RelaxedChunkValidation,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
@@ -259,6 +258,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold
+            | ProtocolFeature::RelaxedChunkValidation
             // BandwidthScheduler must be enabled before ReshardingV3! When
             // releasing this feature please make sure to schedule separate
             // protocol upgrades for those features!
@@ -282,8 +282,6 @@ impl ProtocolFeature {
             // protocol upgrades for those features!
             ProtocolFeature::CurrentEpochStateSync => 144,
             ProtocolFeature::SimpleNightshadeV4 => 146,
-            #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
-            ProtocolFeature::RelaxedChunkValidation => 147,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
             ProtocolFeature::BlockHeightForReceiptId => 149,
             // Place features that are not yet in Nightly below this line.

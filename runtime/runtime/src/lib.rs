@@ -1611,11 +1611,7 @@ impl Runtime {
         protocol_version: ProtocolVersion,
         reason: &str,
     ) -> Result<(), RuntimeError> {
-        if checked_feature!(
-            "protocol_feature_relaxed_chunk_validation",
-            RelaxedChunkValidation,
-            protocol_version
-        ) {
+        if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
             tracing::debug!(
                 target: "runtime",
                 "invalid transaction ignored ({}) => tx_hash: {}, error: {:?}",

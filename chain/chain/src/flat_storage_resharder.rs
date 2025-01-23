@@ -1113,20 +1113,25 @@ fn copy_kv_to_child(
     // Derive the shard uid for this account in the new shard layout.
     let account_id = account_id_parser(&key)?;
     let new_shard_id = shard_layout.account_id_to_shard_id(&account_id);
-    let new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
+    let mut new_shard_uid = ShardUId::from_shard_id_and_layout(new_shard_id, &shard_layout);
 
     // Sanity check we are truly writing to one of the expected children shards.
     if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
-        let err_msg = "account id doesn't map to any child shard! - skipping it";
-        warn!(target: "resharding", ?new_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
+        // TODO(resharding): replace the code below with an assertion once the root cause is fixed.
+        // The problem is that forknet state contains implicit accounts out of shard boundaries.
+        let left_child_shard_boundary_account = &shard_layout.boundary_accounts()[shard_layout
+            .get_shard_index(left_child_shard.shard_id())
+            .expect("left child shard must exist!")];
+        let closer_shard_uid = if account_id < *left_child_shard_boundary_account {
+            left_child_shard
+        } else {
+            right_child_shard
+        };
 
-        // TODO(resharding): add a debug assertion once the root cause is fixed. The current
-        // hypothesis is that flat storage might contain keys with account_id outside of the shard's
-        // boundary due to either a bug in the state generation for forknet or corrupted state in
-        // mainnet.
+        let err_msg = "account id doesn't map to any child shard! - copying to the closer child";
+        warn!(target: "resharding", ?new_shard_uid, ?closer_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
 
-        // Do not fail resharding. Just skip this entry.
-        return Ok(());
+        new_shard_uid = *closer_shard_uid;
     }
     // Add the new flat store entry.
     store_update.set(new_shard_uid, key, value);
@@ -1444,17 +1449,25 @@ mod tests {
 
     /// Derived from [simple_shard_layout] by splitting the second shard.
     fn shard_layout_after_split() -> ShardLayout {
+        ShardLayout::derive_shard_layout(&simple_shard_layout(), "pp".parse().unwrap())
+    }
+
+    /// Shard layout with three shards.
+    fn shards_layout_three_shards() -> ShardLayout {
         let s0 = ShardId::new(0);
         let s1 = ShardId::new(1);
         let s2 = ShardId::new(2);
-        let s3 = ShardId::new(3);
-
-        let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s2, s3])]);
+        let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s1]), (s2, vec![s2])]);
         ShardLayout::v2(
             vec![account!("ff"), account!("pp")],
-            vec![s0, s2, s3],
+            vec![s0, s1, s2],
             Some(shards_split_map),
         )
+    }
+
+    /// Derived from [shards_layout_three_shards] by splitting the second shard.
+    fn shards_layout_three_shards_after_split() -> ShardLayout {
+        ShardLayout::derive_shard_layout(&simple_shard_layout(), "yy".parse().unwrap())
     }
 
     /// Generic test setup. It creates an instance of chain, a FlatStorageResharder and a sender.
@@ -2766,8 +2779,8 @@ mod tests {
     fn unrelated_account_do_not_fail_splitting() {
         init_test_logger();
         let (mut chain, resharder, sender) =
-            create_chain_resharder_sender::<DelayedSender>(simple_shard_layout());
-        let new_shard_layout = shard_layout_after_split();
+            create_chain_resharder_sender::<DelayedSender>(shards_layout_three_shards());
+        let new_shard_layout = shards_layout_three_shards_after_split();
         let resharding_event_type = event_type_from_chain_and_layout(&chain, &new_shard_layout);
         let ReshardingSplitShardParams {
             parent_shard, left_child_shard, right_child_shard, ..
@@ -2787,8 +2800,10 @@ mod tests {
         // Inject an account which doesn't belong to the parent shard into its flat storage.
         let mut store_update = flat_store.store_update();
         let test_value = Some(FlatStateValue::Inlined(vec![0]));
-        let key = TrieKey::Account { account_id: account!("ab") };
-        store_update.set(parent_shard, key.to_vec(), test_value);
+        let key_before_left_child = TrieKey::Account { account_id: account!("ab") };
+        let key_after_right_child = TrieKey::Account { account_id: account!("zz") };
+        store_update.set(parent_shard, key_before_left_child.to_vec(), test_value.clone());
+        store_update.set(parent_shard, key_after_right_child.to_vec(), test_value);
         store_update.commit().unwrap();
 
         // Perform resharding.
@@ -2814,9 +2829,14 @@ mod tests {
                     chain.final_head().unwrap().into()
                 )))
             );
-            // However, the unrelated account should not end up in any child.
-            assert!(flat_store.get(child, &key.to_vec()).is_ok_and(|val| val.is_none()));
         }
+        // The unrelated accounts should end up in the 'closer' child.
+        assert!(flat_store
+            .get(left_child_shard, &key_before_left_child.to_vec())
+            .is_ok_and(|val| val.is_some()));
+        assert!(flat_store
+            .get(right_child_shard, &key_after_right_child.to_vec())
+            .is_ok_and(|val| val.is_some()));
     }
 
     /// Test to validate that split shard resharding works if the chain undergoes a fork across the
