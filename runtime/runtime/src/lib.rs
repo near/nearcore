@@ -962,9 +962,19 @@ impl Runtime {
 
     fn apply_global_contract_distribution_receipt(
         &self,
-        _receipt: &Receipt,
+        receipt: &Receipt,
         _state_update: &mut TrieUpdate,
     ) {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_global_contract_distribution_receipt",
+        )
+        .entered();
+
+        let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt()
+        else {
+            unreachable!("given receipt should be an global contract distribution receipt")
+        };
         todo!("TrieKey not done")
     }
 
