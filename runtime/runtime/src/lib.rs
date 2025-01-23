@@ -347,10 +347,11 @@ impl Runtime {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
+        let mut hacky_cache = self.hacky_cache.write().unwrap();
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
-            &mut None,
+            &mut Some(&mut hacky_cache),
             signed_transaction,
             transaction_cost,
             Some(apply_state.block_height),
