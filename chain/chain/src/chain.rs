@@ -2437,7 +2437,7 @@ impl Chain {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let mut shards_to_sync = Vec::new();
         for shard_id in epoch_manager.shard_ids(&epoch_id)? {
-            if Self::should_catch_up_shard(shard_tracker, me, &epoch_id, parent_hash, shard_id)? {
+            if Self::should_catch_up_shard(shard_tracker, me, parent_hash, shard_id)? {
                 shards_to_sync.push(shard_id)
             }
         }
@@ -2455,29 +2455,23 @@ impl Chain {
     fn should_catch_up_shard(
         shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
-        epoch_id: &EpochId,
-        prev_epoch_last_block: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         // Won't care about it next epoch, no need to state sync it.
-        if !shard_tracker.will_care_about_shard(me.as_ref(), prev_epoch_last_block, shard_id, true)
-        {
+        if !shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true) {
             return Ok(false);
         }
         // Currently tracking the shard, so no need to state sync it.
-        if shard_tracker.care_about_shard(me.as_ref(), prev_epoch_last_block, shard_id, true) {
+        if shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true) {
             return Ok(false);
         }
 
         // Now we need to state sync it unless we were tracking the parent in the previous epoch,
         // in which case we don't need to because we already have the state, and can just continue applying chunks
 
-        let tracked_before = shard_tracker.cared_about_shard_in_prev_epoch(
-            me.as_ref(),
-            prev_epoch_last_block,
-            shard_id,
-            true,
-        );
+        let tracked_before =
+            shard_tracker.cared_about_shard_in_prev_epoch(me.as_ref(), prev_hash, shard_id, true);
         Ok(!tracked_before)
     }
 
@@ -3721,10 +3715,17 @@ impl Chain {
             self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+        let cared_about_shard_prev_epoch = self.shard_tracker.cared_about_shard_in_prev_epoch(
+            me.as_ref(),
+            prev_hash,
+            shard_id,
+            true,
+        );
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
             cares_about_shard_next_epoch,
+            cared_about_shard_prev_epoch,
         );
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         Ok(ShardContext { shard_uid, should_apply_chunk })
@@ -4099,16 +4100,24 @@ fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
     cares_about_shard_next_epoch: bool,
+    cared_about_shard_prev_epoch: bool,
 ) -> bool {
     match mode {
-        // next epoch's shard states are not ready, only update this epoch's shards
-        ApplyChunksMode::NotCaughtUp => cares_about_shard_this_epoch,
+        // next epoch's shard states are not ready, only update this epoch's shards plus shards we will care about in the future
+        // and already have state for
+        ApplyChunksMode::NotCaughtUp => {
+            cares_about_shard_this_epoch
+                || (cares_about_shard_next_epoch && cared_about_shard_prev_epoch)
+        }
         // update both this epoch and next epoch
         ApplyChunksMode::IsCaughtUp => cares_about_shard_this_epoch || cares_about_shard_next_epoch,
         // catching up next epoch's shard states, do not update this epoch's shard state
         // since it has already been updated through ApplyChunksMode::NotCaughtUp
         ApplyChunksMode::CatchingUp => {
-            !cares_about_shard_this_epoch && cares_about_shard_next_epoch
+            let syncing_shard = !cares_about_shard_this_epoch
+                && cares_about_shard_next_epoch
+                && !cared_about_shard_prev_epoch;
+            syncing_shard
         }
     }
 }
