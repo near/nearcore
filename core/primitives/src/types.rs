@@ -368,6 +368,8 @@ impl StateChanges {
                 TrieKey::BandwidthSchedulerState => {}
                 TrieKey::BufferedReceiptGroupsQueueData { .. } => {}
                 TrieKey::BufferedReceiptGroupsQueueItem { .. } => {}
+                // Global contract code is not a part of account, so ignoring it as well.
+                TrieKey::GlobalContractCode { .. } => {}
             }
         }
 
