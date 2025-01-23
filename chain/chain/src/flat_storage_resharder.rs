@@ -1117,11 +1117,12 @@ fn copy_kv_to_child(
 
     // Sanity check we are truly writing to one of the expected children shards.
     if new_shard_uid != *left_child_shard && new_shard_uid != *right_child_shard {
-        let closer_shard_uid = if account_id
-            < shard_layout.boundary_accounts()[shard_layout
-                .get_shard_index(left_child_shard.shard_id())
-                .expect("left child shard must exist!")]
-        {
+        // TODO(resharding): replace the code below with an assertion once the root cause is fixed.
+        // The problem is that forknet state contains implicit accounts out of shard boundaries.
+        let left_child_shard_boundary_account = &shard_layout.boundary_accounts()[shard_layout
+            .get_shard_index(left_child_shard.shard_id())
+            .expect("left child shard must exist!")];
+        let closer_shard_uid = if account_id < *left_child_shard_boundary_account {
             left_child_shard
         } else {
             right_child_shard
@@ -1129,11 +1130,6 @@ fn copy_kv_to_child(
 
         let err_msg = "account id doesn't map to any child shard! - copying to the closer child";
         warn!(target: "resharding", ?new_shard_uid, ?closer_shard_uid, ?left_child_shard, ?right_child_shard, ?shard_layout, ?account_id, err_msg);
-
-        // TODO(resharding): add a debug assertion once the root cause is fixed. The current
-        // hypothesis is that flat storage might contain keys with account_id outside of the shard's
-        // boundary due to either a bug in the state generation for forknet or corrupted state in
-        // mainnet.
 
         new_shard_uid = *closer_shard_uid;
     }
@@ -1453,17 +1449,7 @@ mod tests {
 
     /// Derived from [simple_shard_layout] by splitting the second shard.
     fn shard_layout_after_split() -> ShardLayout {
-        let s0 = ShardId::new(0);
-        let s1 = ShardId::new(1);
-        let s2 = ShardId::new(2);
-        let s3 = ShardId::new(3);
-
-        let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s2, s3])]);
-        ShardLayout::v2(
-            vec![account!("ff"), account!("pp")],
-            vec![s0, s2, s3],
-            Some(shards_split_map),
-        )
+        ShardLayout::derive_shard_layout(&simple_shard_layout(), "pp".parse().unwrap())
     }
 
     /// Shard layout with three shards.
@@ -1481,18 +1467,7 @@ mod tests {
 
     /// Derived from [shards_layout_three_shards] by splitting the second shard.
     fn shards_layout_three_shards_after_split() -> ShardLayout {
-        let s0 = ShardId::new(0);
-        let s1 = ShardId::new(1);
-        let s2 = ShardId::new(2);
-        let s3 = ShardId::new(3);
-        let s4 = ShardId::new(4);
-
-        let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s3, s4]), (s2, vec![s2])]);
-        ShardLayout::v2(
-            vec![account!("ff"), account!("pp"), account!("yy")],
-            vec![s0, s3, s4, s2],
-            Some(shards_split_map),
-        )
+        ShardLayout::derive_shard_layout(&simple_shard_layout(), "yy".parse().unwrap())
     }
 
     /// Generic test setup. It creates an instance of chain, a FlatStorageResharder and a sender.
