@@ -271,11 +271,11 @@ mod test {
         test(b"", &[b"foo\x02\0\0\0\0\0\0\0", MINUS_ONE, MINUS_ONE]);
         test(b"", &[b"foo\x02\0\0\0\0\0\0\0", MINUS_TWO]);
 
-        test(MINUS_ONE, &[MINUS_ONE]);
-        test(MINUS_ONE, &[b"", MINUS_ONE]);
-        test(MINUS_ONE, &[ZERO, MINUS_ONE]);
-        test(MINUS_ONE, &[b"foo\x01\0\0\0\0\0\0\0", MINUS_TWO]);
-        test(MINUS_ONE, &[b"foo\x01\0\0\0\0\0\0\0", MINUS_ONE, MINUS_ONE]);
+        test(b"", &[MINUS_ONE]);
+        test(b"", &[b"", MINUS_ONE]);
+        test(b"", &[ZERO, MINUS_ONE]);
+        test(b"", &[b"foo\x01\0\0\0\0\0\0\0", MINUS_TWO]);
+        test(b"", &[b"foo\x01\0\0\0\0\0\0\0", MINUS_ONE, MINUS_ONE]);
 
         test(b"foo\x02\0\0\0\0\0\0\0", &[b"foo\x01\0\0\0\0\0\0\0", b"foo\x01\0\0\0\0\0\0\0"]);
         test(b"foo\x01\0\0\0\0\0\0\0", &[b"foo\x01\0\0\0\0\0\0\0"]);
