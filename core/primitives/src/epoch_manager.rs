@@ -128,7 +128,7 @@ impl EpochConfig {
         }
     }
 
-    /// Mignimal config for testing.
+    /// Minimal config for testing.
     pub fn minimal() -> Self {
         Self {
             epoch_length: 0,
@@ -362,7 +362,7 @@ impl AllEpochConfig {
         // ProtocolFeature::ShuffleShardAssignments. (see config_validator_selection function).
         // For pre-release environment such as mocknet, which uses features between production and nightly
         // (eg. stateless validation) we enable it by default with stateless validation in order to exercise
-        // the codepaths for state sync more often.
+        // the codepath for state sync more often.
         // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
         // also remove this temporary code and always rely on ShuffleShardAssignments.
         config.shuffle_shard_assignment_for_chunk_producers = true;
@@ -765,7 +765,7 @@ mod tests {
         assert!(dumped_files.contains(&String::from("64.json")));
         assert!(dumped_files.contains(&String::from("65.json")));
 
-        // Check if 55.json is equal to 48.json from res/epcoh_configs/mainnet.
+        // Check if 55.json is equal to 48.json from res/epoch_configs/mainnet.
         let contents_55 = fs::read_to_string(tmp_dir.path().join("55.json")).unwrap();
         let epoch_config_55: EpochConfig = serde_json::from_str(&contents_55).unwrap();
         let epoch_config_48 = parse_config_file("mainnet", 48).unwrap();

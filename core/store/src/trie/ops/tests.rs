@@ -163,6 +163,7 @@ fn test_retain_two_ranges() {
         (b"edward".to_vec(), vec![5]),
         (b"frank".to_vec(), vec![6]),
     ];
+    // cspell:ignore daaa
     let retain_ranges =
         vec![b"bill".to_vec()..b"bowl".to_vec(), b"daaa".to_vec()..b"france".to_vec()];
     run(initial_entries, retain_ranges);
@@ -253,6 +254,7 @@ fn test_branch_to_extension() {
 /// Checks case when result is a single key, and all nodes on the way are
 /// squashed, in particular, extension nodes are joined into one.
 fn test_extend_extensions() {
+    // cspell:ignore ddddde
     let keys = multi_hex_to_nibbles("dd d0 d1 dddd00 dddd01 dddddd");
     let initial_entries = keys.into_iter().map(|key| (key, vec![1])).collect_vec();
     let retain_ranges = vec![hex_to_nibbles("dddddd")..hex_to_nibbles("ddddde")];

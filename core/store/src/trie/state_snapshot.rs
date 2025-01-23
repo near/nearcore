@@ -248,7 +248,7 @@ impl ShardTries {
         Ok(Some(state_snapshot_lock.as_ref().unwrap().get_included_shard_uids()))
     }
 
-    /// Deletes all snapshots and unsets the STATE_SNAPSHOT_KEY.
+    /// Deletes all snapshots and unset the STATE_SNAPSHOT_KEY.
     pub fn delete_state_snapshot(&self) {
         let _span =
             tracing::info_span!(target: "state_snapshot", "delete_state_snapshot").entered();

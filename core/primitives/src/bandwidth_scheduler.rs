@@ -569,11 +569,11 @@ mod tests {
 
         // When requesting bandwidth that is between two values on the list, the request
         // should ask for the first value that is bigger than the needed bandwidth.
-        let inbetween_value = (values[values.len() / 2] + values[values.len() / 2 + 1]) / 2;
-        assert!(!values.contains(&inbetween_value));
-        let inbetween_size_receipt = [inbetween_value];
+        let in_between_value = (values[values.len() / 2] + values[values.len() / 2 + 1]) / 2;
+        assert!(!values.contains(&in_between_value));
+        let in_between_size_receipt = [in_between_value];
         assert_eq!(
-            get_request(&inbetween_size_receipt),
+            get_request(&in_between_size_receipt),
             Some(make_request_with_ones(&[values.len() / 2 + 1]))
         );
 
