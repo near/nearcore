@@ -1,6 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::types::AccountId;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{to_vec, BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -102,36 +102,23 @@ pub mod col {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
 pub enum GlobalContractCodeIdentifier {
-    AccountId(AccountId),
     CodeHash(CryptoHash),
+    AccountId(AccountId),
 }
 
 impl GlobalContractCodeIdentifier {
     pub fn len(&self) -> usize {
-        self.discriminator().len()
-            + match self {
-                Self::AccountId(account_id) => account_id.len(),
-                Self::CodeHash(hash) => hash.as_bytes().len(),
+        1 + match self {
+            Self::CodeHash(hash) => hash.as_bytes().len(),
+            Self::AccountId(account_id) => {
+                // Corresponds to String repr in borsh spec
+                size_of::<u32>() + account_id.len()
             }
+        }
     }
 
     pub fn append_into(&self, buf: &mut Vec<u8>) {
-        buf.push(self.discriminator());
-        match self {
-            Self::AccountId(account_id) => {
-                buf.extend(account_id.as_bytes());
-            }
-            Self::CodeHash(hash) => {
-                buf.extend(hash.as_ref());
-            }
-        }
-    }
-
-    pub fn discriminator(&self) -> u8 {
-        match self {
-            Self::AccountId(_) => 0,
-            Self::CodeHash(_) => 1,
-        }
+        buf.extend(to_vec(self).unwrap());
     }
 }
 
@@ -981,5 +968,21 @@ mod tests {
             max_id <= u16::MAX as u64,
             "buffered receipt trie key optimization broken, must fit in a u16"
         );
+    }
+
+    #[test]
+    fn test_global_contract_code_identifier_len() {
+        check_global_contract_code_identifier_len(GlobalContractCodeIdentifier::CodeHash(
+            CryptoHash::hash_bytes(&[42]),
+        ));
+        check_global_contract_code_identifier_len(GlobalContractCodeIdentifier::AccountId(
+            "alice.near".parse().unwrap(),
+        ));
+    }
+
+    fn check_global_contract_code_identifier_len(identifier: GlobalContractCodeIdentifier) {
+        let mut buf = Vec::new();
+        identifier.append_into(&mut buf);
+        assert_eq!(buf.len(), identifier.len());
     }
 }
