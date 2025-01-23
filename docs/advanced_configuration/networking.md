@@ -1,7 +1,6 @@
 This document describes the advanced network options that you can configure
 by modifying the "network" section of your "config.json" file:
 
-
 ```
 {
   // ...

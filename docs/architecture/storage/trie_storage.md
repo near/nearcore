@@ -16,7 +16,7 @@ Trie stores the state - accounts, contract codes, access keys, etc. Each state
 item corresponds to the unique trie key. You can read more about this structure on
 [Wikipedia](https://en.wikipedia.org/wiki/Trie).
 
-There are two ways to access trie - from memory and from disk. The first one is 
+There are two ways to access trie - from memory and from disk. The first one is
 currently the main one, where only the loading stage requires disk, and the
 operations are fully done in memory. The latter one relies only on disk with
 several layers of caching. Here we describe the disk trie.
@@ -107,7 +107,7 @@ collection of old block data which is no longer needed.
 ### TrieRefcountChange
 
 Because we remove unused nodes during garbage collection, we need to track
-the reference count (`rc`) for each node. Another reason is that we can dedup
+the reference count (`rc`) for each node. Another reason is that we can de-dup
 values. If the same contract is deployed 1000 times, we only store one contract
 binary in storage and track its count.
 

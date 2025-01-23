@@ -42,8 +42,8 @@ There are several important actors in neard:
   to **client**. It only accesses data stored in a node’s storage and does not mutate
   any state. It is used for two purposes:
 
-    * Answering RPC requests by fetching the relevant piece of data from storage.
-    * Handling some network requests that do not require any changes to the
+  * Answering RPC requests by fetching the relevant piece of data from storage.
+  * Handling some network requests that do not require any changes to the
       storage, such as header sync, state sync, and block sync requests.
 
   `ViewClientActor` runs in four threads by default but this number is configurable.
@@ -54,11 +54,9 @@ Flow for incoming messages:
 
 ![](https://user-images.githubusercontent.com/1711539/195619986-25798cde-8a91-4721-86bd-93fa924b483a.png)
 
-
 Flow for outgoing messages:
 
 ![](https://user-images.githubusercontent.com/1711539/195626792-7697129b-7f9c-4953-b939-0b9bcacaf72c.png)
-
 
 ## How neard operates when it is fully synced
 
@@ -106,7 +104,6 @@ The main logic is illustrated below:
 
 ![](https://user-images.githubusercontent.com/1711539/195635652-f0c7ebae-a2e5-423f-8e62-b853b815fcec.png)
 
-
 ## How neard works when it is synchronizing
 
 `PeerManagerActor` periodically sends a `NetworkInfo` message to `ClientActor`
@@ -144,14 +141,14 @@ to sync. The synchronization process is done in three steps:
       that contains some metadata the node needs to know about. Then the node
       computes the number of state parts it needs to download and requests those
       parts from different peers who track the shard.
-    4. After all parts are downloaded, the node [combines those state
+   4. After all parts are downloaded, the node [combines those state
        parts](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/client_actor.rs#L1877)
        and then
        [finalizes](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/chain/src/chain.rs#L3065)
        the state sync by applying the last chunk included in or before the sync
        block so that the node has the state after applying sync block to be able
        to apply the next block.
-     5. The node [resets
+   5. The node [resets
         heads](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/chain/src/chain.rs#L1874)
         properly after state sync.
 
@@ -173,28 +170,28 @@ head height, the block is simply dropped.
 ClientActor has some periodically running routines that are worth noting:
 
 * [Doomslug
-  timer](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1198) - 
-  This routine runs every `doosmslug_step_period` (set to 100ms by default) and
+  timer](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1198) -
+  This routine runs every `doomslug_step_period` (set to 100ms by default) and
   updates consensus information. If the node is a validator node, it also sends
   approvals when necessary.
 * [Block
-  production](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L991) - 
+  production](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L991) -
   This routine runs every `block_production_tracking_delay` (which is set to
   100ms by default) and checks if the node should produce a block.
 * [Log
-  summary](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1790) - 
+  summary](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1790) -
   Prints a log line that summarizes block rate, average gas used, the height of
   the node, etc. every 10 seconds.
 * [Resend chunk
-  requests](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/chunks/src/lib.rs#L910) - 
+  requests](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/chunks/src/lib.rs#L910) -
   This routine runs every `chunk_request_retry_period` (which is set to 400ms).
-  It resends the chunk part requests for those that are not yet responded to.
-* [Sync](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629) - 
+  It resend the chunk part requests for those that are not yet responded to.
+* [Sync](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629) -
   This routine runs every `sync_step_period` (which is set to 10ms by default)
   and checks whether the node needs to sync from its peers and, if needed, also
   starts the syncing process.
 * [Catch
-  up](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1581) - 
+  up](https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1581) -
   This routine runs every `catchup_step_period` (which is set to 100ms by
   default) and runs the catch up process. This only applies if a node validates
   shard A in epoch X and is going to validate a different shard B in epoch X+1.

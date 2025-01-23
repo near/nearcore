@@ -13,7 +13,7 @@ code without any prior knowledge.
 
 # 2. Code structure
 
-`near-network` runs on top of the `actor` framework called 
+`near-network` runs on top of the `actor` framework called
 [`Actix`](https://actix.rs/docs/). Code structure is split between 4 actors
 `PeerManagerActor`, `PeerActor`, `RoutingTableActor`, `EdgeValidatorActor`
 
@@ -26,6 +26,7 @@ edge validation involves verifying cryptographic signatures, which can be quite
 expensive, and therefore was moved to another thread.
 
 Responsibilities:
+
 * Validating edges by checking whenever cryptographic signatures match.
 
 ### 2.2 `RoutingTableActor`
@@ -38,6 +39,7 @@ through a `TCP connection`. Otherwise, `RoutingTableActor` is responsible for pi
 the best path between them.
 
 Responsibilities:
+
 * Keep set of all edges of `P2P network` called routing table.
 * Connects to `EdgeValidatorActor`, and asks for edges to be validated, when
   needed.
@@ -50,6 +52,7 @@ created. Each `PeerActor` keeps a physical `TCP connection` to exactly one
 peer.
 
 Responsibilities:
+
 * Maintaining physical connection.
 * Reading messages from peers, decoding them, and then forwarding them to the
   right place.
@@ -68,6 +71,7 @@ through this `Actor`. `PeerManagerActor` is responsible for accepting incoming
 connections from the outside world and creating `PeerActors` to manage them.
 
 Responsibilities:
+
 * Accepting new connections.
 * Maintaining the list of `PeerActors`, creating, deleting them.
 * Routing information about new edges between `PeerActors` and
@@ -90,12 +94,13 @@ on its own thread.
 config`.
 
 Here is a list of features read from config:
+
 * `boot_nodes` - list of nodes to connect to on start.
 * `addr` - listening address.
 * `max_num_peers` - by default we connect up to 40 peers, current implementation
   supports up to 128.
 
-# 5. Connecting to other peers.
+# 5. Connecting to other peers
 
 Each peer maintains a list of known peers. They are stored in the database. If
 the database is empty, the list of peers, called boot nodes, will be read from
@@ -115,6 +120,7 @@ Both are defined below.
 # 6.1 PublicKey
 
 We use two types of public keys:
+
 * a 256 bit `ED25519` public key.
 * a 512 bit `Secp256K1` public key.
 
@@ -142,6 +148,7 @@ pub struct PeerId(PublicKey);
 # 6.3 Edge
 
 Each `edge` is represented by the `Edge` structure. It contains the following:
+
 * pair of nodes represented by their public keys.
 * `nonce` - a unique number representing the state of an edge. Starting with `1`.
   Odd numbers represent an active edge. Even numbers represent an edge in which
@@ -229,6 +236,7 @@ pub struct Handshake {
 
 Node `B` receives a `Handshake` message. Then it performs various validation
 checks. That includes:
+
 * Check signature of edge from the other peer.
 * Whenever `nonce` is the edge, send matches.
 * Check whether the protocol is above the minimum
@@ -337,6 +345,7 @@ This message is then forwarded to `RoutingTableActor`.
 the `ValidateEdgeList` struct.
 
 `ValidateEdgeList` contains:
+
 * list of edges to verify.
 * peer who sent us the edges.
 
@@ -384,6 +393,7 @@ a recalculation (see `RoutingTableActor::needs_routing_table_recalculation`).
 # 9 Routing table computation
 
 Routing table computation does a few things:
+
 * For each peer `B`, calculates set of peers `|C_b|`, such that each peer is on
   the shortest path to `B`.
 * Removes unreachable edges from memory and stores them to disk.
@@ -403,6 +413,7 @@ Routing table computation does a few things:
 ## 9.2 Step 2
 
 `RoutingTableActor` receives the message, and then:
+
 * calls `recalculate_routing_table` method, which computes
   `RoutingTableActor::peer_forwarding: HashMap<PeerId, Vec<PeerId>>`. For each
   `PeerId` on the network, gives a list of connected peers, which are on the
@@ -419,26 +430,27 @@ Routing table computation does a few things:
 
 `PeerManagerActor` keeps a local copy of `edges_info`, called `local_edges_info`
 containing only edges adjacent to current node.
+
 * `RoutingTableUpdateResponse` contains a list of local edges, which
   `PeerManagerActor` should remove.
 * `peer_forwarding` which represents how to route messages in the P2P network
 * `peers_to_ban` represents a list of peers to ban for sending us edges, which failed
   validation in `EdgeVerifierActor`.
 
-
 ## 9.4 Step 4
 
 `PeerManagerActor` receives `RoutingTableUpdateResponse` and then:
+
 * updates local copy of `peer_forwarding`, used for routing messages.
 * removes `local_edges_to_remove` from `local_edges_info`.
 * bans peers, who sent us invalid edges.
 
-# 10. Message transportation layers.
+# 10. Message transportation layers
 
 This section describes different protocols of sending messages currently used in
 `Near`.
 
-## 10.1 Messages between Actors.
+## 10.1 Messages between Actors
 
 `Near` is built on `Actix`'s `actor`
 [framework](https://actix.rs/docs/actix/actor). Usually each actor
@@ -480,7 +492,7 @@ and convert into RoutedMessage (which also have things like TTL etc.).
 Then it will use the `routing_table`, to find the route to the target peer (add
 `route_back` if needed) and then send the message over the network as
 `PeerMessage::Routed`. Details about routing table computations are covered in
-[section 8](#8-adding-new-edges-to-routing-tables). 
+[section 8](#8-adding-new-edges-to-routing-tables).
 
 When Peer receives this message (as `PeerMessage::Routed`), it will pass it to
 PeerManager (as `RoutedMessageFrom`), which would then check if the message is
@@ -497,7 +509,7 @@ messages that are meant to be sent to another `peer`.
 `lib.rs` (`ShardsManager`) has a `network_adapter` - coming from the client’s
 `network_adapter` that comes from `ClientActor` that comes from the `start_client` call
 that comes from `start_with_config` (that creates `PeerManagerActor` - that is
-passed as target to `network_recipent`).
+passed as target to `network_recipient`).
 
 # 12. Database
 
@@ -513,6 +525,7 @@ Each component is assigned a unique `nonce`, where first one is assigned nonce
 0. Each new component gets assigned a consecutive integer.
 
 To store components, we have the following columns in the DB.
+
 * `DBCol::LastComponentNonce` Stores `component_nonce: u64`, which is the last
   used nonce.
 * `DBCol::ComponentEdges` Mapping from `component_nonce` to a list of edges.
@@ -520,5 +533,5 @@ To store components, we have the following columns in the DB.
 
 ### 12.2 Storage of `account_id` to `peer_id` mapping
 
-`ColAccountAnouncements` -> Stores a mapping from `account_id` to a tuple
+`ColAccountAnnouncements` -> Stores a mapping from `account_id` to a tuple
 (`account_id`, `peer_id`, `epoch_id`, `signature`).
