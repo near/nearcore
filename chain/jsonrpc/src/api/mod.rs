@@ -122,7 +122,7 @@ mod params {
                 .map_err(|e| RpcParseError(format!("Failed parsing args: {e}")))
         }
 
-        /// If value hasn’t been parsed yet, tries to deserialise it directly
+        /// If value hasn’t been parsed yet, tries to deserialize it directly
         /// into `T`.
         pub fn unwrap_or_parse(self) -> Result<T, RpcParseError>
         where
@@ -132,7 +132,7 @@ mod params {
         }
 
         /// If value hasn’t been parsed yet and it’s a one-element array
-        /// (i.e. singleton) deserialises the element and calls `func` on it.
+        /// (i.e. singleton) deserializes the element and calls `func` on it.
         ///
         /// `try_singleton` and `try_pair` methods can be chained together
         /// (though it doesn’t make sense to use the same method twice) before
@@ -150,7 +150,7 @@ mod params {
         }
 
         /// If value hasn’t been parsed yet and it’s a two-element array
-        /// (i.e. couple) deserialises the element and calls `func` on it.
+        /// (i.e. couple) deserializes the element and calls `func` on it.
         ///
         /// `try_singleton` and `try_pair` methods can be chained together
         /// (though it doesn’t make sense to use the same method twice) before

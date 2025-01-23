@@ -355,7 +355,7 @@ static NETWORK_ROUTED_MSG_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
 static NETWORK_ROUTED_MSG_NUM_HOPS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_network_routed_msg_hops",
-        "Number of peers the routed message travelled through",
+        "Number of peers the routed message traveled through",
         &["routed", "hops"],
     )
     .unwrap()

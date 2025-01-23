@@ -603,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_outcome_merklization() {
+    fn test_execution_outcome_merkelization() {
         let outcome1 = ExecutionOutcomeWithId {
             id: Default::default(),
             outcome: ExecutionOutcome {

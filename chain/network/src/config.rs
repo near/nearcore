@@ -44,7 +44,7 @@ pub const PEERS_RESPONSE_MAX_PEERS: u32 = 512;
 ///
 /// neard supports 2 modes for configuring proxy addresses:
 /// * [recommended] `Static` list of proxies (public SocketAddr + PeerId), supports up to 10 proxies.
-///   It is a totally valid setup for a TIER1 validator to be its own (perahaps only) proxy:
+///   It is a totally valid setup for a TIER1 validator to be its own (perhaps only) proxy:
 ///   to achieve that, add an entry with the public address of this node to the Static list.
 /// * [discouraged] `Dynamic` proxy - in case you want this validator to be its own and only proxy,
 ///   instead of adding the public address explicitly to the `Static` list, you can specify a STUN

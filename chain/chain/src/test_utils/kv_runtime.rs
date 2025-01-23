@@ -171,13 +171,13 @@ impl MockEpochManager {
                     .collect();
 
                 let validators_per_shard = block_producers.len() / vs.validator_groups as usize;
-                let coef = block_producers.len() / vs.num_shards as usize;
+                let coefficient = block_producers.len() / vs.num_shards as usize;
 
                 let chunk_producers: Vec<Vec<ValidatorStake>> = (0..vs.num_shards)
                     .map(|shard_index| {
                         let shard_index = shard_index as usize;
                         let offset =
-                            shard_index * coef / validators_per_shard * validators_per_shard;
+                            shard_index * coefficient / validators_per_shard * validators_per_shard;
                         block_producers[offset..offset + validators_per_shard].to_vec()
                     })
                     .collect();
@@ -361,7 +361,7 @@ impl KeyValueRuntime {
             shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
-        store_update.commit().expect("Store failed on genesis intialization");
+        store_update.commit().expect("Store failed on genesis initialization");
 
         Arc::new(KeyValueRuntime {
             store,

@@ -1,7 +1,9 @@
 <html>
 
+<!-- cspell:ignore curepoch curvalidators nextvalidators -->
+
 <head>
-   <link rel="stylesheet" href="epoch_info.css">
+    <link rel="stylesheet" href="epoch_info.css">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
         function convertTime(millis) {
@@ -44,7 +46,7 @@
         }
 
         function humanStake(stake) {
-            let stake_in_near = parseInt(stake / 10**24);
+            let stake_in_near = parseInt(stake / 10 ** 24);
             return stake_in_near.toLocaleString('en-US')
         }
 
@@ -98,14 +100,14 @@
                 $('.js-tbody-curepoch-nextvalidators').append(row)
             })
 
-            validator_info.current_proposals.forEach(proposal=> {
+            validator_info.current_proposals.forEach(proposal => {
                 let row = $('<tr>');
                 row.append($('<td>').append(proposal.account_id));
-                row.append($('<td>').append(humanStake(proposal.stake) + "/" + (100*proposal.stake/total_stake).toFixed(2) + "%"));
+                row.append($('<td>').append(humanStake(proposal.stake) + "/" + (100 * proposal.stake / total_stake).toFixed(2) + "%"));
                 $('.js-tbody-curepoch-proposals').append(row);
             })
 
-            validator_info.prev_epoch_kickout.forEach(kickout=> {
+            validator_info.prev_epoch_kickout.forEach(kickout => {
                 let row = $('<tr>');
                 row.append($('<td>').append(kickout.account_id));
                 row.append($('<td>').append(JSON.stringify(kickout.reason)));
@@ -273,56 +275,56 @@
     <div> Validators that missed more than 20% blocks or chunks are marked red.</div>
     <table>
         <thead onclick="toggle_tbody('js-tbody-curepoch-curvalidators')">
-        <tr>
-            <th>Account id</th>
-            <th>Stake / Stake %</th>
-            <th>Shards</th>
-            <th># Missed blocks</th>
-            <th># Expected blocks</th>
-            <th>Missed blocks %</th>
-            <th># Missed chunks</th>
-            <th># Expected chunks</th>
-            <th>Missed chunks %</th>
-        </tr>
+            <tr>
+                <th>Account id</th>
+                <th>Stake / Stake %</th>
+                <th>Shards</th>
+                <th># Missed blocks</th>
+                <th># Expected blocks</th>
+                <th>Missed blocks %</th>
+                <th># Missed chunks</th>
+                <th># Expected chunks</th>
+                <th>Missed chunks %</th>
+            </tr>
         </thead>
-        <tbody class ="js-tbody-curepoch-curvalidators">
+        <tbody class="js-tbody-curepoch-curvalidators">
         </tbody>
     </table>
 
     <h3>Validators for next epoch</h3>
     <table>
         <thead onclick="toggle_tbody('js-tbody-curepoch-nextvalidators')">
-        <tr>
-            <th>AccountId</th>
-            <th>Stake/Stake Percentage</th>
-            <th>Shards</th>
-        </tr>
+            <tr>
+                <th>AccountId</th>
+                <th>Stake/Stake Percentage</th>
+                <th>Shards</th>
+            </tr>
         </thead>
-        <tbody class = "js-tbody-curepoch-nextvalidators">
+        <tbody class="js-tbody-curepoch-nextvalidators">
         </tbody>
     </table>
 
     <h3>Proposals</h3>
     <table>
         <thead onclick="toggle_tbody('js-tbody-curepoch-proposals')">
-        <tr>
-            <th>AccountId</th>
-            <th>Stake/Stake Percentage</th>
-        </tr>
+            <tr>
+                <th>AccountId</th>
+                <th>Stake/Stake Percentage</th>
+            </tr>
         </thead>
-        <tbody class = "js-tbody-curepoch-proposals">
+        <tbody class="js-tbody-curepoch-proposals">
         </tbody>
     </table>
 
     <h3>Previous Epoch Kickouts</h3>
     <table>
         <thead onclick="toggle_tbody('js-tbody-curepoch-kickouts')">
-        <tr>
-            <th>AccountId</th>
-            <th>Kickout Reason</th>
-        </tr>
+            <tr>
+                <th>AccountId</th>
+                <th>Kickout Reason</th>
+            </tr>
         </thead>
-        <tbody class = "js-tbody-curepoch-kickouts">
+        <tbody class="js-tbody-curepoch-kickouts">
         </tbody>
     </table>
 

@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::schema::ft_transfers;
 
+// cspell:ignore Insertable
 #[derive(Insertable, Deserialize)]
 #[diesel(table_name = ft_transfers)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

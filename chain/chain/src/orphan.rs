@@ -373,7 +373,7 @@ impl Chain {
             num_orphans = self.orphans.len())
         .entered();
         // Check if there are orphans we can process.
-        // check within the descendents of `prev_hash` to see if there are orphans there that
+        // check within the descendants of `prev_hash` to see if there are orphans there that
         // are ready to request missing chunks for
         let orphans_to_check =
             self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);

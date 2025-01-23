@@ -54,6 +54,8 @@ macro_rules! return_if_cancelled {
         }
     };
 }
+
+// We call this function
 pub(super) async fn run_state_sync_for_shard(
     store: Store,
     shard_id: ShardId,
@@ -175,7 +177,7 @@ pub(super) async fn run_state_sync_for_shard(
         }
     }
     return_if_cancelled!(cancel);
-    // Load memtrie.
+    // Load memtrie here.
     {
         let handle = computation_task_tracker.get_handle(&format!("shard {}", shard_id)).await;
         let head_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;

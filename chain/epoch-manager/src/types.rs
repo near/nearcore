@@ -250,13 +250,13 @@ impl EpochInfoAggregator {
 
         // merge version tracker
         self.version_tracker.reserve(other.version_tracker.len());
-        // TODO(mina86): Use try_insert once map_try_insert is stabilised.
+        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
         for (k, v) in other.version_tracker.iter() {
             self.version_tracker.entry(*k).or_insert_with(|| *v);
         }
 
         // merge proposals
-        // TODO(mina86): Use try_insert once map_try_insert is stabilised.
+        // TODO(mina86): Use try_insert once map_try_insert is stabilized.
         for (k, v) in other.all_proposals.iter() {
             self.all_proposals.entry(k.clone()).or_insert_with(|| v.clone());
         }
