@@ -62,6 +62,8 @@ pub mod col {
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
+    /// Global contract code instance. Values are contract blobs,
+    /// the same as for `CONTRACT_CODE`.
     pub const GLOBAL_CONTRACT_CODE: u8 = 18;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
