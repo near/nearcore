@@ -36,9 +36,7 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
-use near_chunks::logic::{
-    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
-};
+use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{Error, StateSyncStatus};
@@ -431,12 +429,11 @@ impl Client {
             let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
             if block.header().height() == chunk_header.height_included() {
-                if cares_about_shard_this_or_next_epoch(
+                if self.shard_tracker.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     true,
-                    &self.shard_tracker,
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
@@ -465,12 +462,11 @@ impl Client {
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
             if block.header().height() == chunk_header.height_included() {
-                if cares_about_shard_this_or_next_epoch(
+                if self.shard_tracker.cares_about_shard_this_or_next_epoch(
                     Some(&me),
                     block.header().prev_hash(),
                     shard_id,
                     false,
-                    &self.shard_tracker,
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();

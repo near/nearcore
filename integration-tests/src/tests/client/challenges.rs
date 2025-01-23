@@ -447,8 +447,15 @@ fn test_verify_chunk_invalid_state_challenge() {
         None,
     );
 
-    let challenge_body =
-        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
+    let challenge_body = client
+        .chain
+        .create_chunk_state_challenge(
+            &last_block,
+            block.header().height(),
+            &block.chunks(),
+            &block.chunks()[0],
+        )
+        .unwrap();
     {
         let prev_merkle_proofs =
             Block::compute_chunk_headers_root(last_block.chunks().iter_deprecated()).1;

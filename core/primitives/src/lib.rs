@@ -23,6 +23,7 @@ pub mod errors;
 pub mod hacky_cache;
 pub mod merkle;
 pub mod network;
+pub mod optimistic_block;
 pub mod profile_data_v2;
 pub mod profile_data_v3;
 pub mod rand;

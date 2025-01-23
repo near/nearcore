@@ -380,6 +380,8 @@ pub fn start_with_config_and_synchronization(
         &chain_genesis,
         runtime.clone(),
         epoch_manager.clone(),
+        shard_tracker.clone(),
+        config.validator_signer.clone(),
         config.client_config.gc.clone(),
         config.client_config.archive,
     ));

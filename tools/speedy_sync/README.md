@@ -4,7 +4,7 @@ The goal of the speedy sync is to allow people to catchup quickly with mainnet, 
 
 Currently, in order to catchup with mainnet there are two possible options:
 * download a DB backup that Pagoda provides (around 200GB)
-* sync from scrach - which can take couple days.
+* sync from scratch - which can take couple days.
 
 With SpeedySync, you're able to catchup with mainnet in around 2-3 hours.
 

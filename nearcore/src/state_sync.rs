@@ -290,7 +290,7 @@ enum NewDump {
 /// `ShardDump` struct, which we check in `check_parts_upload()`.
 ///
 /// Separately, every so often we check whether there's a new epoch to dump state for (in `check_head()`) and whether other processes
-/// have uploaded some state parts that we can therfore skip (in `check_stored_parts()`).
+/// have uploaded some state parts that we can therefore skip (in `check_stored_parts()`).
 struct StateDumper {
     clock: Clock,
     chain_id: String,

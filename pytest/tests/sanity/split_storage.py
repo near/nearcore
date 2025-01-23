@@ -80,6 +80,7 @@ class TestSplitStorage(unittest.TestCase):
         client_config_changes = {
             0: {
                 'archive': True,
+                'tracked_shards': [0],
                 'save_trie_changes': True,
             },
         }
