@@ -9,11 +9,11 @@ use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::{AccountId, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
+use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
+use crate::types::SignatureDifferentiator;
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
-
-use super::{ChunkProductionKey, SignatureDifferentiator};
 
 // Data structures for chunk producers to send accessesed contracts to chunk validators.
 
