@@ -63,7 +63,7 @@ pub struct Config {
     pub boot_nodes: Vec<PeerInfo>,
     /// Nodes will not accept or try to establish connection to such peers.
     pub blacklist: blacklist::Blacklist,
-    /// If true - connect only to the bootnodes.
+    /// If true - connect only to the boot nodes.
     pub connect_only_to_boot_nodes: bool,
     /// The maximum number of peers to store. If capacity is exceeded, the peers
     /// with the earliest last_seen value will be evicted.
@@ -148,6 +148,7 @@ impl Inner {
         }
     }
 
+    // cspell:words unban unbans
     fn peer_unban(&mut self, peer_id: &PeerId) -> anyhow::Result<()> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
@@ -291,7 +292,7 @@ impl PeerStore {
     pub fn new(clock: &time::Clock, config: Config) -> anyhow::Result<Self> {
         let boot_nodes: HashSet<_> = config.boot_nodes.iter().map(|p| p.id.clone()).collect();
         // A mapping from `PeerId` to `KnownPeerState`.
-        let mut peerid_2_state =
+        let mut peer_id_2_state =
             LruCache::new(NonZeroUsize::new(config.peer_states_cache_size as usize).unwrap());
         // Stores mapping from `SocketAddr` to `VerifiedPeer`, which contains `PeerId`.
         // Only one peer can exist with given `PeerId` or `SocketAddr`.
@@ -308,7 +309,7 @@ impl PeerStore {
 
         let now = clock.now_utc();
         for peer_info in &config.boot_nodes {
-            if peerid_2_state.contains(&peer_info.id) {
+            if peer_id_2_state.contains(&peer_info.id) {
                 tracing::error!(id = ?peer_info.id, "There is a duplicated peer in boot_nodes");
                 continue;
             }
@@ -325,7 +326,7 @@ impl PeerStore {
             };
             entry.insert(VerifiedPeer::signed(peer_info.id.clone()));
 
-            if let Some((_, popped_peer_state)) = peerid_2_state
+            if let Some((_, popped_peer_state)) = peer_id_2_state
                 .push(peer_info.id.clone(), KnownPeerState::new(peer_info.clone(), now))
             {
                 // If a peer was evicted from peer_states due to the bounded cache size
@@ -337,7 +338,7 @@ impl PeerStore {
         }
 
         let inner =
-            Inner { config, boot_nodes, peer_states: peerid_2_state, addr_peers: addr_2_peer };
+            Inner { config, boot_nodes, peer_states: peer_id_2_state, addr_peers: addr_2_peer };
         Ok(PeerStore(Mutex::new(inner)))
     }
 
@@ -442,7 +443,7 @@ impl PeerStore {
                     (p.status == KnownPeerStatus::NotConnected)
                         && !ignore_fn(p)
                         && p.peer_info.addr.is_some()
-                        // if we're connecting only to the boot nodes - filter out the nodes that are not bootnodes.
+                        // if we're connecting only to the boot nodes - filter out the nodes that are not boot nodes.
                         && (!inner.config.connect_only_to_boot_nodes || inner.boot_nodes.contains(&p.peer_info.id))
                 },
                 1,

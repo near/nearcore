@@ -20,6 +20,7 @@ pub struct WeightedIndex {
     no_alias_odds: Vec<Balance>,
 }
 
+// cspell:words bigs
 impl WeightedIndex {
     pub fn new(weights: Vec<Balance>) -> Self {
         let n = Balance::from(weights.len() as u64);

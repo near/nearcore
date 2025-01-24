@@ -554,6 +554,7 @@ fn test_invalid_methods() {
 
 #[test]
 fn test_parse_error_status_code() {
+    // cspell:ignore badtx frolik
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let json = serde_json::json!({
             "jsonrpc": "2.0",

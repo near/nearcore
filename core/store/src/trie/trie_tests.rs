@@ -472,7 +472,7 @@ mod trie_storage_tests {
 
     // Checks that when non-existent key is removed, only nodes along the path
     // to it is recorded.
-    // Needed because old disk trie logic was always reading neighbouring children
+    // Needed because old disk trie logic was always reading neighboring children
     // along the path to recompute memory usages, which is not needed if trie
     // structure doesn't change.
     #[test]

@@ -118,9 +118,9 @@ impl RpcConfig {
     }
 }
 
-/// Serialises response of a query into JSON to be sent to the client.
+/// Serializes response of a query into JSON to be sent to the client.
 ///
-/// Returns an internal server error if the value fails to serialise.
+/// Returns an internal server error if the value fails to serialize.
 #[allow(clippy::result_large_err)]
 fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcError> {
     serde_json::to_value(value).map_err(|err| RpcError::serialization_error(err.to_string()))
@@ -131,7 +131,7 @@ fn serialize_response(value: impl serde::ser::Serialize) -> Result<Value, RpcErr
 /// The arguments for the method (which is implemented by the `callback`) will
 /// be parsed (using [`RpcRequest::parse`]) from the `request.params`.  Ok
 /// results of the `callback` will be converted into a [`Value`] via serde
-/// serialisation.
+/// serialization.
 async fn process_method_call<R, V, E, F>(
     request: Request,
     callback: impl FnOnce(R) -> F,
@@ -461,7 +461,7 @@ impl JsonRpcHandler {
     /// Handles adversarial requests if they are enabled.
     ///
     /// Adversarial requests are only enabled when `test_features` Cargo feature
-    /// is turned on.  If the request has not been recognised as an adversarial
+    /// is turned on.  If the request has not been recognized as an adversarial
     /// request, returns `Err(request)` so that caller can continue handling the
     /// request.  Otherwise returns `Ok(response)` where `response` is the
     /// result of handling the request.

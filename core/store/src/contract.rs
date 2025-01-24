@@ -54,7 +54,7 @@ impl ContractsTracker {
         self.uncommitted_deploys.insert((*code.hash()).into(), code);
     }
 
-    /// Rollsback the uncommitted deployments.
+    /// Rollback the uncommitted deployments.
     fn rollback_deploys(&mut self) {
         self.uncommitted_deploys.clear();
     }

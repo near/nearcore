@@ -1,3 +1,4 @@
+// cspell:words Apiv frunk
 use paperclip::actix::{api_v2_errors, Apiv2Schema};
 
 use near_primitives::hash::CryptoHash;
@@ -154,7 +155,7 @@ impl Amount {
 /// Blocks contain an array of Transactions that occurred at a particular
 /// BlockIdentifier. A hard requirement for blocks returned by Rosetta
 /// implementations is that they MUST be _inalterable_: once a client has
-/// requested and received a block identified by a specific BlockIndentifier,
+/// requested and received a block identified by a specific BlockIdentifier,
 /// all future calls for that same BlockIdentifier must return the same block
 /// contents.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
@@ -186,7 +187,7 @@ pub(crate) struct BlockIdentifier {
 impl BlockIdentifier {
     pub fn new(height: BlockHeight, hash: &CryptoHash) -> Self {
         Self {
-            index: height.try_into().expect("Rosetta only supports block indecies up to i64::MAX"),
+            index: height.try_into().expect("Rosetta only supports block indices up to i64::MAX"),
             hash: hash.to_string(),
         }
     }
@@ -461,7 +462,7 @@ pub(crate) struct ConstructionHashRequest {
 }
 
 /// Currency is composed of a canonical Symbol and Decimals. This Decimals value
-/// is used to convert an Amount.Value from atomic units (Satoshis) to standard
+/// is used to convert an Amount.Value from atomic units (Satoshi) to standard
 /// units (Bitcoins).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub struct Currency {
@@ -478,11 +479,11 @@ pub struct Currency {
     /// it would be useful to populate this object with the contract address of
     /// an ERC-20 token.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<CurrenyMetadata>,
+    pub metadata: Option<CurrencyMetadata>,
 }
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 
-pub struct CurrenyMetadata {
+pub struct CurrencyMetadata {
     pub contract_address: String,
 }
 
@@ -515,9 +516,9 @@ pub(crate) struct Error {
     /// Message is a network-specific error message.
     pub message: String,
 
-    /// An error is retriable if the same request may succeed if submitted
+    /// An error is retryable if the same request may succeed if submitted
     /// again.
-    pub retriable: bool,
+    pub retryable: bool,
     /* Rosetta Spec also optionally provides:
      *
      * /// Often times it is useful to return context specific to the request that
@@ -529,8 +530,8 @@ pub(crate) struct Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let retriable = if self.retriable { " (retriable)" } else { "" };
-        write!(f, "Error #{}{}: {}", self.code, retriable, self.message)
+        let retryable = if self.retryable { " (retryable)" } else { "" };
+        write!(f, "Error #{}{}: {}", self.code, retryable, self.message)
     }
 }
 
@@ -538,27 +539,27 @@ impl Error {
     pub(crate) fn from_error_kind(err: crate::errors::ErrorKind) -> Self {
         match err {
             crate::errors::ErrorKind::InvalidInput(message) => {
-                Self { code: 400, message: format!("Invalid Input: {}", message), retriable: false }
+                Self { code: 400, message: format!("Invalid Input: {}", message), retryable: false }
             }
             crate::errors::ErrorKind::NotFound(message) => {
-                Self { code: 404, message: format!("Not Found: {}", message), retriable: false }
+                Self { code: 404, message: format!("Not Found: {}", message), retryable: false }
             }
             crate::errors::ErrorKind::MissingBlock(message) => {
-                Self { code: 422, message: format!("Missing Block: {}", message), retriable: false }
+                Self { code: 422, message: format!("Missing Block: {}", message), retryable: false }
             }
             crate::errors::ErrorKind::WrongNetwork(message) => {
-                Self { code: 403, message: format!("Wrong Network: {}", message), retriable: false }
+                Self { code: 403, message: format!("Wrong Network: {}", message), retryable: false }
             }
             crate::errors::ErrorKind::Timeout(message) => {
-                Self { code: 504, message: format!("Timeout: {}", message), retriable: true }
+                Self { code: 504, message: format!("Timeout: {}", message), retryable: true }
             }
             crate::errors::ErrorKind::InternalInvariantError(message) => Self {
                 code: 501,
                 message: format!("Internal Invariant Error (please, report it): {}", message),
-                retriable: true,
+                retryable: true,
             },
             crate::errors::ErrorKind::InternalError(message) => {
-                Self { code: 500, message: format!("Internal Error: {}", message), retriable: true }
+                Self { code: 500, message: format!("Internal Error: {}", message), retryable: true }
             }
         }
     }
@@ -939,6 +940,7 @@ pub(crate) struct OperationIdentifier {
     /// operation index in the blockchain being described.
     pub index: i64,
 
+    // cspell:ignore UTXO
     /// Some blockchains specify an operation index that is essential for
     /// client use. For example, Bitcoin uses a network_index to identify
     /// which UTXO was used in a transaction.  network_index should not be
@@ -1293,6 +1295,7 @@ impl TryFrom<&Signature> for near_crypto::Signature {
     }
 }
 
+// cspell:ignore Schnorr Zilliqa
 /// SignatureType is the type of a cryptographic signature.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 #[serde(rename_all = "lowercase")]

@@ -45,7 +45,7 @@
 //!       invoke timers without waiting for the actual duration. This makes tests run
 //!       much faster than asynchronous tests.
 //!
-//!  - Versatilty:
+//!  - Versatility:
 //!     - A test can be constructed with any combination of components. The framework does
 //!       not dictate what components should exist, or how many instances there should be.
 //!       This allows for both small and focused tests, and large multi-instance tests.

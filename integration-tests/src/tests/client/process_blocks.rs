@@ -3693,7 +3693,8 @@ fn test_long_chain_with_restart_from_snapshot() {
     }
 }
 
-/// These tests fail on arch because the WasmtimeVM::precompile method doesn't populate the cache.
+/// cspell:words aarch
+/// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;

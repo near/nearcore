@@ -661,6 +661,7 @@ mod tests {
 
     use super::*;
 
+    // cspell:ignore cheapaccounts lols skidanov
     const OK_ACCOUNT_IDS: &[&str] = &[
         "aa",
         "a-a",
