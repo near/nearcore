@@ -5,6 +5,7 @@ use nearcore::{get_default_home, load_config};
 use std::path::PathBuf;
 
 fn main() {
+    // cspell:ignore populator
     let matches = Command::new("Genesis populator")
         .arg(
             Arg::new("home")

@@ -240,12 +240,12 @@ fn ultra_slow_test_protocol_config_rpc() {
             .unwrap();
 
         let runtime_config_store = RuntimeConfigStore::new(None);
-        let intial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
+        let initial_runtime_config = runtime_config_store.get_config(ProtocolVersion::MIN);
         let latest_runtime_config =
             runtime_config_store.get_config(near_primitives::version::PROTOCOL_VERSION);
         assert_ne!(
             config_response.config_view.runtime_config.storage_amount_per_byte,
-            intial_runtime_config.storage_amount_per_byte()
+            initial_runtime_config.storage_amount_per_byte()
         );
         // compare JSON view
         assert_eq!(
@@ -295,7 +295,7 @@ fn ultra_slow_test_query_rpc_account_view_must_succeed() {
 }
 
 #[test]
-fn ultra_slow_test_query_rpc_account_view_account_doesnt_exist_must_return_error() {
+fn ultra_slow_test_query_rpc_account_view_account_does_not_exist_must_return_error() {
     init_integration_logger();
 
     let cluster = NodeCluster::default()
@@ -305,6 +305,7 @@ fn ultra_slow_test_query_rpc_account_view_account_doesnt_exist_must_return_error
         .set_epoch_length(10)
         .set_genesis_height(0);
 
+    // cspell:ignore accountdoesntexist
     cluster.exec_until_stop(|_, rpc_addrs, _| async move {
         let client = new_client(&format!("http://{}", rpc_addrs[0]));
         let error_message = loop {

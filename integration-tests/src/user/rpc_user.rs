@@ -159,7 +159,7 @@ impl User for RpcUser {
         _receipts: Vec<Receipt>,
         _use_flat_storage: bool,
     ) -> Result<(), ServerError> {
-        // TDDO: figure out if rpc will support this
+        // TODO: figure out if rpc will support this
         unimplemented!()
     }
 
