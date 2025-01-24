@@ -130,7 +130,7 @@ impl ShardTracker {
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
-    /// Whether the client cares about some shard in the given epoch.
+    /// Whether the client cares about some shard in the previous epoch.
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client is tracking the shard
     /// * If `account_id` is not None, it is supposed to be a validator
