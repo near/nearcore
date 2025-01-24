@@ -20,6 +20,7 @@ pub fn reed_solomon_encode<T: BorshSerialize>(
     let data_parts = rs.data_shard_count();
     let part_length = reed_solomon_part_length(encoded_length, data_parts);
 
+    // cspell:ignore b'aaabbbcccd'
     // Pad the bytes to be a multiple of `part_length`
     // Convert encoded data into `data_shard_count` number of parts and pad with `parity_shard_count` None values
     // with 4 data_parts and 2 parity_parts

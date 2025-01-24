@@ -233,7 +233,7 @@ pub fn proposals_to_epoch_info(
     // account names to local indices throughout the epoch and vice versa, for
     // convenience of epoch manager.
     // Assign chunk producers to shards using local validator indices.
-    // TODO: this happens together because assigment logic is more subtle for
+    // TODO: this happens together because assignment logic is more subtle for
     // older protocol versions, consider decoupling it.
     let ChunkProducersAssignment {
         all_validators,

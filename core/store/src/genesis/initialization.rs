@@ -35,12 +35,12 @@ pub fn initialize_sharded_genesis_state(
     home_dir: Option<&Path>,
 ) {
     // Ignore initialization if we already have genesis hash and state roots in store
-    let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
+    let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis initialization");
     if let Some(_hash) = stored_hash {
         // TODO: re-enable this check (#4447)
         //assert_eq!(hash, genesis_hash, "Storage already exists, but has a different genesis");
         get_genesis_state_roots(&store)
-            .expect("Store failed on genesis intialization")
+            .expect("Store failed on genesis initialization")
             .expect("Genesis state roots not found in storage");
         return;
     } else {
@@ -57,7 +57,7 @@ pub fn initialize_sharded_genesis_state(
         let mut store_update = store.store_update();
         set_genesis_hash(&mut store_update, &genesis_hash);
         set_genesis_state_roots(&mut store_update, &state_roots);
-        store_update.commit().expect("Store failed on genesis intialization");
+        store_update.commit().expect("Store failed on genesis initialization");
     }
 
     let num_shards = genesis_epoch_config.shard_layout.shard_ids().count() as NumShards;

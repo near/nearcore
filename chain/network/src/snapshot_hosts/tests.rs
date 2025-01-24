@@ -366,6 +366,7 @@ async fn test_select_peer() {
             Arc::new(SnapshotHostInfo::new(peer_id, sync_hash, 123, sid_vec(&[0, 1, 2, 3]), &key));
         peers.push((info, score));
     }
+    // cspell:ignore linfo lscore rinfo rscore
     peers.sort_by(|(_linfo, lscore), (_rinfo, rscore)| {
         lscore.partial_cmp(rscore).unwrap().reverse()
     });

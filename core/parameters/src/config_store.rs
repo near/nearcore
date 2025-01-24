@@ -236,10 +236,10 @@ mod tests {
         let mut files = file_versions
             .into_iter()
             .map(|de| {
-                de.expect("direntry should read successfully")
+                de.expect("dir entry should read successfully")
                     .path()
                     .file_name()
-                    .expect("direntry should have a filename")
+                    .expect("dir entry should have a filename")
                     .to_string_lossy()
                     .into_owned()
             })

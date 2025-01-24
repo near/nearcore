@@ -63,7 +63,7 @@ pub enum FlatStorageStatus {
     /// Flat Storage is empty: either wasn't created yet or was deleted.
     Empty,
     /// Flat Storage is in the process of being created.
-    /// Deprectated: flat storage creation code was removed in #12534
+    /// Deprecated: flat storage creation code was removed in #12534
     Creation(FlatStorageCreationStatus),
     /// Flat Storage is ready to be used.
     Ready(FlatStorageReadyStatus),
@@ -73,7 +73,7 @@ pub enum FlatStorageStatus {
 
 impl Into<i64> for &FlatStorageStatus {
     /// Converts status to integer to export to prometheus later.
-    /// Cast inside enum does not work because it is not fieldless.
+    /// Cast inside enum does not work because it is not field less.
     fn into(self) -> i64 {
         match self {
             FlatStorageStatus::Disabled => 0,

@@ -339,7 +339,7 @@ impl InfoHelper {
             // adapter calls) is expensive when node is syncing so we’re simply
             // not collecting the statistics.  The statistics are used to update
             // a few Prometheus metrics only so we prefer to leave the metrics
-            // unset until node finishes synchronising.  TODO(#6763): If we
+            // unset until node finishes synchronizing.  TODO(#6763): If we
             // manage to get get_validator_info fasts again (or return an error
             // if computation would be too slow), remove the ‘if is_syncing’
             // check.
@@ -873,6 +873,7 @@ impl std::fmt::Display for PrettyNumber {
         if num < 1_000 {
             return write!(f, "{} {}", num, unit);
         }
+        // cspell:ignore MGTPE
         for prefix in b"kMGTPE" {
             if num < 1_000_000 {
                 let precision = if num < 10_000 {

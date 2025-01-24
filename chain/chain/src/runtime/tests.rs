@@ -65,7 +65,7 @@ struct TestEnvConfig {
     create_flat_storage: bool,
 }
 
-/// Environment to test runtime behaviour separate from Chain.
+/// Environment to test runtime behavior separate from Chain.
 /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
 /// `hash([i])`.
 struct TestEnv {
@@ -153,7 +153,7 @@ impl TestEnv {
         let genesis_hash = hash(&[0]);
 
         if config.create_flat_storage {
-            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
+            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behavior
             // and use a mock chain, so we need to initialize flat storage manually.
             let flat_storage_manager = runtime.get_flat_storage_manager();
             for shard_uid in
@@ -1555,7 +1555,7 @@ fn test_genesis_hash() {
 }
 
 /// Creates a signed transaction between each pair of `signers`,
-/// where transactions outcoming from a single signer differ by nonce.
+/// where transaction outcomes from a single signer differ by nonce.
 /// The transactions are then shuffled and used to fill a transaction pool.
 fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> TransactionPool {
     const TEST_SEED: RngSeed = [3; 32];

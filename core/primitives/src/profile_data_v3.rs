@@ -405,6 +405,7 @@ mod test {
         );
     }
 
+    // cspell:ignore deser
     #[test]
     fn test_borsh_ser_deser() {
         let mut profile_data = ProfileDataV3::default();

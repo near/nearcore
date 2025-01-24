@@ -159,6 +159,7 @@ impl ChainStore {
                         ),
                     )
                 })?;
+            // cspell:words deser
             let key_deser = LatestWitnessesKey::deserialize(&key_to_delete)?;
 
             store_update.delete(DBCol::LatestChunkStateWitnesses, &key_to_delete);

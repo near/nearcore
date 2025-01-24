@@ -1702,7 +1702,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     // Every second chunk is skipped.
     let total_produced_chunks = total_expected_chunks / 2;
 
-    // Chunk producers produce all chunks, but the chuink validator skips
+    // Chunk producers produce all chunks, but the chunk validator skips
     // sending endorsements for every second chunk and does not pass the threshold.
     // Chunk validator validates all chunks, so its performance is determined
     // by the chunk production ratio, which is not enough.
@@ -3834,7 +3834,7 @@ fn test_get_shard_uids_pending_resharding_double_different() {
 }
 
 /// Test that only one shard is pending resharding during a double
-/// resharding where the same shard is reshareded twice.
+/// resharding where the same shard is resharded twice.
 #[test]
 fn test_get_shard_uids_pending_resharding_double_same() {
     let version = 3;

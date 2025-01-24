@@ -1,4 +1,4 @@
-mod bug_repros;
+mod bug_repro;
 mod catching_up;
 mod chunks_management;
 mod consensus;

@@ -79,7 +79,7 @@ pub struct FlatStorageResharder {
     resharding_config: MutableConfigValue<ReshardingConfig>,
     #[cfg(feature = "test_features")]
     /// TEST ONLY.
-    /// If non zero, the start of schedulable tasks (such as split parent) will be postponed by
+    /// If non zero, the start of scheduled tasks (such as split parent) will be postponed by
     /// the specified number of blocks.
     pub adv_task_delay_by_blocks: BlockHeightDelta,
 }
@@ -1204,7 +1204,7 @@ pub enum TaskExecutionStatus {
     NotStarted,
 }
 
-/// Result of a schedulable flat storage resharding task.
+/// Result of a scheduled flat storage resharding task.
 #[derive(Clone, Debug, Copy, Eq, PartialEq)]
 pub enum FlatStorageReshardingTaskResult {
     Successful { num_batches_done: usize },

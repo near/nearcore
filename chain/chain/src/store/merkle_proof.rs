@@ -222,6 +222,7 @@ mod tests {
         }
 
         fn verify_proof(&self, index: u64, against: u64, proof: &MerklePath) {
+            // cspell:words provee
             let provee = self.block_hashes[index as usize];
             let root = self.block_merkle_roots[against as usize];
             assert!(verify_hash(root, proof, provee));

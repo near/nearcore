@@ -9,6 +9,7 @@ db_host := "34.90.190.128"
 db_name := "benchmarks"
 db_port := "5432"
 
+# cspell:words sqlfluff
 # Check for SQL errors.
 lint_sql path=".":
 	sqlfluff lint {{path}} --dialect {{sql_dialect}}
@@ -18,6 +19,7 @@ lint_sql path=".":
 fix_sql path=".":
 	sqlfluff fix {{path}} --dialect {{sql_dialect}}
 
+# cspell:ignore psql pgpass PGPASSFILE PGSSLMODE dbname
 # Connect to Cloud SQL with psql.
 #
 # Expects the password to be stored locally in your `~/.pgpass` file.

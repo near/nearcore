@@ -684,7 +684,7 @@ impl EpochSync {
         let mut store_update = chain.chain_store.store().store_update();
 
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
-        // to faciliate epoch sync of other nodes.
+        // to facilitate epoch sync of other nodes.
         let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
         store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
         let proof = proof.into_v1();
@@ -987,7 +987,7 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
         if self.client.epoch_sync.config.ignore_epoch_sync_network_requests {
-            // Temporary killswitch for the rare case there were issues with this network request.
+            // Temporary kill switch for the rare case there were issues with this network request.
             return;
         }
         let store = self.client.chain.chain_store.store();

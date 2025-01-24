@@ -9,7 +9,7 @@ const DB_VERSION_WITH_KIND: DbVersion = 34;
 
 /// Key for the version entry in DBCol::DbVersion.
 ///
-/// The key holds [`DbVersion`] value serialised to a string.
+/// The key holds [`DbVersion`] value serialized to a string.
 ///
 /// The version is strictly increasing.  We bump it each time
 /// a backwards-incompatible change to the database is required.  Increasing the
@@ -19,7 +19,7 @@ pub(super) const VERSION_KEY: &[u8; 7] = b"VERSION";
 
 /// Key for the database kind entry in DBCol::DbVersion.
 ///
-/// The key holds a [`DbKind`] value serialised to a string.
+/// The key holds a [`DbKind`] value serialized to a string.
 pub(super) const KIND_KEY: &[u8; 4] = b"KIND";
 
 /// Describes what kind the storage is.

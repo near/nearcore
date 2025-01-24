@@ -256,7 +256,7 @@ async fn handshake() -> anyhow::Result<()> {
     let encodings = [None, Some(Encoding::Proto), Some(Encoding::Borsh)];
     for outbound in &encodings {
         for inbound in &encodings {
-            println!("oubound = {:?}, inbound = {:?}", outbound, inbound);
+            println!("outbound = {:?}, inbound = {:?}", outbound, inbound);
             if let (Some(a), Some(b)) = (outbound, inbound) {
                 if a != b {
                     continue;

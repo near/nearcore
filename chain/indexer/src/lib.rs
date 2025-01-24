@@ -26,7 +26,7 @@ pub const INDEXER: &str = "indexer";
 /// function by making args more explicit via struct
 #[derive(Debug, Clone)]
 pub struct InitConfigArgs {
-    /// chain/network id (localnet, testnet, devnet, betanet)
+    /// chain/network id (localnet, testnet, forknet, betanet)
     pub chain_id: Option<String>,
     /// Account ID for the validator key
     pub account_id: Option<String>,

@@ -101,7 +101,7 @@ impl Client {
     }
 
     /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
-    /// for this block. This function takes the ready witnesses out of the orhan pool and process them.
+    /// for this block. This function takes the ready witnesses out of the orphan pool and process them.
     /// It also removes old witnesses (below final height) from the orphan pool to save memory.
     pub fn process_ready_orphan_witnesses_and_clean_old(
         &mut self,

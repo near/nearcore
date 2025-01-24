@@ -426,6 +426,7 @@ macro_rules! unwrap_or_return {
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
+    // cspell:ignore nsecs
     let secs = (timestamp / NS_IN_SECOND) as i64;
     let nsecs = (timestamp % NS_IN_SECOND) as u32;
     DateTime::from_timestamp(secs, nsecs).unwrap()
@@ -571,6 +572,7 @@ mod tests {
 
     #[test]
     fn test_create_hash_upgradable() {
+        // cspell:ignore atata hohoho
         let base = hash(b"atata");
         let extra_base = hash(b"hohoho");
         let other_extra_base = hash(b"banana");

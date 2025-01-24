@@ -689,7 +689,7 @@ impl TestEnv {
         validator_signer.unwrap().validator_id().clone()
     }
 
-    /// Returns the index of client with the given [`AccoountId`].
+    /// Returns the index of client with the given [`AccountId`].
     pub fn get_client_index(&self, account_id: &AccountId) -> usize {
         self.account_indices.index(account_id)
     }
