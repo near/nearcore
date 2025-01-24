@@ -13,11 +13,11 @@ more flexible.
 
 ## Overview
 
+<!-- cspell:ignore Egor Fadeev Uleyskiy -->
 ![Flow chart of meta
 transactions](https://raw.githubusercontent.com/near/NEPs/003e589e6aba24fc70dd91c9cf7ef0007ca50735/neps/assets/nep-0366/NEP-DelegateAction.png)
 _Credits for the diagram go to the NEP authors Alexander Fadeev and Egor
 Uleyskiy._
-
 
 The graphic shows an example use case for meta transactions. Alice owns an
 amount of the fungible token $FT. She wants to transfer some to John. To do
@@ -67,7 +67,7 @@ In the example visualized above, the payment is done using $FT. Together with
 the transfer to John, Alice also adds an action to pay 0.1 $FT to the relayer.
 The relayer checks the content of the `SignedDelegateAction` and only processes
 it if this payment is included as the first action. In this way, the relayer
-will be paid in the same transaction as John. 
+will be paid in the same transaction as John.
 
 Note that the payment to the relayer is still not guaranteed. It could be that
 Alice does not have sufficient $FT and the transfer fails. To mitigate, the
@@ -124,12 +124,12 @@ having multiple receivers in a delegate action. Naturally, it runs into all the
 same complications (false sense of atomicity) and ends with the same conclusion:
 Omitted from the MVP and left open for future improvement.
 
-## Limitation: Accounts must be initialized 
+## Limitation: Accounts must be initialized
 
 Any transaction, including meta transactions, must use NONCEs to avoid replay
 attacks. The NONCE must be chosen by Alice and compared to a NONCE stored on
 chain. This NONCE is stored on the access key information that gets initialized
-when creating an account. 
+when creating an account.
 
 Implicit accounts don't need to be initialized in order to receive NEAR tokens,
 or even $FT. This means users could own $FT but no NONCE is stored on chain for

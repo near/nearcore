@@ -71,7 +71,7 @@ is produced.
 
 What happens afterwards will be covered in future episodes/articles.
 
-## Additional notes:
+## Additional notes
 
 ### Transaction being added multiple times
 

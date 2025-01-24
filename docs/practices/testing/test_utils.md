@@ -97,7 +97,7 @@ To wait/handle a given event (as a lot of network code is running in an async fa
 pm.events.recv_util(|event| match event {...}).await;
 ```
 
-## End to End 
+## End to End
 
 ### chain, runtime, signer
 
@@ -115,4 +115,3 @@ In chain/client/src/test_utils.rs
 ```rust
 let (block, client, view_client) = setup(MANY_FIELDS);
 ```
-
