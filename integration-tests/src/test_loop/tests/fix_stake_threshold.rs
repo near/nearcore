@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::validators::get_epoch_all_validators;
@@ -13,13 +15,21 @@ use near_primitives::num_rational::Rational32;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives_core::version::ProtocolFeature;
 
+// TODO(resharding) - Implement this test for the stable protocol version. The
+// original implementation was not compatible with the two shard layout changes
+// in between the FixStakingThreshold and stable.
 #[test]
-fn slow_test_fix_validator_stake_threshold() {
+fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
     init_test_logger();
 
     let protocol_version = ProtocolFeature::FixStakingThreshold.protocol_version() - 1;
+    let target_protocol_version = ProtocolFeature::FixStakingThreshold.protocol_version();
+    let protocol_upgrade_schedule =
+        ProtocolUpgradeVotingSchedule::new_immediate(target_protocol_version);
+
     let test_loop_builder = TestLoopBuilder::new();
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
@@ -59,6 +69,7 @@ fn slow_test_fix_validator_stake_threshold() {
     let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = test_loop_builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store.clone())
+        .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
         .build();
 
@@ -91,21 +102,25 @@ fn slow_test_fix_validator_stake_threshold() {
     // Chunk producer stake threshold used to be dependent on the number of shards.
     assert_eq!(epoch_info.seat_price() / ONE_NEAR, 600_000 / num_shards as u128);
 
+    let head_height = Cell::new(client.chain.head().unwrap().height);
+
     test_loop.run_until(
         |test_loop_data: &mut TestLoopData| {
             let client = &test_loop_data.get(&handle).client;
             let head = client.chain.head().unwrap();
-            let epoch_height = client
-                .epoch_manager
-                .get_epoch_height_from_prev_block(&head.prev_block_hash)
-                .unwrap();
+            let parent_hash = head.prev_block_hash;
+            let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&parent_hash).unwrap();
+            let epoch_height =
+                client.epoch_manager.get_epoch_height_from_prev_block(&parent_hash).unwrap();
+            let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
             // ensure loop is exited because condition is met instead of timeout
             assert!(epoch_height < 3);
 
-            let epoch_id = client
-                .epoch_manager
-                .get_epoch_id_from_prev_block(&client.chain.head().unwrap().last_block_hash)
-                .unwrap();
+            if head_height.get() != head.height {
+                head_height.set(head.height);
+                tracing::info!(target: "test", height = head.height, num_shards=shard_layout.num_shards(), "new head");
+            }
+
             // chain will advance to the latest protocol version
             let protocol_version =
                 client.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();

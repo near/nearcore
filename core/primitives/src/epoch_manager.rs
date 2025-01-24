@@ -722,8 +722,12 @@ mod tests {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);
             if stored_config.as_ref() != &expected_config {
-                println!("boom stored {:#?}", stored_config);
-                println!("boom expect {:#?}", expected_config);
+                println!(
+                    "Mismatching epoch configs for protocol version {protocol_version}.
+                    Please update the appropriate <version>.json file."
+                );
+                println!("stored\n{:#?}", stored_config);
+                println!("expected\n{:#?}", expected_config);
                 panic!("Mismatch for protocol version {protocol_version}");
             }
         }
