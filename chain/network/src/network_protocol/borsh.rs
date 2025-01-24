@@ -11,6 +11,7 @@ use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -146,6 +147,7 @@ pub(super) enum PeerMessage {
 
     BlockRequest(CryptoHash),
     Block(Block),
+    OptimisticBlock(OptimisticBlock),
 
     Transaction(SignedTransaction),
     Routed(Box<RoutedMessage>),
