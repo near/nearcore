@@ -5,5 +5,6 @@
 ## anyway.) Furthermore, instrumenting the crates like these run a risk of significant performance
 ## regressions, such as seen in #10201
 
+# cspell:words Cinstrument
 RUSTC="$1"; shift
 exec "$RUSTC" -Cinstrument-coverage --cfg=coverage "$@"
