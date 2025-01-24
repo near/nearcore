@@ -180,6 +180,7 @@ if __name__ == '__main__':
     validator_nodes = [n for n in all_nodes if get_role(n) != Role.Rpc]
     rpc_nodes = [n for n in all_nodes if get_role(n) == Role.Rpc]
     if args.binary_url:
+        # cspell:ignore redownload
         mocknet.redownload_neard(all_nodes, args.binary_url)
     if args.mode == "new":
         logger.info(f'Configuring nodes from scratch')

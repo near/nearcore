@@ -25,6 +25,7 @@ import dotenv
 
 # cspell:ignore dotenv CREAT RDWR gethostname levelname
 
+
 def get_lock(home):
     lock_file = os.path.join(home, 'LOCK')
 

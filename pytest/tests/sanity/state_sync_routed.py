@@ -148,7 +148,7 @@ if mode == 'manytx':
     logger.info("Old node caught up to expected balances: %s" %
                 ctx.expected_balances)
 
-    # requery the balances from the newly started node
+    # again query the balances from the newly started node
     ctx.nodes.append(node4)
     ctx.act_to_val = [2, 2, 2]
 

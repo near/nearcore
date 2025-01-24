@@ -42,7 +42,7 @@ for iter_ in range(10):
     hash_ = nodes[0].get_latest_block().hash_bytes
     logger.info("Deploying perturbed contract #%s" % iter_)
 
-    # cspell:words mething 
+    # cspell:words mething
     new_name = '%s_mething' % iter_
     new_output = '%s_llo' % iter_
 

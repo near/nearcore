@@ -502,6 +502,7 @@ def compress_and_upload(nodes, src_filename, dst_filename):
          nodes)
 
 
+# cspell:ignore redownload
 def redownload_neard(nodes, binary_url):
     pmap(
         lambda node: node.machine.
@@ -1038,7 +1039,9 @@ def upload_config(node, config_json, override_fn):
     upload_json(node, '/home/ubuntu/.near/config.json', copied_config)
 
 
-def create_and_upload_config_file_from_default(nodes, chain_id, override_fn=None):
+def create_and_upload_config_file_from_default(nodes,
+                                               chain_id,
+                                               override_fn=None):
     nodes[0].machine.run(
         'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'
         .format(chain_id))
