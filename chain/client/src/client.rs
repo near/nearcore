@@ -1343,10 +1343,11 @@ impl Client {
         res
     }
 
+    #[allow(unused)]
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
         self.chain.optimistic_block_chunks.add_block(block);
-        self.maybe_process_optimistic_block(&self.validator_signer.get());
+        self.maybe_process_optimistic_block();
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block height before we do any
@@ -1639,7 +1640,7 @@ impl Client {
         );
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender, &signer);
-        self.maybe_process_optimistic_block(&signer);
+        self.maybe_process_optimistic_block();
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -2145,12 +2146,13 @@ impl Client {
         self.process_block_processing_artifact(blocks_processing_artifacts, signer);
     }
 
-    pub fn maybe_process_optimistic_block(&mut self, signer: &Option<Arc<ValidatorSigner>>) {
+    pub fn maybe_process_optimistic_block(&mut self) {
         let Some((block, chunks)) = self.chain.optimistic_block_chunks.take_latest_ready_block()
         else {
             return;
         };
 
+        let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
         let prev_block_hash = *block.prev_block_hash();
         let block_hash = *block.hash();
@@ -2163,7 +2165,7 @@ impl Client {
             apply_chunks_done_sender,
         ) {
             Ok(()) => {
-                debug!(
+                info!(
                     target: "chain",
                     prev_block_hash = ?prev_block_hash,
                     hash = ?block_hash,

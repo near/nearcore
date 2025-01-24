@@ -302,6 +302,13 @@ impl OptimisticBlockChunksPool {
             return;
         }
 
+        tracing::info!(
+            target: "chunks",
+            ?prev_block_hash,
+            optimistic_block_hash = ?block.hash(),
+            block_height = block.height(),
+            "OptimisticBlock is ready"
+        );
         let chunks = chunks
             .chunks
             .iter()

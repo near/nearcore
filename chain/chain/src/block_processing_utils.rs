@@ -43,8 +43,10 @@ pub(crate) struct BlockPreprocessInfo {
 
 pub(crate) struct OptimisticBlockInfo {
     /// Used to get notified when the applying chunks of a block finishes.
+    #[allow(unused)]
     pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
     /// This is used to calculate block processing time metric
+    #[allow(unused)]
     pub(crate) block_start_processing_time: Instant,
 }
 

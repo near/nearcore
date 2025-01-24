@@ -1681,6 +1681,14 @@ impl Chain {
                     {
                         match apply_result {
                             Ok(result) => {
+                                info!(
+                                    target: "chain",
+                                    ?prev_block_hash,
+                                    block_height,
+                                    ?shard_id,
+                                    ?cached_shard_update_key,
+                                    "Caching ShardUpdate result from OptimisticBlock"
+                                );
                                 self.apply_chunk_results_cache
                                     .push(cached_shard_update_key, result);
                             }
@@ -3946,8 +3954,12 @@ impl Chain {
         incoming_receipts: Option<&Vec<ReceiptProof>>,
         storage_context: StorageContext,
     ) -> Result<Option<UpdateShardJob>, Error> {
-        let _span = tracing::debug_span!(target: "chain", "get_update_shard_job").entered();
         let prev_hash = prev_block.hash();
+        let block_height = block.height;
+        let _span =
+            tracing::debug_span!(target: "chain", "get_update_shard_job", ?prev_hash, block_height)
+                .entered();
+
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let shard_id = shard_layout.get_shard_id(shard_index)?;
@@ -3958,10 +3970,10 @@ impl Chain {
         }
 
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
-        let block_height = block.height;
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if let Some(result) = self.apply_chunk_results_cache.peek(&cached_shard_update_key) {
+            info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
             let result = result.clone();
             return Ok(Some((
                 shard_id,
@@ -3969,6 +3981,7 @@ impl Chain {
                 Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
             )));
         }
+        info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3991,8 +4004,6 @@ impl Chain {
                 warn!(
                     target: "chain",
                     ?err,
-                    prev_block_hash=?prev_hash,
-                    block_height,
                     ?shard_id,
                     prev_chunk_height_included,
                     ?prev_chunk_extra,
