@@ -1302,7 +1302,7 @@ impl EpochManager {
             // certain protocol version and then upgrade to stable.
             let split_shards = shard_layout
                 .get_children_shards_ids(shard_id)
-                .expect(&format!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
+                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
             for next_shard_id in split_shards {
                 if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
                     return Ok(true);
