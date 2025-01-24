@@ -1,5 +1,5 @@
 //! Implementation of the token bucket algorithm, used to put limits on
-//! bandwidth and burstiness of network traffic.
+//! bandwidth and burst of network traffic.
 //!
 //! The algorithm depicts an imaginary bucket into which tokens are added
 //! at regular intervals of time. The bucket has a well defined maximum size

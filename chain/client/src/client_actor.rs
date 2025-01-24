@@ -550,7 +550,7 @@ impl Handler<BlockResponse> for ClientActorInner {
                 Ok(epoch_id) => {
                     if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
                         if !hashes.contains(block.header().hash()) {
-                            warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header().hash(), block.header().height());
+                            warn!(target: "client", "Rejecting un-requested block {}, height {}", block.header().hash(), block.header().height());
                         }
                     }
                 }
@@ -1196,8 +1196,8 @@ impl ClientActorInner {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
             let update_result = config_updater.try_update(
-                &|updateable_client_config| {
-                    self.client.update_client_config(updateable_client_config)
+                &|updatable_client_config| {
+                    self.client.update_client_config(updatable_client_config)
                 },
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
@@ -1245,7 +1245,7 @@ impl ClientActorInner {
             delay = std::cmp::min(delay, self.sync_timer_next_attempt - now);
 
             self.doomslug_timer_next_attempt = self.run_timer(
-                self.client.config.doosmslug_step_period,
+                self.client.config.doomslug_step_period,
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, _| act.try_doomslug_timer(),

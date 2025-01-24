@@ -265,7 +265,7 @@ fn ultra_slow_test_consensus_with_epoch_switches() {
                             // over the network, they have one more approval ready to produce their
                             // block than the block producer that will be at the later height). If
                             // such a block is indeed produced faster than all the skips are created,
-                            // the paritcipants who haven't sent their endorsements to be converted
+                            // the participants who haven't sent their endorsements to be converted
                             // to skips change their head.
                             if my_ord % 8 < 2 {
                                 return (NetworkResponses::NoResponse.into(), false);

@@ -142,7 +142,7 @@ async fn broadcast() {
     let got1 = peer1.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(got1.hosts, vec![info2.clone()]);
 
-    tracing::info!(target:"test", "Connect another peer, check that it receieves all of the published information.");
+    tracing::info!(target:"test", "Connect another peer, check that it receives all of the published information.");
     let mut peer5 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let peer5_sync_msg = peer5.events.recv_until(take_sync_snapshot_msg).await;
@@ -198,7 +198,7 @@ async fn invalid_signature_not_broadcast() {
     });
     peer1.send(invalid_message).await;
 
-    tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
+    tracing::info!(target:"test", "Send a valid message from peer2 (as peer1 got banned), it should reach peer3.");
 
     let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
 
@@ -209,7 +209,7 @@ async fn invalid_signature_not_broadcast() {
     tracing::info!(target:"test", "Make sure that only the valid messages are broadcast.");
 
     // Wait until peer2 receives info2. Ignore ok_info_a and ok_info_b,
-    // as the PeerManager could accept and broadcast them despite the neighbouring invalid_info.
+    // as the PeerManager could accept and broadcast them despite the neighboring invalid_info.
     wait_for_host_info(&mut peer2, &info2, &[ok_info_a, ok_info_b]).await;
 }
 
@@ -269,7 +269,7 @@ async fn too_many_shards_not_broadcast() {
     });
     peer1.send(invalid_message).await;
 
-    tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
+    tracing::info!(target:"test", "Send a valid message from peer2 (as peer1 got banned), it should reach peer3.");
 
     let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
 
@@ -280,7 +280,7 @@ async fn too_many_shards_not_broadcast() {
     tracing::info!(target:"test", "Make sure that only valid messages are broadcast.");
 
     // Wait until peer2 receives info2. Ignore ok_info_a and ok_info_b,
-    // as the PeerManager could accept and broadcast them despite the neighbouring invalid_info.
+    // as the PeerManager could accept and broadcast them despite the neighboring invalid_info.
     wait_for_host_info(&mut peer2, &info2, &[ok_info_a, ok_info_b]).await;
 }
 
@@ -289,7 +289,7 @@ async fn too_many_shards_not_broadcast() {
 /// [0] - [1]
 ///  |     |
 /// [2] - [3]
-/// And then the managers propagate messages among themeselves.
+/// And then the managers propagate messages among themselves.
 #[tokio::test]
 async fn propagate() {
     init_test_logger();
@@ -393,7 +393,7 @@ async fn large_shard_id_in_cache() {
     pm.wait_for_snapshot_hosts(&want).await;
 }
 
-// When PeerManager receives a request to share SnaphotHostInfo with more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+// When PeerManager receives a request to share SnapshotHostInfo with more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
 // shards it should truncate the list of shards to prevent being banned for abusive behavior by other peers.
 // Truncation is done by choosing a random subset from the original list of shards.
 #[tokio::test]
@@ -453,6 +453,7 @@ async fn too_many_shards_truncate() {
         assert!(shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
     }
     // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
+    // cspell:ignore twoelems
     assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));
     // The list isn't truncated by choosing the first half of the shards vec, it should be chosen randomly.
     // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO is at least 128, so the chance of this check failing due to randomness is extremely low.

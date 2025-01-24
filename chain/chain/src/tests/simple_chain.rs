@@ -21,7 +21,7 @@ fn build_chain() {
     // The hashes here will have to be modified after changes to the protocol.
     // In particular if you update protocol version or add new protocol
     // features.  If this assert is failing without you adding any new or
-    // stabilising any existing protocol features, this indicates bug in your
+    // stabilizing any existing protocol features, this indicates bug in your
     // code which unexpectedly changes the protocol.
     //
     // To update the hashes you can use cargo-insta.  Note that you’ll need to

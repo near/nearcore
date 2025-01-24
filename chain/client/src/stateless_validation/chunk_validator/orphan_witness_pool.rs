@@ -210,7 +210,7 @@ mod tests {
         hash(&height.to_be_bytes())
     }
 
-    /// Assert that both Vecs are equal after sorting. It's order-independent, unlike the standard assert_eq!
+    /// Assert that both vec are equal after sorting. It's order-independent, unlike the standard assert_eq!
     fn assert_contents(mut observed: Vec<ChunkStateWitness>, mut expected: Vec<ChunkStateWitness>) {
         let sort_comparator = |witness1: &ChunkStateWitness, witness2: &ChunkStateWitness| {
             let bytes1 = borsh::to_vec(witness1).unwrap();
@@ -381,7 +381,7 @@ mod tests {
     /// It's hard to test it because metrics are global and it could interfere with other tests,
     /// but we can at least test that it doesn't crash. That's always something.
     #[test]
-    fn destructor_doesnt_crash() {
+    fn destructor_does_not_crash() {
         let mut pool = OrphanStateWitnessPool::new(10);
         pool.add_orphan_state_witness(make_witness(100, ShardId::new(0), block(99), 0), 0);
         pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99), 0), 0);

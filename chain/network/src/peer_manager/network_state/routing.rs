@@ -139,7 +139,6 @@ impl NetworkState {
                     crate::peer_manager::peer_manager_actor::Event::EdgesAdded(edges.clone()),
                 );
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
-                // Retu
                 oks.iter()
                     .map(|ok| match ok {
                         true => Ok(()),

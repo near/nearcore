@@ -143,7 +143,7 @@ mod tests {
         outputs.sort();
 
         // The error will happen on 100th input, but other threads might produce subsequent outputs in parallel,
-        // so there might be over 100 outputs. We can't really assume antything about the outputs due to the
+        // so there might be over 100 outputs. We can't really assume anything about the outputs due to the
         // nature of multithreading, but we can check that some basic conditions hold.
 
         // All outputs should be distinct

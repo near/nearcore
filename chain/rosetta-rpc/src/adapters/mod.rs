@@ -140,7 +140,7 @@ pub(crate) async fn convert_block_to_transactions(
         })
         .filter(move |account_id| {
             // TODO(mina86): Convert this to seen.get_or_insert_with(account_id,
-            // Clone::clone) once hash_set_entry stabilises.
+            // Clone::clone) once hash_set_entry stabilizes.
             seen.insert(account_id.clone())
         })
         .collect::<Vec<_>>();
@@ -747,9 +747,9 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     // the "sender" of this group of operations is considered to be the delegating account, not the proxy
                     sender_account_id.try_set(&signed_delegate_action_operation.receiver_id)?;
 
-                    let intitiate_signed_delegate_action_operation = validated_operations::intitiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
+                    let initiate_signed_delegate_action_operation = validated_operations::initiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
                     delegate_proxy_account_id
-                        .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
+                        .try_set(&initiate_signed_delegate_action_operation.sender_account)?;
 
                     let delegate_action: near_primitives::transaction::Action =
                         near_primitives::action::delegate::SignedDelegateAction {
@@ -861,6 +861,7 @@ mod tests {
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
+        // cspell:ignore nfvalidator
         run_actix(async {
             let runtime_config: RuntimeConfigView = RuntimeConfig::test().into();
             let actor_handles = setup_no_network(

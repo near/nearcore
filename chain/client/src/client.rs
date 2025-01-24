@@ -33,7 +33,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
     DoomslugThresholdMode, Provenance,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdateableClientConfig};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
@@ -118,7 +118,7 @@ pub struct CatchupState {
 
 pub struct Client {
     /// Adversarial controls - should be enabled only to test disruptive
-    /// behaviour on chain.
+    /// behavior on chain.
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
     #[cfg(feature = "test_features")]
@@ -210,10 +210,7 @@ impl AsRef<Client> for Client {
 }
 
 impl Client {
-    pub(crate) fn update_client_config(
-        &self,
-        update_client_config: UpdateableClientConfig,
-    ) -> bool {
+    pub(crate) fn update_client_config(&self, update_client_config: UpdatableClientConfig) -> bool {
         let mut is_updated = false;
         is_updated |= self.config.expected_shutdown.update(update_client_config.expected_shutdown);
         is_updated |= self.config.resharding_config.update(update_client_config.resharding_config);
@@ -1100,7 +1097,7 @@ impl Client {
         );
         if let Some(limit) = prepared_transactions.limited_by {
             // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
-            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT
+            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT
                 .with_label_values(&[&shard_id.to_string(), limit.as_ref()])
                 .inc();
         }
@@ -1114,8 +1111,8 @@ impl Client {
     }
 
     /// Calculates the root of receipt proofs.
-    /// All receipts are groupped by receiver_id and hash is calculated
-    /// for each such group. Then we merkalize these hashes to calculate
+    /// All receipts are grouped by receiver_id and hash is calculated
+    /// for each such group. Then we merklize these hashes to calculate
     /// the receipts root.
     ///
     /// Receipts root is used in the following ways:
@@ -1838,7 +1835,7 @@ impl Client {
             }
         }
 
-        // Run shadown chunk validation on the new block, unless it's coming from sync.
+        // Run shadow chunk validation on the new block, unless it's coming from sync.
         // Syncing has to be fast to catch up with the rest of the chain,
         // applying the chunks would make the sync unworkably slow.
         if provenance != Provenance::SYNC {
@@ -1870,7 +1867,7 @@ impl Client {
         match status {
             BlockStatus::Next => {
                 // If this block immediately follows the current tip, remove
-                // transactions from the txpool.
+                // transactions from the tx pool.
                 self.remove_transactions_for_block(validator_id, block).unwrap_or_default();
             }
             BlockStatus::Fork => {
@@ -2839,14 +2836,14 @@ impl Client {
         // With the current implementation we just fetch chunk producers and block producers
         // of this and the next epoch (which covers what we need, as described above), but may
         // require some tuning in the future. In particular, if we decide that connecting to
-        // block & chunk producers of the next expoch is too expensive, we can postpone it
+        // block & chunk producers of the next epoch is too expensive, we can postpone it
         // till almost the end of this epoch.
         let mut account_keys = AccountKeys::new();
         for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
             // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
             // are cheaper than block processing (and that they will work with both this and
             // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
-            // a defence in depth, based on the previous experience with expensive
+            // a defense in depth, based on the previous experience with expensive
             // EpochManagerAdapter::get_validators_info call.
             for cp in self.epoch_manager.get_epoch_chunk_producers(epoch_id)? {
                 account_keys

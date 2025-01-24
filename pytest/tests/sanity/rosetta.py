@@ -365,7 +365,7 @@ class RosettaRPC:
             block_id = block_identifier(block_id)
             block = self.rpc('/block', block_identifier=block_id)['block']
 
-            # Order of transactions on the list is not guaranteed so normalise
+            # Order of transactions on the list is not guaranteed so normalize
             # it by sorting by hash.
             # TODO(mina86): Verify that this is still true.
             block.get(
@@ -728,7 +728,7 @@ class RosettaTestCase(unittest.TestCase):
                 callback(*args, **kw)
             self.assertEqual(500, err.exception.response.status_code)
             resp = err.exception.response.json()
-            self.assertFalse(resp['retriable'])
+            self.assertFalse(resp['retryable'])
             self.assertEqual(want_code, resp['code'])
 
         # Query for non-existent blocks

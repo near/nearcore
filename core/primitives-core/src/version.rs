@@ -62,7 +62,7 @@ pub enum ProtocolFeature {
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
     SynchronizeBlockChunkProduction,
-    /// Change the algorithm to count WASM stack usage to avoid undercounting in
+    /// Change the algorithm to count WASM stack usage to avoid under counting in
     /// some cases.
     CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.

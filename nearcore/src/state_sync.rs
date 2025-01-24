@@ -11,7 +11,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
-    create_bucket_readwrite, external_storage_location, StateFileType,
+    create_bucket_read_write, external_storage_location, StateFileType,
 };
 use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
@@ -71,7 +71,7 @@ impl StateSyncDumper {
 
         let external = match dump_config.location {
             ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3 {
-                bucket: Arc::new(create_bucket_readwrite(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
+                bucket: Arc::new(create_bucket_read_write(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
                     "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
             },
             ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },

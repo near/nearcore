@@ -97,7 +97,7 @@ impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 /// A subset of Config that can be updated white the node is running.
-pub struct UpdateableClientConfig {
+pub struct UpdatableClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: Option<BlockHeight>,
 
@@ -110,5 +110,5 @@ pub struct UpdateableClientConfig {
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
 
-pub type UpdateableValidatorSigner = Option<Arc<ValidatorSigner>>;
+pub type UpdatableValidatorSigner = Option<Arc<ValidatorSigner>>;
 pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;

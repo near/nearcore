@@ -46,6 +46,7 @@ fn parse_path_data(path: String, data: String) -> Result<RpcQueryRequest, RpcPar
         parse_bs58_data(max_len, data)
     };
 
+    // cspell:words splitn
     let mut path_parts = path.splitn(3, '/');
     let make_err = || RpcParseError("Not enough query parameters provided".to_string());
     let query_command = path_parts.next().ok_or_else(make_err)?;

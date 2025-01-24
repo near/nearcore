@@ -1,4 +1,5 @@
 // @generated automatically by Diesel CLI.
+// cspell:ignore Timestamptz
 
 diesel::table! {
     ft_transfers (id) {

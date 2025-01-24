@@ -744,7 +744,7 @@ impl PeerActor {
                                 partial_edge_info: partial_edge_info,
                             });
                         }
-                        // TIER1 is strictly reserved for BFT consensensus messages,
+                        // TIER1 is strictly reserved for BFT consensus messages,
                         // so all kinds of periodical syncs happen only on TIER2 connections.
                         if tier==tcp::Tier::T2 {
                             // Trigger a full accounts data sync periodically.
@@ -1316,7 +1316,7 @@ impl PeerActor {
                     .inc();
                 let network_state = self.network_state.clone();
                 // In case a full sync is requested, immediately send what we got.
-                // It is a microoptimization: we do not send back the data we just received.
+                // It is a micro optimization: we do not send back the data we just received.
                 if msg.requesting_full_sync {
                     self.send_message_or_log(&PeerMessage::SyncAccountsData(SyncAccountsData {
                         requesting_full_sync: false,
@@ -1654,7 +1654,8 @@ impl actix::Handler<stream::Error> for PeerActor {
                 io::ErrorKind::UnexpectedEof
                 | io::ErrorKind::ConnectionReset
                 | io::ErrorKind::BrokenPipe
-                // libc::ETIIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
+                // cspell:ignore libc TIMEDOUT
+                // libc::TIMEDOUT = 110, translates to io::ErrorKind::TimedOut.
                 | io::ErrorKind::TimedOut => true,
                 // When stopping tokio runtime, an "IO driver has terminated" is sometimes
                 // returned.
