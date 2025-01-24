@@ -134,6 +134,11 @@ pub trait ChainStoreAccess {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error>;
+    fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error>;
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -1069,6 +1074,14 @@ impl ChainStoreAccess for ChainStore {
         ChainStoreAdapter::get_chunk_extra(self, block_hash, shard_uid)
     }
 
+    fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        ChainStoreAdapter::get_chunk_apply_stats(&self, block_hash, shard_id)
+    }
+
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
         ChainStoreAdapter::get_block_header(self, h)
@@ -1361,6 +1374,18 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(Arc::clone(chunk_extra))
         } else {
             self.chain_store.get_chunk_extra(block_hash, shard_uid)
+        }
+    }
+
+    fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        if let Some(stats) = self.chunk_apply_stats.get(&(*block_hash, *shard_id)) {
+            Ok(Some(stats.clone()))
+        } else {
+            self.chain_store.get_chunk_apply_stats(block_hash, shard_id)
         }
     }
 
