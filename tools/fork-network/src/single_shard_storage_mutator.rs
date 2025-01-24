@@ -30,8 +30,8 @@ impl SingleShardStorageMutator {
         Ok(())
     }
 
-    fn remove(&mut self, key: TrieKey) -> anyhow::Result<()> {
-        self.updates.push((key.to_vec(), None));
+    pub(crate) fn remove(&mut self, key: Vec<u8>) -> anyhow::Result<()> {
+        self.updates.push((key, None));
         Ok(())
     }
 
@@ -43,10 +43,6 @@ impl SingleShardStorageMutator {
         self.set(TrieKey::Account { account_id }, borsh::to_vec(&value)?)
     }
 
-    pub(crate) fn delete_account(&mut self, account_id: AccountId) -> anyhow::Result<()> {
-        self.remove(TrieKey::Account { account_id })
-    }
-
     pub(crate) fn set_access_key(
         &mut self,
         account_id: AccountId,
@@ -54,14 +50,6 @@ impl SingleShardStorageMutator {
         access_key: AccessKey,
     ) -> anyhow::Result<()> {
         self.set(TrieKey::AccessKey { account_id, public_key }, borsh::to_vec(&access_key)?)
-    }
-
-    pub(crate) fn delete_access_key(
-        &mut self,
-        account_id: AccountId,
-        public_key: PublicKey,
-    ) -> anyhow::Result<()> {
-        self.remove(TrieKey::AccessKey { account_id, public_key })
     }
 
     pub(crate) fn set_data(
@@ -76,20 +64,8 @@ impl SingleShardStorageMutator {
         )
     }
 
-    pub(crate) fn delete_data(
-        &mut self,
-        account_id: AccountId,
-        data_key: &StoreKey,
-    ) -> anyhow::Result<()> {
-        self.remove(TrieKey::ContractData { account_id, key: data_key.to_vec() })
-    }
-
     pub(crate) fn set_code(&mut self, account_id: AccountId, value: Vec<u8>) -> anyhow::Result<()> {
         self.set(TrieKey::ContractCode { account_id }, value)
-    }
-
-    pub(crate) fn delete_code(&mut self, account_id: AccountId) -> anyhow::Result<()> {
-        self.remove(TrieKey::ContractCode { account_id })
     }
 
     pub(crate) fn set_postponed_receipt(&mut self, receipt: &Receipt) -> anyhow::Result<()> {
@@ -102,13 +78,6 @@ impl SingleShardStorageMutator {
         )
     }
 
-    pub(crate) fn delete_postponed_receipt(&mut self, receipt: &Receipt) -> anyhow::Result<()> {
-        self.remove(TrieKey::PostponedReceipt {
-            receiver_id: receipt.receiver_id().clone(),
-            receipt_id: *receipt.receipt_id(),
-        })
-    }
-
     pub(crate) fn set_received_data(
         &mut self,
         account_id: AccountId,
@@ -118,24 +87,12 @@ impl SingleShardStorageMutator {
         self.set(TrieKey::ReceivedData { receiver_id: account_id, data_id }, borsh::to_vec(data)?)
     }
 
-    pub(crate) fn delete_received_data(
-        &mut self,
-        account_id: AccountId,
-        data_id: CryptoHash,
-    ) -> anyhow::Result<()> {
-        self.remove(TrieKey::ReceivedData { receiver_id: account_id, data_id })
-    }
-
     pub(crate) fn set_delayed_receipt(
         &mut self,
         index: u64,
         receipt: &Receipt,
     ) -> anyhow::Result<()> {
         self.set(TrieKey::DelayedReceipt { index }, borsh::to_vec(receipt)?)
-    }
-
-    pub(crate) fn delete_delayed_receipt(&mut self, index: u64) -> anyhow::Result<()> {
-        self.remove(TrieKey::DelayedReceipt { index })
     }
 
     pub(crate) fn should_commit(&self, batch_size: u64) -> bool {

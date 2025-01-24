@@ -629,7 +629,7 @@ impl ForkNetworkCommand {
                         }
                         let new_account_id = map_account(&account_id, None);
                         let replacement = map_key(&public_key, None);
-                        storage_mutator.delete_access_key(account_id, public_key)?;
+                        storage_mutator.remove(key)?;
                         storage_mutator.set_access_key(
                             new_account_id,
                             replacement.public_key(),
@@ -642,7 +642,7 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_account(account_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_account(new_account_id, account)?;
                             accounts_implicit_updated += 1;
                         }
@@ -651,7 +651,7 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_data(account_id, &data_key)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_data(new_account_id, &data_key, value)?;
                             contract_data_updated += 1;
                         }
@@ -660,13 +660,13 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_code(account_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_code(new_account_id, code)?;
                             contract_code_updated += 1;
                         }
                     }
                     StateRecord::PostponedReceipt(mut receipt) => {
-                        storage_mutator.delete_postponed_receipt(&receipt)?;
+                        storage_mutator.remove(key)?;
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
                         storage_mutator.set_postponed_receipt(&receipt)?;
                         postponed_receipts_updated += 1;
@@ -675,13 +675,13 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_received_data(account_id, data_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_received_data(new_account_id, data_id, &data)?;
                             received_data_updated += 1;
                         }
                     }
                     StateRecord::DelayedReceipt(mut receipt) => {
-                        storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
+                        storage_mutator.remove(key)?;
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
                         storage_mutator.set_delayed_receipt(index_delayed_receipt, &receipt)?;
                         index_delayed_receipt += 1;
