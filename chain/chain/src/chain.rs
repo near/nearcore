@@ -803,14 +803,12 @@ impl Chain {
         epoch_id: &EpochId,
         block_hash: &CryptoHash,
         prev_hash: &CryptoHash,
-        prev_prev_hash: &CryptoHash,
     ) -> Result<Option<StateSyncInfo>, Error> {
         let shards_to_state_sync = Chain::get_shards_to_state_sync(
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
             me,
             prev_hash,
-            prev_prev_hash,
         )?;
         if shards_to_state_sync.is_empty() {
             Ok(None)
@@ -2411,8 +2409,7 @@ impl Chain {
         // For the first block of the epoch we check if we need to start download states for
         // shards that we will care about in the next epoch. If there is no state to be downloaded,
         // we consider that we are caught up, otherwise not
-        let state_sync_info =
-            self.get_state_sync_info(me, epoch_id, block_hash, prev_hash, prev_prev_hash)?;
+        let state_sync_info = self.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?;
         debug!(
             target: "chain", %block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
             "Checked for shards to sync for epoch T+1 upon processing first block of epoch T"
@@ -2445,20 +2442,11 @@ impl Chain {
         shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
-        prev_prev_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let mut shards_to_sync = Vec::new();
         for shard_id in epoch_manager.shard_ids(&epoch_id)? {
-            if Self::should_catch_up_shard(
-                epoch_manager,
-                shard_tracker,
-                me,
-                &epoch_id,
-                parent_hash,
-                prev_prev_hash,
-                shard_id,
-            )? {
+            if Self::should_catch_up_shard(shard_tracker, me, parent_hash, shard_id)? {
                 shards_to_sync.push(shard_id)
             }
         }
@@ -2474,43 +2462,26 @@ impl Chain {
     /// where we'll go from tracking it to not tracking it and back to tracking it in consecutive epochs,
     /// then we can just continue to apply chunks as if we were tracking it in epoch T, and there's no need to state sync.
     fn should_catch_up_shard(
-        _epoch_manager: &dyn EpochManagerAdapter,
         shard_tracker: &ShardTracker,
         me: &Option<AccountId>,
-        epoch_id: &EpochId,
-        epoch_last_block: &CryptoHash,
-        _epoch_last_block_prev: &CryptoHash,
+        prev_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<bool, Error> {
         // Won't care about it next epoch, no need to state sync it.
-        if !shard_tracker.will_care_about_shard(me.as_ref(), epoch_last_block, shard_id, true) {
+        if !shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true) {
             return Ok(false);
         }
         // Currently tracking the shard, so no need to state sync it.
-        if shard_tracker.care_about_shard(me.as_ref(), epoch_last_block, shard_id, true) {
+        if shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true) {
             return Ok(false);
         }
 
         // Now we need to state sync it unless we were tracking the parent in the previous epoch,
         // in which case we don't need to because we already have the state, and can just continue applying chunks
-        if epoch_id == &EpochId::default() {
-            return Ok(true);
-        }
 
-        // let (_layout, parent_shard_id, _index) =
-        //     epoch_manager.get_prev_shard_id_from_prev_hash(epoch_last_block, shard_id)?;
-        // // Note that here passing `epoch_last_block_prev` to care_about_shard() will have us check whether we were tracking it in
-        // // the previous epoch, because it is the "parent_hash" of the last block of the previous epoch.
-        // // TODO: consider refactoring these ShardTracker functions to accept an epoch_id
-        // // to make this less tricky.
-        // let tracked_before = shard_tracker.care_about_shard(
-        //     me.as_ref(),
-        //     epoch_last_block_prev,
-        //     parent_shard_id,
-        //     true,
-        // );
-        // TODO(resharding) Uncomment or remove above, and accordingly `_epoch_manager` and `_epoch_last_block_prev`.
-        Ok(true)
+        let tracked_before =
+            shard_tracker.cared_about_shard_in_prev_epoch(me.as_ref(), prev_hash, shard_id, true);
+        Ok(!tracked_before)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
@@ -3759,10 +3730,17 @@ impl Chain {
             self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+        let cared_about_shard_prev_epoch = self.shard_tracker.cared_about_shard_in_prev_epoch(
+            me.as_ref(),
+            prev_hash,
+            shard_id,
+            true,
+        );
         let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
             cares_about_shard_next_epoch,
+            cared_about_shard_prev_epoch,
         );
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
         Ok(ShardContext { shard_uid, should_apply_chunk })
@@ -4127,26 +4105,28 @@ fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
-// TODO(state-sync): After the changes in https://github.com/near/nearcore/pull/12617,
-// this needs to be changed to be aware of what shards can be applied now. Otherwise we have
-// a bug in the rare case where we have something like this sequence of tracked shards in consecutive epochs:
-// (s0) -> (s1) -> (s0, s2)
-// In this case we don't state sync s0 since we already have the state, but we apply chunks with mode `NotCaughtUp`
-// in the middle epoch there because we're downloading state for s2.
 fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
     cares_about_shard_next_epoch: bool,
+    cared_about_shard_prev_epoch: bool,
 ) -> bool {
     match mode {
-        // next epoch's shard states are not ready, only update this epoch's shards
-        ApplyChunksMode::NotCaughtUp => cares_about_shard_this_epoch,
+        // next epoch's shard states are not ready, only update this epoch's shards plus shards we will care about in the future
+        // and already have state for
+        ApplyChunksMode::NotCaughtUp => {
+            cares_about_shard_this_epoch
+                || (cares_about_shard_next_epoch && cared_about_shard_prev_epoch)
+        }
         // update both this epoch and next epoch
         ApplyChunksMode::IsCaughtUp => cares_about_shard_this_epoch || cares_about_shard_next_epoch,
         // catching up next epoch's shard states, do not update this epoch's shard state
         // since it has already been updated through ApplyChunksMode::NotCaughtUp
         ApplyChunksMode::CatchingUp => {
-            !cares_about_shard_this_epoch && cares_about_shard_next_epoch
+            let syncing_shard = !cares_about_shard_this_epoch
+                && cares_about_shard_next_epoch
+                && !cared_about_shard_prev_epoch;
+            syncing_shard
         }
     }
 }
