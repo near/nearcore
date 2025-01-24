@@ -156,9 +156,6 @@ pub enum ProtocolFeature {
     /// Increases main_storage_proof_size_soft_limit parameter from 3mb to 4mb
     IncreaseStorageProofSizeSoftLimit,
 
-    /// Protocol version reserved for use in resharding tests.
-    SimpleNightshadeTestonly,
-
     // Shuffle shard assignments for chunk producers at every epoch.
     ShuffleShardAssignments,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
@@ -270,11 +267,6 @@ impl ProtocolFeature {
             | ProtocolFeature::CurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
-
-            // This protocol version is reserved for use in resharding tests. An extra resharding
-            // is simulated on top of the latest shard layout in production. Note that later
-            // protocol versions will still have the production layout.
-            ProtocolFeature::SimpleNightshadeTestonly => 100,
 
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]

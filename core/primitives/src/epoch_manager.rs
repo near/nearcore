@@ -378,17 +378,6 @@ impl AllEpochConfig {
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
-        // Unlike the other checks, this one is for strict equality. The testonly nightshade layout
-        // is specifically used in resharding tests, not for any other protocol versions.
-        #[cfg(feature = "nightly")]
-        if protocol_version == ProtocolFeature::SimpleNightshadeTestonly.protocol_version() {
-            Self::config_nightshade_impl(
-                config,
-                ShardLayout::get_simple_nightshade_layout_testonly(),
-            );
-            return;
-        }
-
         if checked_feature!("stable", SimpleNightshadeV5, protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v5());
             return;
@@ -545,8 +534,6 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 72, "72.json"),
     include_config!("mainnet", 75, "75.json"),
     include_config!("mainnet", 76, "76.json"),
-    include_config!("mainnet", 100, "100.json"),
-    include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -560,8 +547,6 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 72, "72.json"),
     include_config!("testnet", 75, "75.json"),
     include_config!("testnet", 76, "76.json"),
-    include_config!("testnet", 100, "100.json"),
-    include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 
