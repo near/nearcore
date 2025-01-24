@@ -13,7 +13,7 @@ use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
-use crate::sharding::shuffle_receipt_proofs;
+use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_with_epoch_manager,
@@ -55,7 +55,7 @@ use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageEr
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Chunks, Tip};
+use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Chunks, MaybeNew, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -1418,28 +1418,30 @@ impl Chain {
         Ok(false)
     }
 
-    /// Collect all incoming receipts generated in `block`, return a map from target shard id to the
-    /// list of receipts that the target shard receives.
+    /// Collect all incoming receipts from chunks included in some block,
+    /// return a map from target shard id to the list of receipts that the
+    /// target shard receives.
     /// The receipts are sorted by the order that they will be processed.
     /// Note that the receipts returned in this function do not equal all receipts that will be
     /// processed as incoming receipts in this block, because that may include incoming receipts
     /// generated in previous blocks too, if some shards in the previous blocks did not produce
     /// new chunks.
-    pub fn collect_incoming_receipts_from_block(
+    pub fn collect_incoming_receipts_from_chunks(
         &self,
         me: &Option<AccountId>,
-        block: &Block,
+        chunks: &Chunks,
+        prev_block_hash: &CryptoHash,
+        shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
+        if !self.care_about_any_shard_or_part(me, *prev_block_hash)? {
             return Ok(HashMap::new());
         }
-        let block_height = block.header().height();
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
-        for chunk_header in block.chunks().iter_deprecated() {
-            if !chunk_header.is_new_chunk(block_height) {
+        for chunk_header in chunks.iter() {
+            let MaybeNew::New(chunk_header) = chunk_header else {
                 continue;
-            }
+            };
             let partial_encoded_chunk =
                 self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
             for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
@@ -1453,7 +1455,7 @@ impl Chain {
         }
         // sort the receipts deterministically so the order that they will be processed is deterministic
         for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
-            shuffle_receipt_proofs(receipt_proofs, block.hash());
+            shuffle_receipt_proofs(receipt_proofs, shuffle_salt);
         }
 
         Ok(receipt_proofs_by_shard_id)
@@ -2345,7 +2347,14 @@ impl Chain {
         }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
-        let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
+
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+        let incoming_receipts = self.collect_incoming_receipts_from_chunks(
+            me,
+            &block.chunks(),
+            &prev_hash,
+            receipts_shuffle_salt,
+        )?;
 
         // Check if block can be finalized and drop it otherwise.
         self.check_if_finalizable(header)?;
@@ -3165,8 +3174,17 @@ impl Chain {
         for pending_block in blocks_catch_up_state.pending_blocks.drain(..) {
             let block = self.chain_store.get_block(&pending_block)?.clone();
             let prev_block = self.chain_store.get_block(block.header().prev_hash())?.clone();
+            let prev_hash = *prev_block.hash();
 
-            let receipts_by_shard = self.collect_incoming_receipts_from_block(me, &block)?;
+            let receipts_shuffle_salt =
+                get_receipts_shuffle_salt(self.epoch_manager.as_ref(), &block)?;
+            let receipts_by_shard = self.collect_incoming_receipts_from_chunks(
+                me,
+                &block.chunks(),
+                &prev_hash,
+                receipts_shuffle_salt,
+            )?;
+
             let work = self.apply_chunks_preprocessing(
                 me,
                 &block,
