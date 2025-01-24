@@ -6,30 +6,30 @@ import argparse
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="This is a script to request for blockchain info"
-    )
-    parser.add_argument(
-        "--chain", choices=["mainnet", "testnet", "betanet"], required=True
-    )
-    parser.add_argument(
-        "--archive", action="store_true", help="whether to request from archival nodes"
-    )
-    parser.add_argument(
-        "--method", choices=["block", "chunk"], required=True, help="type of request"
-    )
-    parser.add_argument(
-        "--block_id", type=str, help="block id, can be either block height or hash"
-    )
+        description="This is a script to request for blockchain info")
+    parser.add_argument("--chain",
+                        choices=["mainnet", "testnet", "betanet"],
+                        required=True)
+    parser.add_argument("--archive",
+                        action="store_true",
+                        help="whether to request from archival nodes")
+    parser.add_argument("--method",
+                        choices=["block", "chunk"],
+                        required=True,
+                        help="type of request")
+    parser.add_argument("--block_id",
+                        type=str,
+                        help="block id, can be either block height or hash")
     parser.add_argument("--shard_id", type=int, help="shard id for the chunk")
     parser.add_argument("--chunk_id", type=str, help="chunk hash")
-    parser.add_argument(
-        "--result_key", type=str, nargs="*", help="filter results by these keys"
-    )
+    parser.add_argument("--result_key",
+                        type=str,
+                        nargs="*",
+                        help="filter results by these keys")
     args = parser.parse_args()
 
     url = "https://{}.{}.near.org".format(
-        "archival-rpc" if args.archive else "rpc", args.chain
-    )
+        "archival-rpc" if args.archive else "rpc", args.chain)
 
     def get_block_id(block_id):
         if block_id.isnumeric():

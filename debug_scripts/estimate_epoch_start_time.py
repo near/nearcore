@@ -14,9 +14,11 @@ def get_block(url, block_hash):
         "method": "block",
     }
 
-    payload["params"] = (
-        {"block_id": block_hash} if block_hash is not None else {"finality": "final"}
-    )
+    payload["params"] = ({
+        "block_id": block_hash
+    } if block_hash is not None else {
+        "finality": "final"
+    })
 
     response = requests.post(url, json=payload)
     return response.json()["result"]["header"]
@@ -32,9 +34,10 @@ def format_time(seconds):
 
 
 # Function to fetch epoch lengths for the past n epochs and calculate the weighted average using exponential decay
-def get_exponential_weighted_epoch_lengths(
-    url, starting_block_hash, num_epochs, decay_rate=0.1
-):
+def get_exponential_weighted_epoch_lengths(url,
+                                           starting_block_hash,
+                                           num_epochs,
+                                           decay_rate=0.1):
     epoch_lengths = []
     current_hash = starting_block_hash
 
@@ -88,13 +91,11 @@ def valid_timezone(timezone_str):
 
 
 # Function to approximate future epoch start dates
-def predict_future_epochs(
-    starting_epoch_timestamp, avg_epoch_length, num_future_epochs, target_timezone
-):
+def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
+                          num_future_epochs, target_timezone):
     future_epochs = []
     current_timestamp = ns_to_seconds(
-        starting_epoch_timestamp
-    )  # Convert from nanoseconds to seconds
+        starting_epoch_timestamp)  # Convert from nanoseconds to seconds
 
     for i in range(1, num_future_epochs + 1):
         # Add the average epoch length for each future epoch
@@ -102,7 +103,8 @@ def predict_future_epochs(
         future_epochs.append(future_timestamp)
 
         # Convert timestamp to datetime in target timezone
-        future_datetime = datetime.fromtimestamp(future_timestamp, target_timezone)
+        future_datetime = datetime.fromtimestamp(future_timestamp,
+                                                 target_timezone)
 
         # Format date
         future_date = future_datetime.strftime("%Y-%m-%d %H:%M:%S %Z%z %A")
@@ -128,8 +130,7 @@ def find_best_voting_hour(voting_date_str, future_epochs):
     for hour in range(24):
         # Construct datetime for each hour of the voting date
         voting_datetime = datetime.strptime(
-            f"{voting_date_str} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S"
-        )
+            f"{voting_date_str} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S")
         voting_datetime = pytz.utc.localize(voting_datetime)
         voting_timestamp = voting_datetime.timestamp()
 
@@ -146,8 +147,10 @@ def find_best_voting_hour(voting_date_str, future_epochs):
             )
             break
 
-        protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number - 1]
-        protocol_upgrade_datetime = datetime.fromtimestamp(protocol_upgrade_timestamp)
+        protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number
+                                                   - 1]
+        protocol_upgrade_datetime = datetime.fromtimestamp(
+            protocol_upgrade_timestamp)
         upgrade_hour_utc = protocol_upgrade_datetime.hour
 
         if WORKING_HOURS_START <= upgrade_hour_utc < WORKING_HOURS_END:
@@ -179,7 +182,8 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
     voting_datetime = target_timezone.localize(voting_date)
 
     # Find the epoch T in which the voting date falls
-    epoch_T = find_epoch_for_timestamp(future_epochs, voting_datetime.timestamp())
+    epoch_T = find_epoch_for_timestamp(future_epochs,
+                                       voting_datetime.timestamp())
     if epoch_T <= 0:
         print("Error: Voting date is before the first predicted epoch.")
         return
@@ -191,13 +195,12 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
             "Not enough future epochs predicted to determine the protocol upgrade time."
         )
         return
-    protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number - 1]
+    protocol_upgrade_timestamp = future_epochs[protocol_upgrade_epoch_number -
+                                               1]
     protocol_upgrade_datetime = datetime.fromtimestamp(
-        protocol_upgrade_timestamp, tz=target_timezone
-    )
+        protocol_upgrade_timestamp, tz=target_timezone)
     protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
-        "%Y-%m-%d %H:%M:%S %Z%z %A"
-    )
+        "%Y-%m-%d %H:%M:%S %Z%z %A")
     print(f"\nVoting date falls into epoch {epoch_T}.")
     print(
         f"Protocol upgrade will happen at the start of epoch {protocol_upgrade_epoch_number}: {protocol_upgrade_formatted}"
@@ -209,16 +212,14 @@ def main(args):
     latest_block = get_block(args.url, None)
     next_epoch_id = latest_block["next_epoch_id"]
     current_epoch_first_block = get_block(args.url, next_epoch_id)
-    current_timestamp = int(
-        current_epoch_first_block["timestamp"]
-    )  # Current epoch start timestamp in nanoseconds
+    current_timestamp = int(current_epoch_first_block["timestamp"]
+                           )  # Current epoch start timestamp in nanoseconds
 
     # Get epoch lengths and the exponential weighted average
     epoch_lengths, exponential_weighted_average_epoch_length = (
-        get_exponential_weighted_epoch_lengths(
-            args.url, next_epoch_id, args.num_past_epochs, args.decay_rate
-        )
-    )
+        get_exponential_weighted_epoch_lengths(args.url, next_epoch_id,
+                                               args.num_past_epochs,
+                                               args.decay_rate))
 
     # Predict future epoch start dates
     future_epochs = predict_future_epochs(
@@ -229,7 +230,8 @@ def main(args):
     )
 
     if args.voting_date:
-        find_protocol_upgrade_time(args.voting_date, future_epochs, args.timezone)
+        find_protocol_upgrade_time(args.voting_date, future_epochs,
+                                   args.timezone)
     elif args.voting_date_day:
         find_best_voting_hour(args.voting_date_day, future_epochs)
 
@@ -247,8 +249,7 @@ class SetURLFromChainID(argparse.Action):
 # Set up command-line argument parsing
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Approximate future epoch start dates for NEAR Protocol."
-    )
+        description="Approximate future epoch start dates for NEAR Protocol.")
     # Create a mutually exclusive group for chain_id and url
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument("--url", help="The RPC URL to query.")
@@ -256,7 +257,8 @@ if __name__ == "__main__":
         "--chain_id",
         choices=["mainnet", "testnet"],
         action=SetURLFromChainID,
-        help="The chain ID (either 'mainnet' or 'testnet'). Sets the corresponding URL.",
+        help=
+        "The chain ID (either 'mainnet' or 'testnet'). Sets the corresponding URL.",
     )
 
     parser.add_argument(
@@ -292,7 +294,8 @@ if __name__ == "__main__":
     )
     voting_group.add_argument(
         "--voting_date_day",
-        help="Voting date (day) in 'YYYY-MM-DD' format to find voting hours resulting in upgrade during working hours.",
+        help=
+        "Voting date (day) in 'YYYY-MM-DD' format to find voting hours resulting in upgrade during working hours.",
     )
 
     args = parser.parse_args()
