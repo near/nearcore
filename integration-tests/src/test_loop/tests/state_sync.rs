@@ -381,7 +381,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         skip_block_sync_height_delta: None,
     },
     // In this test we have 2 validators and 4 shards, and we don't generate any extra accounts.
-    // That makes 3 accounts ncluding the "near" account. This means at least one shard will have no
+    // That makes 3 accounts including the "near" account. This means at least one shard will have no
     // accounts in it, so we check that corner case here.
     StateSyncTest {
         num_validators: 2,
@@ -609,6 +609,7 @@ fn await_sync_hash(env: &mut TestLoopEnv) -> CryptoHash {
     client.chain.get_sync_hash(&tip.last_block_hash).unwrap().unwrap()
 }
 
+// cspell:ignore reqs
 fn spam_state_sync_header_reqs(env: &mut TestLoopEnv) {
     let sync_hash = await_sync_hash(env);
 

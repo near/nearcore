@@ -428,7 +428,7 @@ impl ReplayController {
         prev_chunk_header: &ShardChunkHeader,
         prev_chunk_extra: &ChunkExtra,
     ) -> Result<()> {
-        // Check if the information in the ChunkExtra recorded after applying the previuous chunk matches the information in the new chunk.
+        // Check if the information in the ChunkExtra recorded after applying the previous chunk matches the information in the new chunk.
         if is_new_chunk {
             validate_chunk_with_chunk_extra(
                 &self.chain_store,
