@@ -170,6 +170,7 @@ impl MockEpochManager {
                     })
                     .collect();
 
+                // cspell:ignore coef
                 let validators_per_shard = block_producers.len() / vs.validator_groups as usize;
                 let coef = block_producers.len() / vs.num_shards as usize;
 
@@ -361,7 +362,7 @@ impl KeyValueRuntime {
             shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
-        store_update.commit().expect("Store failed on genesis intialization");
+        store_update.commit().expect("Store failed on genesis initialization");
 
         Arc::new(KeyValueRuntime {
             store,

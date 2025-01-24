@@ -185,6 +185,7 @@
         "refcounting",
         "reindexing",
         "replayability",
+        "replaydb",
         "repr",
         "reqwest",
         "reshard",
