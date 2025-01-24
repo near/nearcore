@@ -29,7 +29,7 @@ fn main() {
         .get_matches();
 
     let home_dir = matches.get_one::<PathBuf>("home").unwrap();
-    let chain_id = matches.get_one::<String>("chain-id").expect("Chain id is requried");
+    let chain_id = matches.get_one::<String>("chain-id").expect("Chain id is required");
     let tracked_shards: HashSet<ShardId> = match matches.get_one::<String>("tracked-shards") {
         Some(s) => {
             if s.is_empty() {

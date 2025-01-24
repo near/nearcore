@@ -35,9 +35,8 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::db::TestDBFlags;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{create_test_split_store, create_test_store_with_flags};
+use near_store::test_utils::{create_test_split_store, create_test_store};
 use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -102,8 +101,6 @@ pub(crate) struct TestLoopBuilder {
     load_memtries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
-    /// Overrides to test database behavior.
-    test_store_flags: TestDBFlags,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -307,7 +304,6 @@ impl TestLoopBuilder {
             track_all_shards: false,
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
-            test_store_flags: Default::default(),
         }
     }
 
@@ -433,11 +429,6 @@ impl TestLoopBuilder {
 
     pub fn load_memtries_for_tracked_shards(mut self, load_memtries: bool) -> Self {
         self.load_memtries_for_tracked_shards = load_memtries;
-        self
-    }
-
-    pub(crate) fn allow_negative_refcount(mut self) -> Self {
-        self.test_store_flags.allow_negative_refcount = true;
         self
     }
 
@@ -581,7 +572,7 @@ impl TestLoopBuilder {
                 let (hot_store, split_store) = create_test_split_store();
                 (hot_store, Some(split_store))
             } else {
-                let hot_store = create_test_store_with_flags(&self.test_store_flags);
+                let hot_store = create_test_store();
                 (hot_store, None)
             };
         initialize_genesis_state(store.clone(), &genesis, None);
@@ -664,7 +655,7 @@ impl TestLoopBuilder {
         .unwrap();
 
         // If this is an archival node and split storage is initialized, then create view-specific
-        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initiaze the
+        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
         // ViewClientActorInner. Otherwise, we use the regular versions created above.
         let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
             if let Some(split_store) = &split_store {

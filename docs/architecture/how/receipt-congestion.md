@@ -31,8 +31,8 @@ Okay, we have the capacities of the network modeled. Now let's look at how a
 receipt execution maps onto it.
 
 Let's say a receipt starts at shard 1 with 300 Tgas. While executing, it burns 100 Tgas and
-creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with 
-100 Tgas to the sink of shard 1 and 200 Tgas to shard 2. 
+creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with
+100 Tgas to the sink of shard 1 and 200 Tgas to shard 2.
 
 ![graph](../../images/congestion/receipt_flow_example_0.svg)
 
@@ -88,7 +88,6 @@ this stage our ambition isn't to have 100% utilization under all malicious
 cases. We are instead trying to find a solution that can give 100% utilization
 for normal operation and then falls back to `1000 Tgas / NUM_SHARDS` when it has
 to, in order to prevent out-of-memory crashes.
-
 
 ## Idea 2: Limit transactions when we use too much memory
 
@@ -157,7 +156,7 @@ bytes, because it is here to maximize utilization, not to minimize memory
 consumption. And utilization is best measured in gas. If we have a queue of
 10_000 Tgas waiting, even if only 10% of that is burnt in this step of the
 transaction, we still have 1000 Tgas of useful work we can contribute to the
-total flow. Thus under the assumption that at least 10% of gas is being burnt, 
+total flow. Thus under the assumption that at least 10% of gas is being burnt,
 we have 100% utilization.
 
 A limit in bytes would be better to argue how much memory we need exactly. But
@@ -181,7 +180,6 @@ shards on a path from sources to sinks that contribute to congestion will
 eventually end up with full buffers. Combined with idea 2, eventually all
 transactions to those shards are rejected. All of this without affecting shards
 that are not on the critical path.
-
 
 ## Putting it all together
 

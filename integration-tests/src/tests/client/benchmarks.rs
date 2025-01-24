@@ -11,6 +11,7 @@ use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+/// cspell:ignore txes
 /// How long does it take to produce a large chunk?
 ///
 /// Chunk production work does **not** include any transaction execution: it is

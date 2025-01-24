@@ -56,7 +56,7 @@ struct TransferConfig {
     transfers: Transfers,
     /// True if the receipt should create account.
     account_creation: bool,
-    /// Differentaties between named and implicit account creation, if `account_creation` is true.
+    /// Differentiates between named and implicit account creation, if `account_creation` is true.
     implicit_account_creation: bool,
     /// Whether the last action in the receipt should deploy a contract.
     deploy_contract: bool,

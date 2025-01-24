@@ -431,6 +431,7 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
                         permission.method_names,
                     ),
                 };
+            // cspell:ignore ethabi
             let tokens = &[
                 ethabi::Token::Uint(public_key_kind.into()),
                 ethabi::Token::Bytes(public_key),
