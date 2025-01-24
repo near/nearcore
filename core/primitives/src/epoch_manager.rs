@@ -543,6 +543,8 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 70, "70.json"),
     include_config!("mainnet", 71, "71.json"),
     include_config!("mainnet", 72, "72.json"),
+    include_config!("mainnet", 75, "75.json"),
+    include_config!("mainnet", 76, "76.json"),
     include_config!("mainnet", 100, "100.json"),
     include_config!("mainnet", 101, "101.json"),
     include_config!("mainnet", 143, "143.json"),
@@ -556,6 +558,8 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 70, "70.json"),
     include_config!("testnet", 71, "71.json"),
     include_config!("testnet", 72, "72.json"),
+    include_config!("testnet", 75, "75.json"),
+    include_config!("testnet", 76, "76.json"),
     include_config!("testnet", 100, "100.json"),
     include_config!("testnet", 101, "101.json"),
     include_config!("testnet", 143, "143.json"),
@@ -717,11 +721,11 @@ mod tests {
         for protocol_version in genesis_protocol_version..=PROTOCOL_VERSION {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);
-            assert_eq!(
-                *stored_config.as_ref(),
-                expected_config,
-                "Mismatch for protocol version {protocol_version}"
-            );
+            if stored_config.as_ref() != &expected_config {
+                println!("boom stored {:#?}", stored_config);
+                println!("boom expect {:#?}", expected_config);
+                panic!("Mismatch for protocol version {protocol_version}");
+            }
         }
     }
 
