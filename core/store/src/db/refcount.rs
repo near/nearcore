@@ -104,8 +104,7 @@ pub(crate) fn encode_negative_refcount(rc: std::num::NonZeroU32) -> [u8; 8] {
 ///
 /// Extracts reference count from all provided value and sums them together and
 /// returns result depending on rc:
-/// - rc = 0 ⇒ empty,
-/// - rc < 0 ⇒ encoded reference count,
+/// - rc <= 0 ⇒ empty,
 /// - rc > 0 ⇒ value with encoded reference count.
 ///
 /// Assumes that all provided values with positive reference count have the same
@@ -125,6 +124,9 @@ pub(crate) fn refcount_merge<'a>(
         rc += delta;
     }
 
+    // TODO(resharding) We should preserve negative refcounts, but we don't because of ReshardingV3.
+    // Resharding can result in some data being double deleted, that would result in negative refcount forever
+    // and lead to issue if the same data will be reintroduced later.
     if rc <= 0 {
         Vec::new()
     } else {
