@@ -37,6 +37,7 @@
         "bitmask",
         "bitvec",
         "BLOCKLIST",
+        "bootnodes",
         "borsh",
         "bufbuild",
         "bytesize",

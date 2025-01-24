@@ -98,6 +98,7 @@ impl AdversarialBehaviorTestData {
 
     fn process_all_actor_messages(&mut self) {
         loop {
+            // cspell:ignore hpmv
             // Force trigger any chunk request retries.
             // NOTE(hpmv): Additionally dial time forward to trigger a full fetch. Why? Probably
             // because during epoch transitions we don't exactly get this correct. But honestly,

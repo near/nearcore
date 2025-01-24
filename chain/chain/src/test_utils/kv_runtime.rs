@@ -170,6 +170,7 @@ impl MockEpochManager {
                     })
                     .collect();
 
+                // cspell:ignore coef
                 let validators_per_shard = block_producers.len() / vs.validator_groups as usize;
                 let coefficient = block_producers.len() / vs.num_shards as usize;
 

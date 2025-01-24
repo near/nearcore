@@ -664,7 +664,7 @@ impl TestLoopBuilder {
         .unwrap();
 
         // If this is an archival node and split storage is initialized, then create view-specific
-        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initiaze the
+        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
         // ViewClientActorInner. Otherwise, we use the regular versions created above.
         let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
             if let Some(split_store) = &split_store {
