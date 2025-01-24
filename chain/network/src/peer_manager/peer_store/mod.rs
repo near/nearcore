@@ -63,7 +63,7 @@ pub struct Config {
     pub boot_nodes: Vec<PeerInfo>,
     /// Nodes will not accept or try to establish connection to such peers.
     pub blacklist: blacklist::Blacklist,
-    /// If true - connect only to the bootnodes.
+    /// If true - connect only to the boot nodes.
     pub connect_only_to_boot_nodes: bool,
     /// The maximum number of peers to store. If capacity is exceeded, the peers
     /// with the earliest last_seen value will be evicted.
@@ -443,7 +443,7 @@ impl PeerStore {
                     (p.status == KnownPeerStatus::NotConnected)
                         && !ignore_fn(p)
                         && p.peer_info.addr.is_some()
-                        // if we're connecting only to the boot nodes - filter out the nodes that are not bootnodes.
+                        // if we're connecting only to the boot nodes - filter out the nodes that are not boot nodes.
                         && (!inner.config.connect_only_to_boot_nodes || inner.boot_nodes.contains(&p.peer_info.id))
                 },
                 1,
