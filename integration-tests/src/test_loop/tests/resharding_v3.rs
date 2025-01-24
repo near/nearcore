@@ -138,9 +138,6 @@ struct TestReshardingParameters {
     delay_flat_state_resharding: BlockHeightDelta,
     /// Make promise yield timeout much shorter than normal.
     short_yield_timeout: bool,
-    // TODO(resharding) Remove this when negative refcounts are properly handled.
-    /// Whether to allow negative refcount being a result of the database update.
-    allow_negative_refcount: bool,
     /// If not disabled, use testloop action that will delete an account after resharding
     /// and check that the account is accessible through archival node but not through a regular node.
     disable_temporary_account_test: bool,
@@ -282,7 +279,6 @@ impl TestReshardingParametersBuilder {
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
-            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(true),
             disable_temporary_account_test,
             temporary_account_id,
             num_epochs_to_wait,
@@ -413,10 +409,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     if params.track_all_shards {
         builder = builder.track_all_shards();
-    }
-
-    if params.allow_negative_refcount {
-        builder = builder.allow_negative_refcount();
     }
 
     if params.limit_outgoing_gas || params.short_yield_timeout {
@@ -588,7 +580,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
                 client,
                 &resharding_block_hash.get().unwrap(),
                 parent_shard_uid,
-                params.allow_negative_refcount,
             );
         }
 
@@ -1050,7 +1041,6 @@ fn test_resharding_v3_delayed_receipts_left_child() {
             vec![account],
             ReceiptKind::Delayed,
         ))
-        .allow_negative_refcount(true)
         .build();
     test_resharding_v3_base(params);
 }
@@ -1071,7 +1061,6 @@ fn test_resharding_v3_delayed_receipts_right_child() {
             vec![account],
             ReceiptKind::Delayed,
         ))
-        .allow_negative_refcount(true)
         .epoch_length(INCREASED_EPOCH_LENGTH)
         .build();
     test_resharding_v3_base(params);
@@ -1327,7 +1316,6 @@ fn test_resharding_v3_yield_timeout() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        .allow_negative_refcount(true)
         .epoch_length(INCREASED_EPOCH_LENGTH)
         .build();
     test_resharding_v3_base(params);
