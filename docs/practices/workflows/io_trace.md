@@ -234,11 +234,12 @@ the predecessor account id, presumably to perform some checks.
 The `sha256` call here is used to shorten implicit account ids.
 ([Link to code for comparison](https://github.com/sweatco/near-sdk-rs/blob/af6ba3cb75e0bbfc26e346e61aa3a0d1d7f5ac7b/near-contract-standards/src/fungible_token/core_impl.rs#L249-L259)).
 
+<!-- cspell:words Sweatcoin -->
 Afterwards, a value with 16 bytes (a `u128`) is fetched from the trie state.
 To serve this, it required reading 30 trie nodes, 19 of them were cached in the
 accounting cache and were not charged the full gas cost. And the remaining 11
 missed the accounting cache but they hit the shard cache. Nothing needed to be
-fetched from DB because the SweatCoin specific prefetcher has already loaded
+fetched from DB because the Sweatcoin specific prefetcher has already loaded
 everything into the shard cache.
 
 *Note: We see trie node requests despite flat state being used. This is because

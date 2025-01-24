@@ -107,7 +107,7 @@ collection of old block data which is no longer needed.
 ### TrieRefcountChange
 
 Because we remove unused nodes during garbage collection, we need to track
-the reference count (`rc`) for each node. Another reason is that we can de-dup
+the reference count (`rc`) for each node. Another reason is that we can dedup
 values. If the same contract is deployed 1000 times, we only store one contract
 binary in storage and track its count.
 
