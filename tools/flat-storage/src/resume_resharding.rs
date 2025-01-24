@@ -33,6 +33,8 @@ pub(crate) fn resume_resharding(
     let shard_uid = ShardUId::new(3, cmd.shard_id); // version is fixed at 3 in resharding V3
     let resharding_status = get_resharding_status_for_shard(&shard_uid, &chain)?;
 
+    chain.runtime_adapter.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
+
     resharder.resume(shard_uid, &resharding_status)?;
 
     while executor.run()? {

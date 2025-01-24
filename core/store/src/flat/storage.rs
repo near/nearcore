@@ -16,6 +16,7 @@ use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
 use super::types::FlatStorageError;
+use super::FlatStorageReshardingStatus;
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -235,6 +236,9 @@ impl FlatStorage {
         let shard_id = shard_uid.shard_id();
         let flat_head = match store.get_flat_storage_status(shard_uid) {
             Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(
+                split_parent_status,
+            ))) => split_parent_status.flat_head,
             status => {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Cannot create flat storage for shard {shard_id} with status {status:?}"
