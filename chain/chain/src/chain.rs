@@ -4090,12 +4090,6 @@ fn shard_id_out_of_bounds(shard_id: ShardId) -> Error {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
-// TODO(state-sync): After the changes in https://github.com/near/nearcore/pull/12617,
-// this needs to be changed to be aware of what shards can be applied now. Otherwise we have
-// a bug in the rare case where we have something like this sequence of tracked shards in consecutive epochs:
-// (s0) -> (s1) -> (s0, s2)
-// In this case we don't state sync s0 since we already have the state, but we apply chunks with mode `NotCaughtUp`
-// in the middle epoch there because we're downloading state for s2.
 fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
