@@ -318,7 +318,8 @@
         "yocto",
         "yoctonear",
         "zstd",
-        "Zulip"
+        "Zulip",
+        "deser"
     ],
     "ignoreWords": [],
     "import": []
