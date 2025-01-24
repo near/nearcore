@@ -18,6 +18,7 @@ use near_store::flat::{
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::{path::PathBuf, sync::Arc};
+// cspell:ignore tqdm
 use tqdm::tqdm;
 
 #[derive(Parser)]
@@ -271,7 +272,7 @@ impl FlatStorageCommand {
 
         let head_hash = match hot_store
             .get_flat_storage_status(shard_uid)
-            .expect("falied to read flat storage status")
+            .expect("failed to read flat storage status")
         {
             FlatStorageStatus::Ready(ready_status) => ready_status.flat_head.hash,
             status => {
