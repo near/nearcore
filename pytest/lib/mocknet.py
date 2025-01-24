@@ -20,6 +20,7 @@ from key import Key
 from metrics import Metrics
 from transaction import sign_payment_tx_and_get_hash, sign_staking_tx_and_get_hash
 
+# cspell:ignore tmpl zxcv gmtime loadtester pkeys
 DEFAULT_KEY_TARGET = '/tmp/mocknet'
 KEY_TARGET_ENV_VAR = 'NEAR_PYTEST_KEY_TARGET'
 # NODE_SSH_KEY_PATH = '~/.ssh/near_ops'
@@ -197,7 +198,7 @@ def start_load_test_helper_script(
         contract_deploy_time=shlex.quote(str(contract_deploy_time)),
     )
     logger.info(
-        f'Starting load test helper. Node accound id: {node_account_id}.')
+        f'Starting load test helper. Node account id: {node_account_id}.')
     logger.debug(f'The load test helper script is:{s}')
     return s
 
@@ -367,7 +368,7 @@ def send_transaction(node, tx, tx_hash, account_id, timeout=120):
         error_data = response['error']['data']
         if 'timeout' in error_data.lower():
             logger.warning(
-                f'transaction {tx_hash} returned Timout, checking status again.'
+                f'transaction {tx_hash} returned Timeout, checking status again.'
             )
             time.sleep(5)
             response = node.get_tx(tx_hash, account_id)
@@ -452,7 +453,7 @@ def accounts_from_nodes(nodes):
     return pmap(get_validator_account, nodes)
 
 
-def kill_proccess_script(pid):
+def kill_process_script(pid):
     return f'''
         sudo kill {pid}
         while kill -0 {pid}; do
@@ -482,7 +483,7 @@ def stop_node(node):
     pids = get_near_pid(m).split()
 
     for pid in pids:
-        m.run('bash', input=kill_proccess_script(pid))
+        m.run('bash', input=kill_process_script(pid))
         m.run('sudo -u ubuntu -i', input=TMUX_STOP_SCRIPT)
 
 
@@ -501,6 +502,7 @@ def compress_and_upload(nodes, src_filename, dst_filename):
          nodes)
 
 
+# cspell:ignore redownload
 def redownload_neard(nodes, binary_url):
     pmap(
         lambda node: node.machine.
@@ -1030,14 +1032,16 @@ def update_config_file(
         json.dump(config_json, f, indent=2)
 
 
-def upload_config(node, config_json, overrider):
+def upload_config(node, config_json, override_fn):
     copied_config = json.loads(json.dumps(config_json))
-    if overrider:
-        overrider(node, copied_config)
+    if override_fn:
+        override_fn(node, copied_config)
     upload_json(node, '/home/ubuntu/.near/config.json', copied_config)
 
 
-def create_and_upload_config_file_from_default(nodes, chain_id, overrider=None):
+def create_and_upload_config_file_from_default(nodes,
+                                               chain_id,
+                                               override_fn=None):
     nodes[0].machine.run(
         'rm -rf /home/ubuntu/.near-tmp && mkdir /home/ubuntu/.near-tmp && /home/ubuntu/neard --home /home/ubuntu/.near-tmp init --chain-id {}'
         .format(chain_id))
@@ -1056,21 +1060,21 @@ def create_and_upload_config_file_from_default(nodes, chain_id, overrider=None):
     if 'telemetry' in config_json:
         config_json['telemetry']['endpoints'] = []
 
-    pmap(lambda node: upload_config(node, config_json, overrider), nodes)
+    pmap(lambda node: upload_config(node, config_json, override_fn), nodes)
 
 
-def update_existing_config_file(node, overrider=None):
+def update_existing_config_file(node, override_fn=None):
     config_json = download_and_read_json(
         node,
         '/home/ubuntu/.near/config.json',
     )
-    overrider(node, config_json)
+    override_fn(node, config_json)
     upload_json(node, '/home/ubuntu/.near/config.json', config_json)
 
 
-def update_existing_config_files(nodes, overrider=None):
+def update_existing_config_files(nodes, override_fn=None):
     pmap(
-        lambda node: update_existing_config_file(node, overrider=overrider),
+        lambda node: update_existing_config_file(node, override_fn=override_fn),
         nodes,
     )
 

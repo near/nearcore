@@ -21,6 +21,7 @@ from configured_logger import new_logger
 logger = new_logger(level=logging.WARN)
 
 
+# cspell:words Linkdrop
 class LinkdropContract:
     INIT_BALANCE = NearUser.INIT_BALANCE
 
@@ -199,6 +200,7 @@ def on_locust_init(environment, **kwargs):
 # Linkdrop specific CLI args
 @events.init_command_line_parser.add_listener
 def _(parser):
+    # cspell:ignore keypom
     parser.add_argument("--linkdrop-wasm",
                         default="res/keypom.wasm",
                         help="Path to the compiled LinkDrop (Keypom) contract")
