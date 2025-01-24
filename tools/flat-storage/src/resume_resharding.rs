@@ -150,18 +150,16 @@ impl SerialExecutor {
 
 impl CanSend<FlatStorageSplitShardRequest> for SerialExecutor {
     fn send(&self, msg: FlatStorageSplitShardRequest) {
-        let resharder = msg.resharder.clone();
         let task =
-            Box::new(move |chain_store: &ChainStore| resharder.split_shard_task(chain_store));
+            Box::new(move |chain_store: &ChainStore| msg.resharder.split_shard_task(chain_store));
         self.tasks.lock().unwrap().push_back(task);
     }
 }
 
 impl CanSend<FlatStorageShardCatchupRequest> for SerialExecutor {
     fn send(&self, msg: FlatStorageShardCatchupRequest) {
-        let resharder = msg.resharder.clone();
         let task = Box::new(move |chain_store: &ChainStore| {
-            resharder.shard_catchup_task(msg.shard_uid, chain_store)
+            msg.resharder.shard_catchup_task(msg.shard_uid, chain_store)
         });
         self.tasks.lock().unwrap().push_back(task);
     }
