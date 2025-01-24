@@ -2787,6 +2787,7 @@ pub mod estimator {
         // TODO(congestion_control - edit runtime config parameters for limitless estimator runs
         let congestion_info = CongestionInfo::default();
         // no limits set for any shards => limitless
+        // TODO(bandwidth_scheduler) - now empty map means all limits are zero, fix.
         let outgoing_limit = HashMap::new();
 
         // ShardId used in EstimatorContext::testbed
