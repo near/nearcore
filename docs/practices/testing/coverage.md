@@ -19,6 +19,7 @@ artifact results come in.
 ## Artifact Results
 
 We also push artifacts, as a result of each CI run. You can access them here:
+
 1. Click "Details" on one of the CI actions run on your PR (literally any one
    of the actions is fine, you can also access CI actions runs on any CI)
 2. Click "Summary" on the top left of the opening page
@@ -29,13 +30,13 @@ We also push artifacts, as a result of each CI run. You can access them here:
 5. Downloading it will give you a zip file with the interesting files.
 
 In there, you can find:
+
 - Two `-diff` files, that contain code coverage for the diff of your PR, to
   easily see exactly which lines are covered and which are not
 - Two `-full` folders, that contain code coverage for the whole repository
 - Each of these exists in one `unit-` variant, that only contains the unit
   tests, and one `integration-` variant, that contains all the tests we
   currently have
-
 
 **To check that your PR is properly tested**, if you want better quality
 coverage than what codecov "requires," you can have a look at `unit-diff`,

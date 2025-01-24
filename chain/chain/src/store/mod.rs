@@ -656,11 +656,8 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         chunk: &ShardChunk,
     ) -> Result<Vec<bool>, Error> {
-        let relaxed_chunk_validation = near_primitives::checked_feature!(
-            "protocol_feature_relaxed_chunk_validation",
-            RelaxedChunkValidation,
-            protocol_version
-        );
+        let relaxed_chunk_validation =
+            near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version);
         if near_primitives::checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
             let mut valid_txs = Vec::with_capacity(chunk.transactions().len());
             if relaxed_chunk_validation {

@@ -346,6 +346,7 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 Clock::real(),
                 None,
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -433,6 +434,7 @@ fn produce_block_with_approvals() {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             actor_handles.client_actor.do_send(
@@ -630,6 +632,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             // Send block with invalid chunk mask
@@ -1423,13 +1426,8 @@ fn test_archival_save_trie_changes() {
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
 
             if let Some(trie_changes) = trie_changes {
-                // We don't do any transactions in this test so the root should remain unchanged.
-                if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
-                    // After BandwidthScheduler there's a state change at every height, even when there are no transactions
-                    assert!(trie_changes.old_root != trie_changes.new_root);
-                } else {
-                    assert_eq!(trie_changes.old_root, trie_changes.new_root);
-                }
+                // After BandwidthScheduler there's a state change at every height, even when there are no transactions
+                assert!(trie_changes.old_root != trie_changes.new_root);
             }
         }
     }
@@ -2575,7 +2573,7 @@ fn test_block_execution_outcomes() {
 
     let mut expected_outcome_ids = HashSet::new();
     let mut delayed_receipt_id = vec![];
-    // Due to gas limit, the first two transaactions will create local receipts and they get executed
+    // Due to gas limit, the first two transactions will create local receipts and they get executed
     // in the same block. The last local receipt will become delayed receipt
     for (i, id) in tx_hashes.into_iter().enumerate() {
         let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
@@ -3695,6 +3693,7 @@ fn test_long_chain_with_restart_from_snapshot() {
     }
 }
 
+/// cspell:words aarch
 /// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
     use super::*;
@@ -3761,7 +3760,7 @@ mod contract_precompilation_tests {
 
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the neede snapshot.
+            // and then one more than that so the node will generate the needed snapshot.
             produce_blocks_from_height(&mut env, 4, height) - 2
         } else {
             height - 1
@@ -3786,7 +3785,7 @@ mod contract_precompilation_tests {
         }
 
         // Check that contract function may be successfully called on the second client.
-        // Note that we can't test that behaviour is the same on two clients, because
+        // Note that we can't test that behavior is the same on two clients, because
         // compile_module_cached_wasmer0 is cached by contract key via macro.
         let block = env.clients[0].chain.get_block_by_height(sync_height - 1).unwrap();
         let shard_uid = ShardUId::single_shard();
@@ -3874,7 +3873,7 @@ mod contract_precompilation_tests {
 
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the neede snapshot.
+            // and then one more than that so the node will generate the needed snapshot.
             produce_blocks_from_height(&mut env, 4, height) - 2
         } else {
             height - 1

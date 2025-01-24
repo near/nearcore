@@ -1337,11 +1337,7 @@ fn calculate_transactions_size_limit(
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        if near_primitives::checked_feature!(
-            "protocol_feature_relaxed_chunk_validation",
-            RelaxedChunkValidation,
-            protocol_version
-        ) {
+        if near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
             last_chunk_transactions_size = 0;
         }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
@@ -1353,6 +1349,7 @@ fn calculate_transactions_size_limit(
             .try_into()
             .expect("Can't convert usize to u64!")
     } else {
+        // cspell:words roundtripping
         // In general, we limit the number of transactions via send_fees.
         // However, as a second line of defense, we want to limit the byte size
         // of transaction as well. Rather than introducing a separate config for

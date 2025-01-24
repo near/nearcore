@@ -1936,6 +1936,7 @@ pub mod estimator {
 
 #[cfg(test)]
 mod tests {
+    // cspell:ignore cataa catbb docu dogaa dogax dogbb
     use assert_matches::assert_matches;
     use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;

@@ -3,10 +3,11 @@
 ## Overview
 
 The storage subsystem of nearcore is complex and has many layers. This documentation
-provides an overview of the common usecases and explains the most important
+provides an overview of the common use cases and explains the most important
 implementation details.
 
 The main requirements are:
+
 - Low but predictable latency for reads
 - Proof generation for chunk validators
 
@@ -33,17 +34,17 @@ When RPC or validator node receives a transaction, it needs to do validity check
 It involves reading Accounts and AccessKeys, which is also a storage operation.
 
 Another query to RPC node is a view call - state query without modification or
-contract dry run. 
+contract dry run.
 
 ## Focus
 
 In the documentation, we focus the most on the **Contract Storage** use case because
 it has the strictest requirements.
 
-For the high-level flow, refer to [Flow diagram](./flow.md). 
+For the high-level flow, refer to [Flow diagram](./flow.md).
 For more detailed information, refer to:
 
-* [Primitives](./primitives.md)
-* [Trie Storage](./trie_storage.md)
-* [Flat Storage](./flat_storage.md)
-* [Database](./database.md)
+- [Primitives](./primitives.md)
+- [Trie Storage](./trie_storage.md)
+- [Flat Storage](./flat_storage.md)
+- [Database](./database.md)

@@ -31,6 +31,8 @@ pub struct RuntimeConfig {
     pub congestion_control_config: CongestionControlConfig,
     /// Configuration specific to ChunkStateWitness.
     pub witness_config: WitnessConfig,
+    /// Configuration specific to BandwidthScheduler.
+    pub bandwidth_scheduler_config: BandwidthSchedulerConfig,
 
     /// Whether receipts should be stored as [StateStoredReceipt].
     pub use_state_stored_receipt: bool,
@@ -66,6 +68,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
             use_state_stored_receipt: runtime_config.use_state_stored_receipt,
         }
     }
@@ -83,6 +86,7 @@ impl RuntimeConfig {
             account_creation_config: AccountCreationConfig::default(),
             congestion_control_config: runtime_config.congestion_control_config,
             witness_config: runtime_config.witness_config,
+            bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
             use_state_stored_receipt: runtime_config.use_state_stored_receipt,
         }
     }
@@ -262,4 +266,18 @@ impl WitnessConfig {
             new_transactions_validation_state_size_soft_limit: max_value,
         }
     }
+}
+
+/// Configuration specific to BandwidthScheduler
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct BandwidthSchedulerConfig {
+    /// The maximum amount of data that a shard can send or receive at a single height.
+    pub max_shard_bandwidth: u64,
+    /// The maximum amount of bandwidth that can be granted on a single link.
+    /// Should be at least as big as `max_receipt_size`.
+    pub max_single_grant: u64,
+    /// Maximum bandwidth allowance that a link can accumulate.
+    pub max_allowance: u64,
+    /// Max value of `base_bandwidth` that is granted on all links by default.
+    pub max_base_bandwidth: u64,
 }

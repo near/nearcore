@@ -30,8 +30,8 @@ In the test specification path to the file needs to be given
 (excluding the `pytest/tests` prefix) and anything that follows is
 passed as arguments to the script.  For example:
 
-    pytest sanity/lightclnt.py
-    pytest sanity/state_sync_routed.py manytx 115
+    pytest sanity/lightclient.py
+    pytest sanity/state_sync_routed.py shreyan 115
 
 Note: NayDuck also handles `mocknet` test category.  It is now
 deprecated and is treated like `pytest` with `--skip-build` flag
@@ -54,7 +54,7 @@ The arguments of an expensive test specify package in which the test
 is defined, test binary name and the full path to the test function.
 For example:
 
-    expensive nearcore test_tps_regression test::ultra_slow_test_highload
+    expensive nearcore test_tps_regression test::ultra_slow_test_high_load
 
 (Currently the package name is ignored but it may change in the future
 so make sure it’s set correctly).  The path to the test function must
@@ -67,7 +67,7 @@ test category and the test specification arguments.  Those are
 `--skip-build`, `--timeout`, `--release` and `--remote`.
 
 `--skip-build` causes build step to be skipped for the test.  This
-means that the test doesn’t have access to build artefacts (located in
+means that the test doesn’t have access to build artifacts (located in
 `target/debug` or `target/release`) but also doesn’t need to wait for
 the build to finish and thus can start faster.
 
@@ -101,7 +101,7 @@ not passed to the test.
 
 ### Include directive
 
-To help organise tests, the file format also supports `./<path>`
+To help organize tests, the file format also supports `./<path>`
 syntax for including contents of other files in the list.  The
 includes are handled recursively though at the moment there’s a limit
 of three levels before the parser starts ignoring the includes.
@@ -119,7 +119,6 @@ Note that any includes accessible from `nightly.txt` file must live
 within the `nightly` directory and use `.txt` file extension.  Using
 arbitrary paths and extensions will work locally but it will break
 NayDuck’s nightly runs.
-
 
 ## Scheduling a run
 
@@ -148,7 +147,6 @@ is supported.
 On success the script outputs link to the page which can be used to
 see status of the run.  Depending on which tests were scheduled the
 run can take over an hour to finish.
-
 
 ## Creating new tests
 
@@ -180,7 +178,7 @@ all new tests are included in the nightly list.  That’s done by
 They list all the expensive and pytest tests defined in the repository
 and then check whether they are all mentioned in the nightly list.
 
-The scripts recognise commented out tests so if a test is broken it
+The scripts recognize commented out tests so if a test is broken it
 can be removed from the list by commenting it out.  However, such
 a test must be proceeded by a TODO comment mentioning an issue which
 tracks the breakage.  For example:

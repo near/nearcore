@@ -8,7 +8,7 @@ content-addressed storage system that can easily self-verify.
 
 Flat storage is a bit like a database index for the values stored in the trie.
 It stores a copy of the data in a more accessible way to speed up the lookup
-time. 
+time.
 
 Drastically oversimplified, flat storage uses a hashmap instead of a trie. This
 reduces the lookup time from `O(d)` to `O(1)` where `d` is the tree depth of the
@@ -83,11 +83,11 @@ the trie, plus one more for dereferencing the final value.
 Clearly, `d + 1` is worse than `1 + 1`, right? Well, as it turns out, we can
 cache the trie nodes with surprisingly high effectiveness. In mainnet
 workloads (which were often optimized to work well with the trie shape) we
-observe a 99% cache hit rate in many cases. 
+observe a 99% cache hit rate in many cases.
 
 Combine that with the fact that a typical value for `d` is somewhere between 10
 and 20. Then we may conclude that, in expectation, a trie lookup (`d * 0.01 + 1`
-requests) requires less DB requests than a flat state lookup (`1 + 1` requests). 
+requests) requires less DB requests than a flat state lookup (`1 + 1` requests).
 
 In practice, however, flat state still has an edge over accessing trie storage
 directly. And that is due to two reasons.
@@ -171,12 +171,12 @@ Here we describe structures used for flat storage implementation.
 
 ## FlatStorage
 
-This is the main structure which owns information about ValueRefs for all keys from some fixed 
+This is the main structure which owns information about ValueRefs for all keys from some fixed
 shard for some set of blocks. It is shared by multiple threads, so it is guarded by RwLock:
 
 * Chain thread, because it sends queries like:
-    * "new block B was processed by chain" - supported by add_block
-    * "flat storage head can be moved forward to block B" - supported by update_flat_head
+  * "new block B was processed by chain" - supported by add_block
+  * "flat storage head can be moved forward to block B" - supported by update_flat_head
 * Thread that applies a chunk, because it sends read queries "what is the ValueRef for key for block B"
 * View client (not fully decided)
 
@@ -203,14 +203,14 @@ by get_ref method.
 If storage is fully empty, then we need to create flat storage from scratch. FlatStorage is stored
 inside NightshadeRuntime, and it itself is stored inside Chain, so we need to create them in the same order
 and dependency hierarchy should be the same. But at the same time, we parse genesis file only during Chain
-creation. That’s why FlatStorageManager has set_flat_storage_for_genesis method which is called 
+creation. That’s why FlatStorageManager has set_flat_storage_for_genesis method which is called
 during Chain creation.
 
 ### Regular block processing vs. catchups
 
-For these two usecases we have two different flows: first one is handled in Chain.postprocess_block,
+For these two use cases we have two different flows: first one is handled in Chain.postprocess_block,
 the second one in Chain.block_catch_up_postprocess. Both, when results of applying chunk are ready,
-should call Chain.process_apply_chunk_result → RuntimeAdapter.get_flat_storage_for_shard → 
+should call Chain.process_apply_chunk_result → RuntimeAdapter.get_flat_storage_for_shard →
 FlatStorage.add_block, and when results of applying ALL processed/postprocessed chunks are ready,
 should call RuntimeAdapter.get_flat_storage_for_shard → FlatStorage.update_flat_head.
 

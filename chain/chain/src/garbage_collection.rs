@@ -984,7 +984,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::BlockPerHeight => {
-                panic!("Must use gc_col_glock_per_height method to gc DBCol::BlockPerHeight");
+                panic!("Must use gc_col_block_per_height method to gc DBCol::BlockPerHeight");
             }
             DBCol::TransactionResultForBlock => {
                 store_update.delete(col, key);

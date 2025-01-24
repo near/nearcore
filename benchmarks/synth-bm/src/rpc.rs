@@ -97,7 +97,7 @@ impl RpcResponseHandler {
                 Some(res) => res,
                 None => {
                     warn!(
-                        "Expectet {} responses but channel closed after {num_received}",
+                        "Expected {} responses but channel closed after {num_received}",
                         self.num_expected_responses
                     );
                     break;

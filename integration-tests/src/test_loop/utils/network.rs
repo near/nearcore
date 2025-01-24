@@ -82,7 +82,7 @@ pub fn chunk_endorsement_dropper(
 /// producers so that this will not come up.
 /// - Using this when there are too few validators will lead to the chain stalling rather than the intended behavior
 /// of a skip being generated.
-/// - Only the producer of the skipped block will receive it, so we only ovserve the behavior when we see two different
+/// - Only the producer of the skipped block will receive it, so we only observe the behavior when we see two different
 /// descendants of the same block on one node. This could be improved, though.
 pub fn block_dropper_by_height(
     heights: HashSet<BlockHeight>,

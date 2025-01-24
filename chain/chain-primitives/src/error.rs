@@ -418,7 +418,7 @@ impl Error {
             Error::NoParentShardId(_) => "no_parent_shard_id",
             Error::InvalidStateRequest(_) => "invalid_state_request",
             Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
-            Error::InvalidBlockMerkleRoot => "invalid_block_merkele_root",
+            Error::InvalidBlockMerkleRoot => "invalid_block_merkle_root",
             Error::InvalidProtocolVersion => "invalid_protocol_version",
             Error::NotAValidator(_) => "not_a_validator",
             Error::NotAChunkValidator => "not_a_chunk_validator",

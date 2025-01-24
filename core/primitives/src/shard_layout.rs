@@ -94,6 +94,10 @@ type ShardsSplitMapV2 = BTreeMap<ShardId, Vec<ShardId>>;
 /// A mapping from the child shard to the parent shard.
 type ShardsParentMapV2 = BTreeMap<ShardId, ShardId>;
 
+pub fn shard_uids_to_ids(shard_uids: &[ShardUId]) -> Vec<ShardId> {
+    shard_uids.iter().map(|shard_uid| shard_uid.shard_id()).collect_vec()
+}
+
 fn new_shard_ids_vec(shard_ids: Vec<u64>) -> Vec<ShardId> {
     shard_ids.into_iter().map(Into::into).collect()
 }
@@ -410,13 +414,13 @@ impl ShardLayout {
         Self::multi_shard_custom(boundary_accounts, 1)
     }
 
-    /// Return a V0 Shardlayout
+    /// Return a V0 ShardLayout
     #[deprecated(note = "Use multi_shard() instead")]
     pub fn v0(num_shards: NumShards, version: ShardVersion) -> Self {
         Self::V0(ShardLayoutV0 { num_shards, version })
     }
 
-    /// Return a V1 Shardlayout
+    /// Return a V1 ShardLayout
     #[deprecated(note = "Use multi_shard() instead")]
     pub fn v1(
         boundary_accounts: Vec<AccountId>,
@@ -447,7 +451,7 @@ impl ShardLayout {
         })
     }
 
-    /// Return a V2 Shardlayout
+    /// Return a V2 ShardLayout
     pub fn v2(
         boundary_accounts: Vec<AccountId>,
         shard_ids: Vec<ShardId>,

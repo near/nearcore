@@ -270,3 +270,10 @@ reject_tx_congestion_threshold: {
 }
 
 use_state_stored_receipt: false
+
+# Bandwidth scheduler
+
+max_shard_bandwidth: 999_999_999_999_999
+max_single_grant: 999_999_999_999_999
+max_allowance: 999_999_999_999_999
+max_base_bandwidth: 999_999_999_999_999

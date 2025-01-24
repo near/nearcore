@@ -298,7 +298,7 @@ impl TestReshardingEnv {
 
         // Don't do catchup in the very first block of the epoch. This is
         // primarily for the error handling test where we want to corrupt the
-        // databse before catchup happens.
+        // database before catchup happens.
         if next_height % epoch_length == 1 {
             return false;
         }
@@ -308,7 +308,7 @@ impl TestReshardingEnv {
 
     // Submit the tx to all clients for processing and checks:
     // Clients that track the relevant shard should return ValidTx
-    // Clients that do not track the relevenat shard should return RequestRouted
+    // Clients that do not track the relevant shard should return RequestRouted
     // At least one client should process it and return ValidTx.
     fn process_tx(env: &mut TestEnv, tx: &SignedTransaction) {
         let mut response_valid_count = 0;

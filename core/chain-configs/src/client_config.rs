@@ -491,7 +491,7 @@ pub struct ClientConfig {
     /// Time between checking to re-request chunks.
     pub chunk_request_retry_period: Duration,
     /// Time between running doomslug timer.
-    pub doosmslug_step_period: Duration,
+    pub doomslug_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
@@ -509,7 +509,7 @@ pub struct ClientConfig {
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
     /// save_trie_changes should be set to true iff
-    /// - archive if false - non-archivale nodes need trie changes to perform garbage collection
+    /// - archive if false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
@@ -624,7 +624,7 @@ impl ClientConfig {
                 Duration::milliseconds(100),
                 Duration::milliseconds(min_block_prod_time as i64 / 5),
             ),
-            doosmslug_step_period: Duration::milliseconds(100),
+            doomslug_step_period: Duration::milliseconds(100),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],

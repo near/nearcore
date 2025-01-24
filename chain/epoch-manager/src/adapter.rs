@@ -150,7 +150,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error>;
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError>;
 
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
@@ -383,6 +383,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<bool, EpochError>;
 
     fn cares_about_shard_next_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError>;
+
+    fn cared_about_shard_prev_epoch_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
@@ -639,7 +646,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error> {
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
         let is_resharding_boundary =
@@ -953,6 +960,22 @@ impl EpochManagerAdapter for EpochManagerHandle {
             account_id,
             shard_id,
         )
+    }
+
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
+    fn cared_about_shard_prev_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let (_layout, parent_shard_id, _index) =
+            self.get_prev_shard_id_from_prev_hash(parent_hash, shard_id)?;
+        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(parent_hash)?;
+
+        let epoch_manager = self.read();
+        epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
     }
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {

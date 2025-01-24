@@ -1,7 +1,7 @@
 //! Iterator that traverses a memtrie in key order.
 //!
 //! This is essentially a copy of the `DiskTrieIterator`, with the following notable differences:
-//!  - It doesn't support extra options like remembering nodes or puning;
+//!  - It doesn't support extra options like remembering nodes or pruning;
 //!  - It uses None to represent an "empty" placeholder node rather than `TrieNode::Empty`;
 //!  - MemTrieNodeView splits Branch and BranchWithValue into separate variants, whereas TrieNode
 //!    handles them in a single variant with an optional value field, but the iteration logic
