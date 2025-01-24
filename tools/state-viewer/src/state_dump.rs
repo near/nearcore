@@ -154,7 +154,7 @@ pub fn state_dump_redis(
             .unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
-            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+            if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
                     println!("Account: {}", account_id);
                     let redis_key = account_id.as_bytes();
@@ -254,7 +254,7 @@ fn iterate_over_records(
             .unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
-            if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
+            if let Some(mut sr) = StateRecord::from_raw_key_value(&key, value) {
                 if !should_include_record(&sr, &account_allowlist) {
                     continue;
                 }

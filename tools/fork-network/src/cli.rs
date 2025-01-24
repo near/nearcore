@@ -618,7 +618,7 @@ impl ForkNetworkCommand {
                 Ok((key, FlatStateValue::Inlined(value))) => (key, value),
                 otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
             };
-            if let Some(sr) = StateRecord::from_raw_key_value(key.clone(), value.clone()) {
+            if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
                 match sr {
                     StateRecord::AccessKey { account_id, public_key, access_key } => {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
