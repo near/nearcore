@@ -2750,7 +2750,7 @@ impl Client {
     /// The condition to call this function is simple - every time chain head changes -
     /// which hopefully will make it hard to forget to call it. And even if there is some
     /// corner case not covered - since blocks are sent frequently (every few seconds),
-    /// the POV of Client and PeerManagerActor will be de synchronized only for a short time.
+    /// the POV of Client and PeerManagerActor will be desynchronized only for a short time.
     ///
     /// TODO(gprusak): consider making send_network_chain_info accept chain Tip as an argument
     /// to underline that it is expected to be called whenever Tip changes. Currently
