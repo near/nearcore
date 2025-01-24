@@ -638,7 +638,7 @@ mod tests {
         write!(&mut output, "{summary}").unwrap();
         insta::assert_snapshot!(output, @r###"
         ACCOUNT_ID                                                         SIZE[B]   RCPTS_IN  RCPTS_OUT ACTIONS
-        alice.near                                                             100          1          0
+        alice.near                                                             100          1          0 
         bob.near                                                               200          1          1 CreateAccount,DeployContract,Transfer
 
         Finished without errors!
