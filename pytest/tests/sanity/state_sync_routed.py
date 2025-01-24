@@ -5,6 +5,7 @@
 #
 # Make sure the new observer sync via routing through other observers.
 #
+# cspell:words notx manytx onetx
 # Three modes:
 #   - notx: no transactions are sent, just checks that
 #     the second node starts and catches up

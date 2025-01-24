@@ -2,6 +2,8 @@
 # Spins up a node, then waits for five+ epochs
 # and spins up another node
 # Makes sure that eventually the second node catches up
+# 
+# cspell:words notx manytx onetx
 # Three modes:
 #   - notx: no transactions are sent, just checks that
 #     the second node starts and catches up

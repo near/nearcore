@@ -431,13 +431,13 @@ def test_key_value_changes():
     key = struct.pack('<Q', 42)
     key_base64 = base64.b64encode(key).decode('ascii')
 
-    def set_value(value, *, nounce):
+    def set_value(value, *, nonce):
         args = key + struct.pack('<Q', value)
         tx = transaction.sign_function_call_tx(function_caller_key,
                                                contract_key.account_id,
                                                'write_key_value', args,
                                                300000000000000, 100000000000,
-                                               nounce, latest_block_hash)
+                                               nonce, latest_block_hash)
         response = nodes[1].send_tx_and_wait(tx, 10)
         try:
             status = response['result']['receipts_outcome'][0]['outcome'][
@@ -448,9 +448,9 @@ def test_key_value_changes():
             "Expected successful execution, but the output was: %s" % response)
         return response
 
-    thread = threading.Thread(target=lambda: set_value(10, nounce=20))
+    thread = threading.Thread(target=lambda: set_value(10, nonce=20))
     thread.start()
-    response = set_value(20, nounce=30)
+    response = set_value(20, nonce=30)
     thread.join()
 
     tx_block_hash = response['result']['transaction_outcome']['block_hash']
