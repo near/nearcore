@@ -276,6 +276,7 @@ pub fn create_chunk(
         block_merkle_tree.root(),
         client.clock.clone(),
         None,
+        None,
     );
     (
         ProduceChunkResult {

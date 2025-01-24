@@ -51,6 +51,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (72, include_config!("72.yaml")),
     // Fix wasm_yield_resume_byte and relax congestion control.
     (73, include_config!("73.yaml")),
+    (74, include_config!("74.yaml")),
     (129, include_config!("129.yaml")),
 ];
 
@@ -121,6 +122,7 @@ impl RuntimeConfigStore {
                     account_creation_config: runtime_config.account_creation_config.clone(),
                     congestion_control_config: runtime_config.congestion_control_config,
                     witness_config: runtime_config.witness_config,
+                    bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
                     use_state_stored_receipt: runtime_config.use_state_stored_receipt,
                 }),
             );

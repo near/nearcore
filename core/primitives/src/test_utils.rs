@@ -867,6 +867,7 @@ impl TestBlockBuilder {
             self.block_merkle_root,
             self.clock,
             None,
+            None,
         )
     }
 }

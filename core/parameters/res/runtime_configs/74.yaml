@@ -1,0 +1,5 @@
+# Bandwidth scheduler
+max_shard_bandwidth: { old: 999_999_999_999_999, new: 4_500_000 }
+max_single_grant: { old: 999_999_999_999_999, new: 4194304 }
+max_allowance: { old: 999_999_999_999_999, new: 4_500_000 }
+max_base_bandwidth: { old: 999_999_999_999_999, new: 100_000 }

@@ -346,6 +346,7 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 Clock::real(),
                 None,
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -433,6 +434,7 @@ fn produce_block_with_approvals() {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             actor_handles.client_actor.do_send(
@@ -630,6 +632,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             // Send block with invalid chunk mask
@@ -1423,13 +1426,8 @@ fn test_archival_save_trie_changes() {
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
 
             if let Some(trie_changes) = trie_changes {
-                // We don't do any transactions in this test so the root should remain unchanged.
-                if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
-                    // After BandwidthScheduler there's a state change at every height, even when there are no transactions
-                    assert!(trie_changes.old_root != trie_changes.new_root);
-                } else {
-                    assert_eq!(trie_changes.old_root, trie_changes.new_root);
-                }
+                // After BandwidthScheduler there's a state change at every height, even when there are no transactions
+                assert!(trie_changes.old_root != trie_changes.new_root);
             }
         }
     }

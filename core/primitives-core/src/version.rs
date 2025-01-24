@@ -189,13 +189,14 @@ pub enum ProtocolFeature {
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
-    #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
     RelaxedChunkValidation,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
     BlockHeightForReceiptId,
+    /// Enable optimistic block production.
+    ProduceOptimisticBlock,
     GlobalContracts,
 }
 
@@ -258,7 +259,12 @@ impl ProtocolFeature {
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
-            | ProtocolFeature::FixChunkProducerStakingThreshold => 74,
+            | ProtocolFeature::FixChunkProducerStakingThreshold
+            | ProtocolFeature::RelaxedChunkValidation
+            // BandwidthScheduler must be enabled before ReshardingV3! When
+            // releasing this feature please make sure to schedule separate
+            // protocol upgrades for those features!
+            | ProtocolFeature::BandwidthScheduler => 74,
 
             // This protocol version is reserved for use in resharding tests. An extra resharding
             // is simulated on top of the latest shard layout in production. Note that later
@@ -277,15 +283,11 @@ impl ProtocolFeature {
             // releasing this feature please make sure to schedule separate
             // protocol upgrades for those features!
             ProtocolFeature::CurrentEpochStateSync => 144,
-            // BandwidthScheduler must be enabled before ReshardingV3! When
-            // releasing this feature please make sure to schedule separate
-            // protocol upgrades for those features!
-            ProtocolFeature::BandwidthScheduler => 145,
             ProtocolFeature::SimpleNightshadeV4 => 146,
-            #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
-            ProtocolFeature::RelaxedChunkValidation => 147,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::BlockHeightForReceiptId => 149,
+            ProtocolFeature::BlockHeightForReceiptId | ProtocolFeature::ProduceOptimisticBlock => {
+                149
+            }
             // Place features that are not yet in Nightly below this line.
             ProtocolFeature::GlobalContracts => 200,
         }

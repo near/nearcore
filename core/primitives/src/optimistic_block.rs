@@ -41,21 +41,10 @@ impl OptimisticBlock {
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
     ) -> Self {
+        use crate::utils::get_block_metadata;
         let prev_block_hash = *prev_block_header.hash();
-        let (vrf_value, vrf_proof) =
-            signer.compute_vrf_with_proof(prev_block_header.random_value().as_ref());
-        let random_value = hash(vrf_value.0.as_ref());
-
-        let now = clock.now_utc().unix_timestamp_nanos() as u64;
-        #[cfg(feature = "sandbox")]
-        let now = now + sandbox_delta_time.unwrap().whole_nanoseconds() as u64;
-        #[cfg(not(feature = "sandbox"))]
-        debug_assert!(sandbox_delta_time.is_none());
-        let time = if now <= prev_block_header.raw_timestamp() {
-            prev_block_header.raw_timestamp() + 1
-        } else {
-            now
-        };
+        let (time, vrf_value, vrf_proof, random_value) =
+            get_block_metadata(prev_block_header, signer, clock, sandbox_delta_time);
 
         let inner = OptimisticBlockInner {
             prev_block_hash,

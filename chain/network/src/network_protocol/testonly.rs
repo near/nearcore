@@ -70,6 +70,7 @@ pub fn make_block(
         CryptoHash::default(),
         clock,
         None,
+        None,
     )
 }
 
