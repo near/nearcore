@@ -479,7 +479,7 @@ mod tests {
         test_distribution_common(&EXPONENTIAL_STAKES[..3], 2, 11);
     }
 
-    /// Tests behaviour when there’s not enough validators to fill required
+    /// Tests behavior when there’s not enough validators to fill required
     /// minimum number of spots per shard.
     #[test]
     fn test_not_enough_validators() {

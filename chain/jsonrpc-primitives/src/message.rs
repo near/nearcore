@@ -152,7 +152,7 @@ pub struct Notification {
 ///
 /// The `Batch` variant is supposed to be created directly, without a constructor.
 ///
-/// The `UnmatchedSub` variant is used when a request is an array and some of the subrequests
+/// The `UnmatchedSub` variant is used when a request is an array and some of the subrequest
 /// aren't recognized as valid json rpc 2.0 messages. This is never returned as a top-level
 /// element, it is returned as `Err(Broken::Unmatched)`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -173,7 +173,7 @@ pub enum Message {
     Batch(Vec<Message>),
     /// An unmatched sub entry in a `Batch`.
     ///
-    /// When there's a `Batch` and an element doesn't comform to the JSONRPC 2.0 format, that one
+    /// When there's a `Batch` and an element doesn't conform to the JSONRPC 2.0 format, that one
     /// is represented by this. This is never produced as a top-level value when parsing, the
     /// `Err(Broken::Unmatched)` is used instead. It is not possible to serialize.
     #[serde(skip_serializing)]
@@ -296,6 +296,7 @@ mod tests {
     /// We first deserialize it from a string. That way we check deserialization works.
     /// But since serialization doesn't have to produce the exact same result (order, spaces, …),
     /// we then serialize and deserialize the thing again and check it matches.
+    /// cspell:ignore notif
     #[test]
     fn message_serde() {
         // A helper for running one message test

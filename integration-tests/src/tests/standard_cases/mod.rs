@@ -1058,18 +1058,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     let transaction_result = node_user
         .function_call(account_id.clone(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
         .unwrap_err();
-    if cfg!(feature = "protocol_feature_relaxed_chunk_validation") {
-        assert_eq!(transaction_result, CommitError::OutcomeNotFound);
-    } else {
-        assert_eq!(
-            transaction_result,
-            CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch {
-                    method_name: "run_test".to_string()
-                })
-            )))
-        );
-    }
+    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
 }
 
 pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
@@ -1097,19 +1086,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
             0,
         )
         .unwrap_err();
-    if cfg!(feature = "protocol_feature_relaxed_chunk_validation") {
-        assert_eq!(transaction_result, CommitError::OutcomeNotFound);
-    } else {
-        assert_eq!(
-            transaction_result,
-            CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
-                    tx_receiver: eve_dot_alice_account(),
-                    ak_receiver: bob_account().into()
-                })
-            )))
-        );
-    }
+    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
 }
 
 pub fn test_access_key_reject_non_function_call(node: impl Node) {
@@ -1129,16 +1106,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
 
     let transaction_result =
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap_err();
-    if cfg!(feature = "protocol_feature_relaxed_chunk_validation") {
-        assert_eq!(transaction_result, CommitError::OutcomeNotFound);
-    } else {
-        assert_eq!(
-            transaction_result,
-            CommitError::Server(ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-                InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
-            )))
-        );
-    }
+    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
 }
 
 pub fn test_increase_stake(node: impl Node) {

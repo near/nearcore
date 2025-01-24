@@ -228,8 +228,8 @@ fn read_node_from_accounting_cache_ext(
             let values_inserted = num_values * data_spread_factor;
             let values: Vec<_> = (0..values_inserted)
                 .map(|_| {
-                    let extention_key = crate::utils::random_vec(value_len);
-                    near_store::estimator::encode_extension_node(extention_key)
+                    let extension_key = crate::utils::random_vec(value_len);
+                    near_store::estimator::encode_extension_node(extension_key)
                 })
                 .collect();
             let mut setup_block = Vec::new();

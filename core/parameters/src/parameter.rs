@@ -223,6 +223,12 @@ pub enum Parameter {
 
     // Use the StateStoredReceipt structure when storing receipts in State.
     UseStateStoredReceipt,
+
+    // Bandwidth scheduler
+    MaxShardBandwidth,
+    MaxSingleGrant,
+    MaxAllowance,
+    MaxBaseBandwidth,
 }
 
 #[derive(

@@ -33,7 +33,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess, Doomslug,
     DoomslugThresholdMode, Provenance,
 };
-use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdateableClientConfig};
+use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
@@ -57,6 +57,7 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader, StateSyncInfo,
@@ -117,7 +118,7 @@ pub struct CatchupState {
 
 pub struct Client {
     /// Adversarial controls - should be enabled only to test disruptive
-    /// behaviour on chain.
+    /// behavior on chain.
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
     #[cfg(feature = "test_features")]
@@ -198,6 +199,8 @@ pub struct Client {
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
     /// Upgrade schedule which determines when the client starts voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    /// Produced optimistic block.
+    last_optimistic_block_produced: Option<OptimisticBlock>,
 }
 
 impl AsRef<Client> for Client {
@@ -207,10 +210,7 @@ impl AsRef<Client> for Client {
 }
 
 impl Client {
-    pub(crate) fn update_client_config(
-        &self,
-        update_client_config: UpdateableClientConfig,
-    ) -> bool {
+    pub(crate) fn update_client_config(&self, update_client_config: UpdatableClientConfig) -> bool {
         let mut is_updated = false;
         is_updated |= self.config.expected_shutdown.update(update_client_config.expected_shutdown);
         is_updated |= self.config.resharding_config.update(update_client_config.resharding_config);
@@ -399,6 +399,7 @@ impl Client {
             partial_witness_adapter,
             chunk_distribution_network,
             upgrade_schedule,
+            last_optimistic_block_produced: None,
         })
     }
 
@@ -541,6 +542,137 @@ impl Client {
         Ok(true)
     }
 
+    fn pre_block_production_check(
+        &self,
+        prev_header: &BlockHeader,
+        height: BlockHeight,
+        validator_signer: &Arc<ValidatorSigner>,
+    ) -> Result<(), Error> {
+        // Check that we are were called at the block that we are producer for.
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(&prev_header.hash()).unwrap();
+        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
+
+        let protocol_version = self
+            .epoch_manager
+            .get_epoch_protocol_version(&epoch_id)
+            .expect("Epoch info should be ready at this point");
+        if protocol_version > PROTOCOL_VERSION {
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+        }
+
+        if !self.can_produce_block(
+            &prev_header,
+            height,
+            validator_signer.validator_id(),
+            &next_block_proposer,
+        )? {
+            debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "Should reschedule block");
+            return Err(Error::BlockProducer("Should reschedule".to_string()));
+        }
+
+        let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(
+            &epoch_id,
+            &prev_header.hash(),
+            &next_block_proposer,
+        )?;
+
+        let validator_pk = validator_stake.take_public_key();
+        if validator_pk != validator_signer.public_key() {
+            debug!(target: "client",
+                local_validator_key = ?validator_signer.public_key(),
+                ?validator_pk,
+                "Local validator key does not match expected validator key, skipping optimistic block production");
+            let err = Error::BlockProducer("Local validator key mismatch".to_string());
+            #[cfg(not(feature = "test_features"))]
+            return Err(err);
+            #[cfg(feature = "test_features")]
+            match self.adv_produce_blocks {
+                None | Some(AdvProduceBlocksMode::OnlyValid) => return Err(err),
+                Some(AdvProduceBlocksMode::All) => {}
+            }
+        }
+        Ok(())
+    }
+
+    pub fn is_optimistic_block_done(&self, next_height: BlockHeight) -> bool {
+        self.last_optimistic_block_produced
+            .as_ref()
+            .filter(|ob| ob.inner.block_height == next_height)
+            .is_some()
+    }
+
+    pub fn save_optimistic_block(&mut self, optimistic_block: &OptimisticBlock) {
+        if let Some(old_block) = self.last_optimistic_block_produced.as_ref() {
+            if old_block.inner.block_height == optimistic_block.inner.block_height {
+                warn!(target: "client",
+                    height=old_block.inner.block_height,
+                    old_previous_hash=?old_block.inner.prev_block_hash,
+                    new_previous_hash=?optimistic_block.inner.prev_block_hash,
+                    "Optimistic block already exists, replacing");
+            }
+        }
+        self.last_optimistic_block_produced = Some(optimistic_block.clone());
+    }
+
+    /// Produce optimistic block for given `height` on top of chain head.
+    /// Either returns optimistic block or error.
+    pub fn produce_optimistic_block_on_head(
+        &mut self,
+        height: BlockHeight,
+    ) -> Result<Option<OptimisticBlock>, Error> {
+        let _span =
+            tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height)
+                .entered();
+
+        let head = self.chain.head()?;
+        assert_eq!(
+            head.epoch_id,
+            self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
+        );
+
+        let prev_hash = head.last_block_hash;
+        let prev_header = self.chain.get_block_header(&prev_hash)?;
+
+        let validator_signer: Arc<ValidatorSigner> =
+            self.validator_signer.get().ok_or_else(|| {
+                Error::BlockProducer("Called without block producer info.".to_string())
+            })?;
+
+        if let Err(err) = self.pre_block_production_check(&prev_header, height, &validator_signer) {
+            debug!(target: "client", height, ?err, "Skipping optimistic block production.");
+            return Ok(None);
+        }
+
+        debug!(
+            target: "client",
+            validator=?validator_signer.validator_id(),
+            height=height,
+            prev_height=prev_header.height(),
+            prev_hash=format_hash(prev_hash),
+            "Producing optimistic block",
+        );
+
+        #[cfg(feature = "sandbox")]
+        let sandbox_delta_time = Some(self.sandbox_delta_time());
+        #[cfg(not(feature = "sandbox"))]
+        let sandbox_delta_time = None;
+
+        // TODO(#10584): Add debug information about the block production in self.block_production_info
+
+        let optimistic_block = OptimisticBlock::produce(
+            &prev_header,
+            height,
+            &*validator_signer,
+            self.clock.clone(),
+            sandbox_delta_time,
+        );
+
+        metrics::OPTIMISTIC_BLOCK_PRODUCED_TOTAL.inc();
+
+        Ok(Some(optimistic_block))
+    }
+
     /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
@@ -583,49 +715,38 @@ impl Client {
         let validator_signer = self.validator_signer.get().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
-
+        let optimistic_block = self
+            .last_optimistic_block_produced
+            .as_ref()
+            .filter(|ob| {
+                // Make sure that the optimistic block is produced on the same previous block.
+                if ob.inner.prev_block_hash == prev_hash {
+                    return true;
+                }
+                warn!(target: "client",
+                    height=height,
+                    prev_hash=?prev_hash,
+                    optimistic_block_prev_hash=?ob.inner.prev_block_hash,
+                    "Optimistic block was constructed on different block, discarding it");
+                false
+            })
+            .cloned();
         // Check that we are were called at the block that we are producer for.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_hash).unwrap();
-        let next_block_proposer = self.epoch_manager.get_block_producer(&epoch_id, height)?;
 
         let prev = self.chain.get_block_header(&prev_hash)?;
         let prev_height = prev.height();
         let prev_epoch_id = *prev.epoch_id();
         let prev_next_bp_hash = *prev.next_bp_hash();
 
+        if let Err(err) = self.pre_block_production_check(&prev, height, &validator_signer) {
+            debug!(target: "client", height, ?err, "Skipping block production");
+            return Ok(None);
+        }
+
         // Check and update the doomslug tip here. This guarantees that our endorsement will be in the
         // doomslug witness. Have to do it before checking the ability to produce a block.
         let _ = self.check_and_update_doomslug_tip()?;
-
-        if !self.can_produce_block(
-            &prev,
-            height,
-            validator_signer.validator_id(),
-            &next_block_proposer,
-        )? {
-            debug!(target: "client", me=?validator_signer.validator_id(), ?next_block_proposer, "Should reschedule block");
-            return Ok(None);
-        }
-        let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(
-            &epoch_id,
-            &prev_hash,
-            &next_block_proposer,
-        )?;
-
-        let validator_pk = validator_stake.take_public_key();
-        if validator_pk != validator_signer.public_key() {
-            debug!(target: "client",
-                local_validator_key = ?validator_signer.public_key(),
-                ?validator_pk,
-                "Local validator key does not match expected validator key, skipping block production");
-            #[cfg(not(feature = "test_features"))]
-            return Ok(None);
-            #[cfg(feature = "test_features")]
-            match self.adv_produce_blocks {
-                None | Some(AdvProduceBlocksMode::OnlyValid) => return Ok(None),
-                Some(AdvProduceBlocksMode::All) => {}
-            }
-        }
 
         let new_chunks = self
             .chunk_inclusion_tracker
@@ -812,6 +933,7 @@ impl Client {
             block_merkle_root,
             self.clock.clone(),
             sandbox_delta_time,
+            optimistic_block,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -975,7 +1097,7 @@ impl Client {
         );
         if let Some(limit) = prepared_transactions.limited_by {
             // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
-            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT
+            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT
                 .with_label_values(&[&shard_id.to_string(), limit.as_ref()])
                 .inc();
         }
@@ -989,8 +1111,8 @@ impl Client {
     }
 
     /// Calculates the root of receipt proofs.
-    /// All receipts are groupped by receiver_id and hash is calculated
-    /// for each such group. Then we merkalize these hashes to calculate
+    /// All receipts are grouped by receiver_id and hash is calculated
+    /// for each such group. Then we merklize these hashes to calculate
     /// the receipts root.
     ///
     /// Receipts root is used in the following ways:
@@ -1713,7 +1835,7 @@ impl Client {
             }
         }
 
-        // Run shadown chunk validation on the new block, unless it's coming from sync.
+        // Run shadow chunk validation on the new block, unless it's coming from sync.
         // Syncing has to be fast to catch up with the rest of the chain,
         // applying the chunks would make the sync unworkably slow.
         if provenance != Provenance::SYNC {
@@ -1745,7 +1867,7 @@ impl Client {
         match status {
             BlockStatus::Next => {
                 // If this block immediately follows the current tip, remove
-                // transactions from the txpool.
+                // transactions from the tx pool.
                 self.remove_transactions_for_block(validator_id, block).unwrap_or_default();
             }
             BlockStatus::Fork => {
@@ -2714,14 +2836,14 @@ impl Client {
         // With the current implementation we just fetch chunk producers and block producers
         // of this and the next epoch (which covers what we need, as described above), but may
         // require some tuning in the future. In particular, if we decide that connecting to
-        // block & chunk producers of the next expoch is too expensive, we can postpone it
+        // block & chunk producers of the next epoch is too expensive, we can postpone it
         // till almost the end of this epoch.
         let mut account_keys = AccountKeys::new();
         for epoch_id in [&tip.epoch_id, &tip.next_epoch_id] {
             // We assume here that calls to get_epoch_chunk_producers and get_epoch_block_producers_ordered
             // are cheaper than block processing (and that they will work with both this and
             // the next epoch). The caching on top of that (in tier1_accounts_cache field) is just
-            // a defence in depth, based on the previous experience with expensive
+            // a defense in depth, based on the previous experience with expensive
             // EpochManagerAdapter::get_validators_info call.
             for cp in self.epoch_manager.get_epoch_chunk_producers(epoch_id)? {
                 account_keys

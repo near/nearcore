@@ -1,14 +1,32 @@
+use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::Block;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::version::ProtocolFeature;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
+/// Gets salt for shuffling receipts grouped by **source shards** before
+/// processing them in the target shard.
+pub fn get_receipts_shuffle_salt<'a>(
+    epoch_manager: &dyn EpochManagerAdapter,
+    block: &'a Block,
+) -> Result<&'a CryptoHash, EpochError> {
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&block.header().epoch_id())?;
+    if ProtocolFeature::BlockHeightForReceiptId.enabled(protocol_version) {
+        Ok(block.header().prev_hash())
+    } else {
+        Ok(block.hash())
+    }
+}
+
 pub fn shuffle_receipt_proofs<ReceiptProofType>(
     receipt_proofs: &mut Vec<ReceiptProofType>,
-    block_hash: &CryptoHash,
+    shuffle_salt: &CryptoHash,
 ) {
     let mut slice = [0u8; 32];
-    slice.copy_from_slice(block_hash.as_ref());
+    slice.copy_from_slice(shuffle_salt.as_ref());
     let mut rng: ChaCha20Rng = SeedableRng::from_seed(slice);
     receipt_proofs.shuffle(&mut rng);
 }

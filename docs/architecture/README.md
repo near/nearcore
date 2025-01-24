@@ -263,7 +263,7 @@ more information on the usage.
 Rust has built-in support for writing unit tests by marking functions
 with the `#[test]` directive.  Take full advantage of that!  Testing not
 only confirms that what was written works the way it was intended to but
-also helps during refactoring since it catches unintended behaviour
+also helps during refactoring since it catches unintended behavior
 changes.
 
 Not all tests are created equal though and while some may only need

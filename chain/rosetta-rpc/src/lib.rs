@@ -253,6 +253,7 @@ async fn block_details(
 }
 
 #[api_v2_operation]
+/// cspell:ignore UTXOs
 /// Get a Block Transaction
 ///
 /// Get a transaction in a block by its Transaction Identifier. This endpoint
@@ -801,7 +802,7 @@ async fn construction_submit(
     check_network_identifier(&client_addr, network_identifier).await?;
 
     let transaction_hash = signed_transaction.as_ref().get_hash();
-    let transaction_submittion = client_addr
+    let transaction_submission = client_addr
         .send(
             near_client::ProcessTxRequest {
                 transaction: signed_transaction.into_inner(),
@@ -811,7 +812,7 @@ async fn construction_submit(
             .with_span_context(),
         )
         .await?;
-    match transaction_submittion {
+    match transaction_submission {
         near_client::ProcessTxResponse::ValidTx | near_client::ProcessTxResponse::RequestRouted => {
             Ok(Json(models::TransactionIdentifierResponse {
                 transaction_identifier: models::TransactionIdentifier::transaction(
@@ -823,8 +824,8 @@ async fn construction_submit(
             Err(errors::ErrorKind::InvalidInput(error.to_string()).into())
         }
         _ => Err(errors::ErrorKind::InternalInvariantError(format!(
-            "Transaction submition return unexpected result: {:?}",
-            transaction_submittion
+            "Transaction submission return unexpected result: {:?}",
+            transaction_submission
         ))
         .into()),
     }

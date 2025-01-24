@@ -697,7 +697,7 @@ pub mod validator_stake {
             // Integer division in Rust returns the floor as described here
             // https://doc.rust-lang.org/std/primitive.u64.html#method.div_euclid
             u16::try_from(self.stake() / stake_per_mandate)
-                .expect("number of mandats should fit u16")
+                .expect("number of mandates should fit u16")
         }
 
         /// Returns the weight attributed to the validator's partial mandate.
@@ -706,7 +706,7 @@ pub mod validator_stake {
         /// `stake_per_mandate`. The remainder of that division is the weight of the partial
         /// mandate.
         ///
-        /// Due to this definintion a validator has exactly one partial mandate with `0 <= weight <
+        /// Due to this definition a validator has exactly one partial mandate with `0 <= weight <
         /// stake_per_mandate`.
         ///
         /// # Example
@@ -1097,6 +1097,7 @@ impl serde::Serialize for EpochReference {
     where
         S: serde::Serializer,
     {
+        // cspell:words newtype
         match self {
             EpochReference::EpochId(epoch_id) => {
                 s.serialize_newtype_variant("EpochReference", 0, "epoch_id", epoch_id)

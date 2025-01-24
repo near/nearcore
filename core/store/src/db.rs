@@ -62,7 +62,7 @@ pub(crate) enum DBOp {
     /// Modifies a reference-counted column. `value` includes both the value per
     /// se and a refcount at the end.
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
-    /// Deletes sepecific `key`.
+    /// Deletes specific `key`.
     Delete { col: DBCol, key: Vec<u8> },
     /// Deletes all data from a column.
     DeleteAll { col: DBCol },

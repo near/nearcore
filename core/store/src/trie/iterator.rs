@@ -72,7 +72,7 @@ pub struct DiskTrieIterator<'a> {
     prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
 }
 
-/// The TrieTiem is a tuple of (key, value) of the node.
+/// The TrieItem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.

@@ -40,7 +40,7 @@ pub struct ShardStateSyncResponseHeaderV1 {
 /// that is an ancestor of B_sync. So, the last block with a new chunk before B_sync.
 /// And let B_prev_chunk = B[B_chunk.prev_hash]. So, the block before the last block with a new chunk before B_sync.
 ///
-/// Given these definitiions, the meaning of fields are explained below.
+/// Given these definitions, the meaning of fields are explained below.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ShardStateSyncResponseHeaderV2 {
     /// The chunk whose header in included as B_prev.chunks[shard_id]

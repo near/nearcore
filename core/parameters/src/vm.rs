@@ -132,7 +132,7 @@ pub struct LimitConfig {
     /// If present, stores max number of locals declared globally in one contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_locals_per_contract: Option<u64>,
-    /// Whether to enforce account_id well-formedness where it wasn't enforced
+    /// Whether to enforce account_id well-formed-ness where it wasn't enforced
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
     pub account_id_validity_rules_version: AccountIdValidityRulesVersion,

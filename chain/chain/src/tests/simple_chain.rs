@@ -21,7 +21,7 @@ fn build_chain() {
     // The hashes here will have to be modified after changes to the protocol.
     // In particular if you update protocol version or add new protocol
     // features.  If this assert is failing without you adding any new or
-    // stabilising any existing protocol features, this indicates bug in your
+    // stabilizing any existing protocol features, this indicates bug in your
     // code which unexpectedly changes the protocol.
     //
     // To update the hashes you can use cargo-insta.  Note that you’ll need to
@@ -35,7 +35,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"GARF4HBtQJ41quFA9fvjHpbVYT4o15syhL3FkH1o7poT");
     } else {
-        insta::assert_snapshot!(hash, @"5LkmueLrB2cc3vURr6VKvT9acRTuNzWGTvzLGFJkRD9c");
+        insta::assert_snapshot!(hash, @"3JFsPBWs2CmNmvDD49ytuk26H6d4gryBueLBgeD2YojF");
     }
 
     for i in 1..5 {
@@ -53,7 +53,7 @@ fn build_chain() {
     if cfg!(feature = "nightly") {
         insta::assert_snapshot!(hash, @"HiXuBfW5Xd6e8ZTbMhwtPEXeZxe7macc8DvaWryNdvcf");
     } else {
-        insta::assert_snapshot!(hash, @"5txsrLCmQp9kn3jYRp1VHrCDt7oBTnhyi71rEPZmm8Ce");
+        insta::assert_snapshot!(hash, @"5pEwiJcPbEExts9j2fmVSLUYCVRYHbhMDiyaa1LqpxcU");
     }
 }
 
@@ -91,6 +91,7 @@ fn build_chain_with_orphans() {
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
         clock,
+        None,
         None,
     );
     assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);

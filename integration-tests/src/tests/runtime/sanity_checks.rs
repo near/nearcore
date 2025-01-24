@@ -250,8 +250,8 @@ fn test_sanity_used_gas() {
         // In this test we account for this by setting `op_cost` to zero, but if future tests
         // change test WASM in significant ways, this approach may become incorrect.
         ContractPrepareVersion::V0 | ContractPrepareVersion::V1 => 0,
-        // Gas accounting is precise and instructions executed between calls to the side-effectful
-        // `used_gas` host function calls will be observbable.
+        // Gas accounting is precise and instructions executed between calls to the side-effect-ful
+        // `used_gas` host function calls will be observable.
         ContractPrepareVersion::V2 => u64::from(runtime_config.wasm_config.regular_op_cost),
     };
 

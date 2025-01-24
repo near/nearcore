@@ -11,6 +11,7 @@ use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use crate::hash::CryptoHash;
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
+use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
@@ -305,12 +306,14 @@ impl Block {
         block_merkle_root: CryptoHash,
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
+        optimistic_block: Option<OptimisticBlock>,
     ) -> Self {
         use itertools::Itertools;
         use near_primitives_core::version::ProtocolFeature;
 
         use crate::{
-            hash::hash, stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+            stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+            utils::get_block_metadata,
         };
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
@@ -340,15 +343,19 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = clock.now_utc().unix_timestamp_nanos() as u64;
-        #[cfg(feature = "sandbox")]
-        let now = now + sandbox_delta_time.unwrap().whole_nanoseconds() as u64;
-        #[cfg(not(feature = "sandbox"))]
-        debug_assert!(sandbox_delta_time.is_none());
-        let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
-        let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
-        let random_value = hash(vrf_value.0.as_ref());
+        // Use the optimistic block data if available, otherwise compute it.
+        let (time, vrf_value, vrf_proof, random_value) = optimistic_block
+            .as_ref()
+            .map(|ob| {
+                (
+                    ob.inner.block_timestamp,
+                    ob.inner.vrf_value,
+                    ob.inner.vrf_proof,
+                    ob.inner.random_value,
+                )
+            })
+            .unwrap_or_else(|| get_block_metadata(prev, signer, clock, sandbox_delta_time));
 
         let last_ds_final_block =
             if height == prev.height() + 1 { prev.hash() } else { prev.last_ds_final_block() };

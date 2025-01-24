@@ -42,7 +42,7 @@ pub(crate) struct CreateWitnessResult {
     pub(crate) state_witness: ChunkStateWitness,
     /// Contracts accessed and deployed while applying the chunk.
     pub(crate) contract_updates: ContractUpdates,
-    /// Shard id for the main trainsition. This can be different from the
+    /// Shard id for the main transition. This can be different from the
     /// witness chunk header shard id due to resharding.
     pub(crate) main_transition_shard_id: ShardId,
 }
@@ -134,27 +134,24 @@ impl Client {
             contract_updates,
         } = self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
 
-        let (new_transactions, new_transactions_validation_state) = if checked_feature!(
-            "protocol_feature_relaxed_chunk_validation",
-            RelaxedChunkValidation,
-            protocol_version
-        ) {
-            (Vec::new(), PartialState::default())
-        } else {
-            let new_transactions = chunk.transactions().to_vec();
-            let new_transactions_validation_state = if new_transactions.is_empty() {
-                PartialState::default()
+        let (new_transactions, new_transactions_validation_state) =
+            if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
+                (Vec::new(), PartialState::default())
             } else {
-                // With stateless validation chunk producer uses recording reads when validating
-                // transactions. The storage proof must be available here.
-                transactions_storage_proof.ok_or_else(|| {
-                    let message = "Missing storage proof for transactions validation";
-                    log_assert_fail!("{message}");
-                    Error::Other(message.to_owned())
-                })?
+                let new_transactions = chunk.transactions().to_vec();
+                let new_transactions_validation_state = if new_transactions.is_empty() {
+                    PartialState::default()
+                } else {
+                    // With stateless validation chunk producer uses recording reads when validating
+                    // transactions. The storage proof must be available here.
+                    transactions_storage_proof.ok_or_else(|| {
+                        let message = "Missing storage proof for transactions validation";
+                        log_assert_fail!("{message}");
+                        Error::Other(message.to_owned())
+                    })?
+                };
+                (new_transactions, new_transactions_validation_state)
             };
-            (new_transactions, new_transactions_validation_state)
-        };
 
         let source_receipt_proofs =
             self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;

@@ -20,7 +20,7 @@ into this document.
 Use `rustfmt` for minor code formatting decisions. This rule is enforced by CI
 
 **Rationale:** `rustfmt` style is almost always good enough, even if not always
-perfect. The amount of bikeshedding saved by `rustfmt` far outweighs any
+perfect. The amount of bike shedding saved by `rustfmt` far outweighs any
 imperfections.
 
 ## Idiomatic Rust
@@ -37,6 +37,7 @@ When in doubt, ask question in the [Rust
 stream or during code review.
 
 **Rationale:**
+
 - *Consistency*: there's usually only one idiomatic solution amidst many
   non-idiomatic ones.
 - *Predictability*: you can use the APIs without consulting documentation.
@@ -79,7 +80,7 @@ this [issue](https://github.com/rust-lang/rust/issues/62586).
 
 Various generic APIs in Rust often return references to data (`&T`). When `T` is
 a small `Copy` type like `i32`, you end up with `&i32` while many API expect
-`i32`, so dereference has to happen _somewhere_. Prefer dereferencing as early
+`i32`, so dereference has to happen *somewhere*. Prefer dereferencing as early
 as possible, typically in a pattern:
 
 ```rust
@@ -148,8 +149,8 @@ aren’t clear cut, it’s usually better to err on side of more imperative styl
 
 Lastly, anecdotally the methods (e.g. when used with `chain` or `flat_map`) may
 lead to faster code. This intuitively makes sense but it’s worth to keep in
-mind that compilers are pretty good at optimising and in practice may generate
-optimal code anyway. Furthermore, optimising code for readability may be more
+mind that compilers are pretty good at optimizing and in practice may generate
+optimal code anyway. Furthermore, optimizing code for readability may be more
 important (especially outside of hot path) than small performance gains.
 
 ### Prefer `to_string` to `format!("{}")`
@@ -279,7 +280,7 @@ f % 7
 
 If you’re confident the arithmetic operation cannot fail,
 `x.checked_[add|sub|mul|div](y).expect("explanation why the operation is safe")` is a great
-alternative, as it neatly documents not just the infallibility, but also _why_ that is the case.
+alternative, as it neatly documents not just the infallibility, but also *why* that is the case.
 
 This convention may be enforced by the `clippy::arithmetic_side_effects` and
 `clippy::integer_arithmetic` lints.
@@ -289,7 +290,7 @@ factors, most notably the compilation flags used. The quick explanation is that 
 computations may panic (cause side effects) if the result has overflowed, and when built with
 optimizations enabled, these computations will wrap-around instead.
 
-For nearcore and neard we have opted to enable the panicking behaviour regardless of the
+For nearcore and neard we have opted to enable the panicking behavior regardless of the
 optimization level. By doing it this we hope to prevent accidental stabilization of protocol
 mis-features that depend on incorrect handling of these overflows or similarly scary silent bugs.
 The downside to this approach is that any such arithmetic operation now may cause a node to crash,
@@ -301,22 +302,22 @@ project overall.
 
 ## Standard Naming
 
-* Use `-` rather than `_` in crate names and in corresponding folder names.
-* Avoid single-letter variable names especially in long functions.  Common `i`,
+- Use `-` rather than `_` in crate names and in corresponding folder names.
+- Avoid single-letter variable names especially in long functions.  Common `i`,
   `j` etc. loop variables are somewhat of an exception but since Rust encourages
   use of iterators those cases aren’t that common anyway.
-* Follow standard [Rust naming patterns](https://rust-lang.github.io/api-guidelines/naming.html) such as:
-  * Don’t use `get_` prefix for getter methods.  A getter method is one which
+- Follow standard [Rust naming patterns](https://rust-lang.github.io/api-guidelines/naming.html) such as:
+  - Don’t use `get_` prefix for getter methods.  A getter method is one which
     returns (a reference to) a field of an object.
-  * Use `set_` prefix for setter methods.  An exception are builder objects
+  - Use `set_` prefix for setter methods.  An exception are builder objects
     which may use different a naming style.
-  * Use `into_` prefix for methods which consume `self` and `to_` prefix for
+  - Use `into_` prefix for methods which consume `self` and `to_` prefix for
     methods which don’t.
-* Use `get_block_header` rather than `get_header` for methods which return
+- Use `get_block_header` rather than `get_header` for methods which return
   a block header.
-* Don’t use `_by_hash` suffix for methods which lookup chain objects (blocks,
+- Don’t use `_by_hash` suffix for methods which lookup chain objects (blocks,
   chunks, block headers etc.) by their hash (i.e. their primary identifier).
-* Use `_by_height` and similar suffixes for methods which lookup chain objects
+- Use `_by_height` and similar suffixes for methods which lookup chain objects
   (blocks, chunks, block headers etc.) by their height or other property which
   is not their hash.
 
@@ -324,6 +325,7 @@ project overall.
 
 ## Documentation
 
+<!-- cspell:ignore stkb -->
 When writing documentation in `.md` files, wrap lines at approximately 80
 columns.
 

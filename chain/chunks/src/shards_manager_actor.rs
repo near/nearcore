@@ -487,7 +487,7 @@ impl ShardsManagerActor {
             }
 
             // Note: If request_from_archival is true, we potentially call
-            // get_part_owner unnecessarily.  It’s probably not worth optimising
+            // get_part_owner unnecessarily.  It’s probably not worth optimizing
             // though unless you can think of a concise way to do it.
             let part_owner = self.epoch_manager.get_part_owner(&epoch_id, part_ord)?;
             let we_own_part = Some(&part_owner) == me;
@@ -833,7 +833,7 @@ impl ShardsManagerActor {
         }
     }
 
-    /// Resends chunk requests if haven't received it within expected time.
+    /// Resend chunk requests if haven't received it within expected time.
     pub fn resend_chunk_requests(&mut self) {
         let _span = tracing::debug_span!(
             target: "client",
@@ -1516,13 +1516,13 @@ impl ShardsManagerActor {
             if !self.encoded_chunks.height_within_horizon(header.height_created()) {
                 return Err(Error::ChainError(near_chain::Error::InvalidChunkHeight));
             }
-            // We shouldn't process unrequested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
+            // We shouldn't process un-requested chunk if we have seen one with same (height_created + shard_id) but different chunk_hash
             if let Some(hash) = self
                 .encoded_chunks
                 .get_chunk_hash_by_height_and_shard(header.height_created(), header.shard_id())
             {
                 if hash != &chunk_hash {
-                    warn!(target: "client", "Rejecting unrequested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
+                    warn!(target: "client", "Rejecting un-requested chunk {:?}, height {}, shard_id {}, because of having {:?}", chunk_hash, header.height_created(), header.shard_id(), hash);
                     return Err(Error::DuplicateChunkHeight);
                 }
             }
