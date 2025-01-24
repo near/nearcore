@@ -389,6 +389,16 @@ impl AllEpochConfig {
             return;
         }
 
+        if checked_feature!("stable", SimpleNightshadeV5, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v5());
+            return;
+        }
+
+        if checked_feature!("stable", SimpleNightshadeV4, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v4());
+            return;
+        }
+
         if checked_feature!("stable", SimpleNightshadeV3, protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v3());
             return;

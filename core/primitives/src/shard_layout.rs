@@ -543,7 +543,6 @@ impl ShardLayout {
     ///
     /// This is the first layout used in the Resharding V3 and it is the first
     /// one where the arbitrary shard ids are used.
-    #[cfg(test)]
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
         let base_shard_layout = Self::get_simple_nightshade_layout_v3();
         let new_boundary_account = "game.hot.tg-0".parse().unwrap();
@@ -552,7 +551,6 @@ impl ShardLayout {
 
     /// Returns the simple nightshade layout, version 5, that will be used in
     /// production. It adds a new boundary account "earn.kaiching".
-    #[cfg(test)]
     pub fn get_simple_nightshade_layout_v5() -> ShardLayout {
         let base_shard_layout = Self::get_simple_nightshade_layout_v4();
         let new_boundary_account = "earn.kaiching".parse().unwrap();
