@@ -123,7 +123,7 @@ impl StoreAdapter for Store {
 }
 
 impl NodeStorage {
-    /// Initialises a new opener with given home directory and hot and cold
+    /// Initializes a new opener with given home directory and hot and cold
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
@@ -150,7 +150,7 @@ impl NodeStorage {
         Self { hot_storage, cold_storage: cold_db }
     }
 
-    /// Initialises an opener for a new temporary test store.
+    /// Initializes an opener for a new temporary test store.
     ///
     /// As per the name, this is meant for tests only.  The created store will
     /// use test configuration (which may differ slightly from default config).
@@ -348,7 +348,7 @@ impl Store {
     ///
     /// Practically, this means that for rc columns rc is included in the value.
     /// This method is a deliberate escape hatch, and shouldn't be used outside
-    /// of auxilary code like migrations which wants to hack on the database
+    /// of auxiliary code like migrations which wants to hack on the database
     /// directly.
     pub fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.storage.iter_raw_bytes(col)
@@ -597,7 +597,7 @@ impl StoreUpdate {
     /// for ref counts.
     ///
     /// This method is a deliberate escape hatch, and shouldn't be used outside
-    /// of auxilary code like migrations which wants to hack on the database
+    /// of auxiliary code like migrations which wants to hack on the database
     /// directly.
     pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.set(column, key.to_vec(), value.to_vec())

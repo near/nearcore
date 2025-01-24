@@ -252,7 +252,7 @@ impl Default for StoreConfig {
             // #9389.
             col_flat_state_cache_size: bytesize::ByteSize::mib(128),
 
-            // This value was taken from the Openethereum default parameter and
+            // This value was taken from the open-ethereum default parameter and
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
@@ -267,6 +267,7 @@ impl Default for StoreConfig {
             view_trie_cache: TrieCacheConfig::default(),
 
             enable_receipt_prefetching: true,
+            // cspell:ignore vfinal
             sweat_prefetch_receivers: vec![
                 "token.sweat".to_owned(),
                 "vfinal.token.sweat.testnet".to_owned(),

@@ -250,6 +250,7 @@ impl MemTrieNodeId {
             return 1;
         }
         // Refcount is always encoded as the first four bytes of the node memory.
+        // cspell:words unref
         let refcount_memory = arena.memory_mut().raw_slice_mut(self.pos, size_of::<u32>());
         let refcount = u32::from_le_bytes(refcount_memory.try_into().unwrap());
         let new_refcount = refcount.checked_sub(1).unwrap();

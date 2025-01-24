@@ -43,7 +43,7 @@ pub enum DBCol {
     BlockHeight,
     /// Column that stores the Trie state.
     /// - *Rows*: trie_node_or_value_hash (CryptoHash)
-    /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
+    /// - *Content type*: Serialized RawTrieNodeWithSize or value ()
     State,
     /// Mapping from BlockChunk to ChunkExtra
     /// - *Rows*: BlockChunk (block_hash, shard_uid)
@@ -357,7 +357,7 @@ pub enum DBKeyType {
 impl DBCol {
     /// Whether data in this column is effectively immutable.
     ///
-    /// Data in such columns is never overwriten, though it can be deleted by gc
+    /// Data in such columns is never overwritten, though it can be deleted by gc
     /// eventually. Specifically, for a given key:
     ///
     /// * It's OK to insert a new value.

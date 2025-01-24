@@ -121,6 +121,61 @@ impl ShardTracker {
         self.tracks_shard_at_epoch(shard_id, &epoch_id)
     }
 
+    fn tracks_shard_prev_epoch_from_prev_block(
+        &self,
+        shard_id: ShardId,
+        prev_hash: &CryptoHash,
+    ) -> Result<bool, EpochError> {
+        let epoch_id = self.epoch_manager.get_prev_epoch_id_from_prev_block(prev_hash)?;
+        self.tracks_shard_at_epoch(shard_id, &epoch_id)
+    }
+
+    /// Whether the client cares about some shard in the previous epoch.
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client is tracking the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client tracks.
+    // TODO: consolidate all these care_about_shard() functions. This could all be one
+    // function with an enum arg that tells what epoch we want to check, and one that allows
+    // passing an epoch ID or a prev hash, or current hash, or whatever.
+    pub fn cared_about_shard_in_prev_epoch(
+        &self,
+        account_id: Option<&AccountId>,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+        is_me: bool,
+    ) -> bool {
+        // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
+        // https://github.com/near/nearcore/issues/4936
+        if let Some(account_id) = account_id {
+            let account_cares_about_shard = self
+                .epoch_manager
+                .cared_about_shard_prev_epoch_from_prev_block(parent_hash, account_id, shard_id)
+                .unwrap_or(false);
+            if account_cares_about_shard {
+                // An account has to track this shard because of its validation duties.
+                return true;
+            }
+            if !is_me {
+                // We don't know how another node is configured.
+                // It may track all shards, it may track no additional shards.
+                return false;
+            } else {
+                // We have access to the node config. Use the config to find a definite answer.
+            }
+        }
+        match self.tracked_config {
+            TrackedConfig::AllShards => {
+                // Avoid looking up EpochId as a performance optimization.
+                true
+            }
+            _ => {
+                self.tracks_shard_prev_epoch_from_prev_block(shard_id, parent_hash).unwrap_or(false)
+            }
+        }
+    }
+
     /// Whether the client cares about some shard right now.
     /// * If `account_id` is None, `is_me` is not checked and the
     /// result indicates whether the client is tracking the shard

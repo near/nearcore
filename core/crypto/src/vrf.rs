@@ -28,6 +28,7 @@ impl PublicKey {
 
     // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
     // unchecked arithmetic inside and provides no apparent way to do it in a checked manner.
+    // cspell:words vmul
     #[allow(clippy::arithmetic_side_effects)]
     fn is_valid(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
         let p = unwrap_or_return_false!(unpack(&value.0));
@@ -44,6 +45,7 @@ impl PublicKey {
 // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
 // unchecked arithmetic inside and provides no apparent way to do it in a checked or wrapping
 // manner.
+// cspell:words basemul
 #[allow(clippy::arithmetic_side_effects)]
 fn basemul(s: Scalar) -> Point {
     &s * &*GT
