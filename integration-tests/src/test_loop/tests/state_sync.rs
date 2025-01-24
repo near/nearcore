@@ -98,9 +98,9 @@ fn setup_initial_blockchain(
         .collect::<Vec<_>>();
     let mut clients = validators.iter().map(|v| v.account_id.clone()).collect::<Vec<_>>();
 
-    if let Some(sched) = extra_node_shard_schedule.as_ref() {
+    if let Some(schedule) = extra_node_shard_schedule.as_ref() {
         let idx = clients.len();
-        let sched = sched.clone();
+        let schedule = schedule.clone();
         clients.push("extra-node".parse().unwrap());
 
         builder = builder.config_modifier(move |config, client_index| {
@@ -109,7 +109,7 @@ fn setup_initial_blockchain(
             }
 
             config.tracked_shards = vec![];
-            config.tracked_shard_schedule = sched.clone();
+            config.tracked_shard_schedule = schedule.clone();
         });
     }
 
