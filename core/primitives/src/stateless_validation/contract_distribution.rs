@@ -370,7 +370,7 @@ impl Into<ContractCode> for CodeBytes {
 }
 
 /// Contains the accesses and changes (eg. deployments) to the contracts while applying a chunk.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ContractUpdates {
     /// Code-hashes of the contracts accessed (called) while applying the chunk.
     pub contract_accesses: HashSet<CodeHash>,

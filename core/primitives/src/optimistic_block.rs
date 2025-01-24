@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_schema_checker_lib::ProtocolSchema;
@@ -66,4 +68,38 @@ impl OptimisticBlock {
     pub fn init(&mut self) {
         self.hash = hash(&borsh::to_vec(&self.inner).expect("Failed to serialize"));
     }
+
+    pub fn height(&self) -> BlockHeight {
+        self.inner.block_height
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        &self.hash
+    }
+
+    pub fn prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_block_hash
+    }
+
+    pub fn block_timestamp(&self) -> u64 {
+        self.inner.block_timestamp
+    }
+
+    pub fn random_value(&self) -> &CryptoHash {
+        &self.inner.random_value
+    }
+}
+
+#[derive(BorshSerialize)]
+pub struct OptimisticBlockKeySource {
+    pub height: BlockHeight,
+    pub prev_block_hash: CryptoHash,
+    pub block_timestamp: u64,
+    pub random_seed: CryptoHash,
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockToApply {
+    Normal(CryptoHash),
+    Optimistic(CryptoHash),
 }

@@ -97,6 +97,7 @@ fn test_client_with_simple_test_loop() {
         noop().into_multi_sender(),
         Arc::new(test_loop.future_spawner()),
         noop().into_multi_sender(),
+        client_adapter.as_multi_sender(),
         PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
@@ -118,7 +119,6 @@ fn test_client_with_simple_test_loop() {
     let client_actor = ClientActorInner::new(
         test_loop.clock(),
         client,
-        client_adapter.as_multi_sender(),
         PeerId::random(),
         noop().into_multi_sender(),
         noop().into_sender(),
