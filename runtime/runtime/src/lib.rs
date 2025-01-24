@@ -1465,6 +1465,10 @@ impl Runtime {
 
         let mut processing_state =
             ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
+        processing_state.stats.transactions_num =
+            transactions.transactions.len().try_into().unwrap();
+        processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
+        processing_state.stats.is_chunk_missing = !apply_state.is_new_chunk;
 
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
@@ -1503,6 +1507,7 @@ impl Runtime {
             apply_state,
             &mut processing_state.state_update,
             epoch_info_provider,
+            &mut processing_state.stats.bandwidth_scheduler,
         )?;
 
         // If the chunk is missing, exit early and don't process any receipts.
@@ -2109,6 +2114,7 @@ impl Runtime {
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         let apply_state = processing_state.apply_state;
         let epoch_info_provider = processing_state.epoch_info_provider;
+        let mut stats = processing_state.stats;
         let mut state_update = processing_state.state_update;
         let pending_delayed_receipts = processing_state.delayed_receipts;
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
@@ -2155,8 +2161,12 @@ impl Runtime {
             );
         }
 
-        let bandwidth_requests =
-            receipt_sink.generate_bandwidth_requests(&state_update, &shard_layout, true)?;
+        let bandwidth_requests = receipt_sink.generate_bandwidth_requests(
+            &state_update,
+            &shard_layout,
+            true,
+            &mut stats,
+        )?;
 
         if cfg!(debug_assertions) {
             if let Err(err) = check_balance(
@@ -2168,7 +2178,7 @@ impl Runtime {
                 &promise_yield_result.timeout_receipts,
                 processing_state.transactions,
                 &receipt_sink.outgoing_receipts(),
-                &processing_state.stats.balance,
+                &stats.balance,
             ) {
                 panic!(
                     "The runtime's balance_checker failed for shard {} at height {} with block hash {} and protocol version {}: {}",
@@ -2234,14 +2244,16 @@ impl Runtime {
             .bandwidth_scheduler_output()
             .map(|o| o.scheduler_state_hash)
             .unwrap_or_default();
+        let outgoing_receipts =
+            receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
         Ok(ApplyResult {
             state_root,
             trie_changes,
             validator_proposals: unique_proposals,
-            outgoing_receipts: receipt_sink.into_outgoing_receipts(),
+            outgoing_receipts,
             outcomes: processing_state.outcomes,
             state_changes,
-            stats: processing_state.stats,
+            stats,
             processed_delayed_receipts,
             processed_yield_timeouts,
             proof,
@@ -2763,7 +2775,7 @@ pub mod estimator {
     use crate::congestion_control::ReceiptSinkV2;
     use crate::pipelining::ReceiptPreparationPipeline;
     use crate::ApplyState;
-    use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
+    use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
@@ -2807,6 +2819,7 @@ pub mod estimator {
             outgoing_metadatas,
             bandwidth_scheduler_output: None,
             protocol_version: apply_state.current_protocol_version,
+            stats: ReceiptSinkStats::default(),
         });
         let empty_pipeline = ReceiptPreparationPipeline::new(
             std::sync::Arc::clone(&apply_state.config),
@@ -2824,7 +2837,9 @@ pub mod estimator {
             stats,
             epoch_info_provider,
         );
-        outgoing_receipts.extend(receipt_sink.into_outgoing_receipts().into_iter());
+        let new_outgoing_receipts =
+            receipt_sink.finalize_stats_get_outgoing_receipts(&mut stats.receipt_sink);
+        outgoing_receipts.extend(new_outgoing_receipts.into_iter());
         apply_result
     }
 }
