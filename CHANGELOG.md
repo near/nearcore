@@ -230,7 +230,7 @@ to pay for the storage of their accounts.
 * `/debug` page now has client_config linked.
   You can also check your client_config directly at /debug/client_config
   [#8400](https://github.com/near/nearcore/pull/8400)
-* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
+* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoint - split_storage_info - that
   exposes debug info about the split storage.
   [#8432](https://github.com/near/nearcore/pull/8432)
 * `ClientConfig` can be updated while the node is running.
@@ -448,7 +448,7 @@ to pay for the storage of their accounts.
 ### Protocol Changes
 
 * Enable access key nonce range for implicit accounts to prevent tx hash collisions.
-* Upgraded our version of pwasm-utils to 0.18 -- the old one severely undercounted stack usage in some cases.
+* Upgraded our version of pwasm-utils to 0.18 -- the old one severely under-counted stack usage in some cases.
 
 ### Non-protocol Changes
 
