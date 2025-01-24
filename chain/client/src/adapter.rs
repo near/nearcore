@@ -27,6 +27,7 @@ pub fn client_sender_for_network(
         announce_account: view_client_addr.into_sender(),
         chunk_endorsement: client_addr.clone().into_sender(),
         epoch_sync_request: client_addr.clone().into_sender(),
-        epoch_sync_response: client_addr.into_sender(),
+        epoch_sync_response: client_addr.clone().into_sender(),
+        optimistic_block_receiver: client_addr.into_sender(),
     }
 }

@@ -8,6 +8,7 @@ use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -138,6 +139,13 @@ pub struct EpochSyncResponseMessage {
     pub proof: CompressedEpochSyncProof,
 }
 
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct OptimisticBlockMessage {
+    pub optimistic_block: OptimisticBlock,
+    pub from_peer: PeerId,
+}
+
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
@@ -160,4 +168,5 @@ pub struct ClientSenderForNetwork {
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
+    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
 }
