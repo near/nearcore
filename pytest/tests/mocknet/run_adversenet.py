@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+# cspell:ignore mynetwork
 help_str = """
 This script starts or updates a network of adversenet, in which some validators may be malicious.
 
