@@ -222,7 +222,7 @@ struct ShardDump {
     parts_missing: Arc<RwLock<HashSet<u64>>>,
     // This will give Ok(()) when they're all done, or Err() when one gives an error
     // For now the tasks never fail, since we just retry all errors like the old implementation did,
-    // but we probably want to make a change to distinguish which errors are actually retriable
+    // but we probably want to make a change to distinguish which errors are actually retryable
     // (e.g. the state snapshot isn't ready yet)
     upload_parts: oneshot::Receiver<anyhow::Result<()>>,
 }
@@ -350,7 +350,7 @@ impl PartUploader {
     /// Attempt to generate the state part for `self.epoch_id`, `self.shard_id` and `part_idx`, and upload it to
     /// the external storage. The state part generation is limited by the number of permits allocated to the `obtain_parts`
     /// Semaphore. For now, this always returns OK(()) (loops forever retrying in case of errors), but this should be changed
-    /// to return Err() if the error is not going to be retriable.
+    /// to return Err() if the error is not going to be retryable.
     async fn upload_state_part(self: Arc<Self>, part_idx: u64) -> anyhow::Result<()> {
         if !self.parts_missing.read().unwrap().contains(&part_idx) {
             self.inc_parts_dumped();
@@ -379,7 +379,7 @@ impl PartUploader {
                     break state_part;
                 }
                 Err(error) => {
-                    // TODO: return non retriable errors.
+                    // TODO: return non retryable errors.
                     tracing::warn!(
                         target: "state_sync_dump",
                         shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
@@ -444,7 +444,7 @@ struct HeaderUploader {
 impl HeaderUploader {
     /// Attempt to generate the state header for `self.epoch_id` and `self.shard_id`, and upload it to
     /// the external storage. For now, this always returns OK(()) (loops forever retrying in case of errors),
-    /// but this should be changed to return Err() if the error is not going to be retriable.
+    /// but this should be changed to return Err() if the error is not going to be retryable.
     async fn upload_header(self: Arc<Self>, shard_id: ShardId, header: Option<Vec<u8>>) {
         let Some(header) = header else {
             return;
@@ -754,6 +754,7 @@ impl StateDumper {
             })
             .collect::<HashMap<_, _>>();
         let mut empty_shards = HashSet::new();
+        // cspell:words uploaders
         let uploaders = dump
             .dump_state
             .iter()

@@ -498,6 +498,7 @@ impl std::fmt::Display for TestSummary {
     }
 }
 
+/// cspell:ignore Flukerson
 /// Estimate maximum throughput of each link when the active links are sending receipts at full
 /// speed.
 /// In a simple situation like [0 -> 0], maximum link throughput is equal to `max_shard_bandwidth`.

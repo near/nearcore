@@ -264,7 +264,7 @@ fn cold_store_migration(
     hot_store: &Store,
     cold_db: Arc<ColdDB>,
 ) -> anyhow::Result<ColdStoreMigrationResult> {
-    // Migration is only needed if cold storage is not properly initialised,
+    // Migration is only needed if cold storage is not properly initialized,
     // i.e. if cold head is not set.
     if get_cold_head(cold_db.as_ref())?.is_some() {
         return Ok(ColdStoreMigrationResult::NoNeedForMigration);
