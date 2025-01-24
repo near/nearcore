@@ -800,8 +800,8 @@ impl Runtime {
         // If the receipt was successfully applied, we update `other_burnt_amount` statistic with the non-refundable amount burnt.
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         if result.result.is_ok() {
-            stats.other_burnt_amount =
-                safe_add_balance(stats.other_burnt_amount, nonrefundable_amount_burnt)?;
+            stats.balance.other_burnt_amount =
+                safe_add_balance(stats.balance.other_burnt_amount, nonrefundable_amount_burnt)?;
         }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
