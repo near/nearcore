@@ -164,8 +164,8 @@ unlimited.</p>
 <p>Okay, we have the capacities of the network modeled. Now let's look at how a
 receipt execution maps onto it.</p>
 <p>Let's say a receipt starts at shard 1 with 300 Tgas. While executing, it burns 100 Tgas and
-creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with 
-100 Tgas to the sink of shard 1 and 200 Tgas to shard 2. </p>
+creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with
+100 Tgas to the sink of shard 1 and 200 Tgas to shard 2.</p>
 <p><img src="../../images/congestion/receipt_flow_example_0.svg" alt="graph" /></p>
 <p>Note: The graph includes the execution of the next block with the 200 Tgas to the
 sink of shard 2. This should be interpreted as if we continue sending the exact
@@ -254,7 +254,7 @@ bytes, because it is here to maximize utilization, not to minimize memory
 consumption. And utilization is best measured in gas. If we have a queue of
 10_000 Tgas waiting, even if only 10% of that is burnt in this step of the
 transaction, we still have 1000 Tgas of useful work we can contribute to the
-total flow. Thus under the assumption that at least 10% of gas is being burnt, 
+total flow. Thus under the assumption that at least 10% of gas is being burnt,
 we have 100% utilization.</p>
 <p>A limit in bytes would be better to argue how much memory we need exactly. But
 in some sense, the two are equivalent, as producing large receipts should cost a

@@ -162,7 +162,7 @@
 <li>for rpc-&gt;addr and network-&gt;addr:
 <ul>
 <li>Change the address from 127.0.0.1 to 0.0.0.0 (this means that the port will be accessible from other computers)</li>
-<li>Remember the port numbers (they are generated randomly). </li>
+<li>Remember the port numbers (they are generated randomly).</li>
 </ul>
 </li>
 <li>Also write down the node0's node_key (it is probably: &quot;ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX&quot;)</li>
@@ -177,7 +177,7 @@
 <p>The boot node address should be the IP of the machine1 + the network addr port <strong>from the node0/config.json</strong></p>
 <p>And if everything goes well, the nodes should communicate and start producing blocks.</p>
 <h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<p>The debug mode is enabled by default, so you should be able to see what's going on by going to <code>http://machine1:RPC_ADDR_PORT/debug</code> </p>
+<p>The debug mode is enabled by default, so you should be able to see what's going on by going to <code>http://machine1:RPC_ADDR_PORT/debug</code></p>
 <h3 id="if-node-keeps-saying-waiting-for-peers"><a class="header" href="#if-node-keeps-saying-waiting-for-peers">If node keeps saying &quot;waiting for peers&quot;</a></h3>
 <p>See if you can see the machine1's debug page from machine2. (if not - there might be a firewall blocking the connection).</p>
 <p>Make sure that you set the right ports (it should use node0's NETWORK port) and that you set the ip add there to 0.0.0.0</p>

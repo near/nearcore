@@ -160,7 +160,7 @@ follow the instructions
 to obtain a recent snapshot of a mainnet node's home directory. Once
 you have your node's home directory set up, run the following
 <code>state-viewer</code> command to generate a dump of the chain's state:</p>
-<pre><code class="language-shell">$ neard --home $NEAR_HOME_DIRECTORY view-state dump-state --stream
+<pre><code class="language-shell">neard --home $NEAR_HOME_DIRECTORY view-state dump-state --stream
 </code></pre>
 <p>This command will take a while (possibly many hours) to run. But at the
 end you should have <code>genesis.json</code> and <code>records.json</code> files in
@@ -179,7 +179,7 @@ chain).</p>
 chain. Suppose that we want our chain to have two validators,
 <code>validator0.near</code> and <code>validator1.near</code>. Let's make a new directory
 where we'll be storing intermediate files during this process:</p>
-<pre><code class="language-shell">$ mkdir ~/test-chain-scratch
+<pre><code class="language-shell">mkdir ~/test-chain-scratch
 </code></pre>
 <p>then using your favorite editor, lay out the validators you want in
 the test chain as a JSON list in the same format as the <code>validators</code>
@@ -200,8 +200,8 @@ field in <code>genesis.json</code>, maybe in the file
 </code></pre>
 <p>These validator keys should be keys you've already generated. So for
 the rest of this document, we'll assume you've run:</p>
-<pre><code class="language-shell">$ neard --home ~/near-test-chain/validator0 init --account-id validator0.near
-$ neard --home ~/near-test-chain/validator1 init --account-id validator1.near
+<pre><code class="language-shell">neard --home ~/near-test-chain/validator0 init --account-id validator0.near
+neard --home ~/near-test-chain/validator1 init --account-id validator1.near
 </code></pre>
 <p>This is also a good time to think about what extra accounts you might
 want in your test chain. Since all accounts in the test chain will
@@ -259,10 +259,10 @@ let's assume that you want to run this on only one machine.</p>
 validators with the <code>init</code> command described above, you'll want to
 copy the records and genesis files generated in the previous step to
 each of these:</p>
-<pre><code class="language-shell">$ cp ~/near-test-chain/records.json ~/near-test-chain/validator0
-$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator0
-$ cp ~/near-test-chain/records.json ~/near-test-chain/validator1
-$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
+<pre><code class="language-shell">cp ~/near-test-chain/records.json ~/near-test-chain/validator0
+cp ~/near-test-chain/genesis.json ~/near-test-chain/validator0
+cp ~/near-test-chain/records.json ~/near-test-chain/validator1
+cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
 </code></pre>
 <p>Now we'll need to make a few config changes to each of
 <code>~/near-test-chain/validator0/config.json</code> and
@@ -314,8 +314,8 @@ otherwise we get strange behavior that will often make your network
 stall.</p>
 <p>After making these changes, you can try running one neard process for
 each of your validators:</p>
-<pre><code class="language-shell">$ neard --home ~/near-test-chain/validator0 run
-$ neard --home ~/near-test-chain/validator1 run
+<pre><code class="language-shell">neard --home ~/near-test-chain/validator0 run
+neard --home ~/near-test-chain/validator1 run
 </code></pre>
 <p>Now these nodes will begin by taking the records laid out in
 <code>records.json</code> and turning them into a genesis state. At the time of

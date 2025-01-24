@@ -145,7 +145,7 @@
 <p>IO traces can be used to identify slow receipts and to understand why they
 are slow. Or to detect general inefficiencies in how we use the DB.</p>
 <p>The results give you counts of DB requests and some useful statistics such as
-trie node cache hits. It will NOT give you time measurements, use Graphana to
+trie node cache hits. It will NOT give you time measurements, use Grafana to
 observe those.</p>
 <p>The main use cases in the past were to estimate the performance of new storage
 features (prefetcher, flat state) and to find out why specific contracts produce
@@ -214,6 +214,7 @@ each with the DB key used and the size of the value read. Further, you can read
 in the trace that this specific chunk had 0 transactions and that it
 cache-missed all 7 of the DB requests it performed to apply this empty chunk.</p>
 <h3 id="example-trace-full-mainnet-node"><a class="header" href="#example-trace-full-mainnet-node">Example trace: Full mainnet node</a></h3>
+<!-- cspell:ignore Gxlb -->
 <p>Next let's look at an excerpt of an IO trace from a real node on mainnet.</p>
 <pre><code>...
 GET State &quot;AQAAAAMAAACm9DRx/dU8UFEfbumiRhDjbPjcyhE6CB1rv+8fnu81bw==&quot; size=9
@@ -277,7 +278,7 @@ levels.</p>
 but there are DB requests listed further below that belong to these levels but
 not to <code>apply</code>.</p>
 <p>Inside <code>apply</code>, we see 3 transactions being converted to receipts as part of
-this chunk, and one already existing action receipt getting processed. </p>
+this chunk, and one already existing action receipt getting processed.</p>
 <p>Cache hit statistics for each level are also displayed. For example, the first
 transaction has 57 read requests and all of them hit in the shard cache. For
 the second transaction, we miss the cache 3 times but the values were already in the
@@ -323,6 +324,7 @@ host functions. Apparently the code starts by reading the attached deposit and
 the predecessor account id, presumably to perform some checks.</p>
 <p>The <code>sha256</code> call here is used to shorten implicit account ids.
 (<a href="https://github.com/sweatco/near-sdk-rs/blob/af6ba3cb75e0bbfc26e346e61aa3a0d1d7f5ac7b/near-contract-standards/src/fungible_token/core_impl.rs#L249-L259">Link to code for comparison</a>).</p>
+<!-- cspell:words Sweatcoin -->
 <p>Afterwards, a value with 16 bytes (a <code>u128</code>) is fetched from the trie state.
 To serve this, it required reading 30 trie nodes, 19 of them were cached in the
 accounting cache and were not charged the full gas cost. And the remaining 11

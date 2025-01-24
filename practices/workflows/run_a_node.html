@@ -146,7 +146,7 @@ source. It tries to explain how the thing works under the hood and pays
 relatively little attention to the various shortcuts we have.</p>
 <h2 id="building-the-node"><a class="header" href="#building-the-node">Building the Node</a></h2>
 <p>Start with the following command:</p>
-<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- --help
+<pre><code class="language-console">cargo run --profile dev-release -p neard -- --help
 </code></pre>
 <p>This command builds <code>neard</code> and asks it to show <code>--help</code>. Building <code>neard</code> takes
 a while, take a look at <a href="../fast_builds.html">Fast Builds</a> chapter to learn how to
@@ -258,7 +258,7 @@ not the private ones).</p>
 ]
 </code></pre>
 <p>Now, if we</p>
-<pre><code class="language-console">$ cat ~/.near/validator_key.json
+<pre><code class="language-console">cat ~/.near/validator_key.json
 </code></pre>
 <p>we'll see</p>
 <pre><code class="language-json">{
@@ -294,6 +294,7 @@ You'd also have to ensure that you use the same genesis as the mainnet though
 is rejected.</p>
 <h2 id="running-the-network"><a class="header" href="#running-the-network">Running the Network</a></h2>
 <p>Finally,</p>
+<!-- cspell:ignore matklad -->
 <pre><code class="language-console">$ cargo run --profile dev-release -p neard -- run
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO near: Creating a new RocksDB database path=/home/matklad/.near/data
@@ -487,7 +488,7 @@ http://localhost:9001/transactions/BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 </code></pre>
 <p><strong>Note:</strong> You can export the variable <code>NEAR_ENV</code> in your shell if you are planning
 to do multiple commands to avoid repetition:</p>
-<pre><code class="language-console">$ export NEAR_ENV=local
+<pre><code class="language-console">export NEAR_ENV=local
 </code></pre>
 <p>NEAR CLI printouts are not always the most useful or accurate, but this seems to
 work.</p>

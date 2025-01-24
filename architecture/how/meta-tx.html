@@ -151,6 +151,7 @@ Naturally, the MVP has some limitations, which are discussed in separate
 sections below. Future iterations have the potential to make meta transactions
 more flexible.</p>
 <h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<!-- cspell:ignore Egor Fadeev Uleyskiy -->
 <p><img src="https://raw.githubusercontent.com/near/NEPs/003e589e6aba24fc70dd91c9cf7ef0007ca50735/neps/assets/nep-0366/NEP-DelegateAction.png" alt="Flow chart of meta transactions" />
 <em>Credits for the diagram go to the NEP authors Alexander Fadeev and Egor
 Uleyskiy.</em></p>
@@ -194,7 +195,7 @@ paid using fungible tokens on Near.</p>
 the transfer to John, Alice also adds an action to pay 0.1 $FT to the relayer.
 The relayer checks the content of the <code>SignedDelegateAction</code> and only processes
 it if this payment is included as the first action. In this way, the relayer
-will be paid in the same transaction as John. </p>
+will be paid in the same transaction as John.</p>
 <p>Note that the payment to the relayer is still not guaranteed. It could be that
 Alice does not have sufficient $FT and the transfer fails. To mitigate, the
 relayer should check the $FT balance of Alice first.</p>
@@ -242,7 +243,7 @@ Omitted from the MVP and left open for future improvement.</p>
 <p>Any transaction, including meta transactions, must use NONCEs to avoid replay
 attacks. The NONCE must be chosen by Alice and compared to a NONCE stored on
 chain. This NONCE is stored on the access key information that gets initialized
-when creating an account. </p>
+when creating an account.</p>
 <p>Implicit accounts don't need to be initialized in order to receive NEAR tokens,
 or even $FT. This means users could own $FT but no NONCE is stored on chain for
 them. This is problematic because we want to enable this exact use case with

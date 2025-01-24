@@ -154,7 +154,7 @@ expensive endeavor - especially when many shards are involved.</p>
 <p>But there is actually a better solution - that doesn’t require you to trust the
 single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.</p>
-<h2 id="lets-talk-about-proofs-merkelization"><a class="header" href="#lets-talk-about-proofs-merkelization">Let’s talk about proofs (merkelization):</a></h2>
+<h2 id="lets-talk-about-proofs-merkelization"><a class="header" href="#lets-talk-about-proofs-merkelization">Let’s talk about proofs (merkelization)</a></h2>
 <p>Imagine you have 4 values that you’d like to store, in such a way, that you can
 easily prove that a given value is present.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198579560-923f1f97-a8df-486d-b68e-8796c6aaa300.png" alt="image" /></p>
@@ -283,7 +283,7 @@ let’s find the next block hash, and the proper chunk.</p>
 </code></pre>
 <p>I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let’s fetch
 the chunk header:</p>
-<pre><code class="language-console">$ neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
+<pre><code class="language-console">neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
 </code></pre>
 <pre><code>ShardChunkHeaderV3 {
   inner: V2(

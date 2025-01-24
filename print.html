@@ -387,7 +387,7 @@ more information on the usage.</p>
 <p>Rust has built-in support for writing unit tests by marking functions
 with the <code>#[test]</code> directive.  Take full advantage of that!  Testing not
 only confirms that what was written works the way it was intended to but
-also helps during refactoring since it catches unintended behaviour
+also helps during refactoring since it catches unintended behavior
 changes.</p>
 <p>Not all tests are created equal though and while some may only need
 milliseconds to run, others may run for several seconds or even
@@ -578,28 +578,28 @@ head height, the block is simply dropped.</p>
 <p>ClientActor has some periodically running routines that are worth noting:</p>
 <ul>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1198">Doomslug
-timer</a> - 
-This routine runs every <code>doosmslug_step_period</code> (set to 100ms by default) and
+timer</a> -
+This routine runs every <code>doomslug_step_period</code> (set to 100ms by default) and
 updates consensus information. If the node is a validator node, it also sends
 approvals when necessary.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L991">Block
-production</a> - 
+production</a> -
 This routine runs every <code>block_production_tracking_delay</code> (which is set to
 100ms by default) and checks if the node should produce a block.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1790">Log
-summary</a> - 
+summary</a> -
 Prints a log line that summarizes block rate, average gas used, the height of
 the node, etc. every 10 seconds.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/chunks/src/lib.rs#L910">Resend chunk
-requests</a> - 
+requests</a> -
 This routine runs every <code>chunk_request_retry_period</code> (which is set to 400ms).
-It resends the chunk part requests for those that are not yet responded to.</li>
-<li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629">Sync</a> - 
+It resend the chunk part requests for those that are not yet responded to.</li>
+<li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629">Sync</a> -
 This routine runs every <code>sync_step_period</code> (which is set to 10ms by default)
 and checks whether the node needs to sync from its peers and, if needed, also
 starts the syncing process.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1581">Catch
-up</a> - 
+up</a> -
 This routine runs every <code>catchup_step_period</code> (which is set to 100ms by
 default) and runs the catch up process. This only applies if a node validates
 shard A in epoch X and is going to validate a different shard B in epoch X+1.
@@ -771,10 +771,10 @@ T+1. Info about downloading states is persisted in <code>DBCol::StateDlInfos</co
 <li>For other blocks, we mark them as not caught up if the previous block is not
 caught up. This info is persisted in <code>DBCol::BlocksToCatchup</code> which stores
 mapping from previous block to vector of all child blocks to catch up.</li>
-<li>Chunks for already tracked shards will be applied during <code>process_block</code>, as 
+<li>Chunks for already tracked shards will be applied during <code>process_block</code>, as
 we said before mentioning <code>ApplyChunksMode</code>.</li>
-<li>Once we downloaded state, we start catchup. It will take blocks from 
-<code>DBCol::BlocksToCatchup</code> in breadth-first search order and apply chunks for 
+<li>Once we downloaded state, we start catchup. It will take blocks from
+<code>DBCol::BlocksToCatchup</code> in breadth-first search order and apply chunks for
 shards which have to be tracked in the next epoch.</li>
 <li>When catchup doesn't see any more blocks to process, <code>DBCol::BlocksToCatchup</code>
 is cleared, which means that catchup process is finished.</li>
@@ -782,7 +782,7 @@ is cleared, which means that catchup process is finished.</li>
 <p>The catchup process is implemented through the function <code>Client::run_catchup</code>.
 <code>ClientActor</code> schedules a call to <code>run_catchup</code> every 100ms. However, the call
 can be delayed if ClientActor has a lot of messages in its actix queue.</p>
-<p>Every time <code>run_catchup</code> is called, it checks <code>DBCol::StateDlInfos</code> to see 
+<p>Every time <code>run_catchup</code> is called, it checks <code>DBCol::StateDlInfos</code> to see
 if there are any shard states that should be downloaded. If so, it
 initiates the syncing process for these shards. After the state is downloaded,
 <code>run_catchup</code> will start to apply blocks that need to be caught up.</p>
@@ -823,7 +823,7 @@ that is ‘old’ enough  - which in current configuration means 5 epochs ago.</
 in order not to delay the chain too much, we make sure that each round removes
 at most 2 blocks from the chain.</p>
 <p>For more details look at function <code>clear_data()</code> in file <code>chain/chain/src/chain.rs</code></p>
-<h2 id="how-it-works"><a class="header" href="#how-it-works">How it works:</a></h2>
+<h2 id="how-it-works"><a class="header" href="#how-it-works">How it works</a></h2>
 <p>Imagine the following chain (with 2 forks)</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195649805-e7997192-be3a-4bf0-992d-d35b2ad80847.png" alt="" /></p>
 <p>In the pictures below, let’s assume that epoch length is 5 and we keep only 3
@@ -1001,7 +1001,7 @@ about to produce the block, and if so, it adds the transaction to the mempool
 (<code>TransactionPool</code>) for this shard, where it waits to be picked up when the chunk
 is produced.</p>
 <p>What happens afterwards will be covered in future episodes/articles.</p>
-<h2 id="additional-notes"><a class="header" href="#additional-notes">Additional notes:</a></h2>
+<h2 id="additional-notes"><a class="header" href="#additional-notes">Additional notes</a></h2>
 <h3 id="transaction-being-added-multiple-times"><a class="header" href="#transaction-being-added-multiple-times">Transaction being added multiple times</a></h3>
 <p>But such an approach means, that we’re forwarding the same transaction to multiple
 validators (currently 4) - so can it be added multiple times?</p>
@@ -1061,7 +1061,7 @@ the producer will put the remaining receipts onto the ‘delayed’ queue.</p>
 <p>When all the ‘dependant’ receipts are executed for a given transaction, we can
 consider the transaction to be successful.</p>
 <h3 id="advanced-but-reality-is-more-complex"><a class="header" href="#advanced-but-reality-is-more-complex">[Advanced] But reality is more complex</a></h3>
-<p><strong>Caution:</strong> In the section below, some things are simplified and do not match exactly 
+<p><strong>Caution:</strong> In the section below, some things are simplified and do not match exactly
 how the current code works.</p>
 <p>Let’s quickly also check what’s inside a Chunk:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1125,7 +1125,7 @@ on the simple example of user <code>shard0</code> transferring money to user <co
 <p>These users are on separate shards (<code>shard0</code> is on shard 0 and <code>shard1</code> is on
 shard 1).</p>
 <p>Imagine, we run the following command in the command line:</p>
-<pre><code class="language-console">$ NEAR_ENV=local near send shard0 shard1 500
+<pre><code class="language-console">NEAR_ENV=local near send shard0 shard1 500
 </code></pre>
 <p>What happens under the hood? How is this transaction changed into receipts and
 processed by near?</p>
@@ -1230,7 +1230,7 @@ B, we'll see the transaction:</p>
 </code></pre>
 <p><strong>Side note:</strong> When we're converting the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transferred tokens from the 'signer'
-account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.</p>
+account. The details on how much gas is charged can be found at <a href="https://nomicon.io/RuntimeSpec/Fees/">https://nomicon.io/RuntimeSpec/Fees/</a>.</p>
 <h2 id="step-2---cross-shard-receipt"><a class="header" href="#step-2---cross-shard-receipt">Step 2 - cross shard receipt</a></h2>
 <p>After transaction was changed into a receipt, this receipt must now be sent to
 the shard where the <code>receiver</code> is (in our example <code>shard1</code> is on shard 1).</p>
@@ -1306,7 +1306,7 @@ a <code>predecessor_id</code> one.</p>
 <p>Such a receipt is sent to the destination shard (we'll explain this process in a
 separate article) where it can be executed.</p>
 <!-- TODO: maybe add the link to that article here? -->
-<h2 id="3-gas-refund"><a class="header" href="#3-gas-refund">3. Gas refund.</a></h2>
+<h2 id="3-gas-refund"><a class="header" href="#3-gas-refund">3. Gas refund</a></h2>
 <p>When shard 1 processes the receipt above, it is then ready to refund the unused
 gas to the original account (<code>shard0</code>). So it also creates the receipt, and puts
 it inside the chunk. This time it is in shard 1 (as that's where it was
@@ -1432,7 +1432,7 @@ transaction object, we write <code>SignedTransaction</code>.</em></p>
 <li><a href="architecture/how/gas.html#contract-reward">Contract Reward</a>: How smart contract earn a reward.</li>
 </ul>
 </li>
-<li><a href="architecture/how/gas.html#gas-price">Gas Price</a>: 
+<li><a href="architecture/how/gas.html#gas-price">Gas Price</a>:
 <ul>
 <li><a href="architecture/how/gas.html#block-level-gas-price">Block-Level Gas Price</a>: How the block-level gas price is determined.</li>
 <li><a href="architecture/how/gas.html#pessimistic-gas-price">Pessimistic Gas Price</a>: How worst-case gas pricing is estimated.</li>
@@ -1536,7 +1536,7 @@ incentive to create useful contracts that are commonly used. But there are also
 downsides, such as when implementing a free meta-transaction relayer one has to
 be careful not to be susceptible to faucet-draining attacks where an attacker
 extracts funds from the relayer by making calls to a contract they own.</p>
-<p>How much contracts receive from execution depends on two things. </p>
+<p>How much contracts receive from execution depends on two things.</p>
 <ol>
 <li>How much gas is burnt on the function call execution itself. That is, only
 the gas taken from the <code>attached_gas</code> of a function call is considered for
@@ -1653,8 +1653,8 @@ unlimited.</p>
 <p>Okay, we have the capacities of the network modeled. Now let's look at how a
 receipt execution maps onto it.</p>
 <p>Let's say a receipt starts at shard 1 with 300 Tgas. While executing, it burns 100 Tgas and
-creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with 
-100 Tgas to the sink of shard 1 and 200 Tgas to shard 2. </p>
+creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with
+100 Tgas to the sink of shard 1 and 200 Tgas to shard 2.</p>
 <p><img src="architecture/how/../../images/congestion/receipt_flow_example_0.svg" alt="graph" /></p>
 <p>Note: The graph includes the execution of the next block with the 200 Tgas to the
 sink of shard 2. This should be interpreted as if we continue sending the exact
@@ -1743,7 +1743,7 @@ bytes, because it is here to maximize utilization, not to minimize memory
 consumption. And utilization is best measured in gas. If we have a queue of
 10_000 Tgas waiting, even if only 10% of that is burnt in this step of the
 transaction, we still have 1000 Tgas of useful work we can contribute to the
-total flow. Thus under the assumption that at least 10% of gas is being burnt, 
+total flow. Thus under the assumption that at least 10% of gas is being burnt,
 we have 100% utilization.</p>
 <p>A limit in bytes would be better to argue how much memory we need exactly. But
 in some sense, the two are equivalent, as producing large receipts should cost a
@@ -1796,6 +1796,7 @@ Naturally, the MVP has some limitations, which are discussed in separate
 sections below. Future iterations have the potential to make meta transactions
 more flexible.</p>
 <h2 id="overview-1"><a class="header" href="#overview-1">Overview</a></h2>
+<!-- cspell:ignore Egor Fadeev Uleyskiy -->
 <p><img src="https://raw.githubusercontent.com/near/NEPs/003e589e6aba24fc70dd91c9cf7ef0007ca50735/neps/assets/nep-0366/NEP-DelegateAction.png" alt="Flow chart of meta transactions" />
 <em>Credits for the diagram go to the NEP authors Alexander Fadeev and Egor
 Uleyskiy.</em></p>
@@ -1839,7 +1840,7 @@ paid using fungible tokens on Near.</p>
 the transfer to John, Alice also adds an action to pay 0.1 $FT to the relayer.
 The relayer checks the content of the <code>SignedDelegateAction</code> and only processes
 it if this payment is included as the first action. In this way, the relayer
-will be paid in the same transaction as John. </p>
+will be paid in the same transaction as John.</p>
 <p>Note that the payment to the relayer is still not guaranteed. It could be that
 Alice does not have sufficient $FT and the transfer fails. To mitigate, the
 relayer should check the $FT balance of Alice first.</p>
@@ -1887,7 +1888,7 @@ Omitted from the MVP and left open for future improvement.</p>
 <p>Any transaction, including meta transactions, must use NONCEs to avoid replay
 attacks. The NONCE must be chosen by Alice and compared to a NONCE stored on
 chain. This NONCE is stored on the access key information that gets initialized
-when creating an account. </p>
+when creating an account.</p>
 <p>Implicit accounts don't need to be initialized in order to receive NEAR tokens,
 or even $FT. This means users could own $FT but no NONCE is stored on chain for
 them. This is problematic because we want to enable this exact use case with
@@ -2042,8 +2043,8 @@ pub struct BlockHeader {
 
 <span class="boring">}
 </span></code></pre></pre>
-<p>This is done to protect structures from accidental changes that could corrupt the 
-database or disrupt the protocol. Dedicated CI check is responsible to check the 
+<p>This is done to protect structures from accidental changes that could corrupt the
+database or disrupt the protocol. Dedicated CI check is responsible to check the
 consistency of the schema. See <a href="architecture/how/../../../tools/protocol-schema-check/README.html">README</a> for more details.</p>
 <p>All these structures are likely to implement BorshSerialize and BorshDeserialize (see below).</p>
 <h2 id="borsh"><a class="header" href="#borsh">Borsh</a></h2>
@@ -2054,7 +2055,7 @@ deserialize into the same object.</p>
 <p>You can read more on how Borsh serializes the data, by looking at the Specification
 tab on <a href="https://borsh.io">borsh.io</a>.</p>
 <p>The biggest pitfall/risk of Borsh, is that any change to the structure, might
-cause previous data to no longer be parseable.</p>
+cause previous data to no longer be parsable.</p>
 <p>For example, inserting a new enum ‘in the middle’:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -2084,7 +2085,7 @@ pub enum MyCar {
 <span class="boring">}
 </span></code></pre></pre>
 <p>Is such a scenario - some of the objects created by binaries with this feature
-enabled, will not be parseable by binaries without this feature.</p>
+enabled, will not be parsable by binaries without this feature.</p>
 <p>Removing and adding fields to structures is also dangerous.</p>
 <p>Basically - the only ‘safe’ thing that you can do with Borsh - is add a new Enum
 value at the end.</p>
@@ -2106,6 +2107,7 @@ a .proto file, where you describe the contents of your message.</p>
   GenesisId genesis_id = 3;
 }
 </code></pre>
+<!-- cspell:words protoc -->
 <p>Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
 auto-generated code (in our case Rust code) - that can be directly imported into
 your library.</p>
@@ -2186,7 +2188,7 @@ expensive endeavor - especially when many shards are involved.</p>
 <p>But there is actually a better solution - that doesn’t require you to trust the
 single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.</p>
-<h2 id="lets-talk-about-proofs-merkelization"><a class="header" href="#lets-talk-about-proofs-merkelization">Let’s talk about proofs (merkelization):</a></h2>
+<h2 id="lets-talk-about-proofs-merkelization"><a class="header" href="#lets-talk-about-proofs-merkelization">Let’s talk about proofs (merkelization)</a></h2>
 <p>Imagine you have 4 values that you’d like to store, in such a way, that you can
 easily prove that a given value is present.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/198579560-923f1f97-a8df-486d-b68e-8796c6aaa300.png" alt="image" /></p>
@@ -2315,7 +2317,7 @@ let’s find the next block hash, and the proper chunk.</p>
 </code></pre>
 <p>I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let’s fetch
 the chunk header:</p>
-<pre><code class="language-console">$ neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
+<pre><code class="language-console">neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
 </code></pre>
 <pre><code>ShardChunkHeaderV3 {
   inner: V2(
@@ -2369,8 +2371,8 @@ receipt was indeed processed by the blockchain.</p>
 <h2 id="resharding"><a class="header" href="#resharding">Resharding</a></h2>
 <p>Resharding is the process in which the shard layout changes. The primary purpose
 of resharding is to keep the shards small so that a node meeting minimum hardware
-requirements can safely keep up with the network while tracking some set minimum 
-number of shards. </p>
+requirements can safely keep up with the network while tracking some set minimum
+number of shards.</p>
 <h2 id="specification"><a class="header" href="#specification">Specification</a></h2>
 <p>The resharding is described in more detail in the following NEPs:</p>
 <ul>
@@ -2379,19 +2381,19 @@ number of shards. </p>
 </ul>
 <h2 id="shard-layout"><a class="header" href="#shard-layout">Shard layout</a></h2>
 <p>The shard layout determines the number of shards and the assignment of accounts
-to shards (as single account cannot be split between shards). </p>
-<p>There are two versions of the ShardLayout enum. </p>
+to shards (as single account cannot be split between shards).</p>
+<p>There are two versions of the ShardLayout enum.</p>
 <ul>
 <li>v0 - maps the account to a shard taking hash of the account id modulo number of shards</li>
 <li>v1 - maps the account to a shard by looking at a set of predefined boundary accounts
 and selecting the shard where the accounts fits by using alphabetical order</li>
 </ul>
 <p>At the time of writing there are three pre-defined shard layouts but more can
-be added in the future. </p>
+be added in the future.</p>
 <ul>
-<li>v0 - The first shard layout that contains only a single shard encompassing all the accounts. </li>
-<li>simple nightshade - Splits the accounts into 4 shards. </li>
-<li>simple nightshade v2 - Splits the accounts into 5 shards. </li>
+<li>v0 - The first shard layout that contains only a single shard encompassing all the accounts.</li>
+<li>simple nightshade - Splits the accounts into 4 shards.</li>
+<li>simple nightshade v2 - Splits the accounts into 5 shards.</li>
 </ul>
 <p><strong>IMPORTANT</strong>: Using alphabetical order applies to the full account name, so <code>a.near</code> could belong to
 shard 0, while <code>z.a.near</code> to shard 3.</p>
@@ -2400,59 +2402,59 @@ shard 0, while <code>z.a.near</code> to shard 3.</p>
 <p>In the near future we are planning on switching to simple nightshade v2 (which is defined in <code>get_simple_nightshade_layout_v2</code>)</p>
 <p><code>vec![&quot;aurora&quot;, &quot;aurora-0&quot;, &quot;kkuuue2akv_1630967379.near&quot;, &quot;tge-lockup.sweat&quot;]</code></p>
 <h2 id="shard-layout-changes"><a class="header" href="#shard-layout-changes">Shard layout changes</a></h2>
-<p>Shard Layout is determined at epoch level in the AllEpochConfig based on the protocol version of the epoch. </p>
-<p>The shard layout can change at the epoch boundary. Currently in order to change the 
+<p>Shard Layout is determined at epoch level in the AllEpochConfig based on the protocol version of the epoch.</p>
+<p>The shard layout can change at the epoch boundary. Currently in order to change the
 shard layout it is necessary to manually determine the new shard layout and setting it
 for the desired protocol version in the <code>AllEpochConfig</code>.</p>
 <h3 id="deeper-technical-details"><a class="header" href="#deeper-technical-details">Deeper technical details</a></h3>
 <p>It all starts in <code>preprocess_block</code> - if the node sees, that the block it is
 about to preprocess is the first block of the epoch (X+1)  - it calls
-<code>get_state_sync_info</code>, which is responsible for figuring out which shards will 
+<code>get_state_sync_info</code>, which is responsible for figuring out which shards will
 be needed in next epoch (X+2).</p>
 <p>This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from resharding.</p>
 <p>StateSync in this phase would send the <code>ReshardingRequest</code> to the <code>SyncJobsActor</code> (you can think about the <code>SyncJobsActor</code> as a background thread).</p>
 <p>We'd use the background thread to perform resharding: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).</p>
-<p>In order to split a trie into children tries we use a snapshot of the flat storage. We iterate over all of the entries in the flat storage and we build the children tries by inserting the parent entry into either of the children tries. </p>
+<p>In order to split a trie into children tries we use a snapshot of the flat storage. We iterate over all of the entries in the flat storage and we build the children tries by inserting the parent entry into either of the children tries.</p>
 <p>Extracting of the account from the key happens in <code>parse_account_id_from_raw_key</code> - and we do it for all types of data that we store in the trie (contract code, keys, account info etc) EXCEPT for Delayed receipts. Then, we figure out the shard that this account is going to belong to, and we add this key/value to that new trie.</p>
 <p>This way, after going over all the key/values from the original trie, we end up with X new tries (one for each new shard).</p>
 <p>IMPORTANT: in the current code, we only support such 'splitting' (so a new shard can have just one parent).</p>
 <h3 id="why-delayed-receipts-are-special"><a class="header" href="#why-delayed-receipts-are-special">Why delayed receipts are special?</a></h3>
 <p>For all the other columns, there is no dependency between entries, but in case of delayed receipts - we are forming a 'queue'. We store the information about the first index and the last index (in DelayedReceiptIndices struct).</p>
 <p>Then, when receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key (and increment last_index by 1).</p>
-<p>That is why we cannot move this trie entry type in the same way as others where account id is part of the key. Instead we do it by iterating over this queue and inserting entries to the queue of the relevant child shard. </p>
+<p>That is why we cannot move this trie entry type in the same way as others where account id is part of the key. Instead we do it by iterating over this queue and inserting entries to the queue of the relevant child shard.</p>
 <h2 id="constraints"><a class="header" href="#constraints">Constraints</a></h2>
-<p>The state sync of the parent shard, the resharing and the catchup of the children shards must all complete within a single epoch. </p>
+<p>The state sync of the parent shard, the resharding and the catchup of the children shards must all complete within a single epoch.</p>
 <h2 id="rollout"><a class="header" href="#rollout">Rollout</a></h2>
 <h3 id="flow"><a class="header" href="#flow">Flow</a></h3>
 <p>The resharding will be initiated by having it included in a dedicated protocol version together with neard. Here is the expected flow of events:</p>
 <ul>
-<li>A new neard release is published and protocol version upgrade date is set to D, roughly a week from the release. </li>
-<li>All node operators upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. </li>
-<li>The protocol version upgrade voting takes place at D in an epoch E and nodes vote in favour of switching to the new protocol version in epoch E+2. </li>
-<li>The resharding begins at the beginning of epoch E+1. </li>
-<li>The network switches to the new shard layout in the first block of epoch E+2. </li>
+<li>A new neard release is published and protocol version upgrade date is set to D, roughly a week from the release.</li>
+<li>All node operators upgrade their binaries to the newly released version within the given time frame, ideally as soon as possible but no later than D.</li>
+<li>The protocol version upgrade voting takes place at D in an epoch E and nodes vote in favour of switching to the new protocol version in epoch E+2.</li>
+<li>The resharding begins at the beginning of epoch E+1.</li>
+<li>The network switches to the new shard layout in the first block of epoch E+2.</li>
 </ul>
 <h3 id="monitoring"><a class="header" href="#monitoring">Monitoring</a></h3>
-<p>Resharding exposes a number of metrics and logs that allow for monitoring the resharding process as it is happening. Resharding requires manual recovery in case anything goes wrong and should be monitored in order to ensure smooth node operation. </p>
+<p>Resharding exposes a number of metrics and logs that allow for monitoring the resharding process as it is happening. Resharding requires manual recovery in case anything goes wrong and should be monitored in order to ensure smooth node operation.</p>
 <ul>
 <li>near_resharding_status is the primary metric that should be used for tracking the progress of resharding. It's tagged with a shard_uid label of the parent shard. It's set to corresponding ReshardingStatus enum and can take one of the following values
 <ul>
-<li>0 - Scheduled - resharding is scheduled and waiting to be executed. </li>
-<li>1 - Building - resharding is running. Only one shard at a time can be in that state while the rest will be either finished or waiting in the Scheduled state. </li>
-<li>2 - Finished - resharding is finished. </li>
-<li>-1 - Failed - resharding failed and manual recovery action is required. The node will operate as usual until the end of the epoch but will then stop being able to process blocks. </li>
+<li>0 - Scheduled - resharding is scheduled and waiting to be executed.</li>
+<li>1 - Building - resharding is running. Only one shard at a time can be in that state while the rest will be either finished or waiting in the Scheduled state.</li>
+<li>2 - Finished - resharding is finished.</li>
+<li>-1 - Failed - resharding failed and manual recovery action is required. The node will operate as usual until the end of the epoch but will then stop being able to process blocks.</li>
 </ul>
 </li>
-<li>near_resharding_batch_size and near_resharding_batch_count - those two metrics show how much data has been resharded. Both metrics should progress with the near_resharding_status as follows. 
+<li>near_resharding_batch_size and near_resharding_batch_count - those two metrics show how much data has been resharded. Both metrics should progress with the near_resharding_status as follows.
 <ul>
-<li>While in the Scheduled state both metrics should remain 0. </li>
-<li>While in the Building state both metrics should be gradually increasing. </li>
-<li>While in the Finished state both metrics should remain at the same value. </li>
+<li>While in the Scheduled state both metrics should remain 0.</li>
+<li>While in the Building state both metrics should be gradually increasing.</li>
+<li>While in the Finished state both metrics should remain at the same value.</li>
 </ul>
 </li>
-<li>near_resharding_batch_prepare_time_bucket, near_resharding_batch_apply_time_bucket and near_resharding_batch_commit_time_bucket - those three metrics can be used to track the performance of resharding and fine tune throttling if needed. As a rule of thumb the combined time of prepare, apply and commit for a batch should remain at the 100ms-200ms level on average. Higher batch processing time may lead to disruptions in block processing, missing chunks and blocks. </li>
+<li>near_resharding_batch_prepare_time_bucket, near_resharding_batch_apply_time_bucket and near_resharding_batch_commit_time_bucket - those three metrics can be used to track the performance of resharding and fine tune throttling if needed. As a rule of thumb the combined time of prepare, apply and commit for a batch should remain at the 100ms-200ms level on average. Higher batch processing time may lead to disruptions in block processing, missing chunks and blocks.</li>
 </ul>
-<p>Here are some example metric values when finished for different shards and networks. The duration column reflects the duration of the building phase. Those were captured in production like environment in November 2023 and actual times at the time of resharding in production may be slightly higher. </p>
+<p>Here are some example metric values when finished for different shards and networks. The duration column reflects the duration of the building phase. Those were captured in production like environment in November 2023 and actual times at the time of resharding in production may be slightly higher.</p>
 <div class="table-wrapper"><table><thead><tr><th>mainnet</th><th>duration</th><th>batch count</th><th>batch size</th></tr></thead><tbody>
 <tr><td>total</td><td>2h23min</td><td></td><td></td></tr>
 <tr><td>shard 0</td><td>32min</td><td>12,510</td><td>6.6GB</td></tr>
@@ -2473,23 +2475,23 @@ be needed in next epoch (X+2).</p>
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 50" src="https://github.com/near/nearcore/assets/1555986/06a2c6f1-1daf-4220-b3fe-e21992e2d62c">
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849">
 <h3 id="throttling"><a class="header" href="#throttling">Throttling</a></h3>
-<p>The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file. </p>
+<p>The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file.</p>
 <ul>
 <li>batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource-consuming.</li>
-<li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource-consuming. </li>
+<li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource-consuming.</li>
 </ul>
-<p>The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. </p>
-<p>The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. </p>
-<p>The resharding config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. </p>
+<p>The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values.</p>
+<p>The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues.</p>
+<p>The resharding config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up.</p>
 <h2 id="future-possibilities"><a class="header" href="#future-possibilities">Future possibilities</a></h2>
 <h3 id="localize-resharding-to-a-single-shard"><a class="header" href="#localize-resharding-to-a-single-shard">Localize resharding to a single shard</a></h3>
-<p>Currently when resharding we need to move the data for all shards even if only a single shard is being split. That is due to having the version field in the storage key that needs to be updated when changing shard layout version. </p>
-<p>This can be improved by changing how ShardUId works e.g. removing the version and instead using globally unique shard ids. </p>
+<p>Currently when resharding we need to move the data for all shards even if only a single shard is being split. That is due to having the version field in the storage key that needs to be updated when changing shard layout version.</p>
+<p>This can be improved by changing how ShardUId works e.g. removing the version and instead using globally unique shard ids.</p>
 <h3 id="dynamic-resharding"><a class="header" href="#dynamic-resharding">Dynamic resharding</a></h3>
-<p>The current implementation relies on having the shard layout determined offline and manually added to the node implementation. </p>
+<p>The current implementation relies on having the shard layout determined offline and manually added to the node implementation.</p>
 <p>The dynamic resharding would mean that the network itself can automatically determine that resharding is needed, what should be the new shard layout and schedule the resharding.</p>
 <h3 id="support-different-changes-to-shard-layout"><a class="header" href="#support-different-changes-to-shard-layout">Support different changes to shard layout</a></h3>
-<p>The current implementation only supports splitting a shard. In the future we can consider adding support for other operations such as merging two shards or moving an existing boundary account. </p>
+<p>The current implementation only supports splitting a shard. In the future we can consider adding support for other operations such as merging two shards or moving an existing boundary account.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="how-neard-will-work"><a class="header" href="#how-neard-will-work">How neard will work</a></h1>
 <p>The documents under this chapter are talking about the future of NEAR - what we're planning on improving and how.</p>
 <p>(This also means that they can get out of date quickly :-).</p>
@@ -2508,10 +2510,10 @@ be needed in next epoch (X+2).</p>
 <ul>
 <li>catchups are high priority (the validator MUST catchup within 1 epoch - otherwise it will not be able to produce blocks for the new shards in the next epoch - and therefore it will not earn rewards).</li>
 <li>a lot more catchups in progress (with lots of shards basically every validator would have to catchup at least one shard at each epoch boundary) - this leads to a lot more potential traffic on the network</li>
-<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incentivised to provide the state parts upon request.</li>
+<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incentivize to provide the state parts upon request.</li>
 <li>only a subset of peers will be available to request the state sync from (as not everyone from our peers will be tracking the shard that we're interested in).</li>
 </ul>
-<h2 id="things-that-were-actively-analysing"><a class="header" href="#things-that-were-actively-analysing">Things that we're actively analysing</a></h2>
+<h2 id="things-that-were-actively-analyzing"><a class="header" href="#things-that-were-actively-analyzing">Things that we're actively analyzing</a></h2>
 <h3 id="performance-of-state-sync-on-the-receiver-side"><a class="header" href="#performance-of-state-sync-on-the-receiver-side">Performance of state sync on the receiver side</a></h3>
 <p>We're looking at the performance of state sync:</p>
 <ul>
@@ -2534,30 +2536,30 @@ be needed in next epoch (X+2).</p>
 <h3 id="sending-deltas-instead-of-full-state-syncs"><a class="header" href="#sending-deltas-instead-of-full-state-syncs">Sending deltas instead of full state syncs</a></h3>
 <p>In case of catchup, the requesting node might have tracked that shard in the past. So we could consider just sending a delta of the state rather than the whole state.</p>
 <p>While this helps with the amount of data being sent - it might require the receiver to do a lot more work (as the data that it is about to send cannot be easily cached).</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="malicious-producers-in-phase-2-of-sharding"><a class="header" href="#malicious-producers-in-phase-2-of-sharding">Malicious producers in phase 2 of sharding.</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="malicious-producers-in-phase-2-of-sharding"><a class="header" href="#malicious-producers-in-phase-2-of-sharding">Malicious producers in phase 2 of sharding</a></h1>
 <p>In this document, we'll compare the impact of the hypothetical malicious producer on the NEAR system (both in the current setup and how it will work when phase2 is implemented).</p>
 <h2 id="current-state-phase-1"><a class="header" href="#current-state-phase-1">Current state (Phase 1)</a></h2>
-<p>Let's assume that a malicious chunk producer <code>C1</code> has produced a bad chunk 
-and sent it to the block producer at this height <code>B1</code>. </p>
-<p>The block producer IS going to add the chunk to the block (as we don't validate 
-the chunks before adding to blocks - but only when signing the block - see 
+<p>Let's assume that a malicious chunk producer <code>C1</code> has produced a bad chunk
+and sent it to the block producer at this height <code>B1</code>.</p>
+<p>The block producer IS going to add the chunk to the block (as we don't validate
+the chunks before adding to blocks - but only when signing the block - see
 <a href="architecture/next/./../how/tx_receipts.html">Transactions and receipts - last section</a>).</p>
-<p>After this block is produced, it is sent to all the validators to get the 
+<p>After this block is produced, it is sent to all the validators to get the
 signatures.</p>
-<p>As currently all the validators are tracking all the shards - they will quickly 
+<p>As currently all the validators are tracking all the shards - they will quickly
 notice that the chunk is invalid, so they will not sign the block.</p>
-<p>Therefore the next block producer <code>B2</code> is going to ignore <code>B1</code>'s block, and 
+<p>Therefore the next block producer <code>B2</code> is going to ignore <code>B1</code>'s block, and
 select block from <code>B0</code> as a parent instead.</p>
 <p>So TL;DR - <strong>a bad chunk would not be added to the chain.</strong></p>
 <h2 id="phase-2-and-sharding"><a class="header" href="#phase-2-and-sharding">Phase 2 and sharding</a></h2>
 <p>Unfortunately things get a lot more complicated, once we scale.</p>
-<p>Let's assume the same setup as above (a single chunk producer <code>C1</code> being 
-malicious). But this time, we have 100 shards - each validator is tracking just 
-a few (they cannot track all - as today - as they would have to run super 
+<p>Let's assume the same setup as above (a single chunk producer <code>C1</code> being
+malicious). But this time, we have 100 shards - each validator is tracking just
+a few (they cannot track all - as today - as they would have to run super
 powerful machines with &gt; 100 cores).</p>
-<p>So in the similar scenario as above - <code>C1</code> creates a malicious chunks, and 
+<p>So in the similar scenario as above - <code>C1</code> creates a malicious chunks, and
 sends it to <code>B1</code>, which includes it in the block.</p>
-<p>And here's where the complexity starts - as most of the validators will NOT 
+<p>And here's where the complexity starts - as most of the validators will NOT
 track the shard which <code>C1</code> was producing - so they will still sign the block.</p>
 <p>The validators that do track that shard will of course (assuming that they are non-malicious) refuse the sign. But overall, they will be a small majority - so the block is going to get enough signatures and be added to the chain.</p>
 <h3 id="challenges-slashing-and-rollbacks"><a class="header" href="#challenges-slashing-and-rollbacks">Challenges, Slashing and Rollbacks</a></h3>
@@ -2565,19 +2567,19 @@ track the shard which <code>C1</code> was producing - so they will still sign th
 that's why need to have mechanisms to automatically recover from such situations:
 Challenges, Slashing and Rollbacks.</p>
 <h4 id="challenge"><a class="header" href="#challenge">Challenge</a></h4>
-<p>Challenge is a self-contained proof, that something went wrong in the chunk 
+<p>Challenge is a self-contained proof, that something went wrong in the chunk
 processing. It must contain all the inputs (with their merkle proof), the code
 that was executed, and the outputs (also with merkle proofs).</p>
-<p>Such a challenge allows anyone (even nodes that don't track that shard or have 
+<p>Such a challenge allows anyone (even nodes that don't track that shard or have
 any state) to verify the validity of the challenge.</p>
-<p>When anyone notices that a current chain contains a wrong transition - they 
-submit such challenge to the next block producer, which can easily verify it 
+<p>When anyone notices that a current chain contains a wrong transition - they
+submit such challenge to the next block producer, which can easily verify it
 and it to the next block.</p>
-<p>Then the validators do the verification themselves, and if successful, they 
+<p>Then the validators do the verification themselves, and if successful, they
 sign the block.</p>
-<p>When such block is successfully signed, the protocol automatically slashes 
-malicious nodes (more details below) and initiates the rollback to bring the 
-state back to the state before the bad chunk (so in our case, back to the block 
+<p>When such block is successfully signed, the protocol automatically slashes
+malicious nodes (more details below) and initiates the rollback to bring the
+state back to the state before the bad chunk (so in our case, back to the block
 produced by <code>B0</code>).</p>
 <h4 id="slashing"><a class="header" href="#slashing">Slashing</a></h4>
 <p>Slashing is the process of taking away the part of the stake from validators
@@ -2594,18 +2596,18 @@ that are considered malicious.</p>
 <h3 id="is-slashing-painful-enough"><a class="header" href="#is-slashing-painful-enough">Is slashing painful enough?</a></h3>
 <p>In the example above, we'd successfully slash the <code>C1</code> producer - but was it<br />
 enough?</p>
-<p>Currently (with 4 shards) you need around 20k NEAR to become a chunk producer. 
-If we increase the number of shards to 100, it would drop the minimum stake to 
+<p>Currently (with 4 shards) you need around 20k NEAR to become a chunk producer.
+If we increase the number of shards to 100, it would drop the minimum stake to
 around 1k NEAR.</p>
-<p>In such scenario, by sacrificing 1k NEAR, the malicious node can cause the 
-system to rollback a couple blocks (potentially having bad impact on the bridge 
+<p>In such scenario, by sacrificing 1k NEAR, the malicious node can cause the
+system to rollback a couple blocks (potentially having bad impact on the bridge
 contracts etc).</p>
-<p>On the other side, you could be a non-malicious chunk producer with a corrupted 
-database (or a nasty bug in the code) - and the effect would be the same - the 
-chunk that you produced would be marked as malicious, and you'd lose your stake 
+<p>On the other side, you could be a non-malicious chunk producer with a corrupted
+database (or a nasty bug in the code) - and the effect would be the same - the
+chunk that you produced would be marked as malicious, and you'd lose your stake
 (which will be a super-scary even for any legitimate validator).</p>
 <p>So the open question is - can we do something 'smarter' in the protocol to
-detect the case, where there is 'just a single' malicious (or buggy) chunk 
+detect the case, where there is 'just a single' malicious (or buggy) chunk
 producer and avoid the expensive rollback?</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="storage"><a class="header" href="#storage">Storage</a></h1>
 <p>This is our work-in-progress storage documentation. Things are raw and
@@ -2638,7 +2640,7 @@ Runtime.</p>
 <p>Trie stores the state - accounts, contract codes, access keys, etc. Each state
 item corresponds to the unique trie key. You can read more about this structure on
 <a href="https://en.wikipedia.org/wiki/Trie">Wikipedia</a>.</p>
-<p>There are two ways to access trie - from memory and from disk. The first one is 
+<p>There are two ways to access trie - from memory and from disk. The first one is
 currently the main one, where only the loading stage requires disk, and the
 operations are fully done in memory. The latter one relies only on disk with
 several layers of caching. Here we describe the disk trie.</p>
@@ -2751,18 +2753,26 @@ updated using a custom merge operation <code>refcount_merge</code>.</p>
 </ul>
 <h3 id="contract-deployments"><a class="header" href="#contract-deployments">Contract Deployments</a></h3>
 <ul>
-<li>Contract deployments happen with <code>Column = 0x01</code></li>
-<li><code>AdditionalInfo</code> is the account id for which the contract is being deployed</li>
-<li>The key value contains the contract code alongside other pieces of data. It is possible to extract the contract code by removing everything until the wasm magic number, 0061736D01000000</li>
-<li>As such, it is possible to dump all the contracts that were ever deployed on-chain using this command on an archival node:
+<li>
+<p>Contract deployments happen with <code>Column = 0x01</code></p>
+</li>
+<li>
+<p><code>AdditionalInfo</code> is the account id for which the contract is being deployed</p>
+</li>
+<li>
+<p>The key value contains the contract code alongside other pieces of data. It is possible to extract the contract code by removing everything until the wasm magic number, 0061736D01000000</p>
+</li>
+<li>
+<p>As such, it is possible to dump all the contracts that were ever deployed on-chain using this command on an archival node:</p>
 <pre><code>ldb --db=~/.near/data scan --column_family=col35 --hex | \
     grep -E '^0x.{64}01' | \
     sed 's/0061736D01000000/x/' | \
     sed 's/^.*x/0061736D01000000/' | \
     grep -v ' : '
 </code></pre>
-(Note that the last grep is required because not every such value appears to contain contract code)
-We should implement a feature to state-viewer that’d allow better visualization of this data, but in the meantime this seems to work.</li>
+<p>(Note that the last grep is required because not every such value appears to contain contract code)
+We should implement a feature to state-viewer that’d allow better visualization of this data, but in the meantime this seems to work.</p>
+</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="high-level-overview-1"><a class="header" href="#high-level-overview-1">High level overview</a></h1>
 <p>When mainnet launched, the neard client stored all the chain's state in a single
@@ -2772,7 +2782,7 @@ trie</a> directly in the key-value database, using roughly
 content-addressed storage system that can easily self-verify.</p>
 <p>Flat storage is a bit like a database index for the values stored in the trie.
 It stores a copy of the data in a more accessible way to speed up the lookup
-time. </p>
+time.</p>
 <p>Drastically oversimplified, flat storage uses a hashmap instead of a trie. This
 reduces the lookup time from <code>O(d)</code> to <code>O(1)</code> where <code>d</code> is the tree depth of the
 value.</p>
@@ -2828,10 +2838,10 @@ the trie, plus one more for dereferencing the final value.</p>
 <p>Clearly, <code>d + 1</code> is worse than <code>1 + 1</code>, right? Well, as it turns out, we can
 cache the trie nodes with surprisingly high effectiveness. In mainnet
 workloads (which were often optimized to work well with the trie shape) we
-observe a 99% cache hit rate in many cases. </p>
+observe a 99% cache hit rate in many cases.</p>
 <p>Combine that with the fact that a typical value for <code>d</code> is somewhere between 10
 and 20. Then we may conclude that, in expectation, a trie lookup (<code>d * 0.01 + 1</code>
-requests) requires less DB requests than a flat state lookup (<code>1 + 1</code> requests). </p>
+requests) requires less DB requests than a flat state lookup (<code>1 + 1</code> requests).</p>
 <p>In practice, however, flat state still has an edge over accessing trie storage
 directly. And that is due to two reasons.</p>
 <ol>
@@ -2892,7 +2902,7 @@ real DB cost better.</p>
 <h1 id="code-guide"><a class="header" href="#code-guide">Code guide</a></h1>
 <p>Here we describe structures used for flat storage implementation.</p>
 <h2 id="flatstorage"><a class="header" href="#flatstorage">FlatStorage</a></h2>
-<p>This is the main structure which owns information about ValueRefs for all keys from some fixed 
+<p>This is the main structure which owns information about ValueRefs for all keys from some fixed
 shard for some set of blocks. It is shared by multiple threads, so it is guarded by RwLock:</p>
 <ul>
 <li>Chain thread, because it sends queries like:
@@ -2921,12 +2931,12 @@ by get_ref method.</p>
 <p>If storage is fully empty, then we need to create flat storage from scratch. FlatStorage is stored
 inside NightshadeRuntime, and it itself is stored inside Chain, so we need to create them in the same order
 and dependency hierarchy should be the same. But at the same time, we parse genesis file only during Chain
-creation. That’s why FlatStorageManager has set_flat_storage_for_genesis method which is called 
+creation. That’s why FlatStorageManager has set_flat_storage_for_genesis method which is called
 during Chain creation.</p>
 <h3 id="regular-block-processing-vs-catchups"><a class="header" href="#regular-block-processing-vs-catchups">Regular block processing vs. catchups</a></h3>
-<p>For these two usecases we have two different flows: first one is handled in Chain.postprocess_block,
+<p>For these two use cases we have two different flows: first one is handled in Chain.postprocess_block,
 the second one in Chain.block_catch_up_postprocess. Both, when results of applying chunk are ready,
-should call Chain.process_apply_chunk_result → RuntimeAdapter.get_flat_storage_for_shard → 
+should call Chain.process_apply_chunk_result → RuntimeAdapter.get_flat_storage_for_shard →
 FlatStorage.add_block, and when results of applying ALL processed/postprocessed chunks are ready,
 should call RuntimeAdapter.get_flat_storage_for_shard → FlatStorage.update_flat_head.</p>
 <p>(because applying some chunk may result in error and we may need to exit there without updating flat head - ?)</p>
@@ -2940,7 +2950,7 @@ who join the network are represented by nodes and connections between them by ed
 package; and to be used as reference by future engineers to understand the network
 code without any prior knowledge.</p>
 <h1 id="2-code-structure"><a class="header" href="#2-code-structure">2. Code structure</a></h1>
-<p><code>near-network</code> runs on top of the <code>actor</code> framework called 
+<p><code>near-network</code> runs on top of the <code>actor</code> framework called
 <a href="https://actix.rs/docs/"><code>Actix</code></a>. Code structure is split between 4 actors
 <code>PeerManagerActor</code>, <code>PeerActor</code>, <code>RoutingTableActor</code>, <code>EdgeValidatorActor</code></p>
 <h3 id="21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code"><a class="header" href="#21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code">2.1 <code>EdgeValidatorActor</code> (currently called <code>EdgeVerifierActor</code> in the code<!-- TODO: rename -->)</a></h3>
@@ -3012,7 +3022,7 @@ on its own thread.</p>
 <li><code>max_num_peers</code> - by default we connect up to 40 peers, current implementation
 supports up to 128.</li>
 </ul>
-<h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers.</a></h1>
+<h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers</a></h1>
 <p>Each peer maintains a list of known peers. They are stored in the database. If
 the database is empty, the list of peers, called boot nodes, will be read from
 the <code>boot_nodes</code> option in the config. The peer to connect to is chosen at
@@ -3297,10 +3307,10 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <li>removes <code>local_edges_to_remove</code> from <code>local_edges_info</code>.</li>
 <li>bans peers, who sent us invalid edges.</li>
 </ul>
-<h1 id="10-message-transportation-layers"><a class="header" href="#10-message-transportation-layers">10. Message transportation layers.</a></h1>
+<h1 id="10-message-transportation-layers"><a class="header" href="#10-message-transportation-layers">10. Message transportation layers</a></h1>
 <p>This section describes different protocols of sending messages currently used in
 <code>Near</code>.</p>
-<h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
+<h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors</a></h2>
 <p><code>Near</code> is built on <code>Actix</code>'s <code>actor</code>
 <a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
@@ -3330,7 +3340,7 @@ and convert into RoutedMessage (which also have things like TTL etc.).</p>
 <p>Then it will use the <code>routing_table</code>, to find the route to the target peer (add
 <code>route_back</code> if needed) and then send the message over the network as
 <code>PeerMessage::Routed</code>. Details about routing table computations are covered in
-<a href="architecture/network.html#8-adding-new-edges-to-routing-tables">section 8</a>. </p>
+<a href="architecture/network.html#8-adding-new-edges-to-routing-tables">section 8</a>.</p>
 <p>When Peer receives this message (as <code>PeerMessage::Routed</code>), it will pass it to
 PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the message is
 for the current <code>PeerActor</code>. (if yes, it would pass it to the client) and if
@@ -3343,7 +3353,7 @@ messages that are meant to be sent to another <code>peer</code>.</p>
 <p><code>lib.rs</code> (<code>ShardsManager</code>) has a <code>network_adapter</code> - coming from the client’s
 <code>network_adapter</code> that comes from <code>ClientActor</code> that comes from the <code>start_client</code> call
 that comes from <code>start_with_config</code> (that creates <code>PeerManagerActor</code> - that is
-passed as target to <code>network_recipent</code>).</p>
+passed as target to <code>network_recipient</code>).</p>
 <h1 id="12-database"><a class="header" href="#12-database">12. Database</a></h1>
 <h3 id="121-storage-of-deleted-edges"><a class="header" href="#121-storage-of-deleted-edges">12.1 Storage of deleted edges</a></h3>
 <p>Every time a group of peers becomes unreachable at the same time; We store edges
@@ -3361,7 +3371,7 @@ used nonce.</li>
 <li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to the last component <code>nonce</code> it belongs to.</li>
 </ul>
 <h3 id="122-storage-of-account_id-to-peer_id-mapping"><a class="header" href="#122-storage-of-account_id-to-peer_id-mapping">12.2 Storage of <code>account_id</code> to <code>peer_id</code> mapping</a></h3>
-<p><code>ColAccountAnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to a tuple
+<p><code>ColAccountAnnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to a tuple
 (<code>account_id</code>, <code>peer_id</code>, <code>epoch_id</code>, <code>signature</code>).</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="gas-cost-parameters"><a class="header" href="#gas-cost-parameters">Gas Cost Parameters</a></h1>
 <p>Gas in NEAR Protocol solves two problems.</p>
@@ -3641,6 +3651,7 @@ details of how they are computed can change without a protocol version bump.</p>
   --accountId app.nearcrowd.near  \
   --nodeUrl https://archival-rpc.mainnet.near.org  # Allows to retrieve older transactions.
 </code></pre>
+<!-- cspell:ignore evgeniya -->
 <pre><code>Transaction app.nearcrowd.near:8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw
 {
   receipts_outcome: [
@@ -3827,6 +3838,7 @@ the cost in whatever metric has been specified in the CLI argument <code>--metri
 But when you run estimations and especially when you want to interpret the
 results, you want to understand the metric used. Available metrics are <code>time</code>
 and <code>icount</code>.</p>
+<!-- cspell:words DVFS -->
 <p>Starting with <code>time</code>, this is a simple wall-clock time measurement. At the end
 of the day, this is what counts in a validator setup. But unfortunately, this
 metric is very dependent on the specific hardware and what else is running on
@@ -3921,6 +3933,7 @@ itself. It's unobtrusive, so feel free to skip this.</li>
 <p>This is a thing in its category, do check it out:</p>
 <p><a href="https://cheats.rs">https://cheats.rs</a></p>
 <h2 id="language-mastery"><a class="header" href="#language-mastery">Language Mastery</a></h2>
+<!-- cspell:ignore Rustaceans Rustonomicon -->
 <ul>
 <li><a href="https://nostarch.com/rust-rustaceans">Rust for Rustaceans</a> — the book to read
 after &quot;The Book&quot;.</li>
@@ -3954,14 +3967,14 @@ Here are some favorites:</p>
 <a href="http://venge.net/graydon/talks/rust-2012.pdf">http://venge.net/graydon/talks/rust-2012.pdf</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="workflows"><a class="header" href="#workflows">Workflows</a></h1>
 <p>This chapter documents various ways you can run <code>neard</code> during development:
-running a local net, joining a test net, doing benchmarking and load testing. </p>
+running a local net, joining a test net, doing benchmarking and load testing.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="run-a-node"><a class="header" href="#run-a-node">Run a Node</a></h1>
 <p>This chapter focuses on the basics of running a node you've just built from
 source. It tries to explain how the thing works under the hood and pays
 relatively little attention to the various shortcuts we have.</p>
 <h2 id="building-the-node"><a class="header" href="#building-the-node">Building the Node</a></h2>
 <p>Start with the following command:</p>
-<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- --help
+<pre><code class="language-console">cargo run --profile dev-release -p neard -- --help
 </code></pre>
 <p>This command builds <code>neard</code> and asks it to show <code>--help</code>. Building <code>neard</code> takes
 a while, take a look at <a href="practices/workflows/../fast_builds.html">Fast Builds</a> chapter to learn how to
@@ -4073,7 +4086,7 @@ not the private ones).</p>
 ]
 </code></pre>
 <p>Now, if we</p>
-<pre><code class="language-console">$ cat ~/.near/validator_key.json
+<pre><code class="language-console">cat ~/.near/validator_key.json
 </code></pre>
 <p>we'll see</p>
 <pre><code class="language-json">{
@@ -4109,6 +4122,7 @@ You'd also have to ensure that you use the same genesis as the mainnet though
 is rejected.</p>
 <h2 id="running-the-network"><a class="header" href="#running-the-network">Running the Network</a></h2>
 <p>Finally,</p>
+<!-- cspell:ignore matklad -->
 <pre><code class="language-console">$ cargo run --profile dev-release -p neard -- run
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO near: Creating a new RocksDB database path=/home/matklad/.near/data
@@ -4302,7 +4316,7 @@ http://localhost:9001/transactions/BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 </code></pre>
 <p><strong>Note:</strong> You can export the variable <code>NEAR_ENV</code> in your shell if you are planning
 to do multiple commands to avoid repetition:</p>
-<pre><code class="language-console">$ export NEAR_ENV=local
+<pre><code class="language-console">export NEAR_ENV=local
 </code></pre>
 <p>NEAR CLI printouts are not always the most useful or accurate, but this seems to
 work.</p>
@@ -4339,16 +4353,17 @@ binary we've built from source. The steps are:</p>
 </ul>
 <p>In the <a href="practices/workflows/./deploy_a_contract.html">next chapter</a>, we'll learn how to deploy a simple
 WASM contract.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="deploy-a-contract"><a class="header" href="#deploy-a-contract">Deploy a Contract</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><!-- cspell:ignore EPGUSUV Vaddhcdr cdylib matklad rodata rwxr syscalls -->
+<h1 id="deploy-a-contract"><a class="header" href="#deploy-a-contract">Deploy a Contract</a></h1>
 <p>In this chapter, we'll learn how to build, deploy, and call a minimal smart
 contract on our local node.</p>
 <h2 id="preparing-ground"><a class="header" href="#preparing-ground">Preparing Ground</a></h2>
 <p>Let's start with creating a fresh local network with an account to which we'll
 deploy a contract. You might want to re-read <a href="practices/workflows/./run_a_node.html">how to run a node</a>
 to understand what's going on here:</p>
-<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- init
-$ cargo run --profile dev-release -p neard -- run
-$ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
+<pre><code class="language-console">cargo run --profile dev-release -p neard -- init
+cargo run --profile dev-release -p neard -- run
+NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
 </code></pre>
 <p>As a sanity check, querying the state of <code>alice.test.near</code> account should work:</p>
 <pre><code class="language-console">$ NEAR_ENV=local near state alice.test.near
@@ -4396,10 +4411,10 @@ the slice would be considered a result of the function.</p>
 <p>Armed with this knowledge, we can write Rust code to produce the required WASM.
 Before we start doing that, some amount of setup code is required.</p>
 <p>Let's start with creating a new crate:</p>
-<pre><code class="language-console">$ cargo new hello-near --lib
+<pre><code class="language-console">cargo new hello-near --lib
 </code></pre>
 <p>To compile to wasm, we also need to add a relevant rustup toolchain:</p>
-<pre><code class="language-console">$ rustup toolchain add wasm32-unknown-unknown
+<pre><code class="language-console">rustup toolchain add wasm32-unknown-unknown
 </code></pre>
 <p>Then, we need to tell Cargo that the final artifact we want to get is a
 WebAssembly module.</p>
@@ -4598,6 +4613,7 @@ slower. You will need to install <code>podman</code> to run this command.</p>
 <p>Note how the output looks a bit different now. The <code>i</code>, <code>r</code> and <code>w</code> values show
 instruction count, read IO bytes, and write IO bytes respectively. The IO byte
 count is known to be inaccurate.</p>
+<!-- cspell:ignore libcounter Haswell -->
 <pre><code>+ /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so -cpu Haswell-v4 /host/nearcore/target/release/runtime-params-estimator --home /.near --accounts-num 20000 --iters 3 --warmup-iters 1 --metric icount --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase --skip-build-test-contract --additional-accounts-num 0 --in-memory-db
 ActionReceiptCreation         214_581_685_500 gas [  1716653.48i 0.00r 0.00w]     (computed in 6.11s)
 ActionTransfer                 21_528_212_916 gas [   172225.70i 0.00r 0.00w]     (computed in 4.71s)
@@ -4636,7 +4652,7 @@ the list of available options.</p>
 <li>for rpc-&gt;addr and network-&gt;addr:
 <ul>
 <li>Change the address from 127.0.0.1 to 0.0.0.0 (this means that the port will be accessible from other computers)</li>
-<li>Remember the port numbers (they are generated randomly). </li>
+<li>Remember the port numbers (they are generated randomly).</li>
 </ul>
 </li>
 <li>Also write down the node0's node_key (it is probably: &quot;ed25519:7PGseFbWxvYVgZ89K1uTJKYoKetWs7BJtbyXDzfbAcqX&quot;)</li>
@@ -4651,7 +4667,7 @@ the list of available options.</p>
 <p>The boot node address should be the IP of the machine1 + the network addr port <strong>from the node0/config.json</strong></p>
 <p>And if everything goes well, the nodes should communicate and start producing blocks.</p>
 <h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<p>The debug mode is enabled by default, so you should be able to see what's going on by going to <code>http://machine1:RPC_ADDR_PORT/debug</code> </p>
+<p>The debug mode is enabled by default, so you should be able to see what's going on by going to <code>http://machine1:RPC_ADDR_PORT/debug</code></p>
 <h3 id="if-node-keeps-saying-waiting-for-peers"><a class="header" href="#if-node-keeps-saying-waiting-for-peers">If node keeps saying &quot;waiting for peers&quot;</a></h3>
 <p>See if you can see the machine1's debug page from machine2. (if not - there might be a firewall blocking the connection).</p>
 <p>Make sure that you set the right ports (it should use node0's NETWORK port) and that you set the ip add there to 0.0.0.0</p>
@@ -4663,7 +4679,7 @@ the list of available options.</p>
 <p>IO traces can be used to identify slow receipts and to understand why they
 are slow. Or to detect general inefficiencies in how we use the DB.</p>
 <p>The results give you counts of DB requests and some useful statistics such as
-trie node cache hits. It will NOT give you time measurements, use Graphana to
+trie node cache hits. It will NOT give you time measurements, use Grafana to
 observe those.</p>
 <p>The main use cases in the past were to estimate the performance of new storage
 features (prefetcher, flat state) and to find out why specific contracts produce
@@ -4732,6 +4748,7 @@ each with the DB key used and the size of the value read. Further, you can read
 in the trace that this specific chunk had 0 transactions and that it
 cache-missed all 7 of the DB requests it performed to apply this empty chunk.</p>
 <h3 id="example-trace-full-mainnet-node"><a class="header" href="#example-trace-full-mainnet-node">Example trace: Full mainnet node</a></h3>
+<!-- cspell:ignore Gxlb -->
 <p>Next let's look at an excerpt of an IO trace from a real node on mainnet.</p>
 <pre><code>...
 GET State &quot;AQAAAAMAAACm9DRx/dU8UFEfbumiRhDjbPjcyhE6CB1rv+8fnu81bw==&quot; size=9
@@ -4795,7 +4812,7 @@ levels.</p>
 but there are DB requests listed further below that belong to these levels but
 not to <code>apply</code>.</p>
 <p>Inside <code>apply</code>, we see 3 transactions being converted to receipts as part of
-this chunk, and one already existing action receipt getting processed. </p>
+this chunk, and one already existing action receipt getting processed.</p>
 <p>Cache hit statistics for each level are also displayed. For example, the first
 transaction has 57 read requests and all of them hit in the shard cache. For
 the second transaction, we miss the cache 3 times but the values were already in the
@@ -4841,6 +4858,7 @@ host functions. Apparently the code starts by reading the attached deposit and
 the predecessor account id, presumably to perform some checks.</p>
 <p>The <code>sha256</code> call here is used to shorten implicit account ids.
 (<a href="https://github.com/sweatco/near-sdk-rs/blob/af6ba3cb75e0bbfc26e346e61aa3a0d1d7f5ac7b/near-contract-standards/src/fungible_token/core_impl.rs#L249-L259">Link to code for comparison</a>).</p>
+<!-- cspell:words Sweatcoin -->
 <p>Afterwards, a value with 16 bytes (a <code>u128</code>) is fetched from the trie state.
 To serve this, it required reading 30 trie nodes, 19 of them were cached in the
 accounting cache and were not charged the full gas cost. And the remaining 11
@@ -4912,7 +4930,8 @@ not be assigned to specific chunks. The way we currently count write operations
 show up in the top-level list. Clearly, there is some room for improvement here.
 So far we simply haven't worried about RocksDB write performance so the tooling
 to debug write performance is naturally lacking.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="profiling-neard"><a class="header" href="#profiling-neard">Profiling neard</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><!-- cspell:ignore Heaptrack Jemalloc bytehound highcpu jemallocator koute kptr libbytehound myexportedfile mylittleprofile readwrite rgba setcap tikv -->
+<h1 id="profiling-neard"><a class="header" href="#profiling-neard">Profiling neard</a></h1>
 <h2 id="sampling-performance-profiling"><a class="header" href="#sampling-performance-profiling">Sampling performance profiling</a></h2>
 <p>It is a common task to need to look where <code>neard</code> is spending time. Outside of instrumentation
 we've also been successfully using sampling profilers to gain an intuition over how the code works
@@ -4921,8 +4940,8 @@ performance characteristics, but due to its probabilistic nature it is also not 
 when it comes to small details.</p>
 <p>Linux's <code>perf</code> has been a tool of choice in most cases, although tools like Intel VTune could be
 used too. In order to use either, first prepare your system:</p>
-<pre><code class="language-command">$ sudo sysctl kernel.perf_event_paranoid=0
-$ sudo sysctl kernel.kptr_restrict=0
+<pre><code class="language-command">sudo sysctl kernel.perf_event_paranoid=0
+sudo sysctl kernel.kptr_restrict=0
 </code></pre>
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 <p>Beware that this gives access to certain kernel state and environment to the unprivileged user.
@@ -4942,7 +4961,7 @@ Although you can inspect the profile already with <code>perf report</code>, we'v
 with using <a href="https://profiler.firefox.com/">Firefox Profiler</a> as the viewer. Although Firefox
 Profiler supports <code>perf</code> and many other different data formats, for <code>perf</code> in particular a
 conversion step is necessary:</p>
-<pre><code class="language-command">$ perf script -F +pid &gt; mylittleprofile.script
+<pre><code class="language-command">perf script -F +pid &gt; mylittleprofile.script
 </code></pre>
 <p>Then, load this <code>mylittleprofile.script</code> file with the profiler.</p>
 <h3 id="low-overhead-stack-frame-collection"><a class="header" href="#low-overhead-stack-frame-collection">Low overhead stack frame collection</a></h3>
@@ -4951,10 +4970,10 @@ stack trace for each sample using DWARF unwinding metadata. This will work no ma
 built, but is expensive and not super precise (e.g. it has trouble with JIT code.) If you have an
 ability to build a profiling-tuned build of <code>neard</code>, you can use higher quality stack frame
 collection.</p>
-<pre><code class="language-command">$ cargo build --release --config .cargo/config.profiling.toml -p neard
+<pre><code class="language-command">cargo build --release --config .cargo/config.profiling.toml -p neard
 </code></pre>
 <p>Then, replace the <code>--call-graph dwarf</code> with <code>--call-graph fp</code>:</p>
-<pre><code class="language-command">$ perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
+<pre><code class="language-command">perf record -e cpu-clock -F1000 -g --call-graph fp,65528 YOUR_COMMAND_HERE
 </code></pre>
 <h3 id="profiling-with-hardware-counters"><a class="header" href="#profiling-with-hardware-counters">Profiling with hardware counters</a></h3>
 <p>As mentioned earlier, sampling profiler is probabilistic and the data it produces is only really
@@ -4980,12 +4999,12 @@ your own hardware, or a VM instance that provides direct access to the hardware,
 expensive) <code>c3-highcpu-192-metal</code> type.</p>
 <p>Once everything is set up, though, the following command can gather some interesting information
 for you.</p>
-<pre><code class="language-command">$ perf record -e cycles:u -b -g --call-graph fp,65528 YOUR_COMMAND_HERE
+<pre><code class="language-command">perf record -e cycles:u -b -g --call-graph fp,65528 YOUR_COMMAND_HERE
 </code></pre>
 <p>Analyzing this data is, unfortunately, not as easy as chucking it away to Firefox Profiler. I'm not
 aware of any other ways to inspect the data other than using <code>perf report</code>:</p>
-<pre><code class="language-command">$ perf report -g --branch-history
-$ perf report -g --branch-stack
+<pre><code class="language-command">perf report -g --branch-history
+perf report -g --branch-stack
 </code></pre>
 <p>You may also be able to gather some interesting results if you use <code>--call-graph lbr</code> and the
 relevant reporting options as well.</p>
@@ -4994,7 +5013,7 @@ relevant reporting options as well.</p>
 Although Rust makes it pretty hard to introduce memory problems, it is still possible to leak
 memory or to inadvertently retain too much of it.</p>
 <p>Unfortunately, “just” throwing a random profiler at neard does not work for many reasons. Valgrind
-for example is introducing enough slowdown to significantly alter the behaviour of the run, not to
+for example is introducing enough slowdown to significantly alter the behavior of the run, not to
 mention that to run it successfully and without crashing it will be necessary to comment out
 <code>neard</code>’s use of <code>jemalloc</code> for yet another substantial slowdown.</p>
 <p>So far the only tool that worked out well out of the box was
@@ -5002,18 +5021,18 @@ mention that to run it successfully and without crashing it will be necessary to
 Linux, and ability to execute privileged commands.</p>
 <p>First, checkout and build the profiler (you will need to have nodejs <code>yarn</code> thing available as
 well):</p>
-<pre><code class="language-command">$ git clone git@github.com:koute/bytehound.git
-$ cargo build --release -p bytehound-preload
-$ cargo build --release -p bytehound-cli
+<pre><code class="language-command">git clone git@github.com:koute/bytehound.git
+cargo build --release -p bytehound-preload
+cargo build --release -p bytehound-cli
 </code></pre>
 <p>You will also need a build of your <code>neard</code>, once you have that, give it some ambient capabilities
 necessary for profiling:</p>
-<pre><code class="language-command">$ sudo sysctl kernel.perf_event_paranoid=0
-$ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/neard
-$ sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/libbytehound.so
+<pre><code class="language-command">sudo sysctl kernel.perf_event_paranoid=0
+sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/neard
+sudo setcap 'CAP_SYS_ADMIN+ep' /path/to/libbytehound.so
 </code></pre>
 <p>And finally run the program with the profiler enabled (in this case <code>neard run</code> command is used):</p>
-<pre><code class="language-command">$ /lib64/ld-linux-x86-64.so.2 --preload /path/to/libbytehound.so /path/to/neard run
+<pre><code class="language-command">/lib64/ld-linux-x86-64.so.2 --preload /path/to/libbytehound.so /path/to/neard run
 </code></pre>
 <h3 id="viewing-the-profile"><a class="header" href="#viewing-the-profile">Viewing the profile</a></h3>
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
@@ -5093,7 +5112,8 @@ neard view-state apply-range --shard-id 0 --storage memtrie benchmark
 # Same but with flat storage
 neard view-state apply-range --shard-id 0 --storage flat benchmark
 </code></pre>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="working-with-opentelemetry-traces"><a class="header" href="#working-with-opentelemetry-traces">Working with OpenTelemetry Traces</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><!-- cspell:ignore nearinc pkill rgba xdwp -->
+<h1 id="working-with-opentelemetry-traces"><a class="header" href="#working-with-opentelemetry-traces">Working with OpenTelemetry Traces</a></h1>
 <p><code>neard</code> is instrumented in a few different ways. From the code perspective we have two major ways
 of instrumenting code:</p>
 <ul>
@@ -5292,7 +5312,7 @@ into this document.</p>
 <h2 id="formatting"><a class="header" href="#formatting">Formatting</a></h2>
 <p>Use <code>rustfmt</code> for minor code formatting decisions. This rule is enforced by CI</p>
 <p><strong>Rationale:</strong> <code>rustfmt</code> style is almost always good enough, even if not always
-perfect. The amount of bikeshedding saved by <code>rustfmt</code> far outweighs any
+perfect. The amount of bike shedding saved by <code>rustfmt</code> far outweighs any
 imperfections.</p>
 <h2 id="idiomatic-rust"><a class="header" href="#idiomatic-rust">Idiomatic Rust</a></h2>
 <p>While the most important thing is to solve the problem at hand, we strive to
@@ -5406,8 +5426,8 @@ growing and leading to less readable code. If advantages of using the methods
 aren’t clear cut, it’s usually better to err on side of more imperative style.</p>
 <p>Lastly, anecdotally the methods (e.g. when used with <code>chain</code> or <code>flat_map</code>) may
 lead to faster code. This intuitively makes sense but it’s worth to keep in
-mind that compilers are pretty good at optimising and in practice may generate
-optimal code anyway. Furthermore, optimising code for readability may be more
+mind that compilers are pretty good at optimizing and in practice may generate
+optimal code anyway. Furthermore, optimizing code for readability may be more
 important (especially outside of hot path) than small performance gains.</p>
 <h3 id="prefer-to_string-to-format"><a class="header" href="#prefer-to_string-to-format">Prefer <code>to_string</code> to <code>format!(&quot;{}&quot;)</code></a></h3>
 <p>Prefer calling <code>to_string</code> method on an object rather than passing it through
@@ -5529,7 +5549,7 @@ alternative, as it neatly documents not just the infallibility, but also <em>why
 factors, most notably the compilation flags used. The quick explanation is that in debug mode the
 computations may panic (cause side effects) if the result has overflowed, and when built with
 optimizations enabled, these computations will wrap-around instead.</p>
-<p>For nearcore and neard we have opted to enable the panicking behaviour regardless of the
+<p>For nearcore and neard we have opted to enable the panicking behavior regardless of the
 optimization level. By doing it this we hope to prevent accidental stabilization of protocol
 mis-features that depend on incorrect handling of these overflows or similarly scary silent bugs.
 The downside to this approach is that any such arithmetic operation now may cause a node to crash,
@@ -5564,6 +5584,7 @@ is not their hash.</li>
 </ul>
 <p><strong>Rationale:</strong> Consistency.</p>
 <h2 id="documentation"><a class="header" href="#documentation">Documentation</a></h2>
+<!-- cspell:ignore stkb -->
 <p>When writing documentation in <code>.md</code> files, wrap lines at approximately 80
 columns.</p>
 <pre><code class="language-markdown">&lt;!-- GOOD --&gt;
@@ -5762,6 +5783,7 @@ but the basics are very simple.</p>
 </ol>
 <p>The doc itself is in vanilla markdown.</p>
 <p>To render documentation locally:</p>
+<!-- cspell:ignore mdbook -->
 <pre><code class="language-console"># Install mdBook
 $ cargo install mdbook
 $ mdbook serve --open ./docs
@@ -5848,6 +5870,7 @@ for a rough description and
 <a href="https://github.com/rust-lang/rust/issues/100717">issues</a> for how they are used
 in Rust.</p>
 <div style="break-before: page; page-break-before: always;"></div><h2 id="security-vulnerabilities"><a class="header" href="#security-vulnerabilities">Security Vulnerabilities</a></h2>
+<!-- cspell:ignore rgba -->
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 <p>The intended audience of the information presented here is developers working
 on the implementation of NEAR.</p>
@@ -5868,10 +5891,10 @@ this repository is restricted to the set of people who are trusted to work on
 and have knowledge about security-sensitive issues in nearcore.</p>
 <p>This repository can be manually synced with the public nearcore repository
 using the following commands:</p>
-<pre><code class="language-console">$ git remote add nearcore-public git@github.com:near/nearcore
-$ git remote add nearcore-private git@github.com:near/nearcore-private
-$ git fetch nearcore-public
-$ git push nearcore-private nearcore-public/master:master
+<pre><code class="language-console">git remote add nearcore-public git@github.com:near/nearcore
+git remote add nearcore-private git@github.com:near/nearcore-private
+git fetch nearcore-public
+git push nearcore-private nearcore-public/master:master
 </code></pre>
 </li>
 <li>
@@ -5926,7 +5949,7 @@ comment</a>.</p>
 rustflags = [&quot;-C&quot;, &quot;link-arg=-fuse-ld=lld&quot;]
 </code></pre>
 <p>to <code>~/.cargo/config</code> is the most convenient approach.</p>
-<p><code>lld</code> itself can be installed with <code>sudo apt install lld</code> (or the equivalent in 
+<p><code>lld</code> itself can be installed with <code>sudo apt install lld</code> (or the equivalent in
 the distro/package manager of your choice).</p>
 <h2 id="prebuilt-rocksdb"><a class="header" href="#prebuilt-rocksdb">Prebuilt RocksDB</a></h2>
 <p>By default, we compile RocksDB (a C++ project) from source during the neard
@@ -5935,8 +5958,8 @@ entirely. This is a huge win, especially if you clean the <code>./target</code> 
 frequently.</p>
 <p>To use a prebuilt RocksDB, set the <code>ROCKSDB_LIB_DIR</code> environment variable to
 a location containing <code>librocksdb.a</code>:</p>
-<pre><code class="language-console">$ export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
-$ cargo build -p neard
+<pre><code class="language-console">export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
+cargo build -p neard
 </code></pre>
 <p>Note, that the system must provide a recent version of the library which,
 depending on which operating system you’re using, may require installing packages
@@ -5953,16 +5976,17 @@ ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
 export ROCKSDB_LIB_DIR
 </code></pre>
 <h2 id="global-compilation-cache"><a class="header" href="#global-compilation-cache">Global Compilation Cache</a></h2>
+<!-- cspell:ignore sccache direnv -->
 <p>By default, Rust compiles incrementally, with the incremental cache and
 intermediate outputs stored in the project-local <code>./target</code> directory.</p>
 <p>The <a href="https://github.com/mozilla/sccache"><code>sccache</code></a> utility can be used to share
 these artifacts between machines or checkouts within the same machine. <code>sccache</code>
 works by intercepting calls to <code>rustc</code> and will fetch the cached outputs from
 the global cache whenever possible. This tool can be set up as such:</p>
-<pre><code class="language-console">$ cargo install sccache
-$ export RUSTC_WRAPPER=&quot;sccache&quot;
-$ export SCCACHE_CACHE_SIZE=&quot;30G&quot;
-$ cargo build -p neard
+<pre><code class="language-console">cargo install sccache
+export RUSTC_WRAPPER=&quot;sccache&quot;
+export SCCACHE_CACHE_SIZE=&quot;30G&quot;
+cargo build -p neard
 </code></pre>
 <p>Refer to the <a href="https://github.com/mozilla/sccache">project’s README</a> for further
 configuration options.</p>
@@ -6490,34 +6514,34 @@ especially if the change is invasive. For those changes, we may want to have
 several months of testing before we are confident that the change itself works
 and that it doesn't break other parts of the system.</p>
 <h3 id="protocol-version-voting-and-upgrade"><a class="header" href="#protocol-version-voting-and-upgrade">Protocol version voting and upgrade</a></h3>
-<p>When a new neard version, containing a new protocol version, is released, all node maintainers need 
+<p>When a new neard version, containing a new protocol version, is released, all node maintainers need
 to upgrade their binary. That typically means stopping neard, downloading or compiling the new neard
-binary and restarting neard. However the protocol version of the whole network is not immediately 
-bumped to the new protocol version. Instead a process called voting takes place and determines if and 
-when the protocol version upgrade will take place. </p>
-<p>Voting is a fully automated process in which all block producers across the network vote in support 
+binary and restarting neard. However the protocol version of the whole network is not immediately
+bumped to the new protocol version. Instead a process called voting takes place and determines if and
+when the protocol version upgrade will take place.</p>
+<p>Voting is a fully automated process in which all block producers across the network vote in support
 or against upgrading the protocol version. The voting happens in the last block every epoch. Upgraded
-nodes will begin voting in favour of the new protocol version after a predetermined date. The voting 
-date is configured by the release owner <a href="https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa">like this</a>. 
-Once at least 80% of the stake votes in favour of the protocol change in the last block of epoch X, the 
-protocol version will be upgraded in the first block of epoch X+2. </p>
-<p>For mainnet releases, the release on github typically happens on a Monday or Tuesday, the voting 
-typically happens a week later and the protocol version upgrade happens 1-2 epochs after the voting. This 
+nodes will begin voting in favour of the new protocol version after a predetermined date. The voting
+date is configured by the release owner <a href="https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa">like this</a>.
+Once at least 80% of the stake votes in favour of the protocol change in the last block of epoch X, the
+protocol version will be upgraded in the first block of epoch X+2.</p>
+<p>For mainnet releases, the release on github typically happens on a Monday or Tuesday, the voting
+typically happens a week later and the protocol version upgrade happens 1-2 epochs after the voting. This
 gives the node maintainers enough time to upgrade their neard nodes. The node maintainers can upgrade
 their nodes at any time between the release and the voting but it is recommended to upgrade soon after the
-release. This is to accommodate for any database migrations or miscellaneous delays. </p>
-<p>Starting a neard node with protocol version voting in the future in a network that is already operating 
-at that protocol version is supported as well. This is useful in the scenario where there is a mainnet 
+release. This is to accommodate for any database migrations or miscellaneous delays.</p>
+<p>Starting a neard node with protocol version voting in the future in a network that is already operating
+at that protocol version is supported as well. This is useful in the scenario where there is a mainnet
 security release where mainnet has not yet voted or upgraded to the new version. That same binary with
-protocol voting date in the future can be released in testnet even though it has already upgraded to 
+protocol voting date in the future can be released in testnet even though it has already upgraded to
 the new protocol version.</p>
 <h3 id="nightly-protocol-features"><a class="header" href="#nightly-protocol-features">Nightly Protocol features</a></h3>
 <p>To make protocol upgrades more robust, we introduce the concept of a nightly
 protocol version together with the protocol feature flags to allow easy testing
 of the cutting-edge protocol changes without jeopardizing the stability of the
 codebase overall. The use of the nightly and nightly_protocol for new features
-is mandatory while the use of dedicated rust features for new protocol features 
-is optional and only recommended when necessary. Adding rust features leads to 
+is mandatory while the use of dedicated rust features for new protocol features
+is optional and only recommended when necessary. Adding rust features leads to
 conditional compilation which is generally not developer friendly. In <code>Cargo.toml</code>
 file of the crates we have in nearcore, we introduce rust compile-time features
 <code>nightly_protocol</code> and <code>nightly</code>:</p>
@@ -6529,10 +6553,10 @@ nightly = [
 </code></pre>
 <p>where <code>nightly_protocol</code> is a marker feature that indicates that we are on
 nightly protocol whereas <code>nightly</code> is a collection of new protocol features
-which also implies <code>nightly_protocol</code>. </p>
-<p>When it is not necessary to use a rust feature for the new protocol feature 
+which also implies <code>nightly_protocol</code>.</p>
+<p>When it is not necessary to use a rust feature for the new protocol feature
 the Cargo.toml file will remain unchanged.</p>
-<p>When it is necessary to use a rust feature for the new protocol feature, it 
+<p>When it is necessary to use a rust feature for the new protocol feature, it
 can be added to the Cargo.toml, to the nightly features. For example, when
 we introduce EVM as a new protocol change, suppose the current protocol
 version is 40, then we would do the following change in Cargo.toml:</p>
@@ -6695,7 +6719,7 @@ follow the instructions
 to obtain a recent snapshot of a mainnet node's home directory. Once
 you have your node's home directory set up, run the following
 <code>state-viewer</code> command to generate a dump of the chain's state:</p>
-<pre><code class="language-shell">$ neard --home $NEAR_HOME_DIRECTORY view-state dump-state --stream
+<pre><code class="language-shell">neard --home $NEAR_HOME_DIRECTORY view-state dump-state --stream
 </code></pre>
 <p>This command will take a while (possibly many hours) to run. But at the
 end you should have <code>genesis.json</code> and <code>records.json</code> files in
@@ -6714,7 +6738,7 @@ chain).</p>
 chain. Suppose that we want our chain to have two validators,
 <code>validator0.near</code> and <code>validator1.near</code>. Let's make a new directory
 where we'll be storing intermediate files during this process:</p>
-<pre><code class="language-shell">$ mkdir ~/test-chain-scratch
+<pre><code class="language-shell">mkdir ~/test-chain-scratch
 </code></pre>
 <p>then using your favorite editor, lay out the validators you want in
 the test chain as a JSON list in the same format as the <code>validators</code>
@@ -6735,8 +6759,8 @@ field in <code>genesis.json</code>, maybe in the file
 </code></pre>
 <p>These validator keys should be keys you've already generated. So for
 the rest of this document, we'll assume you've run:</p>
-<pre><code class="language-shell">$ neard --home ~/near-test-chain/validator0 init --account-id validator0.near
-$ neard --home ~/near-test-chain/validator1 init --account-id validator1.near
+<pre><code class="language-shell">neard --home ~/near-test-chain/validator0 init --account-id validator0.near
+neard --home ~/near-test-chain/validator1 init --account-id validator1.near
 </code></pre>
 <p>This is also a good time to think about what extra accounts you might
 want in your test chain. Since all accounts in the test chain will
@@ -6794,10 +6818,10 @@ let's assume that you want to run this on only one machine.</p>
 validators with the <code>init</code> command described above, you'll want to
 copy the records and genesis files generated in the previous step to
 each of these:</p>
-<pre><code class="language-shell">$ cp ~/near-test-chain/records.json ~/near-test-chain/validator0
-$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator0
-$ cp ~/near-test-chain/records.json ~/near-test-chain/validator1
-$ cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
+<pre><code class="language-shell">cp ~/near-test-chain/records.json ~/near-test-chain/validator0
+cp ~/near-test-chain/genesis.json ~/near-test-chain/validator0
+cp ~/near-test-chain/records.json ~/near-test-chain/validator1
+cp ~/near-test-chain/genesis.json ~/near-test-chain/validator1
 </code></pre>
 <p>Now we'll need to make a few config changes to each of
 <code>~/near-test-chain/validator0/config.json</code> and
@@ -6849,8 +6873,8 @@ otherwise we get strange behavior that will often make your network
 stall.</p>
 <p>After making these changes, you can try running one neard process for
 each of your validators:</p>
-<pre><code class="language-shell">$ neard --home ~/near-test-chain/validator0 run
-$ neard --home ~/near-test-chain/validator1 run
+<pre><code class="language-shell">neard --home ~/near-test-chain/validator0 run
+neard --home ~/near-test-chain/validator1 run
 </code></pre>
 <p>Now these nodes will begin by taking the records laid out in
 <code>records.json</code> and turning them into a genesis state. At the time of
@@ -6961,7 +6985,7 @@ node:</p>
 <p>The practical effect of this issue is that requests querying the state of an account may fail, returning instead an internal server error.</p>
 <h1 id="check-if-my-node-has-been-impacted"><a class="header" href="#check-if-my-node-has-been-impacted">Check if my node has been impacted</a></h1>
 <p>The simplest way to check whether or not a node has suffered data loss is to run one of the following queries:</p>
-<p><em>replace &lt;RPC_URL&gt; with the correct URL (example: http://localhost:3030)</em></p>
+<p><em>replace &lt;RPC_URL&gt; with the correct URL (example: <a href="http://localhost:3030">http://localhost:3030</a>)</em></p>
 <pre><code class="language-bash">curl -X POST &lt;RPC_URL&gt; \
         -H &quot;Content-Type: application/json&quot; \
         -d '
@@ -6972,6 +6996,7 @@ node:</p>
         -d '
         { &quot;id&quot;: &quot;dontcare&quot;, &quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;method&quot;: &quot;query&quot;, &quot;params&quot;: { &quot;account_id&quot;: &quot;token2.near&quot;, &quot;block_id&quot;: 114580308, &quot;request_type&quot;: &quot;view_account&quot; } }'
 </code></pre>
+<!-- cspell:ignore timpanic -->
 <pre><code class="language-bash">curl -X POST &lt;RPC_URL&gt; \
         -H &quot;Content-Type: application/json&quot; \
         -d '

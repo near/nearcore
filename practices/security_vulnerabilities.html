@@ -141,6 +141,7 @@
                 <div id="content" class="content">
                     <main>
                         <h2 id="security-vulnerabilities"><a class="header" href="#security-vulnerabilities">Security Vulnerabilities</a></h2>
+<!-- cspell:ignore rgba -->
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 <p>The intended audience of the information presented here is developers working
 on the implementation of NEAR.</p>
@@ -161,10 +162,10 @@ this repository is restricted to the set of people who are trusted to work on
 and have knowledge about security-sensitive issues in nearcore.</p>
 <p>This repository can be manually synced with the public nearcore repository
 using the following commands:</p>
-<pre><code class="language-console">$ git remote add nearcore-public git@github.com:near/nearcore
-$ git remote add nearcore-private git@github.com:near/nearcore-private
-$ git fetch nearcore-public
-$ git push nearcore-private nearcore-public/master:master
+<pre><code class="language-console">git remote add nearcore-public git@github.com:near/nearcore
+git remote add nearcore-private git@github.com:near/nearcore-private
+git fetch nearcore-public
+git push nearcore-private nearcore-public/master:master
 </code></pre>
 </li>
 <li>

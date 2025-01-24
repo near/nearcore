@@ -306,28 +306,28 @@ head height, the block is simply dropped.</p>
 <p>ClientActor has some periodically running routines that are worth noting:</p>
 <ul>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1198">Doomslug
-timer</a> - 
-This routine runs every <code>doosmslug_step_period</code> (set to 100ms by default) and
+timer</a> -
+This routine runs every <code>doomslug_step_period</code> (set to 100ms by default) and
 updates consensus information. If the node is a validator node, it also sends
 approvals when necessary.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L991">Block
-production</a> - 
+production</a> -
 This routine runs every <code>block_production_tracking_delay</code> (which is set to
 100ms by default) and checks if the node should produce a block.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1790">Log
-summary</a> - 
+summary</a> -
 Prints a log line that summarizes block rate, average gas used, the height of
 the node, etc. every 10 seconds.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/chunks/src/lib.rs#L910">Resend chunk
-requests</a> - 
+requests</a> -
 This routine runs every <code>chunk_request_retry_period</code> (which is set to 400ms).
-It resends the chunk part requests for those that are not yet responded to.</li>
-<li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629">Sync</a> - 
+It resend the chunk part requests for those that are not yet responded to.</li>
+<li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1629">Sync</a> -
 This routine runs every <code>sync_step_period</code> (which is set to 10ms by default)
 and checks whether the node needs to sync from its peers and, if needed, also
 starts the syncing process.</li>
 <li><a href="https://github.com/near/nearcore/blob/fa78002a1b4119e5efe277c3073b3f333f451ffc/chain/client/src/client_actor.rs#L1581">Catch
-up</a> - 
+up</a> -
 This routine runs every <code>catchup_step_period</code> (which is set to 100ms by
 default) and runs the catch up process. This only applies if a node validates
 shard A in epoch X and is going to validate a different shard B in epoch X+1.

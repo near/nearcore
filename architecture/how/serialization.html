@@ -180,8 +180,8 @@ pub struct BlockHeader {
 
 <span class="boring">}
 </span></code></pre></pre>
-<p>This is done to protect structures from accidental changes that could corrupt the 
-database or disrupt the protocol. Dedicated CI check is responsible to check the 
+<p>This is done to protect structures from accidental changes that could corrupt the
+database or disrupt the protocol. Dedicated CI check is responsible to check the
 consistency of the schema. See <a href="../../../tools/protocol-schema-check/README.html">README</a> for more details.</p>
 <p>All these structures are likely to implement BorshSerialize and BorshDeserialize (see below).</p>
 <h2 id="borsh"><a class="header" href="#borsh">Borsh</a></h2>
@@ -192,7 +192,7 @@ deserialize into the same object.</p>
 <p>You can read more on how Borsh serializes the data, by looking at the Specification
 tab on <a href="https://borsh.io">borsh.io</a>.</p>
 <p>The biggest pitfall/risk of Borsh, is that any change to the structure, might
-cause previous data to no longer be parseable.</p>
+cause previous data to no longer be parsable.</p>
 <p>For example, inserting a new enum ‘in the middle’:</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -222,7 +222,7 @@ pub enum MyCar {
 <span class="boring">}
 </span></code></pre></pre>
 <p>Is such a scenario - some of the objects created by binaries with this feature
-enabled, will not be parseable by binaries without this feature.</p>
+enabled, will not be parsable by binaries without this feature.</p>
 <p>Removing and adding fields to structures is also dangerous.</p>
 <p>Basically - the only ‘safe’ thing that you can do with Borsh - is add a new Enum
 value at the end.</p>
@@ -244,6 +244,7 @@ a .proto file, where you describe the contents of your message.</p>
   GenesisId genesis_id = 3;
 }
 </code></pre>
+<!-- cspell:words protoc -->
 <p>Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
 auto-generated code (in our case Rust code) - that can be directly imported into
 your library.</p>

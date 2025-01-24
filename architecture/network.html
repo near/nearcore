@@ -150,7 +150,7 @@ who join the network are represented by nodes and connections between them by ed
 package; and to be used as reference by future engineers to understand the network
 code without any prior knowledge.</p>
 <h1 id="2-code-structure"><a class="header" href="#2-code-structure">2. Code structure</a></h1>
-<p><code>near-network</code> runs on top of the <code>actor</code> framework called 
+<p><code>near-network</code> runs on top of the <code>actor</code> framework called
 <a href="https://actix.rs/docs/"><code>Actix</code></a>. Code structure is split between 4 actors
 <code>PeerManagerActor</code>, <code>PeerActor</code>, <code>RoutingTableActor</code>, <code>EdgeValidatorActor</code></p>
 <h3 id="21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code"><a class="header" href="#21-edgevalidatoractor-currently-called-edgeverifieractor-in-the-code">2.1 <code>EdgeValidatorActor</code> (currently called <code>EdgeVerifierActor</code> in the code<!-- TODO: rename -->)</a></h3>
@@ -222,7 +222,7 @@ on its own thread.</p>
 <li><code>max_num_peers</code> - by default we connect up to 40 peers, current implementation
 supports up to 128.</li>
 </ul>
-<h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers.</a></h1>
+<h1 id="5-connecting-to-other-peers"><a class="header" href="#5-connecting-to-other-peers">5. Connecting to other peers</a></h1>
 <p>Each peer maintains a list of known peers. They are stored in the database. If
 the database is empty, the list of peers, called boot nodes, will be read from
 the <code>boot_nodes</code> option in the config. The peer to connect to is chosen at
@@ -507,10 +507,10 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <li>removes <code>local_edges_to_remove</code> from <code>local_edges_info</code>.</li>
 <li>bans peers, who sent us invalid edges.</li>
 </ul>
-<h1 id="10-message-transportation-layers"><a class="header" href="#10-message-transportation-layers">10. Message transportation layers.</a></h1>
+<h1 id="10-message-transportation-layers"><a class="header" href="#10-message-transportation-layers">10. Message transportation layers</a></h1>
 <p>This section describes different protocols of sending messages currently used in
 <code>Near</code>.</p>
-<h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
+<h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors</a></h2>
 <p><code>Near</code> is built on <code>Actix</code>'s <code>actor</code>
 <a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
@@ -540,7 +540,7 @@ and convert into RoutedMessage (which also have things like TTL etc.).</p>
 <p>Then it will use the <code>routing_table</code>, to find the route to the target peer (add
 <code>route_back</code> if needed) and then send the message over the network as
 <code>PeerMessage::Routed</code>. Details about routing table computations are covered in
-<a href="#8-adding-new-edges-to-routing-tables">section 8</a>. </p>
+<a href="#8-adding-new-edges-to-routing-tables">section 8</a>.</p>
 <p>When Peer receives this message (as <code>PeerMessage::Routed</code>), it will pass it to
 PeerManager (as <code>RoutedMessageFrom</code>), which would then check if the message is
 for the current <code>PeerActor</code>. (if yes, it would pass it to the client) and if
@@ -553,7 +553,7 @@ messages that are meant to be sent to another <code>peer</code>.</p>
 <p><code>lib.rs</code> (<code>ShardsManager</code>) has a <code>network_adapter</code> - coming from the client’s
 <code>network_adapter</code> that comes from <code>ClientActor</code> that comes from the <code>start_client</code> call
 that comes from <code>start_with_config</code> (that creates <code>PeerManagerActor</code> - that is
-passed as target to <code>network_recipent</code>).</p>
+passed as target to <code>network_recipient</code>).</p>
 <h1 id="12-database"><a class="header" href="#12-database">12. Database</a></h1>
 <h3 id="121-storage-of-deleted-edges"><a class="header" href="#121-storage-of-deleted-edges">12.1 Storage of deleted edges</a></h3>
 <p>Every time a group of peers becomes unreachable at the same time; We store edges
@@ -571,7 +571,7 @@ used nonce.</li>
 <li><code>DBCol::PeerComponent</code> Mapping from <code>peer_id</code> to the last component <code>nonce</code> it belongs to.</li>
 </ul>
 <h3 id="122-storage-of-account_id-to-peer_id-mapping"><a class="header" href="#122-storage-of-account_id-to-peer_id-mapping">12.2 Storage of <code>account_id</code> to <code>peer_id</code> mapping</a></h3>
-<p><code>ColAccountAnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to a tuple
+<p><code>ColAccountAnnouncements</code> -&gt; Stores a mapping from <code>account_id</code> to a tuple
 (<code>account_id</code>, <code>peer_id</code>, <code>epoch_id</code>, <code>signature</code>).</p>
 
                     </main>

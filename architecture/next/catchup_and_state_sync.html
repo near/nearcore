@@ -154,10 +154,10 @@
 <ul>
 <li>catchups are high priority (the validator MUST catchup within 1 epoch - otherwise it will not be able to produce blocks for the new shards in the next epoch - and therefore it will not earn rewards).</li>
 <li>a lot more catchups in progress (with lots of shards basically every validator would have to catchup at least one shard at each epoch boundary) - this leads to a lot more potential traffic on the network</li>
-<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incentivised to provide the state parts upon request.</li>
+<li>malicious attacks &amp; incentives - the state data can be large and can cause a lot of network traffic. At the same time it is quite critical (see point above), so we'll have to make sure that the nodes are incentivize to provide the state parts upon request.</li>
 <li>only a subset of peers will be available to request the state sync from (as not everyone from our peers will be tracking the shard that we're interested in).</li>
 </ul>
-<h2 id="things-that-were-actively-analysing"><a class="header" href="#things-that-were-actively-analysing">Things that we're actively analysing</a></h2>
+<h2 id="things-that-were-actively-analyzing"><a class="header" href="#things-that-were-actively-analyzing">Things that we're actively analyzing</a></h2>
 <h3 id="performance-of-state-sync-on-the-receiver-side"><a class="header" href="#performance-of-state-sync-on-the-receiver-side">Performance of state sync on the receiver side</a></h3>
 <p>We're looking at the performance of state sync:</p>
 <ul>

@@ -140,16 +140,17 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="deploy-a-contract"><a class="header" href="#deploy-a-contract">Deploy a Contract</a></h1>
+                        <!-- cspell:ignore EPGUSUV Vaddhcdr cdylib matklad rodata rwxr syscalls -->
+<h1 id="deploy-a-contract"><a class="header" href="#deploy-a-contract">Deploy a Contract</a></h1>
 <p>In this chapter, we'll learn how to build, deploy, and call a minimal smart
 contract on our local node.</p>
 <h2 id="preparing-ground"><a class="header" href="#preparing-ground">Preparing Ground</a></h2>
 <p>Let's start with creating a fresh local network with an account to which we'll
 deploy a contract. You might want to re-read <a href="./run_a_node.html">how to run a node</a>
 to understand what's going on here:</p>
-<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- init
-$ cargo run --profile dev-release -p neard -- run
-$ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
+<pre><code class="language-console">cargo run --profile dev-release -p neard -- init
+cargo run --profile dev-release -p neard -- run
+NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
 </code></pre>
 <p>As a sanity check, querying the state of <code>alice.test.near</code> account should work:</p>
 <pre><code class="language-console">$ NEAR_ENV=local near state alice.test.near
@@ -197,10 +198,10 @@ the slice would be considered a result of the function.</p>
 <p>Armed with this knowledge, we can write Rust code to produce the required WASM.
 Before we start doing that, some amount of setup code is required.</p>
 <p>Let's start with creating a new crate:</p>
-<pre><code class="language-console">$ cargo new hello-near --lib
+<pre><code class="language-console">cargo new hello-near --lib
 </code></pre>
 <p>To compile to wasm, we also need to add a relevant rustup toolchain:</p>
-<pre><code class="language-console">$ rustup toolchain add wasm32-unknown-unknown
+<pre><code class="language-console">rustup toolchain add wasm32-unknown-unknown
 </code></pre>
 <p>Then, we need to tell Cargo that the final artifact we want to get is a
 WebAssembly module.</p>

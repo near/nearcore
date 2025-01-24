@@ -156,7 +156,7 @@ into this document.</p>
 <h2 id="formatting"><a class="header" href="#formatting">Formatting</a></h2>
 <p>Use <code>rustfmt</code> for minor code formatting decisions. This rule is enforced by CI</p>
 <p><strong>Rationale:</strong> <code>rustfmt</code> style is almost always good enough, even if not always
-perfect. The amount of bikeshedding saved by <code>rustfmt</code> far outweighs any
+perfect. The amount of bike shedding saved by <code>rustfmt</code> far outweighs any
 imperfections.</p>
 <h2 id="idiomatic-rust"><a class="header" href="#idiomatic-rust">Idiomatic Rust</a></h2>
 <p>While the most important thing is to solve the problem at hand, we strive to
@@ -270,8 +270,8 @@ growing and leading to less readable code. If advantages of using the methods
 aren’t clear cut, it’s usually better to err on side of more imperative style.</p>
 <p>Lastly, anecdotally the methods (e.g. when used with <code>chain</code> or <code>flat_map</code>) may
 lead to faster code. This intuitively makes sense but it’s worth to keep in
-mind that compilers are pretty good at optimising and in practice may generate
-optimal code anyway. Furthermore, optimising code for readability may be more
+mind that compilers are pretty good at optimizing and in practice may generate
+optimal code anyway. Furthermore, optimizing code for readability may be more
 important (especially outside of hot path) than small performance gains.</p>
 <h3 id="prefer-to_string-to-format"><a class="header" href="#prefer-to_string-to-format">Prefer <code>to_string</code> to <code>format!(&quot;{}&quot;)</code></a></h3>
 <p>Prefer calling <code>to_string</code> method on an object rather than passing it through
@@ -393,7 +393,7 @@ alternative, as it neatly documents not just the infallibility, but also <em>why
 factors, most notably the compilation flags used. The quick explanation is that in debug mode the
 computations may panic (cause side effects) if the result has overflowed, and when built with
 optimizations enabled, these computations will wrap-around instead.</p>
-<p>For nearcore and neard we have opted to enable the panicking behaviour regardless of the
+<p>For nearcore and neard we have opted to enable the panicking behavior regardless of the
 optimization level. By doing it this we hope to prevent accidental stabilization of protocol
 mis-features that depend on incorrect handling of these overflows or similarly scary silent bugs.
 The downside to this approach is that any such arithmetic operation now may cause a node to crash,
@@ -428,6 +428,7 @@ is not their hash.</li>
 </ul>
 <p><strong>Rationale:</strong> Consistency.</p>
 <h2 id="documentation"><a class="header" href="#documentation">Documentation</a></h2>
+<!-- cspell:ignore stkb -->
 <p>When writing documentation in <code>.md</code> files, wrap lines at approximately 80
 columns.</p>
 <pre><code class="language-markdown">&lt;!-- GOOD --&gt;

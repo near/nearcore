@@ -146,7 +146,7 @@
 <p>The practical effect of this issue is that requests querying the state of an account may fail, returning instead an internal server error.</p>
 <h1 id="check-if-my-node-has-been-impacted"><a class="header" href="#check-if-my-node-has-been-impacted">Check if my node has been impacted</a></h1>
 <p>The simplest way to check whether or not a node has suffered data loss is to run one of the following queries:</p>
-<p><em>replace &lt;RPC_URL&gt; with the correct URL (example: http://localhost:3030)</em></p>
+<p><em>replace &lt;RPC_URL&gt; with the correct URL (example: <a href="http://localhost:3030">http://localhost:3030</a>)</em></p>
 <pre><code class="language-bash">curl -X POST &lt;RPC_URL&gt; \
         -H &quot;Content-Type: application/json&quot; \
         -d '
@@ -157,6 +157,7 @@
         -d '
         { &quot;id&quot;: &quot;dontcare&quot;, &quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;method&quot;: &quot;query&quot;, &quot;params&quot;: { &quot;account_id&quot;: &quot;token2.near&quot;, &quot;block_id&quot;: 114580308, &quot;request_type&quot;: &quot;view_account&quot; } }'
 </code></pre>
+<!-- cspell:ignore timpanic -->
 <pre><code class="language-bash">curl -X POST &lt;RPC_URL&gt; \
         -H &quot;Content-Type: application/json&quot; \
         -d '

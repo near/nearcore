@@ -303,10 +303,10 @@ T+1. Info about downloading states is persisted in <code>DBCol::StateDlInfos</co
 <li>For other blocks, we mark them as not caught up if the previous block is not
 caught up. This info is persisted in <code>DBCol::BlocksToCatchup</code> which stores
 mapping from previous block to vector of all child blocks to catch up.</li>
-<li>Chunks for already tracked shards will be applied during <code>process_block</code>, as 
+<li>Chunks for already tracked shards will be applied during <code>process_block</code>, as
 we said before mentioning <code>ApplyChunksMode</code>.</li>
-<li>Once we downloaded state, we start catchup. It will take blocks from 
-<code>DBCol::BlocksToCatchup</code> in breadth-first search order and apply chunks for 
+<li>Once we downloaded state, we start catchup. It will take blocks from
+<code>DBCol::BlocksToCatchup</code> in breadth-first search order and apply chunks for
 shards which have to be tracked in the next epoch.</li>
 <li>When catchup doesn't see any more blocks to process, <code>DBCol::BlocksToCatchup</code>
 is cleared, which means that catchup process is finished.</li>
@@ -314,7 +314,7 @@ is cleared, which means that catchup process is finished.</li>
 <p>The catchup process is implemented through the function <code>Client::run_catchup</code>.
 <code>ClientActor</code> schedules a call to <code>run_catchup</code> every 100ms. However, the call
 can be delayed if ClientActor has a lot of messages in its actix queue.</p>
-<p>Every time <code>run_catchup</code> is called, it checks <code>DBCol::StateDlInfos</code> to see 
+<p>Every time <code>run_catchup</code> is called, it checks <code>DBCol::StateDlInfos</code> to see
 if there are any shard states that should be downloaded. If so, it
 initiates the syncing process for these shards. After the state is downloaded,
 <code>run_catchup</code> will start to apply blocks that need to be caught up.</p>

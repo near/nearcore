@@ -172,7 +172,7 @@ comment</a>.</p>
 rustflags = [&quot;-C&quot;, &quot;link-arg=-fuse-ld=lld&quot;]
 </code></pre>
 <p>to <code>~/.cargo/config</code> is the most convenient approach.</p>
-<p><code>lld</code> itself can be installed with <code>sudo apt install lld</code> (or the equivalent in 
+<p><code>lld</code> itself can be installed with <code>sudo apt install lld</code> (or the equivalent in
 the distro/package manager of your choice).</p>
 <h2 id="prebuilt-rocksdb"><a class="header" href="#prebuilt-rocksdb">Prebuilt RocksDB</a></h2>
 <p>By default, we compile RocksDB (a C++ project) from source during the neard
@@ -181,8 +181,8 @@ entirely. This is a huge win, especially if you clean the <code>./target</code> 
 frequently.</p>
 <p>To use a prebuilt RocksDB, set the <code>ROCKSDB_LIB_DIR</code> environment variable to
 a location containing <code>librocksdb.a</code>:</p>
-<pre><code class="language-console">$ export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
-$ cargo build -p neard
+<pre><code class="language-console">export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
+cargo build -p neard
 </code></pre>
 <p>Note, that the system must provide a recent version of the library which,
 depending on which operating system you’re using, may require installing packages
@@ -199,16 +199,17 @@ ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
 export ROCKSDB_LIB_DIR
 </code></pre>
 <h2 id="global-compilation-cache"><a class="header" href="#global-compilation-cache">Global Compilation Cache</a></h2>
+<!-- cspell:ignore sccache direnv -->
 <p>By default, Rust compiles incrementally, with the incremental cache and
 intermediate outputs stored in the project-local <code>./target</code> directory.</p>
 <p>The <a href="https://github.com/mozilla/sccache"><code>sccache</code></a> utility can be used to share
 these artifacts between machines or checkouts within the same machine. <code>sccache</code>
 works by intercepting calls to <code>rustc</code> and will fetch the cached outputs from
 the global cache whenever possible. This tool can be set up as such:</p>
-<pre><code class="language-console">$ cargo install sccache
-$ export RUSTC_WRAPPER=&quot;sccache&quot;
-$ export SCCACHE_CACHE_SIZE=&quot;30G&quot;
-$ cargo build -p neard
+<pre><code class="language-console">cargo install sccache
+export RUSTC_WRAPPER=&quot;sccache&quot;
+export SCCACHE_CACHE_SIZE=&quot;30G&quot;
+cargo build -p neard
 </code></pre>
 <p>Refer to the <a href="https://github.com/mozilla/sccache">project’s README</a> for further
 configuration options.</p>

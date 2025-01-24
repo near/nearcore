@@ -146,7 +146,7 @@ on the simple example of user <code>shard0</code> transferring money to user <co
 <p>These users are on separate shards (<code>shard0</code> is on shard 0 and <code>shard1</code> is on
 shard 1).</p>
 <p>Imagine, we run the following command in the command line:</p>
-<pre><code class="language-console">$ NEAR_ENV=local near send shard0 shard1 500
+<pre><code class="language-console">NEAR_ENV=local near send shard0 shard1 500
 </code></pre>
 <p>What happens under the hood? How is this transaction changed into receipts and
 processed by near?</p>
@@ -251,7 +251,7 @@ B, we'll see the transaction:</p>
 </code></pre>
 <p><strong>Side note:</strong> When we're converting the transaction into a receipt, we also use
 this moment to deduct prepaid gas fees and transferred tokens from the 'signer'
-account. The details on how much gas is charged can be found at https://nomicon.io/RuntimeSpec/Fees/.</p>
+account. The details on how much gas is charged can be found at <a href="https://nomicon.io/RuntimeSpec/Fees/">https://nomicon.io/RuntimeSpec/Fees/</a>.</p>
 <h2 id="step-2---cross-shard-receipt"><a class="header" href="#step-2---cross-shard-receipt">Step 2 - cross shard receipt</a></h2>
 <p>After transaction was changed into a receipt, this receipt must now be sent to
 the shard where the <code>receiver</code> is (in our example <code>shard1</code> is on shard 1).</p>
@@ -327,7 +327,7 @@ a <code>predecessor_id</code> one.</p>
 <p>Such a receipt is sent to the destination shard (we'll explain this process in a
 separate article) where it can be executed.</p>
 <!-- TODO: maybe add the link to that article here? -->
-<h2 id="3-gas-refund"><a class="header" href="#3-gas-refund">3. Gas refund.</a></h2>
+<h2 id="3-gas-refund"><a class="header" href="#3-gas-refund">3. Gas refund</a></h2>
 <p>When shard 1 processes the receipt above, it is then ready to refund the unused
 gas to the original account (<code>shard0</code>). So it also creates the receipt, and puts
 it inside the chunk. This time it is in shard 1 (as that's where it was
