@@ -58,7 +58,7 @@ pub type ShardIndex = usize;
 /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
 /// sequential or contiguous.
 ///
-/// The shard id is wrapped in a newtype to prevent the old pattern of using
+/// The shard id is wrapped in a new type to prevent the old pattern of using
 /// indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition
 /// if fully complete it potentially may be simplified to a regular type alias.
 #[derive(
@@ -219,7 +219,7 @@ mod tests {
 
     // Check that the ShardId is serialized the same as u64. This is to make
     // sure that the transition from ShardId being a type alias to being a
-    // newtype is not a protocol upgrade.
+    // new type is not a protocol upgrade.
     #[test]
     fn test_shard_id_borsh() {
         let shard_id_u64 = 42;

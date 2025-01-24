@@ -346,6 +346,7 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 Clock::real(),
                 None,
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -433,6 +434,7 @@ fn produce_block_with_approvals() {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             actor_handles.client_actor.do_send(
@@ -630,6 +632,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             // Send block with invalid chunk mask

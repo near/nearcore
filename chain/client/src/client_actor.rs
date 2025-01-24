@@ -1117,40 +1117,56 @@ impl ClientActorInner {
             }
         }
 
+        let prev_block_hash = &head.last_block_hash;
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
             let next_block_producer_account =
                 self.client.epoch_manager.get_block_producer(&epoch_id, height)?;
 
-            if me == next_block_producer_account {
-                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                    &head.last_block_hash,
-                    &mut self.client.chunk_endorsement_tracker,
-                )?;
-                let num_chunks = self
-                    .client
-                    .chunk_inclusion_tracker
-                    .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
-                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
-                let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
+            if me != next_block_producer_account {
+                continue;
+            }
 
-                if self.client.doomslug.ready_to_produce_block(
-                    height,
-                    have_all_chunks,
-                    log_block_production_info,
-                ) {
-                    self.client
-                        .chunk_inclusion_tracker
-                        .record_endorsement_metrics(&head.last_block_hash, &shard_ids);
-                    if let Err(err) = self.produce_block(height, signer) {
-                        // If there is an error, report it and let it retry on the next loop step.
-                        error!(target: "client", height, "Block production failed: {}", err);
-                    } else {
-                        self.post_block_production();
-                    }
+            self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+                prev_block_hash,
+                &mut self.client.chunk_endorsement_tracker,
+            )?;
+            let num_chunks = self
+                .client
+                .chunk_inclusion_tracker
+                .num_chunk_headers_ready_for_inclusion(&epoch_id, prev_block_hash);
+            let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+            let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
+
+            if self.client.doomslug.ready_to_produce_block(
+                height,
+                have_all_chunks,
+                log_block_production_info,
+            ) {
+                self.client
+                    .chunk_inclusion_tracker
+                    .record_endorsement_metrics(prev_block_hash, &shard_ids);
+                if let Err(err) = self.produce_block(height, signer) {
+                    // If there is an error, report it and let it retry on the next loop step.
+                    error!(target: "client", height, "Block production failed: {}", err);
+                } else {
+                    self.post_block_production();
                 }
             }
+        }
+
+        let protocol_version = self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if !ProtocolFeature::ProduceOptimisticBlock.enabled(protocol_version) {
+            return Ok(());
+        }
+        let optimistic_block_height = self.client.doomslug.get_timer_height();
+        if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
+            return Ok(());
+        }
+        if let Err(err) = self.produce_optimistic_block(optimistic_block_height) {
+            // If there is an error, report it and let it retry.
+            error!(target: "client", optimistic_block_height, ?err, "Optimistic block production failed!");
         }
 
         Ok(())
@@ -1370,6 +1386,32 @@ impl ClientActorInner {
                 Err(error.into())
             }
         }
+    }
+
+    /// Produce optimistic block if we are block producer for given `next_height` height.
+    fn produce_optimistic_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_optimistic_block", next_height)
+            .entered();
+        // Check if optimistic block is already produced
+        if self.client.is_optimistic_block_done(next_height) {
+            return Ok(());
+        }
+
+        let Some(optimistic_block) = self.client.produce_optimistic_block_on_head(next_height)?
+        else {
+            return Ok(());
+        };
+
+        /* TODO(#10584): If we produced the optimistic block, send it out before we save it.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::OptimisticBlock { optimistic_block: block.clone() },
+        ));
+        */
+
+        // We’ve produced the optimistic block, mark it as done so we don't produce it again.
+        self.client.save_optimistic_block(&optimistic_block);
+
+        Ok(())
     }
 
     fn send_chunks_metrics(&mut self, block: &Block) {

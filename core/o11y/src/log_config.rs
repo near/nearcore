@@ -5,7 +5,7 @@ use std::{fs::File, io::Write};
 /// Configures logging.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct LogConfig {
-    /// Comma-separated list of EnvFitler directives.
+    /// Comma-separated list of EnvFilter directives.
     pub rust_log: Option<String>,
     /// Some("") enables global debug logging.
     /// Some("module") enables debug logging for "module".

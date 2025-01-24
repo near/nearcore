@@ -78,7 +78,7 @@ impl Account {
     /// differentiate AccountVersion V1 from newer versions.
     const SERIALIZATION_SENTINEL: u128 = u128::MAX;
 
-    // TODO(nonrefundable) Consider using consider some additional newtypes
+    // TODO(nonrefundable) Consider using consider some additional new types
     // or a different way to write down constructor (e.g. builder pattern.)
     pub fn new(
         amount: Balance,
@@ -466,7 +466,7 @@ pub struct FunctionCallPermission {
 
     // This isn't an AccountId because already existing records in testnet genesis have invalid
     // values for this field (see: https://github.com/near/nearcore/pull/4621#issuecomment-892099860)
-    // we accomodate those by using a string, allowing us to read and parse genesis.
+    // we accommodate those by using a string, allowing us to read and parse genesis.
     /// The access key only allows transactions with the given receiver's account id.
     pub receiver_id: String,
 

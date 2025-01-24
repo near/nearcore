@@ -5,7 +5,7 @@ use crate::chain::{
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
 use crate::resharding::manager::ReshardingManager;
-use crate::sharding::shuffle_receipt_proofs;
+use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use crate::stateless_validation::processing_tracker::ProcessingDoneTracker;
 use crate::store::filter_incoming_receipts_for_shard;
 use crate::types::{
@@ -546,7 +546,8 @@ fn validate_source_receipt_proofs(
         );
 
         // Arrange the receipts in the order in which they should be applied.
-        shuffle_receipt_proofs(&mut block_receipt_proofs, block.hash());
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(epoch_manager, block)?;
+        shuffle_receipt_proofs(&mut block_receipt_proofs, receipts_shuffle_salt);
         for proof in block_receipt_proofs {
             receipts_to_apply.extend(proof.0.iter().cloned());
         }

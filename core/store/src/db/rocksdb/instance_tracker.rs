@@ -26,20 +26,20 @@ struct Inner {
     /// because we don’t want to deal with `-1` having special meaning in
     /// RocksDB so we opted to for unsigned type but then needed to limit it
     /// since RocksDB doesn’t accept full unsigned range.  Here, we’re using
-    /// `u64` because that’s what ends up being passed to setrlimit so we would
+    /// `u64` because that’s what ends up being passed to set limit so we would
     /// need to cast anyway and it allows us not to worry about summing multiple
     /// limits from StoreConfig.
     max_open_files: u64,
 }
 
-/// Synchronisation wrapper for accessing [`Inner`] singleton.
+/// Synchronization wrapper for accessing [`Inner`] singleton.
 struct State {
     inner: Mutex<Inner>,
     zero_cvar: Condvar,
 }
 
 impl State {
-    /// Creates a new instance with counts initialised to zero.
+    /// Creates a new instance with counts initialized to zero.
     const fn new() -> Self {
         let inner = Inner { count: 0, max_open_files: 0 };
         Self { inner: Mutex::new(inner), zero_cvar: Condvar::new() }
@@ -183,7 +183,7 @@ fn ensure_max_open_files_limit(mut nofile: impl NoFile, max_open_files: u64) -> 
 /// Interface for accessing the NOFILE resource limit.
 ///
 /// The essentially trait exists for testing only.  It allows
-/// [`ensure_max_open_files_limit`] to be parameterised such
+/// [`ensure_max_open_files_limit`] to be parameterized such
 /// that it access mock limits rather than real ones.
 trait NoFile {
     fn get(&self) -> std::io::Result<(u64, u64)>;
@@ -248,7 +248,7 @@ fn test_ensure_max_open_files_limit() {
     ensure_max_open_files_limit(MockNoFile(&mut state), 1024).unwrap();
     assert_eq!((2024, 10000), state);
 
-    // Should recognise trying to rise is futile because hard limit is too low.
+    // Should recognize trying to rise is futile because hard limit is too low.
     let mut state = (1024, 2000);
     let msg = ensure_max_open_files_limit(MockNoFile(&mut state), 1024).unwrap_err();
     assert!(msg.starts_with("Hard limit"), "{msg}");

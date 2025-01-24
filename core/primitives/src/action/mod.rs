@@ -125,7 +125,7 @@ pub enum GlobalContractDeployMode {
     /// Users will be able reference it by that hash.
     /// This effectively makes the contract immutable.
     CodeHash,
-    /// Contract is deployed under the onwer account id.
+    /// Contract is deployed under the owner account id.
     /// Users will be able reference it by that account id.
     /// This allows the owner to update the contract for all its users.
     AccountId,
@@ -316,7 +316,7 @@ pub enum Action {
 const _: () = assert!(
     // 1 word for tag plus the largest variant `DeployContractAction` which is a 3-word `Vec`.
     // The `<=` check covers platforms that have pointers smaller than 8 bytes as well as random
-    // freak nightlies that somehow find a way to pack everything into one less word.
+    // freak night lies that somehow find a way to pack everything into one less word.
     std::mem::size_of::<Action>() <= 32,
     "Action <= 32 bytes for performance reasons, see #9451"
 );

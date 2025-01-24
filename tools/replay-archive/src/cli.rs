@@ -7,7 +7,7 @@ use near_chain::chain::{
     ShardContext, StorageContext,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
 use near_chain::types::StorageDataSource;
@@ -492,8 +492,9 @@ impl ReplayController {
         }
 
         let mut store_update = self.chain_store.store_update();
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), block)?;
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id.into_iter() {
-            shuffle_receipt_proofs(&mut receipts, block_hash);
+            shuffle_receipt_proofs(&mut receipts, receipts_shuffle_salt);
             store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
         }
         store_update.commit().unwrap();

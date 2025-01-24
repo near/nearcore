@@ -29,6 +29,7 @@ fn inc_counter_vec_with_label_values_itoa(bench: &mut Bencher) {
     });
 }
 
+// cspell:words smartstring
 fn inc_counter_vec_with_label_values_smartstring(bench: &mut Bencher) {
     use std::fmt::Write;
     bench.iter(|| {

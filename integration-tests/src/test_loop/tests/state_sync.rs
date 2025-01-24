@@ -19,7 +19,7 @@ use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::transactions::get_anchor_hash;
+use crate::test_loop::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 use crate::test_loop::utils::ONE_NEAR;
 
 use itertools::Itertools;
@@ -81,6 +81,7 @@ fn setup_initial_blockchain(
     generate_shard_accounts: bool,
     chunks_produced: HashMap<ShardId, Vec<bool>>,
     skip_block_sync_height_delta: Option<isize>,
+    extra_node_shard_schedule: &Option<Vec<Vec<ShardId>>>,
 ) -> TestState {
     let mut builder = TestLoopBuilder::new();
 
@@ -95,7 +96,22 @@ fn setup_initial_blockchain(
             }
         })
         .collect::<Vec<_>>();
-    let clients = validators.iter().map(|v| v.account_id.clone()).collect::<Vec<_>>();
+    let mut clients = validators.iter().map(|v| v.account_id.clone()).collect::<Vec<_>>();
+
+    if let Some(schedule) = extra_node_shard_schedule.as_ref() {
+        let idx = clients.len();
+        let schedule = schedule.clone();
+        clients.push("extra-node".parse().unwrap());
+
+        builder = builder.config_modifier(move |config, client_index| {
+            if client_index != idx {
+                return;
+            }
+
+            config.tracked_shards = vec![];
+            config.tracked_shard_schedule = schedule.clone();
+        });
+    }
 
     let boundary_accounts = get_boundary_accounts(num_shards);
     let accounts =
@@ -288,22 +304,32 @@ fn produce_chunks(
     loop {
         env.test_loop.run_until(
             |data| {
-                let client = &data.get(&handle).client;
-                let new_tip = client.chain.head().unwrap();
+                let clients = env
+                    .datas
+                    .iter()
+                    .map(|test_data| &data.get(&test_data.client_sender.actor_handle()).client)
+                    .collect_vec();
+                let new_tip = get_smallest_height_head(&clients);
                 new_tip.height != tip.height
             },
             timeout,
         );
 
-        let handle = env.datas[0].client_sender.actor_handle();
-        let client = &env.test_loop.data.get(&handle).client;
-        let new_tip = client.chain.head().unwrap();
-        let header = client.chain.get_block_header(&tip.last_block_hash).unwrap();
+        let clients = env
+            .datas
+            .iter()
+            .map(|test_data| {
+                &env.test_loop.data.get(&test_data.client_sender.actor_handle()).client
+            })
+            .collect_vec();
+        let new_tip = get_smallest_height_head(&clients);
+
+        let header = clients[0].chain.get_block_header(&tip.last_block_hash).unwrap();
         tracing::debug!("chunk mask for #{} {:?}", header.height(), header.chunk_mask());
 
         if new_tip.epoch_id != tip.epoch_id {
             epoch_id_switches += 1;
-            if epoch_id_switches > 2 {
+            if epoch_id_switches > 3 {
                 break;
             }
             if let Some(accounts) = accounts.as_mut() {
@@ -358,6 +384,7 @@ struct StateSyncTest {
     // a value of 0 will have us generate a skip on the first block that will probably be the sync_hash,
     // and a value of 1 will have us skip the one after that.
     skip_block_sync_height_delta: Option<isize>,
+    extra_node_shard_schedule: Option<Vec<Vec<ShardId>>>,
 }
 
 static TEST_CASES: &[StateSyncTest] = &[
@@ -370,6 +397,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         generate_shard_accounts: true,
         chunks_produced: &[],
         skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
     },
     StateSyncTest {
         num_validators: 5,
@@ -379,6 +407,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         generate_shard_accounts: true,
         chunks_produced: &[],
         skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
     },
     // In this test we have 2 validators and 4 shards, and we don't generate any extra accounts.
     // That makes 3 accounts ncluding the "near" account. This means at least one shard will have no
@@ -391,6 +420,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         generate_shard_accounts: false,
         chunks_produced: &[],
         skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
     },
     // Now we miss some chunks at the beginning of the epoch
     StateSyncTest {
@@ -406,6 +436,7 @@ static TEST_CASES: &[StateSyncTest] = &[
             (ShardId::new(3), &[true]),
         ],
         skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
     },
     StateSyncTest {
         num_validators: 5,
@@ -415,6 +446,7 @@ static TEST_CASES: &[StateSyncTest] = &[
         generate_shard_accounts: true,
         chunks_produced: &[(ShardId::new(0), &[true, false]), (ShardId::new(1), &[true, false])],
         skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
     },
     StateSyncTest {
         num_validators: 5,
@@ -427,6 +459,7 @@ static TEST_CASES: &[StateSyncTest] = &[
             (ShardId::new(2), &[true, false, true]),
         ],
         skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: None,
     },
 ];
 
@@ -449,9 +482,49 @@ fn slow_test_state_sync_current_epoch() {
                 .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
                 .collect(),
             t.skip_block_sync_height_delta,
+            &t.extra_node_shard_schedule,
         );
         run_test(state);
     }
+}
+
+// This adds an extra node with an explicit tracked shards schedule to test more corner cases.
+// Specifically, checking what happens when we stop tracking a shard and then track it again,
+// while also needing to state sync another shard.
+#[test]
+fn test_state_sync_untrack_then_track() {
+    init_test_logger();
+
+    let params = StateSyncTest {
+        num_validators: 5,
+        num_block_producer_seats: 4,
+        num_chunk_producer_seats: 4,
+        num_shards: 5,
+        generate_shard_accounts: true,
+        chunks_produced: &[],
+        skip_block_sync_height_delta: None,
+        extra_node_shard_schedule: Some(vec![
+            vec![ShardId::new(0), ShardId::new(1)],
+            vec![ShardId::new(0), ShardId::new(1)],
+            vec![ShardId::new(1), ShardId::new(2)],
+            vec![ShardId::new(0), ShardId::new(3)],
+        ]),
+    };
+    let state = setup_initial_blockchain(
+        params.num_validators,
+        params.num_block_producer_seats,
+        params.num_chunk_producer_seats,
+        params.num_shards,
+        params.generate_shard_accounts,
+        params
+            .chunks_produced
+            .iter()
+            .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
+            .collect(),
+        params.skip_block_sync_height_delta,
+        &params.extra_node_shard_schedule,
+    );
+    run_test(state);
 }
 
 // Here we drop the block that's supposed to be the sync hash after the first full epoch,
@@ -474,6 +547,7 @@ fn test_state_sync_from_fork() {
         generate_shard_accounts: true,
         chunks_produced: &[],
         skip_block_sync_height_delta: Some(0),
+        extra_node_shard_schedule: None,
     };
     let state = setup_initial_blockchain(
         params.num_validators,
@@ -487,6 +561,7 @@ fn test_state_sync_from_fork() {
             .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
             .collect(),
         params.skip_block_sync_height_delta,
+        &params.extra_node_shard_schedule,
     );
     run_test(state);
 }
@@ -510,6 +585,7 @@ fn test_state_sync_to_fork() {
         generate_shard_accounts: true,
         chunks_produced: &[],
         skip_block_sync_height_delta: Some(0),
+        extra_node_shard_schedule: None,
     };
     let state = setup_initial_blockchain(
         params.num_validators,
@@ -523,6 +599,7 @@ fn test_state_sync_to_fork() {
             .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
             .collect(),
         params.skip_block_sync_height_delta,
+        &params.extra_node_shard_schedule,
     );
     run_test(state);
 }
@@ -543,6 +620,7 @@ fn test_state_sync_fork_after_sync() {
         generate_shard_accounts: true,
         chunks_produced: &[],
         skip_block_sync_height_delta: Some(1),
+        extra_node_shard_schedule: None,
     };
     let state = setup_initial_blockchain(
         params.num_validators,
@@ -556,6 +634,7 @@ fn test_state_sync_fork_after_sync() {
             .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
             .collect(),
         params.skip_block_sync_height_delta,
+        &params.extra_node_shard_schedule,
     );
     run_test(state);
 }
@@ -573,6 +652,7 @@ fn test_state_sync_fork_before_sync() {
         generate_shard_accounts: true,
         chunks_produced: &[],
         skip_block_sync_height_delta: Some(-1),
+        extra_node_shard_schedule: None,
     };
     let state = setup_initial_blockchain(
         params.num_validators,
@@ -586,6 +666,7 @@ fn test_state_sync_fork_before_sync() {
             .map(|(shard_id, produced)| (*shard_id, produced.to_vec()))
             .collect(),
         params.skip_block_sync_height_delta,
+        &params.extra_node_shard_schedule,
     );
     run_test(state);
 }
@@ -640,7 +721,7 @@ fn slow_test_state_request() {
     init_test_logger();
 
     let TestState { mut env, .. } =
-        setup_initial_blockchain(4, 4, 4, 4, false, HashMap::default(), None);
+        setup_initial_blockchain(4, 4, 4, 4, false, HashMap::default(), None, &None);
 
     spam_state_sync_header_reqs(&mut env);
     env.shutdown_and_drain_remaining_events(Duration::seconds(3));

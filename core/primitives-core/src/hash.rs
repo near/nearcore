@@ -36,7 +36,7 @@ impl CryptoHash {
         CryptoHash(sha2::Sha256::digest(bytes).into())
     }
 
-    /// Calculates hash of borsh-serialised representation of an object.
+    /// Calculates hash of borsh-serialized representation of an object.
     ///
     /// Note that using this function with an array may lead to unexpected
     /// results.  For example, `CryptoHash::hash_borsh(&[1u32, 2, 3])` hashes
@@ -48,10 +48,10 @@ impl CryptoHash {
         CryptoHash(hasher.finalize().into())
     }
 
-    /// Calculates hash of a borsh-serialised representation of list of objects.
+    /// Calculates hash of a borsh-serialized representation of list of objects.
     ///
     /// This behaves as if it first collected all the items in the iterator into
-    /// a vector and then calculating hash of borsh-serialised representation of
+    /// a vector and then calculating hash of borsh-serialized representation of
     /// that vector.
     ///
     /// Panics if the iterator lies about its length.
@@ -82,7 +82,7 @@ impl CryptoHash {
     /// visitor returns.
     fn to_base58_impl<Out>(self, visitor: impl FnOnce(&str) -> Out) -> Out {
         // base58-encoded string is at most 1.4 times longer than the binary
-        // sequence.  We’re serialising 32 bytes so ⌈32 * 1.4⌉ = 45 should be
+        // sequence.  We’re serializing 32 bytes so ⌈32 * 1.4⌉ = 45 should be
         // enough.
         let mut buffer = [0u8; 45];
         let len = bs58::encode(self).into(&mut buffer[..]).unwrap();
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serde_deserialise_failures() {
+    fn test_serde_deserialize_failures() {
         fn test(input: &str, want_err: &str) {
             match serde_json::from_str::<CryptoHash>(input) {
                 Ok(got) => panic!("‘{input}’ should have failed; got ‘{got}’"),

@@ -197,7 +197,7 @@ struct DBOpener<'a> {
 }
 
 impl<'a> StoreOpener<'a> {
-    /// Initialises a new opener with given home directory and store config.
+    /// Initializes a new opener with given home directory and store config.
     pub(crate) fn new(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
