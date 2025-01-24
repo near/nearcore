@@ -63,7 +63,7 @@ pub enum RuntimeError {
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
     BalanceMismatchError(Box<BalanceMismatchError>),
-    /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
+    /// The incoming receipt didn't pass the validation, it's likely a malicious behavior.
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
@@ -302,7 +302,7 @@ pub enum InvalidAccessKeyError {
     ProtocolSchema,
 )]
 pub enum ActionsValidationError {
-    /// The delete action must be a final aciton in transaction
+    /// The delete action must be a final action in transaction
     DeleteActionMustBeFinal,
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
@@ -1068,7 +1068,7 @@ pub enum PrepareError {
     /// Error happened during instantiation.
     ///
     /// This might indicate that `start` function trapped, or module isn't
-    /// instantiable and/or unlinkable.
+    /// instantiable and/or un-linkable.
     Instantiate,
     /// Error creating memory.
     Memory,
@@ -1187,7 +1187,7 @@ pub enum HostError {
     Deprecated { method_name: String },
     /// General errors for ECDSA recover.
     ECRecoverError { msg: String },
-    /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
+    /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be

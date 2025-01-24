@@ -39,7 +39,7 @@ pub(crate) struct RocksDBMetrics {
     int_gauges: HashMap<String, IntGauge>,
     // Contains integer statistics with labels.
     int_vec_gauges: HashMap<String, IntGaugeVec>,
-    // Contains floating point statistics, such as quantiles of timings.
+    // Contains floating point statistics, such as quantile of timings.
     gauges: HashMap<String, GaugeVec>,
 }
 

@@ -12,7 +12,7 @@ use super::PendingEventsSender;
 use futures::FutureExt;
 
 /// TestLoopSender implements the CanSend methods for an actor that can Handle them. This is
-/// similar to our pattern of having an ActixWarpper around an actor to send messages to it.
+/// similar to our pattern of having an ActixWrapper around an actor to send messages to it.
 ///
 /// ```rust, ignore
 /// let actor = TestActor::new();

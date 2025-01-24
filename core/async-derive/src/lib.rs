@@ -114,7 +114,7 @@ fn derive_multi_send_impl(input: proc_macro2::TokenStream) -> proc_macro2::Token
         }
     };
 
-    let mut impls = Vec::new();
+    let mut tokens = Vec::new();
     for (i, field) in input.fields.into_iter().enumerate() {
         let field_name = field.ident.as_ref().map(|ident| quote!(#ident)).unwrap_or_else(|| {
             let index = syn::Index::from(i);
@@ -133,7 +133,7 @@ fn derive_multi_send_impl(input: proc_macro2::TokenStream) -> proc_macro2::Token
             };
             if last_segment.ident == "Sender" {
                 let message_type = arguments[0].clone();
-                impls.push(quote! {
+                tokens.push(quote! {
                     #(#cfg_attrs)*
                     impl near_async::messaging::CanSend<#message_type> for #struct_name {
                         fn send(&self, message: #message_type) {
@@ -146,7 +146,7 @@ fn derive_multi_send_impl(input: proc_macro2::TokenStream) -> proc_macro2::Token
                 let result_type = arguments[1].clone();
                 let outer_msg_type =
                     quote!(near_async::messaging::MessageWithCallback<#message_type, #result_type>);
-                impls.push(quote! {
+                tokens.push(quote! {
                     #(#cfg_attrs)*
                     impl near_async::messaging::CanSend<#outer_msg_type> for #struct_name {
                         fn send(&self, message: #outer_msg_type) {
@@ -158,7 +158,7 @@ fn derive_multi_send_impl(input: proc_macro2::TokenStream) -> proc_macro2::Token
         }
     }
 
-    quote! {#(#impls)*}
+    quote! {#(#tokens)*}
 }
 
 fn extract_cfg_attributes(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
