@@ -54,6 +54,7 @@
         "colddb",
         "Condvar",
         "Condvars",
+        "contractregistry",
         "conv",
         "cpus",
         "cranelift",
@@ -328,7 +329,8 @@
         "yocto",
         "yoctonear",
         "zstd",
-        "Zulip"
+        "Zulip",
+        "привет",
     ],
     "ignoreWords": [],
     "import": []
