@@ -263,6 +263,9 @@ impl ProtocolFeature {
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
             | ProtocolFeature::FixChunkProducerStakingThreshold
             | ProtocolFeature::RelaxedChunkValidation
+            // BandwidthScheduler and CurrentEpochStateSync must be enabled
+            // before ReshardingV3! When releasing this feature please make sure
+            // to schedule separate protocol upgrades for these features.
             | ProtocolFeature::BandwidthScheduler
             | ProtocolFeature::CurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
