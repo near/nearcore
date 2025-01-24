@@ -79,7 +79,7 @@ impl RoutingTableView {
 
     pub(crate) fn reachable_peers(&self) -> usize {
         // There is an implicit assumption here that all next_hops entries are non-empty.
-        // To enforce this, we would need to make NextHopTable a newtype rather than an alias,
+        // To enforce this, we would need to make NextHopTable a new type rather than an alias,
         // and add appropriate constructors, which would filter out empty entries.
         self.0.lock().next_hops.len()
     }

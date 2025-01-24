@@ -43,6 +43,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+/// cspell:ignore eventfd epoll fcntl socketpair
 /// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
 /// 1. eventfd2()
 /// 2. epoll_create1()

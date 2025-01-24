@@ -233,7 +233,7 @@ async fn test_scope_error() {
 }
 
 #[tokio::test]
-async fn test_scope_error_nonoverridable() {
+async fn test_scope_error_non_overridable() {
     abort_on_panic();
     let res = scope::run!(|s| async {
         let service = Arc::new(s.new_service());
@@ -255,7 +255,7 @@ async fn test_scope_error_nonoverridable() {
 // After all main tasks complete successfully, the scope gets canceled.
 // Background tasks of the scope should still be able to spawn more tasks
 // both via `Scope::spawn()` and `Scope::spawn_bg` (although after scope
-// cancelation they behave exactly the same).
+// cancellation they behave exactly the same).
 #[tokio::test]
 async fn test_spawn_from_spawn_bg() {
     abort_on_panic();

@@ -105,14 +105,14 @@ impl Stream {
         // Avoid setting the buffer sizes for T1 connections, which are numerous and lightweight.
         match tier {
             Tier::T2 => {
-                if let Some(so_rcvbuf) = socket_options.recv_buffer_size {
-                    socket.set_recv_buffer_size(so_rcvbuf)?;
-                    tracing::debug!(target: "network", "SO_RCVBUF wanted {} got {:?}", so_rcvbuf, socket.recv_buffer_size());
+                if let Some(so_recv_buffer) = socket_options.recv_buffer_size {
+                    socket.set_recv_buffer_size(so_recv_buffer)?;
+                    tracing::debug!(target: "network", "so_recv_buffer wanted {} got {:?}", so_recv_buffer, socket.recv_buffer_size());
                 }
 
-                if let Some(so_sndbuf) = socket_options.send_buffer_size {
-                    socket.set_send_buffer_size(so_sndbuf)?;
-                    tracing::debug!(target: "network", "SO_SNDBUF wanted {} got {:?}", so_sndbuf, socket.send_buffer_size());
+                if let Some(so_send_buffer) = socket_options.send_buffer_size {
+                    socket.set_send_buffer_size(so_send_buffer)?;
+                    tracing::debug!(target: "network", "so_send_buffer wanted {} got {:?}", so_send_buffer, socket.send_buffer_size());
                 }
             }
             _ => {}
@@ -162,7 +162,7 @@ impl Stream {
 /// In tests it additionally allows to "reserve" a random unused TCP port:
 /// * it allows to avoid race conditions in tests which require a dedicated TCP port to spawn a
 ///   node on (and potentially restart it every now and then).
-/// * it is implemented by usign SO_REUSEPORT socket option (do not confuse with SO_REUSEADDR),
+/// * it is implemented by unsigned SO_REUSEPORT socket option (do not confuse with SO_REUSEADDR),
 ///   which allows multiple sockets to share a port. reserve_for_test() creates a socket and binds
 ///   it to a random unused local port (without starting a TCP listener).
 ///   This socket won't be used for anything but telling the OS that the given TCP port is in use.
@@ -203,13 +203,14 @@ impl ListenerAddr {
     pub fn new(addr: std::net::SocketAddr) -> Self {
         assert!(
             addr.port() != 0,
-            "using an anyport (i.e. 0) for the tcp::ListenerAddr is allowed only \
+            "using an any port (i.e. 0) for the tcp::ListenerAddr is allowed only \
              in tests and only via reserve_for_test() method"
         );
         Self(addr)
     }
 
     /// TEST-ONLY: reserves a random port on localhost for a TCP listener.
+    /// cspell:ignore REUSEADDR REUSEPORT
     pub fn reserve_for_test() -> Self {
         let guard = tokio::net::TcpSocket::new_v6().unwrap();
         guard.set_reuseaddr(true).unwrap();

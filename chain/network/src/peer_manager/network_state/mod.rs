@@ -77,7 +77,7 @@ impl WhitelistNode {
             addr: if let Some(addr) = pi.addr {
                 addr
             } else {
-                anyhow::bail!("addess is missing");
+                anyhow::bail!("address is missing");
             },
             account_id: pi.account_id.clone(),
         })
@@ -136,7 +136,7 @@ pub(crate) struct NetworkState {
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
-    /// A sparsified graph of the whole NEAR network.
+    /// A sparse graph of the whole NEAR network.
     /// TODO(saketh): deprecate graph above, rename this to RoutingTable
     #[cfg(feature = "distance_vector_routing")]
     pub graph_v2: Arc<crate::routing::GraphV2>,
@@ -154,7 +154,7 @@ pub(crate) struct NetworkState {
     pub tier1_route_back: Mutex<RouteBackCache>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
-    /// messages sincce last block.
+    /// messages since last block.
     pub txns_since_last_block: AtomicUsize,
 
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been

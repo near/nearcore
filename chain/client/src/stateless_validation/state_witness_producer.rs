@@ -42,7 +42,7 @@ pub(crate) struct CreateWitnessResult {
     pub(crate) state_witness: ChunkStateWitness,
     /// Contracts accessed and deployed while applying the chunk.
     pub(crate) contract_updates: ContractUpdates,
-    /// Shard id for the main trainsition. This can be different from the
+    /// Shard id for the main transition. This can be different from the
     /// witness chunk header shard id due to resharding.
     pub(crate) main_transition_shard_id: ShardId,
 }

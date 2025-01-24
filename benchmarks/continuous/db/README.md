@@ -40,5 +40,5 @@ select setting from pg_settings where name = 'max_connections';
 ```
 
 ## Remote connection
-
+<!-- cspell:words psql -->
 To connect to the database remotely, you can execute the `psql` recipe in the [`Justfile`](./Justfile).

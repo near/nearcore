@@ -1347,6 +1347,7 @@ fn calculate_transactions_size_limit(
             .try_into()
             .expect("Can't convert usize to u64!")
     } else {
+        // cspell:words roundtripping
         // In general, we limit the number of transactions via send_fees.
         // However, as a second line of defense, we want to limit the byte size
         // of transaction as well. Rather than introducing a separate config for

@@ -54,6 +54,7 @@ macro_rules! return_if_cancelled {
         }
     };
 }
+
 pub(super) async fn run_state_sync_for_shard(
     store: Store,
     shard_id: ShardId,

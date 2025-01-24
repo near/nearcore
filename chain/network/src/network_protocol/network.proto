@@ -17,7 +17,7 @@ message OwnedAccount {
   // deviation is too large, the handshake will be rejected.
   // TODO(gprusak): an alternative would be a 3-way handshake with a
   // random challenge to sign, or even better: just use some standard
-  // asymetric entryption.
+  // asymmetric encryption.
   google.protobuf.Timestamp timestamp = 3; // required
 }
 
@@ -142,7 +142,7 @@ message Handshake {
   // The protocol_version that the sender wants to use for communication.
   // Currently NEAR protocol and NEAR network protocol are versioned together
   // (it may change in the future), however peers may communicate with the newer version
-  // of the NEAR network protol, than the NEAR protocol version approved by the quorum of
+  // of the NEAR network protocol, than the NEAR protocol version approved by the quorum of
   // the validators. If B doesn't support protocol_version, it sends back HandshakeFailure
   // with reason ProtocolVersionMismatch.
   uint32 protocol_version = 1;
@@ -359,7 +359,7 @@ message BlockRequest {
 
 // NEAR chain Block.
 // It might be send both as a response to BlockRequest,
-// or unsolicitated in case a new Block is being broadcasted.
+// or unsolicited in case a new Block is being broadcasted.
 message BlockResponse {
   Block block = 1;
 }
@@ -379,7 +379,7 @@ message RoutedMessage {
   bytes borsh = 1;
   // Timestamp of creating the Routed message by its original author.
   google.protobuf.Timestamp created_at = 2;
-  // Number of peers this routed message travelled through. Doesn't include the peer that created the message.
+  // Number of peers this routed message traveled through. Doesn't include the peer that created the message.
   uint32 num_hops = 4;
 }
 

@@ -58,6 +58,7 @@ Since the change of reading genesis method to optimize memory usage. You'd be ab
 
 * `IndexerChunkView` doesn't contain field `receipt_execution_outcomes` anymore, this field has been moved to `IndexerShard`
 * `StreamerMessage` structure was aligned more with NEAR Protocol specification and now looks like:
+
   ```
   StreamerMessage {
     block: BlockView,
@@ -97,8 +98,8 @@ created and started on the Indexer implementation, not on the Indexer Framework 
 ## Breaking changes
 
 * `IndexerConfig` was extended with another field `await_for_node_synced`. Corresponding enum is `AwaitForNodeSyncedEnum` with variants:
-  - `WaitForFullSync` - await for node to be fully synced (previous default behaviour)
-  - `StreamWhileSyncing`- start streaming right away while node is syncing (it's useful in case of Indexing from genesis)
+  * `WaitForFullSync` - await for node to be fully synced (previous default behavior)
+  * `StreamWhileSyncing`- start streaming right away while node is syncing (it's useful in case of Indexing from genesis)
 
 ## 0.5.0
 

@@ -1956,7 +1956,7 @@ impl EpochManager {
     ///
     /// The block hash passed as argument should be a final block so that the
     /// method can perform efficient incremental updates.  Calling this method
-    /// on a block which has not been finalised yet is likely to result in
+    /// on a block which has not been finalized yet is likely to result in
     /// performance issues since handling forks will force it to traverse the
     /// entire epoch from scratch.
     ///

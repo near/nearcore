@@ -16,7 +16,7 @@ pub(crate) struct ExecutionToReceipts {
     /// converting blocks to Rosetta transactions.
     transactions: HashMap<CryptoHash, SignedTransactionView>,
     /// A mapping of receipts to predecessor_ids
-    /// receipts map is needed to determine the initing account of the receipt
+    /// receipts map is needed to determine the init account of the receipt
     /// and to determine if a receipt is a refund.
     receipts: HashMap<CryptoHash, AccountId>,
     /// A vector of FungibleTokenEvents derived from logs in the ExecutionOutcomeWithIdView vector.
@@ -610,7 +610,7 @@ fn convert_fungible_token_balance_change_to_operations(
             currency: Currency {
                 symbol: fungible_token_event.symbol.clone(),
                 decimals: fungible_token_event.decimals,
-                metadata: Some(crate::models::CurrenyMetadata {
+                metadata: Some(crate::models::CurrencyMetadata {
                     contract_address: fungible_token_event.contract_account_id.clone(),
                 }),
             },

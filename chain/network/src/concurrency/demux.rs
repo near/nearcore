@@ -1,4 +1,4 @@
-//! A rate-limited demultiplexer.
+//! A rate-limited de-multiplexer.
 //! It can be useful for example, if you want to aggregate a bunch of
 //! network requests produced by unrelated routines into a single
 //! bulk message to rate limit the QPS.
