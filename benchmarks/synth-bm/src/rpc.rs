@@ -92,6 +92,8 @@ impl RpcResponseHandler {
         let mut timer: Option<Instant> = None;
 
         let mut num_received = 0;
+        let mut num_succeeded = 0;
+        let mut num_rpc_error = 0;
         while num_received < self.num_expected_responses {
             let response = match self.receiver.recv().await {
                 Some(res) => res,
@@ -111,17 +113,21 @@ impl RpcResponseHandler {
 
             match response {
                 Ok(rpc_response) => {
-                    check_tx_response(
-                        rpc_response,
-                        self.wait_until.clone(),
-                        self.response_check_severity,
-                    );
+                    if check_tx_response(rpc_response, self.wait_until.clone(), self.response_check_severity) {
+                        num_succeeded += 1;
+                    }
                 }
                 Err(err) => {
-                    let msg = format!("RPC call failed: {}", err);
-                    warn_or_panic(&msg, self.response_check_severity);
+                    warn!("Got error response from rpc: {err}");
+                    num_rpc_error += 1;
                 }
-            }
+            };
+
+            info!("Received {} responses; num_success={} num_rpc_error={}",
+                num_received,
+                num_succeeded,
+                num_rpc_error
+            );
         }
 
         if let Some(timer) = timer {
@@ -148,29 +154,34 @@ fn tx_execution_level(status: &TxExecutionStatus) -> u8 {
 /// For now not inspecting success values or receipt ids.
 fn check_outcome(
     response: RpcTransactionResponse,
-    expected_status: FinalExecutionStatus,
     response_check_severity: ResponseCheckSeverity,
-) {
+) -> bool {
     let outcome =
         response.final_execution_outcome.expect("response should have an outcome").into_outcome();
-    if outcome.status != expected_status {
+
+    if !matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)) {
         let msg =
-            format!("got outcome.status {:#?}, expected {:#?}", outcome.status, expected_status);
+            format!("got outcome.status {:#?}, expected FinalExecutionStatus::SuccessValue", outcome.status);
         warn_or_panic(&msg, response_check_severity);
+        return false;
     }
 
     for receipt_outcome in outcome.receipts_outcome.iter() {
         match &receipt_outcome.outcome.status {
             ExecutionStatusView::Unknown => {
-                warn_or_panic("unknown receipt outcome", response_check_severity)
+                warn_or_panic("unknown receipt outcome", response_check_severity);
+                return false;
             }
             ExecutionStatusView::Failure(err) => {
-                warn_or_panic(&format!("receipt failed: {err}"), response_check_severity)
+                warn_or_panic(&format!("receipt failed: {err}"), response_check_severity);
+                return false;
             }
             ExecutionStatusView::SuccessValue(_) => {}
             ExecutionStatusView::SuccessReceiptId(_) => {}
         }
     }
+
+    true
 }
 
 /// Checks the rpc request to send a transaction succeeded. Depending on `wait_until`, the status
@@ -184,13 +195,14 @@ pub fn check_tx_response(
     response: RpcTransactionResponse,
     wait_until: TxExecutionStatus,
     response_check_severity: ResponseCheckSeverity,
-) {
+) -> bool {
     if tx_execution_level(&response.final_execution_status) < tx_execution_level(&wait_until) {
         let msg = format!(
             "got final execution status {:#?}, expected at least {:#?}",
             response.final_execution_status, wait_until
         );
         warn_or_panic(&msg, response_check_severity);
+        return false;
     }
 
     // Check the outcome, if applicable.
@@ -199,6 +211,7 @@ pub fn check_tx_response(
             // The response to a transaction with `wait_until: None` contains no outcome.
             // If that ever changes, the outcome must be checked, hence the assert.
             assert!(response.final_execution_outcome.is_none());
+            false
         }
         TxExecutionStatus::Included => {
             unimplemented!("given how transactions are sent, this status is not yet returned")
@@ -210,9 +223,8 @@ pub fn check_tx_response(
             // For now, only sending transactions that expect an empty success value.
             check_outcome(
                 response,
-                FinalExecutionStatus::SuccessValue(vec![]),
                 response_check_severity,
-            );
+            )
         }
     }
 }

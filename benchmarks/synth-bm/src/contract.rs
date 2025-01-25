@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::{accounts_from_dir, update_account_nonces};
+use crate::account::{accounts_from_dir, update_account_nonces, Account};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
@@ -56,14 +56,10 @@ pub struct BenchmarkMpcSignArgs {
     pub read_nonces_from_network: bool,
 }
 
-pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
-    let mut accounts = accounts_from_dir(&args.user_data_dir)?;
-    assert!(
-        !accounts.is_empty(),
-        "at least one account required in {:?} to send transactions",
-        args.user_data_dir
-    );
-
+pub async fn benchmark_mpc_sign_impl(
+    args: &BenchmarkMpcSignArgs,
+    accounts: &mut Vec<Account>,
+) -> anyhow::Result<()> {
     // Pick interval to achieve desired TPS.
     let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
 
@@ -153,12 +149,25 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     response_handler_task.await.expect("response handler tasks should succeed");
     info!("Received all RPC responses after {:.2} seconds", timer.elapsed().as_secs_f64());
 
+    Ok(())
+}
+
+pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
+    let mut accounts = accounts_from_dir(&args.user_data_dir)?;
+    assert!(
+        accounts.len() > 0,
+        "at least one account required in {:?} to send transactions",
+        args.user_data_dir
+    );
+
+    let result = benchmark_mpc_sign_impl(args, &mut accounts).await;
+
     info!("Writing updated nonces to {:?}", args.user_data_dir);
     for account in accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
     }
 
-    Ok(())
+    result
 }
 
 /// Constructs the parameters according to
