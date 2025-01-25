@@ -652,7 +652,7 @@ impl EpochSync {
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
-                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period))
+                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
                 >= status.source_peer_height
             {
                 tracing::error!(
@@ -684,7 +684,7 @@ impl EpochSync {
         let mut store_update = chain.chain_store.store().store_update();
 
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
-        // to faciliate epoch sync of other nodes.
+        // to facilitate epoch sync of other nodes.
         let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
         store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
         let proof = proof.into_v1();
@@ -987,14 +987,14 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
         if self.client.epoch_sync.config.ignore_epoch_sync_network_requests {
-            // Temporary killswitch for the rare case there were issues with this network request.
+            // Temporary kill switch for the rare case there were issues with this network request.
             return;
         }
-        let store = self.client.chain.chain_store.store().clone();
+        let store = self.client.chain.chain_store.store();
         let network_adapter = self.client.network_adapter.clone();
         let requester_peer_id = msg.from_peer;
         let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
-        let transaction_validity_period = self.client.chain.transaction_validity_period;
+        let transaction_validity_period = self.client.chain.transaction_validity_period();
         self.client.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync request",
             move || {

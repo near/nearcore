@@ -7,6 +7,7 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
+use near_chain::Error;
 use near_client::client_actor::ClientActorInner;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
@@ -17,7 +18,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
@@ -171,7 +172,7 @@ pub fn do_create_account(
     let nonce = get_next_nonce(&env.test_loop.data, &env.datas, originator);
     let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
 }
 
 pub fn do_delete_account(
@@ -181,9 +182,9 @@ pub fn do_delete_account(
     beneficiary_id: &AccountId,
 ) {
     tracing::info!(target: "test", "Deleting account.");
-    let tx = delete_account(env, rpc_id, account_id, beneficiary_id);
+    let tx = delete_account(&env.test_loop.data, &env.datas, rpc_id, account_id, beneficiary_id);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
 }
 
 pub fn do_deploy_contract(
@@ -196,7 +197,7 @@ pub fn do_deploy_contract(
     let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
     let tx = deploy_contract(&mut env.test_loop, &env.datas, rpc_id, contract_id, code, nonce);
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
 }
 
 pub fn do_call_contract(
@@ -220,7 +221,7 @@ pub fn do_call_contract(
         nonce,
     );
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
 }
 
 pub fn create_account(
@@ -231,7 +232,7 @@ pub fn create_account(
     amount: u128,
     nonce: u64,
 ) -> CryptoHash {
-    let block_hash = get_shared_block_hash(&env.datas, &env.test_loop);
+    let block_hash = get_shared_block_hash(&env.datas, &env.test_loop.data);
     let signer = create_user_test_signer(&originator);
     let new_signer: Signer = create_user_test_signer(&new_account_id);
 
@@ -252,14 +253,15 @@ pub fn create_account(
 }
 
 pub fn delete_account(
-    env: &mut TestLoopEnv,
+    test_loop_data: &TestLoopData,
+    node_datas: &[TestData],
     rpc_id: &AccountId,
     account_id: &AccountId,
     beneficiary_id: &AccountId,
 ) -> CryptoHash {
     let signer: Signer = create_user_test_signer(&account_id).into();
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, account_id);
-    let block_hash = get_shared_block_hash(&env.datas, &env.test_loop);
+    let nonce = get_next_nonce(&test_loop_data, node_datas, account_id);
+    let block_hash = get_shared_block_hash(node_datas, test_loop_data);
 
     let tx = SignedTransaction::delete_account(
         nonce,
@@ -271,7 +273,7 @@ pub fn delete_account(
     );
 
     let tx_hash = tx.get_hash();
-    submit_tx(&env.datas, rpc_id, tx);
+    submit_tx(node_datas, rpc_id, tx);
     tracing::debug!(target: "test", ?account_id, ?beneficiary_id, ?tx_hash, "deleted account");
     tx_hash
 }
@@ -289,7 +291,7 @@ pub fn deploy_contract(
     code: Vec<u8>,
     nonce: u64,
 ) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, test_loop);
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
 
     let signer = create_user_test_signer(&contract_id);
 
@@ -314,7 +316,7 @@ pub fn call_contract(
     args: Vec<u8>,
     nonce: u64,
 ) -> CryptoHash {
-    let block_hash = get_shared_block_hash(node_datas, test_loop);
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
     let signer = create_user_test_signer(sender_id);
     let attach_gas = 300 * TGAS;
     let deposit = 0;
@@ -355,12 +357,12 @@ pub fn submit_tx(node_datas: &[TestData], rpc_id: &AccountId, tx: SignedTransact
 /// Please note that it's important to use an rpc node that tracks all shards.
 /// Otherwise, the transactions may not be found.
 pub fn check_txs(
-    test_loop: &TestLoopV2,
+    test_loop_data: &TestLoopData,
     node_datas: &[TestData],
     rpc_id: &AccountId,
     txs: &[CryptoHash],
 ) {
-    let rpc = rpc_client(test_loop, node_datas, rpc_id);
+    let rpc = rpc_client(test_loop_data, node_datas, rpc_id);
 
     for &tx in txs {
         let tx_outcome = rpc.chain.get_partial_transaction_result(&tx);
@@ -373,21 +375,21 @@ pub fn check_txs(
 
 /// Get the client for the provided rpd node account id.
 fn rpc_client<'a>(
-    test_loop: &'a TestLoopV2,
+    test_loop_data: &'a TestLoopData,
     node_datas: &'a [TestData],
     rpc_id: &AccountId,
 ) -> &'a Client {
     let node_data = get_node_data(node_datas, rpc_id);
     let client_actor_handle = node_data.client_sender.actor_handle();
-    let client_actor = test_loop.data.get(&client_actor_handle);
+    let client_actor = test_loop_data.get(&client_actor_handle);
     &client_actor.client
 }
 
 /// Finds a block that all clients have on their chain and return its hash.
-pub fn get_shared_block_hash(node_datas: &[TestData], test_loop: &TestLoopV2) -> CryptoHash {
+pub fn get_shared_block_hash(node_datas: &[TestData], test_loop_data: &TestLoopData) -> CryptoHash {
     let clients = node_datas
         .iter()
-        .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
+        .map(|data| &test_loop_data.get(&data.client_sender.actor_handle()).client)
         .collect_vec();
 
     let (_, block_hash) = clients
@@ -657,10 +659,10 @@ enum TxProcessingResult {
 pub fn store_and_submit_tx(
     node_datas: &[TestData],
     rpc_id: &AccountId,
-    txs: &Cell<Vec<(CryptoHash, u64)>>,
+    txs: &Cell<Vec<(CryptoHash, BlockHeight)>>,
     signer_id: &AccountId,
     receiver_id: &AccountId,
-    height: u64,
+    height: BlockHeight,
     tx: SignedTransaction,
 ) {
     let mut txs_vec = txs.take();
@@ -668,4 +670,26 @@ pub fn store_and_submit_tx(
     txs_vec.push((tx.get_hash(), height));
     txs.set(txs_vec);
     submit_tx(&node_datas, &rpc_id, tx);
+}
+
+/// Checks status of the provided transactions. Panics if transaction result is an error.
+/// Removes transactions that finished successfully from the list.
+pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, client: &Client) {
+    let mut unfinished_txs = Vec::new();
+    for (tx_hash, tx_height) in txs.take() {
+        let tx_outcome = client.chain.get_final_transaction_result(&tx_hash);
+        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+        tracing::debug!(target: "test", ?tx_height, ?tx_hash, ?status, "transaction status");
+        match status {
+            Ok(FinalExecutionStatus::SuccessValue(_)) => continue, // Transaction finished successfully, remove it.
+            Ok(FinalExecutionStatus::NotStarted)
+            | Ok(FinalExecutionStatus::Started)
+            | Err(Error::DBNotFoundErr(_)) => unfinished_txs.push((tx_hash, tx_height)), // Transaction in progress
+            _ => panic!( // Transaction error
+                "remove_successful_txs: Transaction failed! tx_hash = {:?}, tx_height = {}, status = {:?}",
+                tx_hash, tx_height, status
+            ),
+        };
+    }
+    txs.set(unfinished_txs);
 }

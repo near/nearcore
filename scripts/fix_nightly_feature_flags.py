@@ -145,6 +145,7 @@ class Crate:
             open(toml_file_name, "w").write(new_toml_text)
         else:
             if new_toml_text != existing_toml_text:
+                # cspell:words keepends tofile
                 print("Nightly feature flags need updating:")
                 sys.stdout.writelines(
                     difflib.unified_diff(

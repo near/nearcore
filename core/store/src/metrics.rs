@@ -628,8 +628,8 @@ mod test {
 
         let handle = spawn_db_metrics_loop(&storage, period)?;
 
-        let hot_column_name = "hot.colum".to_string();
-        let cold_column_name = "cold.colum".to_string();
+        let hot_column_name = "hot.column".to_string();
+        let cold_column_name = "cold.column".to_string();
 
         let hot_gauge_name = hot_column_name.clone() + "";
         let cold_gauge_name = cold_column_name.clone() + "_cold";

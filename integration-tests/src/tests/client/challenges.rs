@@ -118,6 +118,7 @@ fn test_verify_block_double_sign_challenge() {
         block_merkle_tree.root(),
         Clock::real(),
         None,
+        None,
     );
     let epoch_id = *b1.header().epoch_id();
     let valid_challenge = Challenge::produce(
@@ -445,10 +446,18 @@ fn test_verify_chunk_invalid_state_challenge() {
         block_merkle_tree.root(),
         Clock::real(),
         None,
+        None,
     );
 
-    let challenge_body =
-        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
+    let challenge_body = client
+        .chain
+        .create_chunk_state_challenge(
+            &last_block,
+            block.header().height(),
+            &block.chunks(),
+            &block.chunks()[0],
+        )
+        .unwrap();
     {
         let prev_merkle_proofs =
             Block::compute_chunk_headers_root(last_block.chunks().iter_deprecated()).1;

@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::block::Tip;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -16,6 +17,12 @@ pub struct BlockInfo {
 impl BlockInfo {
     pub fn genesis(hash: CryptoHash, height: BlockHeight) -> Self {
         Self { hash, height, prev_hash: CryptoHash::default() }
+    }
+}
+
+impl From<Tip> for BlockInfo {
+    fn from(tip: Tip) -> Self {
+        Self { hash: tip.last_block_hash, height: tip.height, prev_hash: tip.prev_block_hash }
     }
 }
 
@@ -56,7 +63,7 @@ pub enum FlatStorageStatus {
     /// Flat Storage is empty: either wasn't created yet or was deleted.
     Empty,
     /// Flat Storage is in the process of being created.
-    /// Deprectated: flat storage creation code was removed in #12534
+    /// Deprecated: flat storage creation code was removed in #12534
     Creation(FlatStorageCreationStatus),
     /// Flat Storage is ready to be used.
     Ready(FlatStorageReadyStatus),
@@ -66,7 +73,7 @@ pub enum FlatStorageStatus {
 
 impl Into<i64> for &FlatStorageStatus {
     /// Converts status to integer to export to prometheus later.
-    /// Cast inside enum does not work because it is not fieldless.
+    /// Cast inside enum does not work because it is not field less.
     fn into(self) -> i64 {
         match self {
             FlatStorageStatus::Disabled => 0,
@@ -148,8 +155,8 @@ pub enum FlatStorageReshardingStatus {
     /// This shard (child) is being built from state taken from its parent.
     CreatingChild,
     /// We apply deltas from disk until the head reaches final head.
-    /// Includes block hash of flat storage head.
-    CatchingUp(CryptoHash),
+    /// Includes block info for the flat storage head.
+    CatchingUp(BlockInfo),
 }
 
 /// Current step of fetching state to fill flat storage.
@@ -187,8 +194,9 @@ pub struct ParentSplitParameters {
     pub right_child_shard: ShardUId,
     /// The new shard layout.
     pub shard_layout: ShardLayout,
-    /// Hash of the last block having the old shard layout.
-    pub resharding_hash: CryptoHash,
+    /// List of all possible blocks of the old shard layout. They might be more than one because of
+    /// forks. Only one will become final.
+    pub resharding_blocks: Vec<BlockInfo>,
     /// Parent's flat head state when the split began.
     pub flat_head: BlockInfo,
 }

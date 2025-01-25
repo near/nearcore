@@ -760,7 +760,7 @@ impl PartialEncodedChunk {
         }
     }
 
-    /// Returns whether the chenk is valid for given `ProtocolVersion`.
+    /// Returns whether the check is valid for given `ProtocolVersion`.
     pub fn valid_for(&self, version: ProtocolVersion) -> bool {
         match &self {
             PartialEncodedChunk::V1(_) => version < SHARD_CHUNK_HEADER_UPGRADE_VERSION,

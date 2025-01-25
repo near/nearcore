@@ -197,7 +197,7 @@ struct DBOpener<'a> {
 }
 
 impl<'a> StoreOpener<'a> {
-    /// Initialises a new opener with given home directory and store config.
+    /// Initializes a new opener with given home directory and store config.
     pub(crate) fn new(
         home_dir: &std::path::Path,
         store_config: &'a StoreConfig,
@@ -602,7 +602,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let _span =
         tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
             .entered();
-    if let Some(storage) = hot_store.storage.copy_if_test() {
+    if let Some(storage) = hot_store.storage.copy_if_test(columns_to_keep) {
         return Ok(NodeStorage::new(storage));
     }
     let checkpoint_path = checkpoint_base_path.join("data");

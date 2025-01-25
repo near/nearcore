@@ -246,7 +246,8 @@ impl TrieStorageUpdate<'_> {
             new_root: last_hash,
             insertions,
             deletions,
-            mem_trie_changes: None,
+            memtrie_changes: None,
+            children_memtrie_changes: Default::default(),
         })
     }
 

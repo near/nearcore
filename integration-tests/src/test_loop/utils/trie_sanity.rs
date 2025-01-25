@@ -1,5 +1,8 @@
 use super::sharding::shard_was_split;
-use crate::test_loop::utils::sharding::{client_tracking_shard, get_memtrie_for_shard};
+use crate::test_loop::utils::sharding::{
+    client_tracking_shard, get_memtrie_for_shard, get_tracked_shards,
+    get_tracked_shards_from_prev_block,
+};
 use borsh::BorshDeserialize;
 use itertools::Itertools;
 use near_chain::types::Tip;
@@ -10,6 +13,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{AccountId, EpochId, NumShards};
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::StoreAdapter;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::flat::FlatStorageStatus;
@@ -29,12 +33,12 @@ type EpochTrieCheck = HashMap<AccountId, HashMap<ShardUId, bool>>;
 /// we want to make sure that it's always eventually checked by the end of the epoch
 pub struct TrieSanityCheck {
     accounts: Vec<AccountId>,
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     checks: HashMap<EpochId, EpochTrieCheck>,
 }
 
 impl TrieSanityCheck {
-    pub fn new(clients: &[&Client], load_mem_tries_for_tracked_shards: bool) -> Self {
+    pub fn new(clients: &[&Client], load_memtries_for_tracked_shards: bool) -> Self {
         let accounts = clients
             .iter()
             .filter_map(|c| {
@@ -42,7 +46,7 @@ impl TrieSanityCheck {
                 signer.map(|s| s.validator_id().clone())
             })
             .collect();
-        Self { accounts, load_mem_tries_for_tracked_shards, checks: HashMap::new() }
+        Self { accounts, load_memtries_for_tracked_shards, checks: HashMap::new() }
     }
 
     // If it's not already stored, initialize it with the expected ShardUIds for each account
@@ -95,7 +99,7 @@ impl TrieSanityCheck {
         let mut check_shard_uids = HashMap::new();
         for shard_uid in shard_layout.shard_uids() {
             if !should_assert_state_sanity(
-                self.load_mem_tries_for_tracked_shards,
+                self.load_memtries_for_tracked_shards,
                 is_resharded,
                 shards_pending_resharding,
                 shard_layout,
@@ -118,7 +122,7 @@ impl TrieSanityCheck {
         check_shard_uids
     }
 
-    // Check trie sanity and keep track of which shards were succesfully fully checked
+    // Check trie sanity and keep track of which shards were successfully fully checked
     pub fn assert_state_sanity(&mut self, clients: &[&Client], new_num_shards: NumShards) {
         for client in clients {
             let signer = client.validator_signer.get();
@@ -142,7 +146,7 @@ impl TrieSanityCheck {
             let checked_shards = assert_state_sanity(
                 client,
                 &final_head,
-                self.load_mem_tries_for_tracked_shards,
+                self.load_memtries_for_tracked_shards,
                 new_num_shards,
             );
             let check = self.get_epoch_check(client, &head, new_num_shards);
@@ -188,9 +192,9 @@ impl TrieSanityCheck {
 }
 
 /// Asserts that for each child shard, MemTrie, FlatState and DiskTrie all
-/// contain the same key-value pairs. If `load_mem_tries_for_tracked_shards` is
+/// contain the same key-value pairs. If `load_memtries_for_tracked_shards` is
 /// false, we only enforce memtries for shards pending resharding in the old
-/// layout and the shards thet were split in the new shard layout.
+/// layout and the shards that were split in the new shard layout.
 ///
 /// Returns the ShardUIds that this client tracks and has sane memtries and flat
 /// storage for
@@ -200,7 +204,7 @@ impl TrieSanityCheck {
 fn assert_state_sanity(
     client: &Client,
     final_head: &Tip,
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     new_num_shards: NumShards,
 ) -> Vec<ShardUId> {
     let shard_layout = client.epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
@@ -216,7 +220,7 @@ fn assert_state_sanity(
 
     for shard_uid in shard_layout.shard_uids() {
         if !should_assert_state_sanity(
-            load_mem_tries_for_tracked_shards,
+            load_memtries_for_tracked_shards,
             is_resharded,
             &shards_pending_resharding,
             &shard_layout,
@@ -313,14 +317,14 @@ fn assert_state_equal(
 }
 
 fn should_assert_state_sanity(
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     is_resharded: bool,
     shards_pending_resharding: &HashSet<ShardUId>,
     shard_layout: &ShardLayout,
     shard_uid: &ShardUId,
 ) -> bool {
     // Always assert if the tracked shards are loaded into memory.
-    if load_mem_tries_for_tracked_shards {
+    if load_memtries_for_tracked_shards {
         return true;
     }
 
@@ -338,32 +342,90 @@ fn should_assert_state_sanity(
 }
 
 /// Asserts that all parent shard State is accessible via parent and children shards.
-pub fn check_state_shard_uid_mapping_after_resharding(client: &Client, parent_shard_uid: ShardUId) {
+pub fn check_state_shard_uid_mapping_after_resharding(
+    client: &Client,
+    resharding_block_hash: &CryptoHash,
+    parent_shard_uid: ShardUId,
+) {
     let tip = client.chain.head().unwrap();
     let epoch_id = tip.epoch_id;
-    let epoch_config = client.epoch_manager.get_epoch_config(&epoch_id).unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let children_shard_uids =
-        epoch_config.shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
+        shard_layout.get_children_shards_uids(parent_shard_uid.shard_id()).unwrap();
     assert_eq!(children_shard_uids.len(), 2);
 
-    let store = client.chain.chain_store.store().trie_store();
-    for kv in store.store().iter_raw_bytes(DBCol::State) {
+    // Currently tracked shards.
+    let tracked_shards = get_tracked_shards_from_prev_block(client, &tip.prev_block_hash);
+    // ShardUId mappings (different than map to itself) that we have stored in DB.
+    let mut shard_uid_mapping = HashMap::new();
+    // Currently tracked children shards that are mapped to an ancestor.
+    let mut tracked_mapped_children = vec![];
+    let store = client.chain.chain_store.store();
+    for child_shard_uid in &children_shard_uids {
+        let mapped_shard_uid = get_shard_uid_mapping(&store, *child_shard_uid);
+        if &mapped_shard_uid == child_shard_uid {
+            continue;
+        }
+        shard_uid_mapping.insert(child_shard_uid, mapped_shard_uid);
+        if tracked_shards.contains(child_shard_uid) {
+            tracked_mapped_children.push(*child_shard_uid);
+        }
+    }
+    // Currently we set the mapping for both children, or the mapping has been deleted.
+    assert!(shard_uid_mapping.is_empty() || shard_uid_mapping.len() == 2);
+
+    // Whether we found any value in DB for which we could test the mapping.
+    let mut has_any_parent_shard_uid_prefix = false;
+    let trie_store = store.trie_store();
+    for kv in store.iter_raw_bytes(DBCol::State) {
         let (key, value) = kv.unwrap();
         let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
         // Just after resharding, no State data must be keyed using children ShardUIds.
-        assert!(!children_shard_uids.contains(&shard_uid));
+        assert!(!shard_uid_mapping.contains_key(&shard_uid));
         if shard_uid != parent_shard_uid {
             continue;
         }
+        has_any_parent_shard_uid_prefix = true;
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
-        let (value, _) = decode_value_with_rc(&value);
-        let parent_value = store.get(parent_shard_uid, &node_hash);
-        // Parent shard data must still be accessible using parent ShardUId.
+        let (value, rc) = decode_value_with_rc(&value);
+        // It is possible we have delayed receipts leftovers on disk,
+        // that would result it `MissingTrieValue` if we attempt to read them through the Trie interface.
+        assert!(rc > 0);
+        let parent_value = trie_store.get(parent_shard_uid, &node_hash);
+        // Sanity check: parent shard data must still be accessible using Trie interface and parent ShardUId.
         assert_eq!(&parent_value.unwrap()[..], value.unwrap());
+
         // All parent shard data is available via both children shards.
-        for child_shard_uid in &children_shard_uids {
-            let child_value = store.get(*child_shard_uid, &node_hash);
+        for child_shard_uid in &tracked_mapped_children {
+            let child_value = trie_store.get(*child_shard_uid, &node_hash);
             assert_eq!(&child_value.unwrap()[..], value.unwrap());
+        }
+    }
+    // If we do not have the parent State, the ShardUId mapping has to be empty as well.
+    if !has_any_parent_shard_uid_prefix {
+        assert!(shard_uid_mapping.is_empty());
+    }
+
+    let shards_tracked_before_resharding = get_tracked_shards(client, resharding_block_hash);
+    let tracked_parent_before_resharding =
+        shards_tracked_before_resharding.contains(&parent_shard_uid);
+    let shards_tracked_after_resharding =
+        get_tracked_shards_from_prev_block(client, resharding_block_hash);
+
+    // Sanity checks if the node tracks all shards (e.g. it is RPC node).
+    if !client.config.tracked_shards.is_empty() {
+        assert_eq!(tracked_mapped_children.len(), 2);
+        assert_eq!(shards_tracked_after_resharding.len(), shard_layout.num_shards() as usize,);
+    }
+    // If neither child shard was tracked after resharding, we do not have the mapping set.
+    if children_shard_uids
+        .iter()
+        .all(|child_shard_uid| !shards_tracked_after_resharding.contains(child_shard_uid))
+    {
+        // Possible corner case is if parent was tracked before resharding, but no child was tracked after resharding.
+        // TODO(resharding) Consider not resharding in such case. When fixed, the assert below should become unconditional.
+        if !tracked_parent_before_resharding {
+            assert!(shard_uid_mapping.is_empty());
         }
     }
 }

@@ -15,7 +15,7 @@ where
     K: Hash + Eq,
     V: Clone,
 {
-    /// Creats a new `LRU` cache that holds at most `cap` items.
+    /// Creates a new `LRU` cache that holds at most `cap` items.
     pub fn new(cap: usize) -> Self {
         Self { inner: Mutex::new(LruCache::<K, V>::new(NonZeroUsize::new(cap).unwrap())) }
     }
@@ -28,6 +28,18 @@ where
     /// Returns true if the cache is empty and false otherwise.
     pub fn is_empty(&self) -> bool {
         self.inner.lock().unwrap().is_empty()
+    }
+
+    /// Returns true if the cache contains the key and false otherwise.
+    pub fn contains(&self, key: &K) -> bool {
+        self.inner.lock().unwrap().contains(key)
+    }
+
+    /// Pushes a key-value pair into the cache. If an entry with key `k` already exists in
+    /// the cache or another cache entry is removed (due to the lru's capacity),
+    /// then it returns the old entry's key-value pair. Otherwise, returns `None`.
+    pub fn push(&self, key: K, value: V) -> Option<(K, V)> {
+        self.inner.lock().unwrap().push(key, value)
     }
 
     /// Return the value of they key in the cache otherwise computes the value and inserts it into

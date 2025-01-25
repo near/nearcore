@@ -23,7 +23,7 @@ pub use self::rocksdb::RocksDB;
 pub use self::splitdb::SplitDB;
 
 pub use self::slice::DBSlice;
-pub use self::testdb::{TestDB, TestDBFlags};
+pub use self::testdb::TestDB;
 use std::sync::Arc;
 
 // `DBCol::BlockMisc` keys
@@ -62,7 +62,7 @@ pub(crate) enum DBOp {
     /// Modifies a reference-counted column. `value` includes both the value per
     /// se and a refcount at the end.
     UpdateRefcount { col: DBCol, key: Vec<u8>, value: Vec<u8> },
-    /// Deletes sepecific `key`.
+    /// Deletes specific `key`.
     Delete { col: DBCol, key: Vec<u8> },
     /// Deletes all data from a column.
     DeleteAll { col: DBCol },
@@ -262,7 +262,7 @@ pub trait Database: Sync + Send {
 
     /// If this is a test database, return a copy of the entire database.
     /// Otherwise return None.
-    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
+    fn copy_if_test(&self, _columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
         None
     }
 }

@@ -9,6 +9,7 @@ use near_primitives_core::types::BlockHeight;
 use near_primitives_core::version::ProtocolFeature;
 use serde;
 
+use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
 use crate::transaction::SignedTransaction;
 use crate::types::{NumSeats, NumShards, ShardId};
@@ -425,6 +426,7 @@ macro_rules! unwrap_or_return {
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<chrono::Utc> {
+    // cspell:ignore nsecs
     let secs = (timestamp / NS_IN_SECOND) as i64;
     let nsecs = (timestamp % NS_IN_SECOND) as u32;
     DateTime::from_timestamp(secs, nsecs).unwrap()
@@ -511,6 +513,30 @@ pub fn derive_eth_implicit_account_id(public_key: &Secp256K1PublicKey) -> Accoun
     format!("0x{}", hex::encode(&pk_hash[12..32])).parse().unwrap()
 }
 
+/// Returns the block metadata used to create an optimistic block.
+pub fn get_block_metadata(
+    prev_block_header: &BlockHeader,
+    signer: &crate::validator_signer::ValidatorSigner,
+    clock: near_time::Clock,
+    sandbox_delta_time: Option<near_time::Duration>,
+) -> (u64, near_crypto::vrf::Value, near_crypto::vrf::Proof, CryptoHash) {
+    let now = clock.now_utc().unix_timestamp_nanos() as u64;
+    #[cfg(feature = "sandbox")]
+    let now = now + sandbox_delta_time.unwrap().whole_nanoseconds() as u64;
+    #[cfg(not(feature = "sandbox"))]
+    debug_assert!(sandbox_delta_time.is_none());
+    let time = if now <= prev_block_header.raw_timestamp() {
+        prev_block_header.raw_timestamp() + 1
+    } else {
+        now
+    };
+
+    let (vrf_value, vrf_proof) =
+        signer.compute_vrf_with_proof(prev_block_header.random_value().as_ref());
+    let random_value = hash(vrf_value.0.as_ref());
+    (time, vrf_value, vrf_proof, random_value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,6 +572,7 @@ mod tests {
 
     #[test]
     fn test_create_hash_upgradable() {
+        // cspell:ignore atata hohoho
         let base = hash(b"atata");
         let extra_base = hash(b"hohoho");
         let other_extra_base = hash(b"banana");

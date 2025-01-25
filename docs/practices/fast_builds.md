@@ -45,7 +45,7 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 to `~/.cargo/config` is the most convenient approach.
 
-`lld` itself can be installed with `sudo apt install lld` (or the equivalent in 
+`lld` itself can be installed with `sudo apt install lld` (or the equivalent in
 the distro/package manager of your choice).
 
 ## Prebuilt RocksDB
@@ -59,8 +59,8 @@ To use a prebuilt RocksDB, set the `ROCKSDB_LIB_DIR` environment variable to
 a location containing `librocksdb.a`:
 
 ```console
-$ export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
-$ cargo build -p neard
+export ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
+cargo build -p neard
 ```
 
 Note, that the system must provide a recent version of the library which,
@@ -83,6 +83,7 @@ export ROCKSDB_LIB_DIR
 
 ## Global Compilation Cache
 
+<!-- cspell:ignore sccache direnv -->
 By default, Rust compiles incrementally, with the incremental cache and
 intermediate outputs stored in the project-local `./target` directory.
 
@@ -92,10 +93,10 @@ works by intercepting calls to `rustc` and will fetch the cached outputs from
 the global cache whenever possible. This tool can be set up as such:
 
 ```console
-$ cargo install sccache
-$ export RUSTC_WRAPPER="sccache"
-$ export SCCACHE_CACHE_SIZE="30G"
-$ cargo build -p neard
+cargo install sccache
+export RUSTC_WRAPPER="sccache"
+export SCCACHE_CACHE_SIZE="30G"
+cargo build -p neard
 ```
 
 Refer to the [project’s README](https://github.com/mozilla/sccache) for further

@@ -1148,6 +1148,16 @@ pub unsafe fn data_producer_100kib() {
 // Produces 1000 10b data receipts.
 #[unsafe(no_mangle)]
 pub unsafe fn data_receipt_10b_1000() {
+    data_receipt_10b_n::<1000>();
+}
+
+#[unsafe(no_mangle)]
+pub unsafe fn data_receipt_10b_40() {
+    data_receipt_10b_n::<40>();
+}
+
+// Produces `n` data receipts with 10b of data each.
+unsafe fn data_receipt_10b_n<const NUM_RECEIPTS: usize>() {
     let buf = [0u8; 1000];
     current_account_id(0);
     let buf_len = register_len(0);
@@ -1155,10 +1165,10 @@ pub unsafe fn data_receipt_10b_1000() {
 
     let method_name = b"data_producer_10b";
     let args = b"";
-    let mut ids = [0u64; 1000];
+    let mut ids = [0u64; NUM_RECEIPTS];
     let amount = 0u128;
     let gas = prepaid_gas();
-    for i in 0..1000 {
+    for i in 0..NUM_RECEIPTS {
         ids[i] = promise_create(
             buf_len,
             buf.as_ptr() as _,
@@ -1214,10 +1224,11 @@ pub unsafe fn data_receipt_base_10b_1000() {
     let _id = promise_and(ids.as_ptr() as _, ids.len() as _);
 }
 
-// Function to measure `data_receipt_creation_config`, but we are measure send and execution fee at the same time.
-// Produces 1000 10kib data receipts.
+// Function to measure `data_receipt_creation_config`, but we are measure send and execution fee at
+// the same time. Produces 40 100kib data receipts.
 #[unsafe(no_mangle)]
-pub unsafe fn data_receipt_100kib_1000() {
+pub unsafe fn data_receipt_100kib_40() {
+    const NUM_RECEIPTS: usize = 40;
     let buf = [0u8; 1000];
     current_account_id(0);
     let buf_len = register_len(0);
@@ -1225,10 +1236,10 @@ pub unsafe fn data_receipt_100kib_1000() {
 
     let method_name = b"data_producer_100kib";
     let args = b"";
-    let mut ids = [0u64; 1000];
+    let mut ids = [0u64; NUM_RECEIPTS];
     let amount = 0u128;
     let gas = prepaid_gas();
-    for i in 0..1000 {
+    for i in 0..NUM_RECEIPTS {
         ids[i] = promise_create(
             buf_len,
             buf.as_ptr() as _,

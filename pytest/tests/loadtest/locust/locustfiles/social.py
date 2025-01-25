@@ -54,6 +54,7 @@ class SocialDbUser(NearUser):
         SocialDbUser.registered_users.append(self.account_id)
 
     def generate_post(self, length: int, seed: int) -> str:
+        # cspell:ignore covfefe
         sample_quotes = [
             "Despite the constant negative press covfefe",
             "Sorry losers and haters, but my I.Q. is one of the highest - and you all know it! Please don't feel so stupid or insecure, it's not your fault",

@@ -1,4 +1,4 @@
-//! Utilties for generating vectors of nibbles from human-readable strings.
+//! Utilities for generating vectors of nibbles from human-readable strings.
 
 /// Input for a single vector is a hex string, e.g. 5da3593f.
 /// It has even length, as tries support only keys in bytes, thus keys of

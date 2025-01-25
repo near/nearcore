@@ -26,6 +26,7 @@ from key import Key
 from proxy import NodesProxy
 import state_sync_lib
 
+# cspell:ignore nretry pmap preemptible proxify uefi useragent
 os.environ["ADVERSARY_CONSENT"] = "1"
 
 remote_nodes = []
@@ -117,7 +118,7 @@ def make_boot_nodes_arg(boot_node: BootNode) -> typing.Tuple[str]:
 
     Apart from `None` as described above, `boot_node` can be a [`BaseNode`]
     object, or an iterable (think list) of [`BaseNode`] objects.  The boot node
-    address of a BaseNode object is contstructed using [`BaseNode.addr_with_pk`]
+    address of a BaseNode object is constructed using [`BaseNode.addr_with_pk`]
     method.
 
     If iterable of nodes is given, the `neard` is going to be configured with
@@ -596,9 +597,9 @@ class LocalNode(BaseNode):
             self._process.wait(5)
             self._process = None
 
-    def reload_updateable_config(self):
-        logger.info(f"Reloading updateable config for node {self.ordinal}.")
-        """Sends SIGHUP signal to the process in order to trigger updateable config reload."""
+    def reload_updatable_config(self):
+        logger.info(f"Reloading updatable config for node {self.ordinal}.")
+        """Sends SIGHUP signal to the process in order to trigger updatable config reload."""
         self._process.send_signal(signal.SIGHUP)
 
     def reset_data(self):

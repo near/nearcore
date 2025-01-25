@@ -3,12 +3,20 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+* Add cross-shard bandwidth scheduler which manages transferring receipts between shards,
+  enabling higher throughput of cross-shard receipts and better horizontal scalability.
+  NEP-584 (https://github.com/near/NEPs/pull/584)
+* Resharding V3 - a new implementation for resharding and two new shard layouts
+  for the production networks.
+  NEP-568 (https://github.com/near/NEPs/pull/568)
 
 ### Non-protocol Changes
-**No Changes**
+* Parallelize transaction validation (including signature checks) before `verify_and_charge_transaction`,
+  significantly improving throughput for transaction processing on the nodes. [#12654](https://github.com/near/nearcore/pull/12654)
+* Current Epoch State Sync - Moves the sync point from the previous epoch to the
+  current epoch. [#12102](https://github.com/near/nearcore/pull/12102)
 
-## [2.4.0]
+## 2.4.0
 
 ### Protocol Changes
 
@@ -25,7 +33,7 @@ and only fallback to downloading from GCS if that fails. Please note that in ord
 your node may generate snapshots of the state. These snapshots should not take too much space,
 since they're hard links to database files that get cleaned up on every epoch. [#12004](https://github.com/near/nearcore/issues/12004)
 
-## [2.3.0]
+## 2.3.0
 
 ### Protocol Changes
 * Sets `chunk_validator_only_kickout_threshold` to 70. Uses this kickout threshold as a cutoff threshold for contribution of endorsement ratio in rewards calculation: if endorsement ratio is above 70%, the contribution of endorsement ratio in average uptime calculation is 100%, otherwise it is 0%. Endorsements received are now included in `BlockHeader` to improve kickout and reward calculation for chunk validators. 
@@ -35,7 +43,7 @@ since they're hard links to database files that get cleaned up on every epoch. [
 * **Archival nodes only:** Stop saving partial chunks to `PartialChunks` column in the Cold DB. Instead, archival nodes will reconstruct partial chunks from the `Chunks` column.
 * Enabled state snapshots on every epoch to allow the nodes to take part in decentralized state sync in future releases.
 
-### 2.2.1
+## 2.2.1
 
 This release patches a bug found in the 2.2.0 release
 
@@ -52,7 +60,7 @@ It's possible to recover a stalled node by clearing the compiled contract cache 
 
 After that the node should be able to recover and sync with the rest of the network.
 
-### 2.2.0
+## 2.2.0
 
 ### Protocol Changes
 * The minimum validator stake has been set to a lower value. The small-stake validators that were kicked out during the shift to stateless validation will be able to rejoin the network.
@@ -222,7 +230,7 @@ to pay for the storage of their accounts.
 * `/debug` page now has client_config linked.
   You can also check your client_config directly at /debug/client_config
   [#8400](https://github.com/near/nearcore/pull/8400)
-* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
+* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoint - split_storage_info - that
   exposes debug info about the split storage.
   [#8432](https://github.com/near/nearcore/pull/8432)
 * `ClientConfig` can be updated while the node is running.
@@ -305,7 +313,7 @@ to pay for the storage of their accounts.
   `sum(rate(near_peer_message_received_by_type_total{...}[5m]))`.
   [#7548](https://github.com/near/nearcore/pull/7548)
 * Few changes to `view_state` JSON RPC query:
-  - The requset has now an optional `include_proof` argument.  When set to
+  - The request has now an optional `include_proof` argument.  When set to
     `true`, response’s `proof` will be populated.
   - The `proof` within each value in `values` list of a `view_state` response is
     now deprecated and will be removed in the future.  Client code should ignore
@@ -440,7 +448,7 @@ to pay for the storage of their accounts.
 ### Protocol Changes
 
 * Enable access key nonce range for implicit accounts to prevent tx hash collisions.
-* Upgraded our version of pwasm-utils to 0.18 -- the old one severely undercounted stack usage in some cases.
+* Upgraded our version of pwasm-utils to 0.18 -- the old one severely under-counted stack usage in some cases.
 
 ### Non-protocol Changes
 

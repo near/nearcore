@@ -77,7 +77,7 @@ impl WhitelistNode {
             addr: if let Some(addr) = pi.addr {
                 addr
             } else {
-                anyhow::bail!("addess is missing");
+                anyhow::bail!("address is missing");
             },
             account_id: pi.account_id.clone(),
         })
@@ -136,7 +136,7 @@ pub(crate) struct NetworkState {
     pub pending_reconnect: Mutex<Vec<PeerInfo>>,
     /// A graph of the whole NEAR network.
     pub graph: Arc<crate::routing::Graph>,
-    /// A sparsified graph of the whole NEAR network.
+    /// A sparse graph of the whole NEAR network.
     /// TODO(saketh): deprecate graph above, rename this to RoutingTable
     #[cfg(feature = "distance_vector_routing")]
     pub graph_v2: Arc<crate::routing::GraphV2>,
@@ -154,7 +154,7 @@ pub(crate) struct NetworkState {
     pub tier1_route_back: Mutex<RouteBackCache>,
 
     /// Shared counter across all PeerActors, which counts number of `RoutedMessageBody::ForwardTx`
-    /// messages sincce last block.
+    /// messages since last block.
     pub txns_since_last_block: AtomicUsize,
 
     /// Whitelisted nodes, which are allowed to connect even if the connection limit has been
@@ -623,13 +623,21 @@ impl NetworkState {
             debug_assert!(msg.allow_sending_to_self());
             let this = self.clone();
             let clock = clock.clone();
-            let peer_id = self.config.node_id();
+            let my_peer_id = self.config.node_id();
             let msg = self.sign_message(
                 &clock,
-                RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body: msg },
+                RawRoutedMessage { target: PeerIdOrHash::PeerId(my_peer_id.clone()), body: msg },
             );
             actix::spawn(async move {
-                this.receive_routed_message(&clock, peer_id, msg.hash(), msg.msg.body).await;
+                let hash = msg.hash();
+                this.receive_routed_message(
+                    &clock,
+                    msg.msg.author.clone(),
+                    my_peer_id,
+                    hash,
+                    msg.msg.body,
+                )
+                .await;
             });
             return true;
         }
@@ -701,7 +709,8 @@ impl NetworkState {
     pub async fn receive_routed_message(
         self: &Arc<Self>,
         clock: &time::Clock,
-        peer_id: PeerId,
+        msg_author: PeerId,
+        prev_hop: PeerId,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Option<RoutedMessageBody> {
@@ -718,7 +727,7 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::BlockApproval(approval) => {
-                self.client.send_async(BlockApproval(approval, peer_id)).await.ok();
+                self.client.send_async(BlockApproval(approval, prev_hop)).await.ok();
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
@@ -779,7 +788,11 @@ impl NetworkState {
             }
             RoutedMessageBody::StatePartRequest(request) => {
                 self.peer_manager_adapter.send(Tier3Request {
-                    peer_info: PeerInfo { id: peer_id, addr: Some(request.addr), account_id: None },
+                    peer_info: PeerInfo {
+                        id: msg_author,
+                        addr: Some(request.addr),
+                        account_id: None,
+                    },
                     body: Tier3RequestBody::StatePart(StatePartRequestBody {
                         shard_id: request.shard_id,
                         sync_hash: request.sync_hash,

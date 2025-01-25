@@ -6,13 +6,6 @@ use std::sync::{Arc, RwLock};
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::{DBCol, StoreStatistics};
 
-// Overrides to `TestDB` behavior.
-#[derive(Clone, Debug, Default)]
-pub struct TestDBFlags {
-    // Ignore negative refcount being a result of a write to the database.
-    pub allow_negative_refcount: bool,
-}
-
 /// An in-memory database intended for tests and IO-agnostic estimations.
 #[derive(Default)]
 pub struct TestDB {
@@ -25,20 +18,11 @@ pub struct TestDB {
     // The TestDB doesn't produce any stats on its own, it's up to the user of
     // this class to set the stats as they need it.
     stats: RwLock<Option<StoreStatistics>>,
-
-    // Flags to change the default behavior, for testing purposes.
-    flags: TestDBFlags,
 }
 
 impl TestDB {
     pub fn new() -> Arc<TestDB> {
         Arc::new(Self::default())
-    }
-
-    pub fn new_with_flags(flags: TestDBFlags) -> Arc<TestDB> {
-        let mut this = Self::default();
-        this.flags = flags;
-        Arc::new(this)
     }
 }
 
@@ -113,12 +97,10 @@ impl Database for TestDB {
                     if merged.is_empty() {
                         db[col].remove(&key);
                     } else {
-                        if !self.flags.allow_negative_refcount {
-                            debug_assert!(
-                                refcount::decode_value_with_rc(&merged).1 > 0,
-                                "Inserting value with non-positive refcount"
-                            );
-                        }
+                        debug_assert!(
+                            refcount::decode_value_with_rc(&merged).1 > 0,
+                            "Inserting value with non-positive refcount"
+                        );
                         db[col].insert(key, merged);
                     }
                 }
@@ -154,18 +136,22 @@ impl Database for TestDB {
         Ok(())
     }
 
-    fn copy_if_test(&self) -> Option<Arc<dyn Database>> {
-        let mut copy = Self::default();
+    fn copy_if_test(&self, columns_to_keep: Option<&[DBCol]>) -> Option<Arc<dyn Database>> {
+        let copy = Self::default();
         {
             let mut db = copy.db.write().unwrap();
             for (col, map) in self.db.read().unwrap().iter() {
+                if let Some(keep) = columns_to_keep {
+                    if !keep.contains(&col) {
+                        continue;
+                    }
+                }
                 let new_col = &mut db[col];
                 for (key, value) in map.iter() {
                     new_col.insert(key.clone(), value.clone());
                 }
             }
             copy.stats.write().unwrap().clone_from(&self.stats.read().unwrap());
-            copy.flags = self.flags.clone();
         }
         Some(Arc::new(copy))
     }

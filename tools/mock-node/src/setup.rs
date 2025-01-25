@@ -102,7 +102,7 @@ pub struct MockNode {
     pub rpc_client: JsonRpcClient,
 }
 
-/// Setup up a mock node, including setting up
+/// Set up a mock node, including setting up
 /// a MockPeerManagerActor and a ClientActor and a ViewClientActor
 /// `client_home_dir`: home dir for the new client
 /// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
@@ -144,11 +144,13 @@ pub fn setup_mock_node(
             client_runtime.store().clone(),
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
+            config.genesis.config.transaction_validity_period,
         );
         let mut network_chain_store = ChainStore::new(
             mock_network_runtime.store().clone(),
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
+            config.genesis.config.transaction_validity_period,
         );
 
         let network_tail_height = network_chain_store.tail().unwrap();

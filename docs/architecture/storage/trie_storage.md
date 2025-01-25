@@ -16,7 +16,7 @@ Trie stores the state - accounts, contract codes, access keys, etc. Each state
 item corresponds to the unique trie key. You can read more about this structure on
 [Wikipedia](https://en.wikipedia.org/wiki/Trie).
 
-There are two ways to access trie - from memory and from disk. The first one is 
+There are two ways to access trie - from memory and from disk. The first one is
 currently the main one, where only the loading stage requires disk, and the
 operations are fully done in memory. The latter one relies only on disk with
 several layers of caching. Here we describe the disk trie.

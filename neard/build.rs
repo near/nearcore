@@ -56,7 +56,7 @@ fn command(prog: &str, args: &[&str], cwd: Option<std::path::PathBuf>) -> Result
 /// directory isn’t clean, the version will include `-modified` suffix.
 fn get_git_version() -> Result<String> {
     // Figure out git directory.  Don’t just assume it’s ../.git because that
-    // doesn’t work with git worktrees so use `git rev-parse --git-dir` instead.
+    // doesn’t work with git work trees so use `git rev-parse --git-dir` instead.
     let pkg_dir = std::path::PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let git_dir = command("git", &["rev-parse", "--git-dir"], Some(pkg_dir));
     let git_dir = match git_dir {
@@ -81,7 +81,7 @@ fn get_git_version() -> Result<String> {
 
     // * --always → if there is no matching tag, use commit hash
     // * --dirty=-modified → append ‘-modified’ if there are local changes
-    // * --tags → consider tags even if they are unnanotated
+    // * --tags → consider tags even if they are unannotated
     // * --match=[0-9]* → only consider tags starting with a digit; this
     //   prevents tags such as `crates-0.14.0` from being considered
     let args = &["describe", "--always", "--dirty=-modified", "--tags", "--match=[0-9]*"];

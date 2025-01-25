@@ -2,6 +2,8 @@
 # Spins up a node, then waits for couple epochs
 # and spins up another node
 # Makes sure that eventually the second node catches up
+#
+# cspell:words notx manytx onetx
 # Three modes:
 #   - notx: no transactions are sent, just checks that
 #     the second node starts and catches up
@@ -104,7 +106,7 @@ if mode == 'manytx':
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
 
-    # requery the balances from the newly started node
+    # again query the balances from the newly started node
     ctx.nodes.append(node2)
     ctx.act_to_val = [2, 2, 2]
 

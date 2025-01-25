@@ -63,7 +63,7 @@ pub fn undo_only_block_head(
     tracing::info!(target: "neard", ?tail_height, ?current_head_height, ?current_header_height, "Trying to update head");
 
     if current_head_height == tail_height {
-        tracing::info!(target: "neard", "Body head is alreay at the oldest block.");
+        tracing::info!(target: "neard", "Body head is already at the oldest block.");
         return Ok(());
     }
 

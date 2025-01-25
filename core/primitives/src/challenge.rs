@@ -5,6 +5,7 @@ use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
+use near_primitives_core::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::{Debug, Formatter};
 
@@ -84,8 +85,10 @@ pub enum MaybeEncodedShardChunk {
 pub struct ChunkState {
     /// Encoded prev block header.
     pub prev_block_header: Vec<u8>,
-    /// Encoded block header that contains invalid chunnk.
-    pub block_header: Vec<u8>,
+    /// Block height.
+    /// TODO: block header is likely to be needed if we ever want to support
+    /// challenges fully.
+    pub block_height: BlockHeight,
     /// Merkle proof in inclusion of prev chunk.
     pub prev_merkle_proof: MerklePath,
     /// Previous chunk that contains transactions.

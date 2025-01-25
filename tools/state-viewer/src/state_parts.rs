@@ -2,7 +2,7 @@ use crate::epoch_info::iterate_and_filter;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
-    create_bucket_readonly, create_bucket_readwrite, external_storage_location,
+    create_bucket_read_write, create_bucket_readonly, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename, ExternalConnection,
     StateFileType,
 };
@@ -144,7 +144,7 @@ impl StatePartsSubCommand {
                         s3_region,
                         gcs_bucket,
                         None,
-                        Mode::Readonly,
+                        Mode::ReadOnly,
                     );
                     load_state_parts(
                         action,
@@ -173,7 +173,7 @@ impl StatePartsSubCommand {
                         s3_region,
                         gcs_bucket,
                         credentials_file,
-                        Mode::Readwrite,
+                        Mode::ReadWrite,
                     );
                     dump_state_parts(
                         epoch_selection,
@@ -202,8 +202,8 @@ impl StatePartsSubCommand {
 }
 
 enum Mode {
-    Readonly,
-    Readwrite,
+    ReadOnly,
+    ReadWrite,
 }
 
 fn create_external_connection(
@@ -218,9 +218,9 @@ fn create_external_connection(
         ExternalConnection::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
         let bucket = match mode {
-            Mode::Readonly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
-            Mode::Readwrite => {
-                create_bucket_readwrite(&bucket, &region, Duration::from_secs(5), credentials_file)
+            Mode::ReadOnly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
+            Mode::ReadWrite => {
+                create_bucket_read_write(&bucket, &region, Duration::from_secs(5), credentials_file)
             }
         }
         .expect("Failed to create an S3 bucket");

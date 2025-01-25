@@ -162,7 +162,7 @@ fn test_not_supported_block() {
     }
 
     // The first result should be FlatStorageError, because we can't read from first chunk view anymore.
-    // But the node must not panic as this is normal behaviour.
+    // But the node must not panic as this is normal behavior.
     // Ideally it should be tested on chain level, but there is no easy way to
     // postpone applying chunks reliably.
     assert_matches!(get_ref_results[0], Err(StorageError::FlatStorageBlockNotSupported(_)));

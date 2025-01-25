@@ -17,7 +17,7 @@ The topic is split into several sections.
     - [Burning Gas](#burning-gas): Who receives burnt tokens?
     - [Gas in Contract Calls](#gas-in-contract-calls): How is gas attached to calls?
     - [Contract Reward](#contract-reward): How smart contract earn a reward.
-2. [Gas Price](#gas-price): 
+2. [Gas Price](#gas-price):
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
     - [Effective Gas Purchase Cost](#effective-gas-purchase-cost): The cost paid for a receipt.
@@ -84,10 +84,10 @@ draws gas from the `attached_gas`, sometimes also called `prepaid_gas`, until it
 reaches zero, at which point the function call aborts with a `GasExceeded`
 error. No changes are persisted on chain.
 
-(*Note on naming: If you see `prepaid_fee: Balance` in the nearcore code base,
+(_Note on naming: If you see `prepaid_fee: Balance` in the nearcore code base,
 this is NOT only the fee for `prepaid_gas`. It also includes prepaid fees for
 other gas costs. However, `prepaid_gas: Gas` is used the same in the code base
-as described in this document.*)
+as described in this document._)
 
 Attaching gas to function calls is the primary way for end-users and contract
 developers to interact with gas. All other gas fees are implicitly computed and
@@ -128,7 +128,6 @@ gas that is computed after the current call has finished. This allows attaching
 attaching an equal fraction to each, or any other split as defined by the weight
 per call.
 
-
 ### Contract Reward
 
 A rather unique property of Near Protocol is that a part of the gas fee goes to
@@ -144,7 +143,7 @@ downsides, such as when implementing a free meta-transaction relayer one has to
 be careful not to be susceptible to faucet-draining attacks where an attacker
 extracts funds from the relayer by making calls to a contract they own.
 
-How much contracts receive from execution depends on two things. 
+How much contracts receive from execution depends on two things.
 
 1. How much gas is burnt on the function call execution itself. That is, only
    the gas taken from the `attached_gas` of a function call is considered for
@@ -163,7 +162,6 @@ For brevity, `gas_burnt_for_function_call` in the diagram is denoted as `wasm fe
 
 ![Slightly Simplified Gas Flow Diagram](https://github.com/near/nearcore/assets/6342444/32600ef0-1475-43af-b196-576317787578)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673349 -->
-
 
 ## Gas Price
 
@@ -202,7 +200,6 @@ compute the total capacity as the sum of gas limits stored in the chunk headers
 to be compliant. Using a hard-coded `1000 Tgas * num_shards` would lead to
 incorrect block header validation.
 
-
 ### Pessimistic Gas Price
 
 The pessimistic gas price calculation uses the fact that any transaction can
@@ -224,8 +221,7 @@ pessimistic(current_gas_price, max_depth) = current_gas_price × 1.03^max_depth
 
 This still is not the price at which gas is purchased. But we are very close.
 
-
-### Effective Gas Purchase Cost 
+### Effective Gas Purchase Cost
 
 When a transaction is converted to its root action receipt, the gas costs are
 calculated in two parts.
@@ -252,7 +248,6 @@ resulting higher number.
 ![Complete Gas Flow
 Diagram](https://github.com/near/nearcore/assets/6342444/8341fb45-9beb-4808-8a89-8144fa075930)
 <!-- Editable source: https://github.com/near/nearcore/issues/7821#issuecomment-1705673807 -->
-
 
 ## Tracking Gas in Receipts
 

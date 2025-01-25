@@ -94,7 +94,7 @@ class LocalTestNeardRunner:
 
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
         logger.error(
-            "Does not make sense to run command on local host. The behaviour may not be the desired one."
+            "Does not make sense to run command on local host. The behavior may not be the desired one."
         )
 
     def init_python(self):
@@ -282,6 +282,7 @@ def make_forked_network(neard_binary_path, traffic_generator_setup, node_homes,
         fork_db(neard_binary_path, target_home_dir, setup_dir)
 
 
+# cspell:ignore mkdirs
 def mkdirs(local_mocknet_path):
     traffic_generator_home = local_mocknet_path / 'traffic-generator'
     traffic_generator_home.mkdir()
@@ -341,9 +342,9 @@ def write_config(home, config):
 
 # looks for directories called node{i} in `local_mocknet_path`
 def get_node_homes(local_mocknet_path):
-    dirents = os.listdir(local_mocknet_path)
+    dirs = os.listdir(local_mocknet_path)
     node_homes = []
-    for p in dirents:
+    for p in dirs:
         m = re.match(r'node(\d+)', p)
         if m is None:
             continue

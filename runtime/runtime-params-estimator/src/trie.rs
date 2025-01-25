@@ -58,7 +58,7 @@ pub(crate) fn write_node(
     );
     let nodes_touched_delta = ext_cost_long_key[&ExtCosts::touching_trie_node]
         - ext_cost_short_key[&ExtCosts::touching_trie_node];
-    // The exact number of touched nodes is a implementation that we don't want
+    // The exact number of touched nodes is an implementation that we don't want
     // to test here but it should be close to 2*final_key_len
     assert!(nodes_touched_delta as usize <= 2 * final_key_len + 10);
     assert!(nodes_touched_delta as usize >= 2 * final_key_len - 10);
@@ -228,8 +228,8 @@ fn read_node_from_accounting_cache_ext(
             let values_inserted = num_values * data_spread_factor;
             let values: Vec<_> = (0..values_inserted)
                 .map(|_| {
-                    let extention_key = crate::utils::random_vec(value_len);
-                    near_store::estimator::encode_extension_node(extention_key)
+                    let extension_key = crate::utils::random_vec(value_len);
+                    near_store::estimator::encode_extension_node(extension_key)
                 })
                 .collect();
             let mut setup_block = Vec::new();

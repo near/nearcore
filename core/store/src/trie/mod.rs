@@ -18,8 +18,9 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
-use mem::mem_trie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
-use mem::mem_tries::MemTries;
+use itertools::Itertools;
+use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
+use mem::memtries::MemTries;
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
@@ -37,7 +38,7 @@ use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::ops::DerefMut;
@@ -344,6 +345,10 @@ impl std::fmt::Debug for TrieNode {
 pub struct Trie {
     storage: Arc<dyn TrieStorage>,
     memtries: Option<Arc<RwLock<MemTries>>>,
+    /// In super rare cases it's possible that we see forks close to the resharding boundary.
+    /// We would like to apply the same set of trie changes to the child memtrie to keep
+    /// a consistent view across forks.
+    children_memtries: HashMap<ShardUId, Arc<RwLock<MemTries>>>,
     root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
     /// Otherwise, we would crawl through the trie.
@@ -569,7 +574,12 @@ pub struct TrieChanges {
     deletions: Vec<TrieRefcountSubtraction>,
     // If Some, in-memory changes are applied as well.
     #[borsh(skip)]
-    pub mem_trie_changes: Option<MemTrieChanges>,
+    pub memtrie_changes: Option<MemTrieChanges>,
+    // In super rare cases it's possible that we see forks close to the resharding boundary.
+    // We would like to apply the same set of trie changes to the child memtrie to keep
+    // a consistent view across forks.
+    #[borsh(skip)]
+    pub children_memtrie_changes: HashMap<ShardUId, MemTrieChanges>,
 }
 
 impl TrieChanges {
@@ -579,7 +589,8 @@ impl TrieChanges {
             new_root: old_root,
             insertions: vec![],
             deletions: vec![],
-            mem_trie_changes: Default::default(),
+            memtrie_changes: Default::default(),
+            children_memtrie_changes: Default::default(),
         }
     }
 
@@ -678,12 +689,13 @@ impl Trie {
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        Self::new_with_memtries(storage, None, root, flat_storage_chunk_view)
+        Self::new_with_memtries(storage, None, Default::default(), root, flat_storage_chunk_view)
     }
 
     pub fn new_with_memtries(
         storage: Arc<dyn TrieStorage>,
         memtries: Option<Arc<RwLock<MemTries>>>,
+        children_memtries: HashMap<ShardUId, Arc<RwLock<MemTries>>>,
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
@@ -694,11 +706,17 @@ impl Trie {
             )))),
             None => RefCell::new(TrieAccountingCache::new(None)),
         };
+        // Technically the charge_gas_for_trie_node_access should be set based
+        // on the flat storage protocol feature. When flat storage is enabled
+        // the trie node access should be free and the charge flag should be set
+        // to false.
+        let charge_gas_for_trie_node_access = false;
         Trie {
             storage,
             memtries,
+            children_memtries,
             root,
-            charge_gas_for_trie_node_access: flat_storage_chunk_view.is_none(),
+            charge_gas_for_trie_node_access,
             flat_storage_chunk_view,
             accounting_cache,
             recorder: None,
@@ -711,22 +729,40 @@ impl Trie {
     }
 
     /// Helper to simulate gas costs as if flat storage was present.
-    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
-        self.charge_gas_for_trie_node_access = false;
+    pub fn set_charge_gas_for_trie_node_access(&mut self, value: bool) {
+        self.charge_gas_for_trie_node_access = value;
     }
 
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
-    pub fn recording_reads(&self) -> Self {
+    pub fn recording_reads_new_recorder(&self) -> Self {
+        let recorder = RefCell::new(TrieRecorder::new(None));
+        self.recording_reads_with_recorder(recorder)
+    }
+
+    /// Makes a new trie that has everything the same except that access
+    /// through that trie accumulates a state proof for all nodes accessed.
+    /// We also supply a proof size limit to prevent the proof from growing too large.
+    pub fn recording_reads_with_proof_size_limit(&self, proof_size_limit: usize) -> Self {
+        let recorder = RefCell::new(TrieRecorder::new(Some(proof_size_limit)));
+        self.recording_reads_with_recorder(recorder)
+    }
+
+    pub fn recording_reads_with_recorder(&self, recorder: RefCell<TrieRecorder>) -> Self {
         let mut trie = Self::new_with_memtries(
             self.storage.clone(),
             self.memtries.clone(),
+            self.children_memtries.clone(),
             self.root,
             self.flat_storage_chunk_view.clone(),
         );
-        trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.recorder = Some(recorder);
         trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
+    }
+
+    pub fn take_recorder(self) -> Option<RefCell<TrieRecorder>> {
+        self.recorder
     }
 
     /// Takes the recorded state proof out of the trie.
@@ -748,6 +784,13 @@ impl Trie {
         self.recorder
             .as_ref()
             .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
+            .unwrap_or_default()
+    }
+
+    pub fn check_proof_size_limit_exceed(&self) -> bool {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().check_proof_size_limit_exceed())
             .unwrap_or_default()
     }
 
@@ -1652,50 +1695,97 @@ impl Trie {
             let _ = self.get(&trie_key.to_vec());
         }
 
-        match &self.memtries {
-            Some(memtries) => {
-                let guard = memtries.read().unwrap();
-                let mut recorder = self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
-                let tracking_mode = match &mut recorder {
-                    Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
-                    None => TrackingMode::Refcounts,
-                };
+        if self.memtries.is_some() {
+            self.update_with_memtrie(changes)
+        } else {
+            self.update_with_trie_storage(changes)
+        }
+    }
 
-                let mut trie_update = guard.update(self.root, tracking_mode)?;
-                for (key, value) in changes {
-                    match value {
-                        Some(arr) => trie_update.insert(&key, arr)?,
-                        None => trie_update.generic_delete(0, &key)?,
+    fn update_with_memtrie<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
+    where
+        I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
+    {
+        // Get trie_update for memtrie
+        let guard = self.memtries.as_ref().unwrap().read().unwrap();
+        let mut recorder = self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
+        let tracking_mode = match &mut recorder {
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            None => TrackingMode::Refcounts,
+        };
+        let mut trie_update = guard.update(self.root, tracking_mode)?;
+
+        // Get trie_update for all child memtries
+        let child_guards = self
+            .children_memtries
+            .iter()
+            .map(|(shard_uid, memtrie)| (shard_uid, memtrie.read().unwrap()))
+            .collect_vec();
+        let mut child_updates = child_guards
+            .iter()
+            .map(|(shard_uid, memtrie)| {
+                // It's fine to use tracking mode as None here because the recording is handled by
+                // the parent memtrie and doesn't need to be tracked for children.
+                (shard_uid, memtrie.update(self.root, TrackingMode::None).unwrap())
+            })
+            .collect_vec();
+
+        // Insert key, value into both the child memtries as well as the main memtrie
+        for (key, value) in changes {
+            match value {
+                Some(arr) => {
+                    // Update all child memtries. This is a rare case where parent shard has forks
+                    // at the resharding epoch boundary.
+                    // It is fine to clone the value here as this is a very rare occurrence.
+                    for trie_update in &mut child_updates {
+                        trie_update.1.insert(&key, arr.clone())?;
                     }
+                    trie_update.insert(&key, arr)?;
                 }
-
-                Ok(trie_update.to_trie_changes())
-            }
-            None => {
-                let mut trie_update = TrieStorageUpdate::new(&self);
-                let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
-                for (key, value) in changes {
-                    match value {
-                        Some(arr) => trie_update.generic_insert(
-                            root_node.0,
-                            &key,
-                            GenericTrieValue::MemtrieAndDisk(arr),
-                        )?,
-                        None => trie_update.generic_delete(0, &key)?,
-                    };
+                None => {
+                    // Update all child memtries. This is a rare case where parent shard
+                    // has forks after resharding.
+                    for trie_update in &mut child_updates {
+                        trie_update.1.generic_delete(0, &key)?;
+                    }
+                    trie_update.generic_delete(0, &key)?;
                 }
-
-                #[cfg(test)]
-                {
-                    self.memory_usage_verify(
-                        &trie_update,
-                        GenericNodeOrIndex::Updated(root_node.0),
-                    );
-                }
-
-                trie_update.flatten_nodes(&self.root, root_node.0)
             }
         }
+
+        let mut trie_changes = trie_update.to_trie_changes();
+        for (shard_uid, trie_update) in child_updates {
+            trie_changes
+                .children_memtrie_changes
+                .insert(**shard_uid, trie_update.to_memtrie_changes_only());
+        }
+
+        Ok(trie_changes)
+    }
+
+    fn update_with_trie_storage<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
+    where
+        I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
+    {
+        let mut trie_update = TrieStorageUpdate::new(&self);
+        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
+        for (key, value) in changes {
+            match value {
+                Some(arr) => trie_update.generic_insert(
+                    root_node.0,
+                    &key,
+                    GenericTrieValue::MemtrieAndDisk(arr),
+                )?,
+                None => trie_update.generic_delete(0, &key)?,
+            };
+        }
+
+        #[cfg(test)]
+        {
+            self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
+        }
+
+        trie_update.flatten_nodes(&self.root, root_node.0)
     }
 
     /// Returns an iterator that can be used to traverse any range in the trie.
@@ -1846,6 +1936,7 @@ pub mod estimator {
 
 #[cfg(test)]
 mod tests {
+    // cspell:ignore cataa catbb docu dogaa dogax dogbb
     use assert_matches::assert_matches;
     use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;
@@ -2224,7 +2315,8 @@ mod tests {
         ];
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
 
-        let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+        let trie2 =
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder();
         trie2.get(b"dog").unwrap();
         trie2.get(b"horse").unwrap();
         let partial_storage = trie2.recorded_storage();
@@ -2253,14 +2345,18 @@ mod tests {
         let root = test_populate_trie(&tries, &empty_root, ShardUId::single_shard(), changes);
         // Trie: extension -> branch -> 2 leaves
         {
-            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries
+                .get_trie_for_shard(ShardUId::single_shard(), root)
+                .recording_reads_new_recorder();
             trie2.get(b"doge").unwrap();
             // record extension, branch and one leaf with value, but not the other
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
 
         {
-            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries
+                .get_trie_for_shard(ShardUId::single_shard(), root)
+                .recording_reads_new_recorder();
             let updates = vec![(b"doge".to_vec(), None)];
             trie2.update(updates).unwrap();
             // record extension, branch and both leaves, but not the value.
@@ -2268,7 +2364,9 @@ mod tests {
         }
 
         {
-            let trie2 = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+            let trie2 = tries
+                .get_trie_for_shard(ShardUId::single_shard(), root)
+                .recording_reads_new_recorder();
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
             trie2.update(updates).unwrap();
             // record extension and branch, but not leaves
@@ -2353,7 +2451,8 @@ mod borsh_compatibility_test {
                     hash(b"e"),
                     std::num::NonZeroU32::new(2).unwrap(),
                 )],
-                mem_trie_changes: None,
+                memtrie_changes: None,
+                children_memtrie_changes: Default::default(),
             }
         );
     }

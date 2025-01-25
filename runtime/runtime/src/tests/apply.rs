@@ -5,7 +5,7 @@ use crate::tests::{
     create_receipt_for_create_account, create_receipt_with_actions, set_sha256_cost,
     MAX_ATTACHED_GAS,
 };
-use crate::total_prepaid_exec_fees;
+use crate::{total_prepaid_exec_fees, SignedValidPeriodTransactions};
 use crate::{ApplyResult, ApplyState, Runtime, ValidatorAccountsUpdate};
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
@@ -149,7 +149,7 @@ fn test_apply_no_op() {
             &None,
             &apply_state,
             &[],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -182,7 +182,7 @@ fn test_apply_check_balance_validation_rewards() {
                 small_refund,
                 ReceiptPriority::NoPriority,
             )],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -211,7 +211,7 @@ fn test_apply_refund_receipts() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                &[],
+                SignedValidPeriodTransactions::empty(),
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -255,7 +255,7 @@ fn test_apply_delayed_receipts_feed_all_at_once() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                &[],
+                SignedValidPeriodTransactions::empty(),
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -300,7 +300,7 @@ fn test_apply_delayed_receipts_add_more_using_chunks() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                &[],
+                SignedValidPeriodTransactions::empty(),
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -353,7 +353,7 @@ fn test_apply_delayed_receipts_adjustable_gas_limit() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                &[],
+                SignedValidPeriodTransactions::empty(),
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -514,7 +514,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[0..2],
-            &local_transactions[0..4],
+            SignedValidPeriodTransactions::new(&local_transactions[0..4], &[true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -563,7 +563,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[2..3],
-            &local_transactions[4..5],
+            SignedValidPeriodTransactions::new(&local_transactions[4..5], &[true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -605,7 +605,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[3..4],
-            &local_transactions[5..9],
+            SignedValidPeriodTransactions::new(&local_transactions[5..9], &[true; 4]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -656,7 +656,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[4..5],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -690,7 +690,7 @@ fn test_apply_delayed_receipts_local_tx() {
             &None,
             &apply_state,
             &receipts[5..6],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -732,7 +732,7 @@ fn test_apply_deficit_gas_for_transfer() {
             &None,
             &apply_state,
             &receipts,
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -789,7 +789,7 @@ fn test_apply_deficit_gas_for_function_call_covered() {
             &None,
             &apply_state,
             &receipts,
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -856,7 +856,7 @@ fn test_apply_deficit_gas_for_function_call_partial() {
             &None,
             &apply_state,
             &receipts,
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -892,7 +892,7 @@ fn test_delete_key_add_key() {
             &None,
             &apply_state,
             &receipts,
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -935,7 +935,7 @@ fn test_delete_key_underflow() {
             &None,
             &apply_state,
             &receipts,
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -974,7 +974,7 @@ fn test_contract_precompilation() {
             &None,
             &apply_state,
             &receipts,
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1047,7 +1047,7 @@ fn test_compute_usage_limit() {
                 first_call_receipt.clone(),
                 second_call_receipt.clone(),
             ],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1071,7 +1071,7 @@ fn test_compute_usage_limit() {
             &None,
             &apply_state,
             &[],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1114,7 +1114,7 @@ fn test_compute_usage_limit_with_failed_receipt() {
             &None,
             &apply_state,
             &[deploy_contract_receipt.clone(), first_call_receipt.clone()],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1151,16 +1151,21 @@ fn test_main_storage_proof_size_soft_limit() {
         )
     };
 
+    let trie = tries
+        .get_trie_for_shard(ShardUId::single_shard(), root)
+        .recording_reads_with_proof_size_limit(
+            apply_state.config.witness_config.main_storage_proof_size_soft_limit,
+        );
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            trie,
             &None,
             &apply_state,
             &[
                 create_acc_fn(alice_account(), signers[0].clone()),
                 create_acc_fn(bob_account(), signers[1].clone()),
             ],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1192,17 +1197,23 @@ fn test_main_storage_proof_size_soft_limit() {
         )
     };
 
+    let trie = tries
+        .get_trie_for_shard(ShardUId::single_shard(), root)
+        .recording_reads_with_proof_size_limit(
+            apply_state.config.witness_config.main_storage_proof_size_soft_limit,
+        );
+
     // The function call to bob_account should hit the main_storage_proof_size_soft_limit
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            trie,
             &None,
             &apply_state,
             &[
                 function_call_fn(alice_account(), signers[0].clone()),
                 function_call_fn(bob_account(), signers[1].clone()),
             ],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1258,14 +1269,14 @@ fn test_exclude_contract_code_from_witness() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
                 create_acc_fn(alice_account(), signers[0].clone()),
                 create_acc_fn(bob_account(), signers[1].clone()),
             ],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1300,14 +1311,14 @@ fn test_exclude_contract_code_from_witness() {
     // The function call to bob_account should hit the main_storage_proof_size_soft_limit
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
                 function_call_fn(alice_account(), signers[0].clone()),
                 function_call_fn(bob_account(), signers[1].clone()),
             ],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1372,14 +1383,14 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
                 create_acc_fn(alice_account(), signers[0].clone()),
                 create_acc_fn(bob_account(), signers[1].clone()),
             ],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1413,14 +1424,14 @@ fn test_exclude_contract_code_from_witness_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[
                 function_call_fn(alice_account(), signers[0].clone()),
                 function_call_fn(bob_account(), signers[1].clone()),
             ],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1506,11 +1517,11 @@ fn test_deploy_and_call_different_contracts() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1533,11 +1544,11 @@ fn test_deploy_and_call_different_contracts() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_call_receipt, second_call_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1612,11 +1623,11 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1639,11 +1650,11 @@ fn test_deploy_and_call_different_contracts_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_call_receipt, second_call_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1716,11 +1727,11 @@ fn test_deploy_and_call_in_apply() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1795,11 +1806,11 @@ fn test_deploy_and_call_in_apply_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, second_deploy_receipt, first_call_receipt, second_call_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1850,11 +1861,11 @@ fn test_deploy_existing_contract_to_different_account() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[first_deploy_receipt, first_call_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1892,11 +1903,11 @@ fn test_deploy_existing_contract_to_different_account() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[second_deploy_receipt, second_call_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1941,11 +1952,11 @@ fn test_deploy_and_call_in_same_receipt() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -1990,11 +2001,11 @@ fn test_deploy_and_call_in_same_receipt_with_failed_call() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2026,11 +2037,11 @@ fn test_call_account_without_contract() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2070,11 +2081,11 @@ fn test_contract_accesses_when_validating_chunk() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[deploy_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2096,11 +2107,11 @@ fn test_contract_accesses_when_validating_chunk() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[call_receipt.clone()],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2117,11 +2128,11 @@ fn test_contract_accesses_when_validating_chunk() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[call_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2164,11 +2175,11 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[deploy_receipt1],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2188,11 +2199,11 @@ fn test_exclude_existing_contract_code_for_deploy_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[deploy_receipt2],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2265,11 +2276,11 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[create_account_receipt, deploy_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2289,11 +2300,11 @@ fn test_exclude_existing_contract_code_for_delete_account_action() {
 
     let apply_result = runtime
         .apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+            tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads_new_recorder(),
             &None,
             &apply_state,
             &[delete_account_receipt],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2337,7 +2348,6 @@ fn test_empty_apply() {
         setup_runtime(vec![alice_account()], initial_balance, initial_locked, gas_limit);
 
     let receipts = [];
-    let transactions = [];
 
     let apply_result = runtime
         .apply(
@@ -2345,7 +2355,7 @@ fn test_empty_apply() {
             &None,
             &apply_state,
             &receipts,
-            &transactions,
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2353,14 +2363,7 @@ fn test_empty_apply() {
     let mut store_update = tries.store_update();
     let root_after =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-        assert!(
-            root_before != root_after,
-            "state root not changed - did the bandwidth scheduler run?"
-        );
-    } else {
-        assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
-    }
+    assert!(root_before != root_after, "state root not changed - did the bandwidth scheduler run?");
 }
 
 /// Test that delayed receipts are accounted for in the congestion info of
@@ -2387,7 +2390,7 @@ fn test_congestion_delayed_receipts_accounting() {
             &None,
             &apply_state,
             &receipts,
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2490,7 +2493,7 @@ fn test_congestion_buffering() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                &[],
+                SignedValidPeriodTransactions::empty(),
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -2551,7 +2554,7 @@ fn test_congestion_buffering() {
                 &None,
                 &apply_state,
                 prev_receipts,
-                &[],
+                SignedValidPeriodTransactions::empty(),
                 &epoch_info_provider,
                 Default::default(),
             )
@@ -2633,7 +2636,7 @@ fn check_congestion_info_bootstrapping(is_new_chunk: bool, want: Option<Congesti
             &None,
             &apply_state,
             &[],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2697,7 +2700,7 @@ fn test_deploy_and_call_local_receipt() {
             &None,
             &apply_state,
             &[],
-            &[tx],
+            SignedValidPeriodTransactions::new(&[tx], &[true]),
             &epoch_info_provider,
             Default::default(),
         )
@@ -2768,7 +2771,7 @@ fn test_deploy_and_call_local_receipts() {
             &None,
             &apply_state,
             &[],
-            &[tx1, tx2],
+            SignedValidPeriodTransactions::new(&[tx1, tx2], &[true; 2]),
             &epoch_info_provider,
             Default::default(),
         )

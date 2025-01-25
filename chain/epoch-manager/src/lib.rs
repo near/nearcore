@@ -41,11 +41,11 @@ use validator_stats::{
 };
 
 pub use crate::adapter::EpochManagerAdapter;
-pub use crate::adapter::ShardUIdAndIndex;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::{EpochInfoAggregator, RngSeed};
+pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
 mod metrics;
@@ -124,14 +124,6 @@ impl EpochInfoProvider for EpochManagerHandle {
     fn chain_id(&self) -> String {
         let epoch_manager = self.read();
         epoch_manager.config.chain_id().into()
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
     }
 
     fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
@@ -1301,9 +1293,16 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
         if self.will_shard_layout_change(parent_hash)? {
             let shard_layout = self.get_shard_layout(&next_epoch_id)?;
+            // The expect below may be triggered when the protocol version
+            // changes by multiple versions at once and multiple shard layout
+            // changes are captured. In this case the shards from the original
+            // shard layout are not valid parents in the final shard layout.
+            //
+            // This typically occurs in tests that are pegged to start at a
+            // certain protocol version and then upgrade to stable.
             let split_shards = shard_layout
                 .get_children_shards_ids(shard_id)
-                .expect("all shard layouts expect the first one must have a split map");
+                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
             for next_shard_id in split_shards {
                 if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
                     return Ok(true);
@@ -1964,7 +1963,7 @@ impl EpochManager {
     ///
     /// The block hash passed as argument should be a final block so that the
     /// method can perform efficient incremental updates.  Calling this method
-    /// on a block which has not been finalised yet is likely to result in
+    /// on a block which has not been finalized yet is likely to result in
     /// performance issues since handling forks will force it to traverse the
     /// entire epoch from scratch.
     ///

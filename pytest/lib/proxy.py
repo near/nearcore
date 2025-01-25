@@ -24,6 +24,7 @@
 # all the nodes if the parameter is not None
 #
 # See `tests/sanity/nodes_proxy.py` for an example usage
+# cspell:ignore proxified proxifies proxify
 
 import asyncio
 import atexit

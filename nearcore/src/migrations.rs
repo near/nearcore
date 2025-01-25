@@ -22,8 +22,12 @@ pub fn do_migrate_30_to_31(
     store: &Store,
     genesis_config: &near_chain_configs::GenesisConfig,
 ) -> anyhow::Result<()> {
-    let genesis_height = genesis_config.genesis_height;
-    let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+    let chain_store = ChainStore::new(
+        store.clone(),
+        genesis_config.genesis_height,
+        false,
+        genesis_config.transaction_validity_period,
+    );
     let head = chain_store.head()?;
     let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
     let mut count = 0;

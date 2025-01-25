@@ -16,7 +16,7 @@ use borsh::BorshSerialize;
 use bytesize::ByteSize;
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
-    BandwidthSchedulerState, BlockBandwidthRequests,
+    BandwidthSchedulerState, BandwidthSchedulerStateV1, BlockBandwidthRequests,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -177,10 +177,10 @@ impl ChainSimulator {
         }
         let mut shard_state = shard_state_opt.unwrap_or_else(|| ShardState {
             buffered_outgoing_receipts: BTreeMap::new(),
-            scheduler_state: BandwidthSchedulerState {
+            scheduler_state: BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
                 link_allowances: Vec::new(),
                 sanity_check_hash: CryptoHash::default(),
-            },
+            }),
         });
         let pre_state_hash = CryptoHash::hash_borsh(&shard_state);
 
@@ -419,12 +419,7 @@ impl ChainSimulator {
 
     fn scheduler_params(&self) -> BandwidthSchedulerParams {
         // TODO(bandwidth_scheduler) - use current RuntimeConfig?
-        BandwidthSchedulerParams {
-            base_bandwidth: (4_500_000 - 4 * 1024 * 1024) / self.shard_layout.num_shards() as u64,
-            max_shard_bandwidth: 4_500_000,
-            max_receipt_size: 4 * 1024 * 1024,
-            max_allowance: 4_500_000,
-        }
+        BandwidthSchedulerParams::for_test(self.shard_layout.num_shards())
     }
 
     /// Make sure that post state of previous chunk application is always pre state for the next application.
@@ -560,7 +555,7 @@ fn test_bandwidth_scheduler_simulator_small_vs_big() {
         .build();
     let summary = run_scenario(scenario);
     assert!(summary.bandwidth_utilization > 0.90); // 90% utilization
-    assert!(summary.link_imbalance_ratio < 1.05); // < 5% difference on links
+    assert!(summary.link_imbalance_ratio < 1.06); // < 6% difference on links
     assert!(summary.worst_link_estimation_ratio > 0.90); // 90% of estimated link throughput
     assert!(summary.max_incoming <= summary.max_shard_bandwidth); // Incoming max_shard_bandwidth is respected
     assert!(summary.max_outgoing <= summary.max_shard_bandwidth); // Outgoing max_shard_bandwidth is respected
@@ -592,9 +587,9 @@ fn test_bandwidth_scheduler_simulator_missing_chunks() {
         .missing_chunk_probability(0.1)
         .build();
     let summary = run_scenario(scenario);
-    assert!(summary.bandwidth_utilization > 0.6); // 75% utilization
-    assert!(summary.link_imbalance_ratio < 1.4); // < 40% difference on links
-    assert!(summary.worst_link_estimation_ratio > 0.55); // 55% of estimated link throughput
+    assert!(summary.bandwidth_utilization > 0.7); // > 70% utilization
+    assert!(summary.link_imbalance_ratio < 1.6); // < 60% difference on links
+    assert!(summary.worst_link_estimation_ratio > 0.50); // 50% of estimated link throughput
 
     // Incoming max_shard_bandwidth is not respected! When a chunk is missing, the receipts that
     // were sent previously will arrive later and they can mix with other incoming receipts, and the

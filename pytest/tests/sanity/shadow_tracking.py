@@ -38,10 +38,10 @@ class ShadowTrackingTest(unittest.TestCase):
         self.assertNotIn('error', result, result)
         self.assertIn('result', result, result)
         validators = result['result']['current_validators']
-        shard_assigment = {}
+        shard_assignment = {}
         for validator in validators:
-            shard_assigment[validator['account_id']] = validator['shards']
-        return shard_assigment
+            shard_assignment[validator['account_id']] = validator['shards']
+        return shard_assignment
 
     def _has_chunk(self, block_hash, shard_id, node):
         result = node.json_rpc("chunk", {

@@ -1,4 +1,5 @@
 # python sanity tests
+# cspell:ignore manytx onetx notx
 pytest sanity/simple.py
 pytest sanity/simple.py --features nightly
 pytest sanity/block_production.py
@@ -65,8 +66,8 @@ pytest sanity/rpc_missing_block.py
 pytest sanity/rpc_missing_block.py --features nightly
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/one_val.py nightly --features nightly
-pytest --timeout=240 sanity/lightclnt.py
-pytest --timeout=240 sanity/lightclnt.py --features nightly
+pytest --timeout=240 sanity/lightclient_test.py
+pytest --timeout=240 sanity/lightclient_test.py --features nightly
 pytest sanity/rpc_light_client_execution_outcome_proof.py
 pytest sanity/rpc_light_client_execution_outcome_proof.py --features nightly
 pytest --timeout=240 sanity/block_sync.py

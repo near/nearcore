@@ -42,6 +42,7 @@ pub fn assert_is_superset<'a, T: Debug + Hash + Eq>(sup: &HashSet<&'a T>, sub: &
 /// In particular it doesn't enable [panic=abort] when run via "cargo test".
 /// Note that (unfortunately) some tests may expect a panic, so we cannot apply blindly
 /// [panic=abort] in compilation time to all tests.
+/// cspell:ignore Zpanic
 // TODO: investigate whether "-Zpanic-abort-tests" could replace this function once the flag
 // becomes stable: https://github.com/rust-lang/rust/issues/67650, so we don't use it.
 pub(crate) fn abort_on_panic() {

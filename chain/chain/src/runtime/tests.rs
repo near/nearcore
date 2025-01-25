@@ -26,6 +26,7 @@ use near_store::genesis::initialize_genesis_state;
 use near_vm_runner::{
     get_contract_cache_key, CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache,
 };
+use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
@@ -64,7 +65,7 @@ struct TestEnvConfig {
     create_flat_storage: bool,
 }
 
-/// Environment to test runtime behaviour separate from Chain.
+/// Environment to test runtime behavior separate from Chain.
 /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
 /// `hash([i])`.
 struct TestEnv {
@@ -152,7 +153,7 @@ impl TestEnv {
         let genesis_hash = hash(&[0]);
 
         if config.create_flat_storage {
-            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
+            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behavior
             // and use a mock chain, so we need to initialize flat storage manually.
             let flat_storage_manager = runtime.get_flat_storage_manager();
             for shard_uid in
@@ -244,6 +245,8 @@ impl TestEnv {
                 .collect();
             BlockCongestionInfo::new(shards_congestion_info)
         };
+        let transaction_validity = vec![true; transactions.len()];
+        let transactions = SignedValidPeriodTransactions::new(transactions, &transaction_validity);
         self.runtime
             .apply_chunk(
                 RuntimeStorageConfig::new(state_root, true),
@@ -400,13 +403,8 @@ impl TestEnv {
     }
 
     pub fn view_account(&self, account_id: &AccountId) -> AccountView {
-        let shard_id = EpochInfoProvider::account_id_to_shard_id(
-            &*self.epoch_manager,
-            account_id,
-            &self.head.epoch_id,
-        )
-        .unwrap();
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
+        let shard_id = shard_layout.account_id_to_shard_id(account_id);
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
         self.runtime
@@ -1557,7 +1555,7 @@ fn test_genesis_hash() {
 }
 
 /// Creates a signed transaction between each pair of `signers`,
-/// where transactions outcoming from a single signer differ by nonce.
+/// where transaction outcomes from a single signer differ by nonce.
 /// The transactions are then shuffled and used to fill a transaction pool.
 fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> TransactionPool {
     const TEST_SEED: RngSeed = [3; 32];
@@ -1659,11 +1657,7 @@ fn prepare_transactions(
         &mut |tx: &SignedTransaction| -> bool {
             chain
                 .chain_store()
-                .check_transaction_validity_period(
-                    &block.header(),
-                    tx.transaction.block_hash(),
-                    chain.transaction_validity_period,
-                )
+                .check_transaction_validity_period(&block.header(), tx.transaction.block_hash())
                 .is_ok()
         },
         default_produce_chunk_add_transactions_time_limit(),

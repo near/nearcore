@@ -1,3 +1,4 @@
+use crate::resume_resharding::resume_resharding;
 /// Tools for modifying flat storage - should be used only for experimentation & debugging.
 use borsh::BorshDeserialize;
 use clap::Parser;
@@ -17,6 +18,7 @@ use near_store::flat::{
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::{path::PathBuf, sync::Arc};
+// cspell:ignore tqdm
 use tqdm::tqdm;
 
 #[derive(Parser)]
@@ -47,6 +49,9 @@ enum SubCommand {
 
     /// Move flat storage head.
     MoveFlatHead(MoveFlatHeadCmd),
+
+    /// Resume an unfinished Flat storage resharding for a given shard.
+    ResumeResharding(ResumeReshardingCmd),
 }
 
 #[derive(Parser)]
@@ -124,6 +129,12 @@ pub struct MoveFlatHeadCmd {
     mode: MoveFlatHeadMode,
 }
 
+#[derive(Parser)]
+pub struct ResumeReshardingCmd {
+    #[clap(long)]
+    pub shard_id: ShardId,
+}
+
 fn print_delta(store: &FlatStoreAdapter, shard_uid: ShardUId, metadata: FlatStateDeltaMetadata) {
     let changes = store.get_delta(shard_uid, metadata.block.hash).unwrap().unwrap();
     println!("{:?}", FlatStateDelta { metadata, changes });
@@ -172,7 +183,7 @@ impl FlatStorageCommand {
             epoch_manager.clone(),
         )
         .expect("could not create transaction runtime");
-        let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false);
+        let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false, 100);
         let hot_store = node_storage.get_hot_store();
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
     }
@@ -261,7 +272,7 @@ impl FlatStorageCommand {
 
         let head_hash = match hot_store
             .get_flat_storage_status(shard_uid)
-            .expect("falied to read flat storage status")
+            .expect("failed to read flat storage status")
         {
             FlatStorageStatus::Ready(ready_status) => ready_status.flat_head.hash,
             status => {
@@ -548,6 +559,9 @@ impl FlatStorageCommand {
             }
             SubCommand::MoveFlatHead(cmd) => {
                 self.move_flat_head(cmd, home_dir, &near_config, opener)
+            }
+            SubCommand::ResumeResharding(cmd) => {
+                resume_resharding(cmd, home_dir, &near_config, opener)
             }
         }
     }

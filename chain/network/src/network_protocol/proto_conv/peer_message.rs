@@ -367,7 +367,7 @@ pub enum ParsePeerMessageError {
     SyncRoutingTable(ParseRoutingTableUpdateError),
     #[error("shortest_path_tree: {0}")]
     DistanceVector(ParseDistanceVectorError),
-    #[error("update_nonce_requrest: {0}")]
+    #[error("update_nonce_request: {0}")]
     UpdateNonceRequest(ParseRequiredError<ParsePartialEdgeInfoError>),
     #[error("update_nonce_response: {0}")]
     UpdateNonceResponse(ParseRequiredError<ParseEdgeError>),

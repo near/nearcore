@@ -552,6 +552,7 @@ impl Signature {
                 }
             }
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {
+                // cspell:ignore rsig pdata
                 let rec_id =
                     match secp256k1::ecdsa::RecoveryId::from_i32(i32::from(signature.0[64])) {
                         Ok(r) => r,
@@ -846,6 +847,7 @@ mod tests {
 
         let sk = SecretKey::from_seed(KeyType::SECP256K1, "test");
         let pk = sk.public_key();
+        // cspell:disable-next-line
         let expected = "\"secp256k1:5ftgm7wYK5gtVqq1kxMGy7gSudkrfYCbpsjL6sH1nwx2oj5NR2JktohjzB6fbEhhRERQpiwJcpwnQjxtoX3GS3cQ\"";
         assert_eq!(serde_json::to_string(&pk).unwrap(), expected);
         assert_eq!(pk, serde_json::from_str(expected).unwrap());
@@ -886,6 +888,7 @@ mod tests {
 
     #[test]
     fn test_invalid_data() {
+        // cspell:disable-next-line
         let invalid = "\"secp256k1:2xVqteU8PWhadHTv99TGh3bSf\"";
         assert!(serde_json::from_str::<PublicKey>(invalid).is_err());
         assert!(serde_json::from_str::<SecretKey>(invalid).is_err());

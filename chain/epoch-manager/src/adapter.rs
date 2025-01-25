@@ -7,7 +7,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
@@ -25,12 +25,6 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
-
-// TODO(wacban) rename to ShardInfo
-pub struct ShardUIdAndIndex {
-    pub shard_uid: ShardUId,
-    pub shard_index: ShardIndex,
-}
 
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
@@ -75,7 +69,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
-    ) -> Result<ShardUIdAndIndex, EpochError>;
+    ) -> Result<ShardInfo, EpochError>;
 
     /// Converts `ShardId` (index of shard in the *current* layout) to
     /// `ShardUId` (`ShardId` + the version of shard layout itself.)
@@ -156,7 +150,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error>;
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError>;
 
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
@@ -395,6 +389,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<bool, EpochError>;
 
+    fn cared_about_shard_prev_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError>;
+
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
 
     /// Tries to estimate in which epoch the given height would reside.
@@ -517,13 +518,13 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         account_id: &AccountId,
         epoch_id: &EpochId,
-    ) -> Result<ShardUIdAndIndex, EpochError> {
+    ) -> Result<ShardInfo, EpochError> {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         let shard_id = shard_layout.account_id_to_shard_id(account_id);
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
         let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(ShardUIdAndIndex { shard_uid, shard_index })
+        Ok(ShardInfo { shard_index, shard_uid })
     }
 
     fn shard_id_to_uid(
@@ -645,7 +646,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error> {
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
         let is_resharding_boundary =
@@ -959,6 +960,22 @@ impl EpochManagerAdapter for EpochManagerHandle {
             account_id,
             shard_id,
         )
+    }
+
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
+    fn cared_about_shard_prev_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        let (_layout, parent_shard_id, _index) =
+            self.get_prev_shard_id_from_prev_hash(parent_hash, shard_id)?;
+        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(parent_hash)?;
+
+        let epoch_manager = self.read();
+        epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
     }
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
