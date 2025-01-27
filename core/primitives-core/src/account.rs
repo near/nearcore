@@ -254,7 +254,7 @@ impl<'de> serde::Deserialize<'de> for Account {
             AccountVersion::V1 => {
                 if account_data.permanent_storage_bytes.is_some() {
                     return Err(serde::de::Error::custom(
-                        "permanent storage bytes exists for V1 account",
+                        "permanent storage bytes should not be set for V1 account",
                     ));
                 }
                 Ok(Account::V1(AccountV1 {
@@ -298,7 +298,7 @@ impl serde::Serialize for Account {
             permanent_storage_bytes,
             code_hash: self.code_hash(),
             storage_usage: self.storage_usage(),
-            version: version,
+            version,
         };
         repr.serialize(serializer)
     }
@@ -318,7 +318,7 @@ impl BorshDeserialize for Account {
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             let versioned_account = BorshVersionedAccount::deserialize_reader(rd)?;
             let account = match versioned_account {
-                BorshVersionedAccount::V2(account_v1) => Account::V2(account_v1),
+                BorshVersionedAccount::V2(account_v2) => Account::V2(account_v2),
             };
             Ok(account)
         } else {
