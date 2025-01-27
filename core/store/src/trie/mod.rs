@@ -22,7 +22,6 @@ use itertools::Itertools;
 use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::memtries::MemTries;
 use near_primitives::challenge::PartialState;
-use near_primitives::errors::MissingTrieValueContext;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -603,7 +602,7 @@ pub struct ApplyStatePartResult {
 
 enum NodeOrValue {
     Node,
-    Value(std::sync::Arc<[u8]>),
+    Value(Arc<[u8]>),
 }
 
 /// Like a ValueRef, but allows for optimized retrieval of the value if the
@@ -1251,7 +1250,7 @@ impl Trie {
         hash: &CryptoHash,
         use_accounting_cache: bool,
         side_effects: bool,
-    ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
+    ) -> Result<Option<(Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
@@ -1301,13 +1300,10 @@ impl Trie {
     fn retrieve_node(
         &self,
         hash: &CryptoHash,
-    ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
-        match self.retrieve_raw_node(hash, true, true)? {
-            None => {
-                Err(StorageError::MissingTrieValue(MissingTrieValueContext::TrieNodeEmpty, *hash))
-            }
-            Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
-        }
+    ) -> Result<Option<(Arc<[u8]>, TrieNodeWithSize)>, StorageError> {
+        Ok(self
+            .retrieve_raw_node(hash, true, true)?
+            .map(|(bytes, node)| (bytes, TrieNodeWithSize::from_raw(node))))
     }
 
     pub fn retrieve_root_node(&self) -> Result<StateRootNode, StorageError> {

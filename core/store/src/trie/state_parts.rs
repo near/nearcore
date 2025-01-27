@@ -69,7 +69,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
         }
-        let root_node = self.retrieve_node(&self.root)?.1;
+        let root_node = self.retrieve_node(&self.root)?.unwrap().1;
         let total_size = root_node.memory_usage;
         let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
         self.find_node_in_dfs_order(&root_node, size_start)
@@ -360,7 +360,7 @@ impl Trie {
                 let mut iter = children.iter();
                 while let Some((index, child)) = iter.next() {
                     let NodeHandle::Hash(h) = child;
-                    let child = self.retrieve_node(h)?.1;
+                    let child = self.retrieve_node(h)?.unwrap().1;
                     if *memory_skipped + child.memory_usage > memory_threshold {
                         core::mem::drop(iter);
                         key_nibbles.push(index);
@@ -378,7 +378,7 @@ impl Trie {
             }
             TrieNode::Extension(key, child_handle) => {
                 let child = match child_handle {
-                    NodeHandle::Hash(h) => self.retrieve_node(h)?.1,
+                    NodeHandle::Hash(h) => self.retrieve_node(h)?.unwrap().1,
                 };
                 let (slice, _) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
@@ -657,7 +657,7 @@ mod tests {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieNodeWithSize, CrumbStatus)> = Vec::new();
-            let root_node = self.retrieve_node(&self.root)?.1;
+            let root_node = self.retrieve_node(&self.root)?.unwrap().1;
             stack.push((self.root, root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
@@ -690,7 +690,7 @@ mod tests {
                             }
                             if let Some(NodeHandle::Hash(ref h)) = children[i] {
                                 let h = *h;
-                                let child = self.retrieve_node(&h)?.1;
+                                let child = self.retrieve_node(&h)?.unwrap().1;
                                 stack.push((hash, node, CrumbStatus::AtChild(i + 1)));
                                 stack.push((h, child, CrumbStatus::Entering));
                                 break;
@@ -707,7 +707,7 @@ mod tests {
                     TrieNode::Extension(_key, child) => {
                         if let CrumbStatus::Entering = position {
                             let NodeHandle::Hash(h) = child.clone();
-                            let child = self.retrieve_node(&h)?.1;
+                            let child = self.retrieve_node(&h)?.unwrap().1;
                             stack.push((h, node, CrumbStatus::Exiting));
                             stack.push((h, child, CrumbStatus::Entering));
                         }
