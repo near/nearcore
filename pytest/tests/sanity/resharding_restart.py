@@ -4,7 +4,7 @@ Testing that resharding is correctly resumed after a node restart. The goal is
 to make sure that if the node is restarted after resharding is finished that it
 picks up where it left and doesn't try to start again.
 
-Note that this is different than what happens if node is restared in the middle
+Note that this is different than what happens if node is restarted in the middle
 of resharding. In this case resharding would get restarted from the beginning.
 
 Usage:

@@ -13,7 +13,6 @@ blocks etc).
 tracking) additional shards in the future epochs. Currently it should be a no-op
 for 99% of nodes (see below).
 
-
 **Tracking shards:** as you know our system has multiple shards (currently 4).
 Currently 99% of nodes are tracking all the shards: validators have to - as they
 have to validate the chunks from all the shards, and normal nodes mostly also
@@ -43,7 +42,6 @@ As headers are quite small, we try to request multiple of them in a single call
 ![image](https://user-images.githubusercontent.com/1711539/195892312-2fbd8241-87ce-4241-a44d-ff3056b12bab.png)
 
 ### Step 1a: Epoch Sync [normal node*] // not implemented yet
-
 
 While currently normal nodes are using Header sync, we could actually allow them
 to do something faster - “light client sync” a.k.a “epoch sync”.
@@ -193,7 +191,6 @@ states are not ready, corresponding to `NotCaughtUp`, then only the shards for
 this epoch will be applied. When `catchup_blocks`, shards for the next epoch
 will be applied.
 
-
 ```rust
 enum ApplyChunksMode {
     IsCaughtUp,
@@ -220,20 +217,19 @@ is caught up and if we need to download states. The logic works as follows:
 * For other blocks, we mark them as not caught up if the previous block is not
   caught up. This info is persisted in `DBCol::BlocksToCatchup` which stores
   mapping from previous block to vector of all child blocks to catch up.
-* Chunks for already tracked shards will be applied during `process_block`, as 
+* Chunks for already tracked shards will be applied during `process_block`, as
   we said before mentioning `ApplyChunksMode`.
-* Once we downloaded state, we start catchup. It will take blocks from 
-  `DBCol::BlocksToCatchup` in breadth-first search order and apply chunks for 
+* Once we downloaded state, we start catchup. It will take blocks from
+  `DBCol::BlocksToCatchup` in breadth-first search order and apply chunks for
   shards which have to be tracked in the next epoch.
 * When catchup doesn't see any more blocks to process, `DBCol::BlocksToCatchup`
   is cleared, which means that catchup process is finished.
-
 
 The catchup process is implemented through the function `Client::run_catchup`.
 `ClientActor` schedules a call to `run_catchup` every 100ms. However, the call
 can be delayed if ClientActor has a lot of messages in its actix queue.
 
-Every time `run_catchup` is called, it checks `DBCol::StateDlInfos` to see 
+Every time `run_catchup` is called, it checks `DBCol::StateDlInfos` to see
 if there are any shard states that should be downloaded. If so, it
 initiates the syncing process for these shards. After the state is downloaded,
 `run_catchup` will start to apply blocks that need to be caught up.

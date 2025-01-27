@@ -1,5 +1,5 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
-use crate::db::{TestDB, TestDBFlags};
+use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{
@@ -66,14 +66,6 @@ pub fn create_test_node_storage_with_cold(
 /// Creates an in-memory database.
 pub fn create_test_store() -> Store {
     create_test_node_storage(DB_VERSION, DbKind::RPC).get_hot_store()
-}
-
-/// Creates an in-memory database with overrides to the default behavior.
-pub fn create_test_store_with_flags(flags: &TestDBFlags) -> Store {
-    let store = Store::new(TestDB::new_with_flags(flags.clone()));
-    store.set_db_version(DB_VERSION).unwrap();
-    store.set_db_kind(DbKind::RPC).unwrap();
-    store
 }
 
 /// Returns a pair of (Hot, Split) store to be used for setting up archival clients.

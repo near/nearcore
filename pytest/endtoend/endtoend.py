@@ -6,6 +6,7 @@ Periodically (1 minute) each account sends itself 0 tokens. Some tokens get burn
 Account balances get exported to prometheus and can be used to detect when transactions stop affecting the world, aka the chain of testnet or mainnet.
 We observe effects on the chain using public RPC endpoints to ensure canaries are running a fork.
 
+cspell:words endtoend
 python3 endtoend/endtoend.py
     --ips <ip_node1,ip_node2>
     --accounts <account_node1,account_node2>

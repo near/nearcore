@@ -5,9 +5,12 @@ use itertools::Itertools;
 use near_chain_configs::test_genesis::{
     build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
 };
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::logic::ProtocolVersion;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
@@ -56,4 +59,36 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build()
+}
+
+pub fn derive_new_epoch_config_from_boundary(
+    base_epoch_config: &EpochConfig,
+    boundary_account: &AccountId,
+) -> EpochConfig {
+    let base_shard_layout = &base_epoch_config.shard_layout;
+    let mut epoch_config = base_epoch_config.clone();
+    epoch_config.shard_layout =
+        ShardLayout::derive_shard_layout(&base_shard_layout, boundary_account.clone());
+    tracing::info!(target: "test", ?base_shard_layout, new_shard_layout=?epoch_config.shard_layout, "shard layout");
+    epoch_config
+}
+
+/// Two protocol upgrades would happen as soon as possible,
+/// usually in two consecutive epochs, unless upgrade voting decides differently.
+pub fn two_upgrades_voting_schedule(
+    target_protocol_version: ProtocolVersion,
+) -> ProtocolUpgradeVotingSchedule {
+    let past_datetime_1 =
+        ProtocolUpgradeVotingSchedule::parse_datetime("1970-01-01 00:00:00").unwrap();
+    let past_datetime_2 =
+        ProtocolUpgradeVotingSchedule::parse_datetime("1970-01-02 00:00:00").unwrap();
+    let voting_schedule = vec![
+        (past_datetime_1, target_protocol_version - 1),
+        (past_datetime_2, target_protocol_version),
+    ];
+    ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(
+        target_protocol_version,
+        voting_schedule,
+    )
+    .unwrap()
 }

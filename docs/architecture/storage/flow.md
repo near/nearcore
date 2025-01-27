@@ -9,6 +9,7 @@ Blue arrow means a call triggered by read.
 Red arrow means a call triggered by write.
 
 Black arrow means a non-trivial data dependency. For example:
+
 * Nodes which are read on TrieStorage go to TrieRecorder to generate proof, so they
 are connected with black arrow.
 * Memtrie lookup needs current state of accounting cache to compute costs. When

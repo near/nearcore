@@ -98,7 +98,7 @@ fn create_tx_function_call(
 
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
 /// Also doing 5 send transactions every block.
-/// 4 epochs, because this test does not cover gc behaviour.
+/// 4 epochs, because this test does not cover gc behavior.
 /// After every block updating a separate database with data from client's storage.
 /// After 4 epochs we check that everything, that exists in cold columns
 /// of the storage of the client also exists in the database to which we were writing.

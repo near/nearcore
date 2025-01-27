@@ -19,14 +19,14 @@ use near_store::{NodeStorage, Store};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::path::PathBuf;
 
-struct StateSnaptshotTestEnv {
+struct StateSnapshotTestEnv {
     home_dir: PathBuf,
     hot_store_path: PathBuf,
     state_snapshot_subdir: PathBuf,
     shard_tries: ShardTries,
 }
 
-impl StateSnaptshotTestEnv {
+impl StateSnapshotTestEnv {
     fn new(
         home_dir: PathBuf,
         hot_store_path: PathBuf,
@@ -62,12 +62,12 @@ impl StateSnaptshotTestEnv {
     }
 }
 
-fn set_up_test_env_for_state_snapshots(store: &Store) -> StateSnaptshotTestEnv {
+fn set_up_test_env_for_state_snapshots(store: &Store) -> StateSnapshotTestEnv {
     let home_dir =
         tempfile::Builder::new().prefix("storage").tempdir().unwrap().path().to_path_buf();
     let hot_store_path = PathBuf::from("data");
     let state_snapshot_subdir = PathBuf::from("state_snapshot");
-    StateSnaptshotTestEnv::new(home_dir, hot_store_path, state_snapshot_subdir, store)
+    StateSnapshotTestEnv::new(home_dir, hot_store_path, state_snapshot_subdir, store)
 }
 
 #[test]
@@ -129,7 +129,7 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
 }
 
 fn verify_make_snapshot(
-    state_snapshot_test_env: &StateSnaptshotTestEnv,
+    state_snapshot_test_env: &StateSnapshotTestEnv,
     block_hash: CryptoHash,
     block: &Block,
 ) -> Result<(), anyhow::Error> {

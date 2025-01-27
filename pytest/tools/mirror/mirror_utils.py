@@ -175,6 +175,7 @@ def create_forked_chain(config, near_root, source_node_homes,
         # before sending them, and that can cause problems for the default localnet
         # setting of transaction_validity_period. Not really worth changing the code since
         # transaction_validity_period is large on mainnet and testnet anyway
+        # cspell:ignore foonet
         subprocess.check_output([
             neard, 'amend-genesis', '--genesis-file-in', genesis_file_in,
             '--records-file-in', records_file_in, '--genesis-file-out',
@@ -304,7 +305,7 @@ def check_target_validators(target_node):
 
 
 # we'll test out adding an access key and then sending txs signed with it
-# since that hits some codepaths we want to test
+# since that hits some code paths we want to test
 def send_add_access_key(node, key, target_key, nonce, block_hash):
     action = transaction.create_full_access_key_action(target_key.decoded_pk())
     tx = transaction.sign_and_serialize_transaction(target_key.account_id,
@@ -718,7 +719,7 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     traffic_data.nonces[1] += 1
 
     test0_deleted_height = None
-    test0_readded_key = None
+    test0_re_added_key = None
     implicit_added = None
     implicit_deleted = None
     implicit_account2 = ImplicitAccount()
@@ -806,15 +807,15 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
             new_key.nonce += 1
             test0_deleted_height = height
 
-        if test0_readded_key is None and test0_deleted_height is not None and height - test0_deleted_height >= 5:
+        if test0_re_added_key is None and test0_deleted_height is not None and height - test0_deleted_height >= 5:
             send_add_access_key(source_nodes[1], new_key.key,
                                 source_nodes[0].signer_key, new_key.nonce + 1,
                                 block_hash_bytes)
-            test0_readded_key = AddedKey(source_nodes[0].signer_key)
+            test0_re_added_key = AddedKey(source_nodes[0].signer_key)
             new_key.nonce += 1
 
-        if test0_readded_key is not None:
-            test0_readded_key.send_if_inited(
+        if test0_re_added_key is not None:
+            test0_re_added_key.send_if_inited(
                 source_nodes[1], [('test3', height),
                                   (implicit_account2.account_id(), height)],
                 block_hash_bytes)

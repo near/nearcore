@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# Spin up a validator node and a nonvalidator node.
-# Stop the nonvalidator node and wait until the validator node reach height 100
-# sync the nonvalidator node with controlled message passing between nodes.
-# If `should_ban` is true, this should cause the nonvalidator node to ban the validator node
+# Spin up a validator node and a non-validator node.
+# Stop the non-validator node and wait until the validator node reach height 100
+# sync the non-validator node with controlled message passing between nodes.
+# If `should_ban` is true, this should cause the non-validator node to ban the validator node
 # due to not receiving any headers.
-# If `should_ban` is false, the nonvalidator node should be able to sync without banning the
+# If `should_ban` is false, the non-validator node should be able to sync without banning the
 # validator node despite the slow connection.
 
 import sys, time, functools, asyncio

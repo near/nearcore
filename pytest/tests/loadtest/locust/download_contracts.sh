@@ -10,6 +10,7 @@ TARGET_CONTRACTS_DIR="${SCRIPT_DIR}/res"
 
 # Directory where some of the contracts are located.
 # TODO: Consider storing the contracts in a single place.
+# cspell:ignore keypom
 SOURCE_CONTRACTS_DIR="${SCRIPT_DIR}/../../../../runtime/near-test-contracts/res"
 
 wget https://raw.githubusercontent.com/NearSocial/social-db/master/res/social_db_release.wasm -O ${TARGET_CONTRACTS_DIR}/social_db.wasm

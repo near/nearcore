@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# This test checks the ultimate undercharding scenario where a chunk takes
+# This test checks the ultimate undercharging scenario where a chunk takes
 # long time to apply but consumes little gas. This is to simulate real
-# undercharing in a more controlled manner.
+# undercharging in a more controlled manner.
 
 import sys
 import json

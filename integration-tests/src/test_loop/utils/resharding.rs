@@ -654,7 +654,7 @@ fn check_deleted_account_availability(
 
 /// Loop action testing a scenario where a temporary account is deleted after resharding.
 /// After `gc_num_epochs_to_keep epochs` we assert that the account
-/// is not accesible through RPC node but it is still accesible through archival node.
+/// is not accessible through RPC node but it is still accessible through archival node.
 ///
 /// The `temporary_account_id` must be a subaccount of the `originator_id`.
 pub(crate) fn temporary_account_during_resharding(

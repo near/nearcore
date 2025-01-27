@@ -48,8 +48,8 @@ expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_tes
 expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
 
 # testnet rpc
-expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_highload
-expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_highload --features nightly
+expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_high_load
+expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_high_load --features nightly
 
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet --features nightly
@@ -203,8 +203,8 @@ expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_get_validator_info_rpc --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_protocol_config_rpc
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_protocol_config_rpc --features nightly
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_account_doesnt_exist_must_return_error
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_account_doesnt_exist_must_return_error --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_account_does_not_exist_must_return_error
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_account_does_not_exist_must_return_error --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_must_succeed
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_query_rpc_account_view_must_succeed --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::ultra_slow_test_tx_not_enough_balance_must_return_error

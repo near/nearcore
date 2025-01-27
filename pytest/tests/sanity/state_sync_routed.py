@@ -5,6 +5,7 @@
 #
 # Make sure the new observer sync via routing through other observers.
 #
+# cspell:words notx manytx onetx
 # Three modes:
 #   - notx: no transactions are sent, just checks that
 #     the second node starts and catches up
@@ -147,7 +148,7 @@ if mode == 'manytx':
     logger.info("Old node caught up to expected balances: %s" %
                 ctx.expected_balances)
 
-    # requery the balances from the newly started node
+    # again query the balances from the newly started node
     ctx.nodes.append(node4)
     ctx.act_to_val = [2, 2, 2]
 

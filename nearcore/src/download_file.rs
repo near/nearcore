@@ -191,8 +191,9 @@ impl<'a> AutoXzDecoder<'a> {
                 Some(pos)
             } else if pos + len == XZ_HEADER_MAGIC.len() {
                 let stream = xz2::stream::Stream::new_stream_decoder(u64::max_value(), 0).unwrap();
-                // TODO(mina86): Once ‘new_uninit’ feature gets stabilised
-                // replaced buffer initialisation by:
+                // cspell:ignore uninit
+                // TODO(mina86): Once ‘new_uninit’ feature gets stabilized
+                // replaced buffer initialization by:
                 //     let buffer = Box::new_uninit_slice(64 << 10);
                 //     let buffer = unsafe { buffer.assume_init() };
                 let buffer = vec![0u8; 64 << 10].into_boxed_slice();
@@ -322,9 +323,11 @@ mod tests {
                         \x61\xc5\xba\xc5\x84\x00\x00\x00\x89\x4e\xdf\x72\
                         \x66\xbe\xa9\x51\x00\x01\x32\x1a\x20\x18\x94\x30\
                         \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
+        // cspell:disable-next-line
         check_file_download(payload, Ok("Zażółć gęślą jaźń".as_bytes())).await;
 
         let payload = b"\xfd\x37\x7a\x58\x5a\x00A quick brown fox";
+        // cspell:disable-next-line
         check_file_download(payload, Err("Failed to decompress XZ stream: lzma data error")).await;
     }
 
@@ -415,6 +418,7 @@ mod tests {
                        \x1f\xb6\xf3\x7d\x01\x00\x00\x00\x00\x04\x59\x5a";
         for chunk_size in 1..11 {
             let got = auto_xz_test_write_file(buffer, chunk_size).unwrap();
+            // cspell:disable-next-line
             assert_eq!(got, "Zażółć gęślą jaźń".as_bytes());
         }
     }
