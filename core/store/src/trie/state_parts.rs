@@ -68,7 +68,7 @@ impl Trie {
         if part_id == num_parts {
             return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
         }
-        let root_node = self.retrieve_node_internal(&self.root)?;
+        let root_node = self.retrieve_storage_node(&self.root)?;
         let total_size = root_node.memory_usage;
         let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
         self.find_node_in_dfs_order(&root_node, size_start)
@@ -359,7 +359,7 @@ impl Trie {
 
                 for index in 0..16 {
                     if let Some(child) = &children[index] {
-                        let child = self.retrieve_node_internal(child)?;
+                        let child = self.retrieve_storage_node(child)?;
                         if *memory_skipped + child.memory_usage > memory_threshold {
                             key_nibbles.push(index as u8);
                             *node = child;
@@ -377,7 +377,7 @@ impl Trie {
                 )))
             }
             TrieStorageNode::Extension { extension, child } => {
-                let child = self.retrieve_node_internal(child)?;
+                let child = self.retrieve_storage_node(child)?;
                 let (slice, _) = NibbleSlice::from_encoded(extension);
                 key_nibbles.extend(slice.iter());
                 *node = child;
@@ -498,7 +498,7 @@ impl Trie {
         )
     }
 
-    fn retrieve_node_internal(
+    fn retrieve_storage_node(
         &self,
         hash: &CryptoHash,
     ) -> Result<TrieStorageNodeWithSize, StorageError> {
@@ -665,7 +665,7 @@ mod tests {
                 return Ok(());
             }
             let mut stack: Vec<(CryptoHash, TrieStorageNodeWithSize, CrumbStatus)> = Vec::new();
-            let root_node = self.retrieve_node_internal(&self.root)?;
+            let root_node = self.retrieve_storage_node(&self.root)?;
             stack.push((self.root, root_node, CrumbStatus::Entering));
             while let Some((hash, node, position)) = stack.pop() {
                 if let CrumbStatus::Entering = position {
@@ -700,7 +700,7 @@ mod tests {
                                 break;
                             }
                             if let Some(child_hash) = children[i as usize] {
-                                let child = self.retrieve_node_internal(&child_hash)?;
+                                let child = self.retrieve_storage_node(&child_hash)?;
                                 stack.push((child_hash, node, CrumbStatus::AtChild(i + 1)));
                                 stack.push((child_hash, child, CrumbStatus::Entering));
                                 break;
@@ -717,7 +717,7 @@ mod tests {
                     TrieStorageNode::Extension { child, .. } => {
                         if let CrumbStatus::Entering = position {
                             let child_hash = *child;
-                            let child = self.retrieve_node_internal(&child_hash)?;
+                            let child = self.retrieve_storage_node(&child_hash)?;
                             stack.push((child_hash, node, CrumbStatus::Exiting));
                             stack.push((child_hash, child, CrumbStatus::Entering));
                         }

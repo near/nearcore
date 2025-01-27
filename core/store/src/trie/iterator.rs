@@ -41,10 +41,10 @@ impl Crumb {
             (&CrumbStatus::Entering, _) => CrumbStatus::At,
             (&CrumbStatus::At, RawTrieNode::BranchNoValue(_)) => CrumbStatus::AtChild(0),
             (&CrumbStatus::At, RawTrieNode::BranchWithValue(_, _)) => CrumbStatus::AtChild(0),
-            (&CrumbStatus::AtChild(x), RawTrieNode::BranchNoValue(_)) if x < 15 => {
-                CrumbStatus::AtChild(x + 1)
-            }
-            (&CrumbStatus::AtChild(x), RawTrieNode::BranchWithValue(_, _)) if x < 15 => {
+            (&CrumbStatus::AtChild(x), RawTrieNode::BranchNoValue(_))
+            | (&CrumbStatus::AtChild(x), RawTrieNode::BranchWithValue(_, _))
+                if x < 15 =>
+            {
                 CrumbStatus::AtChild(x + 1)
             }
             _ => CrumbStatus::Exiting,
