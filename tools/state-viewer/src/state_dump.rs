@@ -260,7 +260,12 @@ fn iterate_over_records(
                 }
                 if let StateRecord::Account { account_id, account } = &mut sr {
                     if account.locked() > 0 {
-                        let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                        let mut stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                        if let Some(whitelist) = &change_config.whitelist_validators {
+                            if !whitelist.contains(account_id) {
+                                stake = 0;
+                            }
+                        }
                         if account.locked() > stake {
                             account.set_amount(account.amount() + account.locked() - stake);
                         }
@@ -268,26 +273,11 @@ fn iterate_over_records(
                     }
                     total_supply += account.amount() + account.locked();
                 }
-                change_state_record(&mut sr, change_config);
                 callback(sr);
             }
         }
     }
     total_supply
-}
-
-/// Change record according to genesis_change_config.
-/// 1. Remove stake from non-whitelisted validators;
-pub fn change_state_record(record: &mut StateRecord, genesis_change_config: &GenesisChangeConfig) {
-    // Kick validators outside of whitelist
-    if let Some(whitelist) = &genesis_change_config.whitelist_validators {
-        if let StateRecord::Account { account_id, account } = record {
-            if !whitelist.contains(account_id) {
-                account.set_amount(account.amount() + account.locked());
-                account.set_locked(0);
-            }
-        }
-    }
 }
 
 /// Change genesis_config according to genesis_change_config.
