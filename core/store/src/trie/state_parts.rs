@@ -69,7 +69,11 @@ impl Trie {
         if part_id == num_parts {
             return Ok(LAST_STATE_PART_BOUNDARY.to_vec());
         }
-        let root_node = self.retrieve_node(&self.root)?.unwrap().1;
+        let root_node = self.retrieve_node(&self.root)?.map(|node| node.1);
+        if root_node.is_none() {
+            return Ok(vec![]);
+        }
+        let root_node = root_node.unwrap();
         let total_size = root_node.memory_usage;
         let size_start = total_size / num_parts * part_id + part_id.min(total_size % num_parts);
         self.find_node_in_dfs_order(&root_node, size_start)
