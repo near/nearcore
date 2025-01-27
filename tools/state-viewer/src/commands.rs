@@ -736,6 +736,7 @@ pub(crate) fn view_chain(
     height: Option<BlockHeight>,
     view_block: bool,
     view_chunks: bool,
+    home_dir: &Path,
     near_config: NearConfig,
     store: Store,
 ) {
@@ -758,8 +759,8 @@ pub(crate) fn view_chain(
             }
         }
     };
-    let epoch_manager = EpochManager::new_from_genesis_config(store, &near_config.genesis.config)
-        .expect("Failed to start Epoch Manager");
+    let epoch_manager =
+        EpochManager::new_arc_handle(store, &near_config.genesis.config, Some(home_dir));
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
     let mut chunk_extras = vec![];
