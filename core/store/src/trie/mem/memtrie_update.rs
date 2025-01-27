@@ -30,12 +30,9 @@ pub type MemTrieNodeWithSize = GenericTrieNodeWithSize<MemTrieNodeId, FlatStateV
 
 pub type UpdatedMemTrieNodeWithSize = GenericUpdatedTrieNodeWithSize<MemTrieNodeId, FlatStateValue>;
 
-impl MemTrieNodeWithSize {
-    /// Converts an existing in-memory trie node into an updated one that is
-    /// equivalent.
+impl MemTrieNode {
     pub fn from_existing_node_view<'a, M: ArenaMemory>(view: MemTrieNodeView<'a, M>) -> Self {
-        let memory_usage = view.memory_usage();
-        let node = match view {
+        match view {
             MemTrieNodeView::Leaf { extension, value } => MemTrieNode::Leaf {
                 extension: extension.to_vec().into_boxed_slice(),
                 value: value.to_flat_value(),
@@ -52,8 +49,7 @@ impl MemTrieNodeWithSize {
                 extension: extension.to_vec().into_boxed_slice(),
                 child: child.id(),
             },
-        };
-        Self { node, memory_usage }
+        }
     }
 
     fn convert_children_to_updated<'a, M: ArenaMemory>(
@@ -66,6 +62,13 @@ impl MemTrieNodeWithSize {
             }
         }
         children
+    }
+}
+
+impl MemTrieNodeWithSize {
+    pub fn from_existing_node_view<'a, M: ArenaMemory>(view: MemTrieNodeView<'a, M>) -> Self {
+        let memory_usage = view.memory_usage();
+        Self { node: MemTrieNode::from_existing_node_view(view), memory_usage }
     }
 }
 
