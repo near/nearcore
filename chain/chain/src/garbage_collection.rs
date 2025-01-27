@@ -4,6 +4,7 @@ use std::{fmt, io};
 
 use near_chain_configs::GCConfig;
 use near_chain_primitives::Error;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
@@ -739,7 +740,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
         for shard_id in shard_layout.shard_ids() {
-            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+            let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id).unwrap();
             let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
 
             // delete TrieChanges

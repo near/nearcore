@@ -5,6 +5,7 @@ use clap::Parser;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardVersion;
@@ -248,7 +249,7 @@ impl FlatStorageCommand {
         let tip = rw_chain_store.final_head()?;
 
         // TODO: there should be a method that 'loads' the current flat storage state based on Storage.
-        let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), cmd.shard_id, &tip.epoch_id)?;
         let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
         let mut store_update = store.flat_store().store_update();
@@ -267,7 +268,7 @@ impl FlatStorageCommand {
         let (_, epoch_manager, hot_runtime, chain_store, hot_store) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadOnly);
         let tip = chain_store.final_head()?;
-        let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), cmd.shard_id, &tip.epoch_id)?;
         let hot_store = hot_store.flat_store();
 
         let head_hash = match hot_store
@@ -299,7 +300,7 @@ impl FlatStorageCommand {
         println!("Verifying using the {:?} as state_root", state_root);
         let tip = chain_store.final_head()?;
 
-        let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), cmd.shard_id, &tip.epoch_id)?;
         hot_runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid)?;
 
         let trie = hot_runtime.get_view_trie_for_shard(cmd.shard_id, &head_hash, *state_root)?;
@@ -369,7 +370,7 @@ impl FlatStorageCommand {
         let write_store = write_node_storage.get_hot_store();
 
         let tip = chain_store.final_head()?;
-        let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), cmd.shard_id, &tip.epoch_id)?;
 
         near_store::trie::construct_trie_from_flat(store, write_store, shard_uid);
         Ok(())
@@ -401,7 +402,7 @@ impl FlatStorageCommand {
 
             let epoch_id = header.epoch_id();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+            shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id)?;
             let shard_index =
                 shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
 

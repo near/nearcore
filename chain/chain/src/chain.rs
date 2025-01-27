@@ -52,6 +52,7 @@ use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -710,7 +711,7 @@ impl Chain {
 
             store_update.save_chunk_extra(
                 genesis.hash(),
-                &epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
+                &shard_id_to_uid(epoch_manager, chunk_header.shard_id(), &EpochId::default())?,
                 Self::create_genesis_chunk_extra(
                     state_root,
                     chain_genesis.gas_limit,
@@ -2010,7 +2011,7 @@ impl Chain {
                 true,
             );
             let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
             if care_about_shard_this_or_next_epoch {
                 shards_cares_this_or_next_epoch.push(shard_uid);
             }
@@ -2177,7 +2178,7 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<(), Error> {
         let epoch_id = block.header().epoch_id();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
 
         // Update flat storage.
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
@@ -3297,7 +3298,7 @@ impl Chain {
                 shard_id,
                 true,
             ) {
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+                let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
@@ -3742,7 +3743,7 @@ impl Chain {
             cares_about_shard_next_epoch,
             cared_about_shard_prev_epoch,
         );
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         Ok(ShardContext { shard_uid, should_apply_chunk })
     }
 

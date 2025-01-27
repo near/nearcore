@@ -1,3 +1,4 @@
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use rand::Rng;
 use std::borrow::Cow;
 use std::path::Path;
@@ -166,7 +167,7 @@ impl PrepareBenchmarkCmd {
         for (shard_index, &state_root) in state_roots.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             println!("old - {:?} - {:?}", shard_id, state_root);
-            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+            let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id).unwrap();
 
             let tries = runtime.get_tries();
 
