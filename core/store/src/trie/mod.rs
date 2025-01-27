@@ -102,28 +102,6 @@ pub enum KeyLookupMode {
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
-// TODO(#12361): replace with `RawTrieNodeWithSize` fields.
-#[derive(Clone, Hash)]
-enum NodeHandle {
-    Hash(CryptoHash),
-}
-
-impl NodeHandle {
-    fn unwrap_hash(&self) -> &CryptoHash {
-        match self {
-            Self::Hash(hash) => hash,
-        }
-    }
-}
-
-impl std::fmt::Debug for NodeHandle {
-    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Hash(hash) => write!(fmtr, "{hash}"),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Hash)]
 pub(crate) enum ValueHandle {
     InMemory(StorageValueHandle),
@@ -135,52 +113,6 @@ impl std::fmt::Debug for ValueHandle {
         match self {
             Self::HashAndSize(value) => write!(fmtr, "{value:?}"),
             Self::InMemory(StorageValueHandle(num, _)) => write!(fmtr, "@{num}"),
-        }
-    }
-}
-
-// TODO(#12361): replace with `RawTrieNode`.
-#[derive(Clone, Hash)]
-enum TrieNode {
-    /// Key and value of the leaf node.
-    Leaf(Vec<u8>, ValueHandle),
-    /// Branch of 16 possible children and value if key ends here.
-    Branch(Box<Children<NodeHandle>>, Option<ValueHandle>),
-    /// Key and child of extension.
-    Extension(Vec<u8>, NodeHandle),
-}
-
-// TODO(#12361): replace with `RawTrieNodeWithSize`.
-#[derive(Clone, Debug)]
-pub struct TrieNodeWithSize {
-    node: TrieNode,
-    memory_usage: u64,
-}
-
-impl TrieNodeWithSize {
-    fn from_raw(rc_node: RawTrieNodeWithSize) -> TrieNodeWithSize {
-        TrieNodeWithSize::new(TrieNode::new(rc_node.node), rc_node.memory_usage)
-    }
-
-    fn new(node: TrieNode, memory_usage: u64) -> TrieNodeWithSize {
-        TrieNodeWithSize { node, memory_usage }
-    }
-}
-
-impl TrieNode {
-    fn new(rc_node: RawTrieNode) -> TrieNode {
-        fn new_branch(children: Children, value: Option<ValueRef>) -> TrieNode {
-            let children = children.0.map(|el| el.map(NodeHandle::Hash));
-            let children = Box::new(Children(children));
-            let value = value.map(ValueHandle::HashAndSize);
-            TrieNode::Branch(children, value)
-        }
-
-        match rc_node {
-            RawTrieNode::Leaf(key, value) => TrieNode::Leaf(key, ValueHandle::HashAndSize(value)),
-            RawTrieNode::BranchNoValue(children) => new_branch(children, None),
-            RawTrieNode::BranchWithValue(value, children) => new_branch(children, Some(value)),
-            RawTrieNode::Extension(key, child) => TrieNode::Extension(key, NodeHandle::Hash(child)),
         }
     }
 }
@@ -253,79 +185,6 @@ impl UpdatedTrieStorageNodeWithSize {
         let mut buf = String::new();
         self.print(&mut buf, trie_update, &mut "".to_string()).expect("printing failed");
         buf
-    }
-}
-
-impl TrieNode {
-    pub fn has_value(&self) -> bool {
-        match self {
-            Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
-            _ => false,
-        }
-    }
-
-    fn memory_usage_for_value_length(value_length: u64) -> u64 {
-        value_length * TRIE_COSTS.byte_of_value + TRIE_COSTS.node_cost
-    }
-
-    fn memory_usage_value(value: &ValueHandle) -> u64 {
-        let value_length = match value {
-            ValueHandle::InMemory(_) => {
-                panic!("InMemory nodes exist, but storage is not provided")
-            }
-            ValueHandle::HashAndSize(value) => u64::from(value.length),
-        };
-        Self::memory_usage_for_value_length(value_length)
-    }
-
-    /// TODO(#12361): in particular, consider replacing with
-    /// `GenericUpdatedTrieNode::memory_usage_direct`.
-    fn memory_usage_direct(&self) -> u64 {
-        match self {
-            TrieNode::Leaf(key, value) => {
-                TRIE_COSTS.node_cost
-                    + (key.len() as u64) * TRIE_COSTS.byte_of_key
-                    + Self::memory_usage_value(value)
-            }
-            TrieNode::Branch(_children, value) => {
-                TRIE_COSTS.node_cost
-                    + value.as_ref().map_or(0, |value| Self::memory_usage_value(value))
-            }
-            TrieNode::Extension(key, _child) => {
-                TRIE_COSTS.node_cost + (key.len() as u64) * TRIE_COSTS.byte_of_key
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for TrieNode {
-    /// Formats single trie node.
-    ///
-    /// Width can be used to specify indentation.
-    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let empty = "";
-        let indent = fmtr.width().unwrap_or(0);
-        match self {
-            TrieNode::Leaf(key, value) => write!(
-                fmtr,
-                "{empty:indent$}Leaf({:?}, {value:?})",
-                NibbleSlice::from_encoded(key).0
-            ),
-            TrieNode::Branch(children, value) => {
-                match value {
-                    Some(value) => write!(fmtr, "{empty:indent$}Branch({value:?}):"),
-                    None => write!(fmtr, "{empty:indent$}Branch:"),
-                }?;
-                for (idx, child) in children.iter() {
-                    write!(fmtr, "\n{empty:indent$} {idx:x}: {child:?}")?;
-                }
-                Ok(())
-            }
-            TrieNode::Extension(key, child) => {
-                let key = NibbleSlice::from_encoded(key).0;
-                write!(fmtr, "{empty:indent$}Extension({key:?}, {child:?})")
-            }
-        }
     }
 }
 
@@ -1245,6 +1104,7 @@ impl Trie {
         Ok(())
     }
 
+    /// Retrieves decoded raw node alongside with its raw bytes representation.
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
@@ -1289,21 +1149,6 @@ impl Trie {
                 Ok(result)
             }
         }
-    }
-
-    /// Retrieves decoded node alongside with its raw bytes representation.
-    ///
-    /// Note that because Empty nodes (those which are referenced by
-    /// [`Self::EMPTY_ROOT`] hash) aren’t stored in the database, they don’t
-    /// have a bytes representation.  For those nodes the first return value
-    /// will be `None`.
-    fn retrieve_node(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<Option<(Arc<[u8]>, TrieNodeWithSize)>, StorageError> {
-        Ok(self
-            .retrieve_raw_node(hash, true, true)?
-            .map(|(bytes, node)| (bytes, TrieNodeWithSize::from_raw(node))))
     }
 
     pub fn retrieve_root_node(&self) -> Result<StateRootNode, StorageError> {
