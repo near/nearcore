@@ -1,4 +1,5 @@
 use crate::EpochManagerHandle;
+use itertools::Itertools;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::Tip;
@@ -437,12 +438,15 @@ pub trait EpochManagerAdapter: Send + Sync {
         head_protocol_version: ProtocolVersion,
         client_protocol_version: ProtocolVersion,
     ) -> Result<HashSet<ShardUId>, Error> {
+        tracing::info!(target: "memtrie", head_protocol_version, client_protocol_version, "get shard uids pending resharding");
         let mut shard_layouts = vec![];
         for protocol_version in head_protocol_version + 1..=client_protocol_version {
             let shard_layout = self.get_shard_layout_from_protocol_version(protocol_version);
 
             let last_shard_layout = shard_layouts.last();
             if last_shard_layout == None || last_shard_layout != Some(&shard_layout) {
+                let shard_ids = shard_layout.shard_ids().collect_vec();
+                tracing::info!(target: "memtrie", ?protocol_version, ?shard_ids, "adding shard layout");
                 shard_layouts.push(shard_layout);
             }
         }
@@ -457,6 +461,7 @@ pub trait EpochManagerAdapter: Send + Sync {
                     break;
                 };
                 if children.len() > 1 {
+                    tracing::info!(target: "memtrie", ?shard_uid, "adding shard id");
                     result.insert(shard_uid);
                     break;
                 }
