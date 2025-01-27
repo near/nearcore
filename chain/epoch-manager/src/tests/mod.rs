@@ -2620,7 +2620,7 @@ fn test_validator_kickout_determinism() {
         (ShardId::new(0), chunk_stats0.into_iter().collect()),
         (ShardId::new(1), chunk_stats1.into_iter().collect()),
     ]);
-    let (_validator_stats, kickouts1) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (_validator_stats, kickouts1) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
@@ -2628,7 +2628,7 @@ fn test_validator_kickout_determinism() {
         &HashMap::new(),
         &HashMap::new(),
     );
-    let (_validator_stats, kickouts2) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (_validator_stats, kickouts2) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
@@ -2684,7 +2684,7 @@ fn test_chunk_validators_with_different_endorsement_ratio() {
         (ShardId::new(0), chunk_stats0.into_iter().collect()),
         (ShardId::new(1), chunk_stats1.into_iter().collect()),
     ]);
-    let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (_validator_stats, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
@@ -2746,7 +2746,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_different_stake() {
         (ShardId::new(0), chunk_stats0.into_iter().collect()),
         (ShardId::new(1), chunk_stats1.into_iter().collect()),
     ]);
-    let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (_validator_stats, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
@@ -2808,7 +2808,7 @@ fn test_chunk_validators_with_same_endorsement_ratio_and_stake() {
         (ShardId::new(0), chunk_stats0.into_iter().collect()),
         (ShardId::new(1), chunk_stats1.into_iter().collect()),
     ]);
-    let (_validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (_validator_stats, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
@@ -2888,7 +2888,7 @@ fn test_validator_kickout_sanity() {
             ]),
         ),
     ]);
-    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (validator_stats, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_validator_tracker,
@@ -2983,7 +2983,7 @@ fn test_chunk_endorsement_stats() {
         vec![vec![0, 1, 2], vec![0, 1, 3]],
         PROTOCOL_VERSION,
     );
-    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (validator_stats, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &HashMap::from([
@@ -3089,7 +3089,7 @@ fn test_max_kickout_stake_ratio() {
     ]);
     let prev_validator_kickout =
         HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
-    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (validator_stats, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_stats,
@@ -3149,7 +3149,7 @@ fn test_max_kickout_stake_ratio() {
     assert_eq!(validator_stats, wanted_validator_stats,);
     // At most 40% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
-    let (validator_stats, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (validator_stats, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_stats,
@@ -3228,7 +3228,7 @@ fn test_chunk_validator_kickout(
         HashMap::from([("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked)]);
     // At most 40% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
-    let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (_, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_stats,
@@ -3300,7 +3300,7 @@ fn test_block_and_chunk_producer_not_kicked_out_for_low_endorsements() {
 
     // At most 40% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
-    let (_, kickouts) = EpochManager::compute_validators_to_reward_and_kickout(
+    let (_, kickouts) = compute_validators_to_reward_and_kickout(
         &epoch_config,
         &epoch_info,
         &block_stats,
