@@ -2026,6 +2026,7 @@ mod tests {
         check("hello", 5, "hello");
         check("hello", 6, "hello");
         check("hello", 10, "hello");
+        // cspell:ignore привет
         check("привет", 3, "п");
     }
 }
