@@ -709,7 +709,10 @@ pub struct GlobalContractData {
 
 impl fmt::Debug for GlobalContractData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GlobalContractData").finish()
+        f.debug_struct("GlobalContractData")
+            .field("code", &self.code)
+            .field("id", &self.id)
+            .finish()
     }
 }
 
