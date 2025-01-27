@@ -437,18 +437,21 @@ pub trait EpochManagerAdapter: Send + Sync {
         head_protocol_version: ProtocolVersion,
         client_protocol_version: ProtocolVersion,
     ) -> Result<HashSet<ShardUId>, Error> {
+        let head_shard_layout = self.get_shard_layout_from_protocol_version(head_protocol_version);
         let mut shard_layouts = vec![];
         for protocol_version in head_protocol_version + 1..=client_protocol_version {
             let shard_layout = self.get_shard_layout_from_protocol_version(protocol_version);
+            if shard_layout == head_shard_layout {
+                continue;
+            }
 
             let last_shard_layout = shard_layouts.last();
-            if last_shard_layout == None || last_shard_layout != Some(&shard_layout) {
+            if last_shard_layout != Some(&shard_layout) {
                 shard_layouts.push(shard_layout);
             }
         }
 
         let mut result = HashSet::new();
-        let head_shard_layout = self.get_shard_layout_from_protocol_version(head_protocol_version);
         for shard_uid in head_shard_layout.shard_uids() {
             let shard_id = shard_uid.shard_id();
             for shard_layout in &shard_layouts {
