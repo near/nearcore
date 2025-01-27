@@ -987,8 +987,7 @@ impl Runtime {
                 }
             },
         };
-
-        state_update.set(trie_key, global_contract_data.code.clone());
+        state_update.set(trie_key, global_contract_data.code.to_vec());
         state_update
             .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
     }

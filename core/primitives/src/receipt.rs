@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::{self, Read};
 use std::io::{Error, ErrorKind};
+use std::sync::Arc;
 
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
@@ -247,10 +248,10 @@ impl<'a> StateStoredReceipt<'a> {
 impl BorshSerialize for Receipt {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
-            Receipt::V0(receipt) => receipt.serialize(writer),
+            Receipt::V0(receipt) => BorshSerialize::serialize(&receipt, writer),
             Receipt::V1(receipt) => {
                 BorshSerialize::serialize(&1_u8, writer)?;
-                receipt.serialize(writer)
+                BorshSerialize::serialize(&receipt, writer)
             }
         }
     }
@@ -586,7 +587,10 @@ impl Receipt {
             predecessor_id,
             receiver_id: "system".parse().unwrap(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData { code, id }),
+            receipt: ReceiptEnum::GlobalContractDistribution(Arc::new(GlobalContractData {
+                code,
+                id,
+            })),
         })
     }
 }
@@ -608,7 +612,7 @@ pub enum ReceiptEnum {
     Data(DataReceipt),
     PromiseYield(ActionReceipt),
     PromiseResume(DataReceipt),
-    GlobalContractDistribution(GlobalContractData),
+    GlobalContractDistribution(Arc<GlobalContractData>),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
