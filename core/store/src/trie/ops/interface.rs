@@ -71,12 +71,6 @@ pub enum GenericTrieNode<TrieNodePtr, GenericValueHandle> {
     },
 }
 
-impl<N, V> Default for GenericTrieNode<N, V> {
-    fn default() -> Self {
-        Self::Empty
-    }
-}
-
 impl<N, V> GenericTrieNode<N, V>
 where
     V: HasValueLength,
@@ -140,12 +134,6 @@ impl<N, V> From<GenericTrieNode<N, V>> for GenericUpdatedTrieNode<N, V> {
 pub struct GenericTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle> {
     pub node: GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>,
     pub memory_usage: u64,
-}
-
-impl<N, V> Default for GenericTrieNodeWithSize<N, V> {
-    fn default() -> Self {
-        Self { node: Default::default(), memory_usage: 0 }
-    }
 }
 
 /// An updated node with its memory usage.
