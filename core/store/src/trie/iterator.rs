@@ -31,11 +31,13 @@ impl Crumb {
             self.status = CrumbStatus::Exiting;
             return;
         }
-        if self.node.is_none() {
+
+        let Some(node) = &self.node else {
             self.status = CrumbStatus::Exiting;
             return;
-        }
-        self.status = match (&self.status, &self.node.as_ref().unwrap().node) {
+        };
+
+        self.status = match (&self.status, &node.node) {
             (&CrumbStatus::Entering, _) => CrumbStatus::At,
             (&CrumbStatus::At, TrieNode::Branch(_, _)) => CrumbStatus::AtChild(0),
             (&CrumbStatus::AtChild(x), TrieNode::Branch(_, _)) if x < 15 => {
@@ -157,10 +159,11 @@ impl<'a> DiskTrieIterator<'a> {
             self.descend_into_node(&hash)?;
             let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
             prev_prefix_boundary = prefix_boundary;
-            if node.is_none() {
+
+            let Some(node) = node else {
                 break;
-            }
-            match &node.as_ref().unwrap().node {
+            };
+            match &node.node {
                 TrieNode::Leaf(leaf_key, _) => {
                     let existing_key = NibbleSlice::from_encoded(leaf_key).0;
                     if !check_ext_key(&key, &existing_key) {
@@ -245,10 +248,10 @@ impl<'a> DiskTrieIterator<'a> {
     fn iter_step(&mut self) -> Option<IterStep> {
         let last = self.trail.last_mut()?;
         last.increment();
-        if last.node.is_none() {
+        let Some(node) = &last.node else {
             return Some(IterStep::PopTrail);
-        }
-        Some(match (last.status, &last.node.as_ref().unwrap().node) {
+        };
+        Some(match (last.status, &node.node) {
             (CrumbStatus::Exiting, n) => {
                 match n {
                     TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
