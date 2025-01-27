@@ -324,7 +324,7 @@ fn get_base_shard_layout(version: u64) -> ShardLayout {
 }
 
 /// Base setup to check sanity of Resharding V3.
-fn slow_test_resharding_v3_base(params: TestReshardingParameters) {
+fn test_resharding_v3_base(params: TestReshardingParameters) {
     if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
         return;
     }
@@ -1066,7 +1066,7 @@ fn slow_test_resharding_v3_delayed_receipts_right_child() {
     test_resharding_v3_base(params);
 }
 
-fn slow_test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_version: u64) {
+fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_version: u64) {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
@@ -1106,7 +1106,7 @@ fn slow_test_resharding_v3_split_parent_buffered_receipts_v2() {
     test_resharding_v3_split_parent_buffered_receipts_base(2);
 }
 
-fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
+fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
     base_shard_layout_version: u64,
 ) {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
@@ -1153,9 +1153,7 @@ fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard_v2() {
 /// buffer contains receipts to the shard that was split. Bandwidth requests to the child where the
 /// receipts will be sent must include the receipts stored in outgoing buffer to the parent shard,
 /// otherwise there will be no bandwidth grants to send them.
-fn slow_test_resharding_v3_large_receipts_towards_splitted_shard_base(
-    base_shard_layout_version: u64,
-) {
+fn test_resharding_v3_large_receipts_towards_splitted_shard_base(base_shard_layout_version: u64) {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let account_in_stable_shard: AccountId = "account1".parse().unwrap();
