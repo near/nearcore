@@ -23,9 +23,8 @@ impl UndoBlockCommand {
 
         let store_opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            None,
+            near_config.config.archival_config(),
         );
 
         let storage = store_opener.open_in_mode(Mode::ReadWrite).unwrap();
@@ -41,6 +40,7 @@ impl UndoBlockCommand {
             store,
             near_config.genesis.config.genesis_height,
             near_config.client_config.save_trie_changes,
+            near_config.genesis.config.transaction_validity_period,
         );
 
         if self.reset_only_body {

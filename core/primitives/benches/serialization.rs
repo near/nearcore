@@ -61,6 +61,7 @@ fn create_block() -> Block {
     Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
+        PROTOCOL_VERSION,
         genesis.header(),
         10,
         genesis.header().block_ordinal() + 1,
@@ -76,10 +77,11 @@ fn create_block() -> Block {
         Some(0),
         vec![],
         vec![],
-        &signer.into(),
+        &signer,
         CryptoHash::default(),
         CryptoHash::default(),
         Clock::real(),
+        None,
         None,
     )
 }
@@ -134,6 +136,7 @@ fn deserialize_account(bench: &mut Bencher) {
     let acc = create_account();
     let bytes = borsh::to_vec(&acc).unwrap();
     bench.iter(|| {
+        // cspell:ignore nacc
         let nacc = Account::try_from_slice(&bytes).unwrap();
         assert_eq!(nacc, acc);
     });

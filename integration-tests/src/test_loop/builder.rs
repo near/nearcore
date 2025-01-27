@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use tempfile::TempDir;
 
 use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
@@ -29,19 +30,22 @@ use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
+use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
-use near_store::{ShardUId, Store, StoreConfig, TrieConfig};
+use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
-use tempfile::TempDir;
 
 use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash};
+use super::utils::network::{
+    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
+};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -52,13 +56,15 @@ enum DropConditionKind {
     EndorsementsFrom(AccountId),
     /// Whether test loop should drop all chunks in the given range of heights
     /// relative to first block height where protocol version changes.
-    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardUId, std::ops::Range<i64>>)),
+    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardIndex, std::ops::Range<i64>>)),
     /// Specifies the chunks that should be produced by their appearance in the
     /// chain with respect to the start of an epoch. That is, a given chunk at height
     /// `height_created` for shard `shard_id` will be produced if
     /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
     /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
+    // Drops Block broadcast messages with height in `self.0`
+    BlocksByHeight(HashSet<BlockHeight>),
 }
 
 pub(crate) struct TestLoopBuilder {
@@ -79,7 +85,7 @@ pub(crate) struct TestLoopBuilder {
     archival_clients: HashSet<AccountId>,
     /// Will store all chunks produced within the test loop.
     chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    /// Conditions under which chunks/endorsements are dropped.
+    /// Conditions under which chunks/endorsements/blocks are dropped.
     drop_condition_kinds: Vec<DropConditionKind>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
@@ -91,6 +97,10 @@ pub(crate) struct TestLoopBuilder {
     warmup: bool,
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
+    /// Whether to load mem tries for the tracked shards.
+    load_memtries_for_tracked_shards: bool,
+    /// Upgrade schedule which determines when the clients start voting for new protocol versions.
+    upgrade_schedule: ProtocolUpgradeVotingSchedule,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -143,31 +153,31 @@ fn should_drop_chunk_for_protocol_upgrade(
     epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
     chunk: ShardChunkHeader,
     version_of_protocol_upgrade: ProtocolVersion,
-    chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+    chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
 ) -> bool {
     let prev_block_hash = chunk.prev_block_hash();
     let shard_id = chunk.shard_id();
     let height_created = chunk.height_created();
     let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
     let shard_layout = epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
-    let chunk_shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     // If there is no condition for the shard, all chunks
     // pass through.
-    let Some(range) = chunk_ranges.get(&chunk_shard_uid) else {
+    let Some(range) = chunk_ranges.get(&shard_index) else {
         return false;
     };
 
     let epoch_protocol_version =
         epoch_manager_adapter.get_epoch_protocol_version(&epoch_id).unwrap();
     // Drop condition for the first epoch with new protocol version.
-    if epoch_protocol_version == version_of_protocol_upgrade {
+    if epoch_protocol_version >= version_of_protocol_upgrade {
         let prev_epoch_id =
             epoch_manager_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash).unwrap();
         let prev_epoch_protocol_version =
             epoch_manager_adapter.get_epoch_protocol_version(&prev_epoch_id).unwrap();
         // If this is not the first epoch with new protocol version,
         // all chunks go through.
-        if prev_epoch_protocol_version == version_of_protocol_upgrade {
+        if prev_epoch_protocol_version >= version_of_protocol_upgrade {
             return false;
         }
 
@@ -183,7 +193,7 @@ fn should_drop_chunk_for_protocol_upgrade(
         let epoch_start_height =
             epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
         range.contains(&(height_created as i64 - epoch_start_height as i64))
-    } else if epoch_protocol_version + 1 == version_of_protocol_upgrade {
+    } else if epoch_protocol_version < version_of_protocol_upgrade {
         // Drop condition for the last epoch with old protocol version.
         let maybe_upgrade_height = epoch_manager_adapter
             .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
@@ -269,6 +279,9 @@ fn register_drop_condition(
                 drop_chunks_condition,
             ));
         }
+        DropConditionKind::BlocksByHeight(heights) => {
+            peer_manager_actor.register_override_handler(block_dropper_by_height(heights.clone()));
+        }
     }
 }
 
@@ -289,6 +302,8 @@ impl TestLoopBuilder {
             config_modifier: None,
             warmup: true,
             track_all_shards: false,
+            load_memtries_for_tracked_shards: true,
+            upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
         }
     }
 
@@ -305,6 +320,11 @@ impl TestLoopBuilder {
 
     pub(crate) fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
         self.epoch_config_store = Some(epoch_config_store);
+        self
+    }
+
+    pub(crate) fn runtime_config_store(mut self, runtime_config_store: RuntimeConfigStore) -> Self {
+        self.runtime_config_store = Some(runtime_config_store);
         self
     }
 
@@ -349,7 +369,7 @@ impl TestLoopBuilder {
     pub(crate) fn drop_protocol_upgrade_chunks(
         mut self,
         protocol_version: ProtocolVersion,
-        chunk_ranges: HashMap<ShardUId, std::ops::Range<i64>>,
+        chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
     ) -> Self {
         if !chunk_ranges.is_empty() {
             self.drop_condition_kinds.push(DropConditionKind::ProtocolUpgradeChunkRange((
@@ -367,6 +387,13 @@ impl TestLoopBuilder {
         if !chunks_produced.is_empty() {
             self.drop_condition_kinds
                 .push(DropConditionKind::ChunksProducedByHeight(chunks_produced));
+        }
+        self
+    }
+
+    pub(crate) fn drop_blocks_by_height(mut self, heights: HashSet<BlockHeight>) -> Self {
+        if !heights.is_empty() {
+            self.drop_condition_kinds.push(DropConditionKind::BlocksByHeight(heights));
         }
         self
     }
@@ -400,10 +427,20 @@ impl TestLoopBuilder {
         self
     }
 
+    pub fn load_memtries_for_tracked_shards(mut self, load_memtries: bool) -> Self {
+        self.load_memtries_for_tracked_shards = load_memtries;
+        self
+    }
+
     /// Overrides the tempdir (which contains state dump, etc.) instead
     /// of creating a new one.
     pub fn test_loop_data_dir(mut self, dir: TempDir) -> Self {
         self.test_loop_data_dir = Some(dir);
+        self
+    }
+
+    pub fn protocol_upgrade_schedule(mut self, schedule: ProtocolUpgradeVotingSchedule) -> Self {
+        self.upgrade_schedule = schedule;
         self
     }
 
@@ -471,9 +508,13 @@ impl TestLoopBuilder {
         let genesis = self.genesis.as_ref().unwrap();
         let epoch_config_store = self.epoch_config_store.as_ref().unwrap();
         let mut client_config = ClientConfig::test(true, 600, 2000, 4, is_archival, true, false);
+        client_config.epoch_length = genesis.config.epoch_length;
         client_config.max_block_wait_delay = Duration::seconds(6);
         client_config.state_sync_enabled = true;
-        client_config.state_sync_timeout = Duration::milliseconds(100);
+        client_config.state_sync_external_timeout = Duration::milliseconds(100);
+        client_config.state_sync_p2p_timeout = Duration::milliseconds(100);
+        client_config.state_sync_retry_backoff = Duration::milliseconds(100);
+        client_config.state_sync_external_backoff = Duration::milliseconds(100);
         if let Some(num_epochs) = self.gc_num_epochs_to_keep {
             client_config.gc.gc_num_epochs_to_keep = num_epochs;
         }
@@ -520,7 +561,7 @@ impl TestLoopBuilder {
 
         let store_config = StoreConfig {
             path: Some(homedir.clone()),
-            load_mem_tries_for_tracked_shards: true,
+            load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             ..Default::default()
         };
 
@@ -557,6 +598,7 @@ impl TestLoopBuilder {
             self.runtime_config_store.clone(),
             TrieConfig::from_store_config(&store_config),
             StateSnapshotType::EveryEpoch,
+            client_config.gc.gc_num_epochs_to_keep,
         );
 
         let state_snapshot = StateSnapshotActor::new(
@@ -608,11 +650,12 @@ impl TestLoopBuilder {
             resharding_sender.as_multi_sender(),
             Arc::new(self.test_loop.future_spawner()),
             client_adapter.as_multi_sender(),
+            self.upgrade_schedule.clone(),
         )
         .unwrap();
 
         // If this is an archival node and split storage is initialized, then create view-specific
-        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initiaze the
+        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
         // ViewClientActorInner. Otherwise, we use the regular versions created above.
         let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
             if let Some(split_store) = &split_store {
@@ -634,6 +677,7 @@ impl TestLoopBuilder {
                     self.runtime_config_store.clone(),
                     TrieConfig::from_store_config(&store_config),
                     StateSnapshotType::EveryEpoch,
+                    client_config.gc.gc_num_epochs_to_keep,
                 );
                 (view_epoch_manager, view_shard_tracker, view_runtime_adapter)
             } else {
@@ -688,13 +732,16 @@ impl TestLoopBuilder {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
         );
 
         let gc_actor = GCActor::new(
             runtime_adapter.store().clone(),
-            chain_genesis.height,
+            &chain_genesis,
             runtime_adapter.clone(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
+            validator_signer.clone(),
             client_config.gc.clone(),
             client_config.archive,
         );
@@ -702,7 +749,7 @@ impl TestLoopBuilder {
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
 
         let resharding_actor =
-            ReshardingActor::new(runtime_adapter.store().clone(), chain_genesis.height);
+            ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
 
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
@@ -717,6 +764,7 @@ impl TestLoopBuilder {
                 future_spawner.spawn_boxed("state_sync_dumper", future);
                 Box::new(|| {})
             }),
+            future_spawner: Arc::new(self.test_loop.future_spawner()),
             handle: None,
         };
         let state_sync_dumper_handle = self.test_loop.data.register_data(state_sync_dumper);

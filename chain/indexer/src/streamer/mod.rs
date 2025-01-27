@@ -26,6 +26,7 @@ use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
+use near_epoch_manager::shard_tracker::ShardTracker;
 
 mod errors;
 mod fetchers;
@@ -36,7 +37,7 @@ static DELAYED_LOCAL_RECEIPTS_CACHE: std::sync::LazyLock<
     Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>>,
 > = std::sync::LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-const INTERVAL: Duration = Duration::from_millis(500);
+const INTERVAL: Duration = Duration::from_millis(250);
 
 /// Blocks #47317863 and #47317864 with restored receipts.
 const PROBLEMATIC_BLOCKS: [CryptoHash; 2] = [
@@ -74,9 +75,10 @@ fn test_problematic_blocks_hash() {
 pub async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
+    shard_tracker: &ShardTracker,
 ) -> Result<StreamerMessage, FailedToFetchData> {
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
-    let chunks = fetch_block_chunks(&client, &block).await?;
+    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let shard_ids = protocol_config_view.shard_layout.shard_ids();
@@ -100,7 +102,7 @@ pub async fn build_streamer_message(
         })
         .collect::<Vec<_>>();
 
-    for (shard_index, chunk) in chunks.into_iter().enumerate() {
+    for chunk in chunks.into_iter() {
         let views::ChunkView { transactions, author, header, receipts: chunk_non_local_receipts } =
             chunk;
 
@@ -200,6 +202,7 @@ pub async fn build_streamer_message(
                         &runtime_config,
                         block.clone(),
                         execution_outcome.id,
+                        shard_tracker,
                     )
                     .await?
                 }
@@ -232,7 +235,12 @@ pub async fn build_streamer_message(
         }
 
         chunk_receipts.extend(chunk_non_local_receipts);
-
+        // Find the shard index for the chunk by shard_id
+        let shard_index = protocol_config_view
+            .shard_layout
+            .get_shard_index(header.shard_id)
+            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
+        // Add receipt_execution_outcomes into corresponding indexer shard
         indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
         // Put the chunk into corresponding indexer shard
         indexer_shards[shard_index].chunk = Some(IndexerChunkView {
@@ -250,7 +258,7 @@ pub async fn build_streamer_message(
         let shard_index = protocol_config_view
             .shard_layout
             .get_shard_index(shard_id)
-            .expect("Failed to get shard index");
+            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
         indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
             |outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,
@@ -271,6 +279,7 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: CryptoHash,
+    shard_tracker: &ShardTracker,
 ) -> Result<views::ReceiptView, FailedToFetchData> {
     let mut prev_block_tried = 0u16;
     let mut prev_block_hash = block.header.prev_hash;
@@ -294,9 +303,14 @@ async fn lookup_delayed_local_receipt_in_previous_blocks(
 
         prev_block_hash = prev_block.header.prev_hash;
 
-        if let Some(receipt) =
-            find_local_receipt_by_id_in_block(&client, &runtime_config, prev_block, receipt_id)
-                .await?
+        if let Some(receipt) = find_local_receipt_by_id_in_block(
+            &client,
+            &runtime_config,
+            prev_block,
+            receipt_id,
+            shard_tracker,
+        )
+        .await?
         {
             tracing::debug!(
                 target: INDEXER,
@@ -319,8 +333,9 @@ async fn find_local_receipt_by_id_in_block(
     runtime_config: &RuntimeConfig,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
+    shard_tracker: &ShardTracker,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
-    let chunks = fetch_block_chunks(&client, &block).await?;
+    let chunks = fetch_block_chunks(&client, &block, shard_tracker).await?;
 
     let protocol_config_view = fetch_protocol_config(&client, block.header.hash).await?;
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
@@ -366,14 +381,14 @@ async fn find_local_receipt_by_id_in_block(
 pub(crate) async fn start(
     view_client: Addr<near_client::ViewClientActor>,
     client: Addr<near_client::ClientActor>,
+    shard_tracker: ShardTracker,
     indexer_config: IndexerConfig,
     store_config: near_store::StoreConfig,
-    archive: bool,
     blocks_sink: mpsc::Sender<StreamerMessage>,
 ) {
     info!(target: INDEXER, "Starting Streamer...");
     let indexer_db_path =
-        near_store::NodeStorage::opener(&indexer_config.home_dir, archive, &store_config, None)
+        near_store::NodeStorage::opener(&indexer_config.home_dir, &store_config, None)
             .path()
             .join("indexer");
 
@@ -398,11 +413,12 @@ pub(crate) async fn start(
             AwaitForNodeSyncedEnum::StreamWhileSyncing => {}
         };
 
-        let block = if let Ok(block) = fetch_latest_block(&view_client).await {
-            block
-        } else {
-            continue;
-        };
+        let block =
+            if let Ok(block) = fetch_latest_block(&view_client, &indexer_config.finality).await {
+                block
+            } else {
+                continue;
+            };
 
         let latest_block_height = block.header.height;
         let start_syncing_block_height = if let Some(last_synced_block_height) =
@@ -433,7 +449,7 @@ pub(crate) async fn start(
         for block_height in start_syncing_block_height..=latest_block_height {
             metrics::CURRENT_BLOCK_HEIGHT.set(block_height as i64);
             if let Ok(block) = fetch_block_by_height(&view_client, block_height).await {
-                let response = build_streamer_message(&view_client, block).await;
+                let response = build_streamer_message(&view_client, block, &shard_tracker).await;
 
                 match response {
                     Ok(streamer_message) => {

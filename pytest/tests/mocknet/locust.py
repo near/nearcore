@@ -34,7 +34,7 @@ def init_cmd(args):
     pmap(init_locust_node, nodes)
 
 
-def parse_instsance_names(args):
+def parse_instance_names(args):
     if args.master is None:
         print('master instance name?: ')
         args.master = sys.stdin.readline().strip()
@@ -125,7 +125,7 @@ def run_cmd(args):
     if not args.web_ui and args.num_users is None:
         sys.exit('unless you pass --web-ui, --num-users must be set')
 
-    master, workers = parse_instsance_names(args)
+    master, workers = parse_instance_names(args)
 
     run_master(args, master, len(workers))
     if args.web_ui:
@@ -141,7 +141,7 @@ def run_cmd(args):
 
 
 def stop_cmd(args):
-    master, workers = parse_instsance_names(args)
+    master, workers = parse_instance_names(args)
     # TODO: this feels kind of imprecise and heavy-handed, since we're just looking for a command that matches "python3.*locust.*master" and killing it,
     # instead of remembering what the process' IP was. Should be possible to do this right, but this will work for now
     cmd_utils.run_cmd(

@@ -15,11 +15,11 @@ pub fn from_base64(encoded: &str) -> Result<Vec<u8>, base64::DecodeError> {
     BASE64_STANDARD.decode(encoded)
 }
 
-/// Serialises number as a string; deserialises either as a string or number.
+/// Serializes number as a string; deserializes either as a string or number.
 ///
 /// This format works for `u64`, `u128`, `Option<u64>` and `Option<u128>` types.
-/// When serialising, numbers are serialised as decimal strings.  When
-/// deserialising, strings are parsed as decimal numbers while numbers are
+/// When serializing, numbers are serialized as decimal strings.  When
+/// deserializing, strings are parsed as decimal numbers while numbers are
 /// interpreted as is.
 pub mod dec_format {
     use serde::de;
@@ -29,7 +29,7 @@ pub mod dec_format {
     #[error("cannot parse from unit")]
     pub struct ParseUnitError;
 
-    /// Abstraction between integers that we serialise.
+    /// Abstraction between integers that we serialize.
     pub trait DecType: Sized {
         /// Formats number as a decimal string; passes `None` as is.
         fn serialize(&self) -> Option<String>;
@@ -138,7 +138,7 @@ fn test_u64_dec_format() {
 
     assert_round_trip("{\"field\":\"42\"}", Test { field: 42 });
     assert_round_trip("{\"field\":\"18446744073709551615\"}", Test { field: u64::MAX });
-    assert_deserialise("{\"field\":42}", Test { field: 42 });
+    assert_deserialize("{\"field\":42}", Test { field: 42 });
     assert_de_error::<Test>("{\"field\":18446744073709551616}");
     assert_de_error::<Test>("{\"field\":\"18446744073709551616\"}");
     assert_de_error::<Test>("{\"field\":42.0}");
@@ -155,7 +155,7 @@ fn test_u128_dec_format() {
     assert_round_trip("{\"field\":\"42\"}", Test { field: 42 });
     assert_round_trip("{\"field\":\"18446744073709551615\"}", Test { field: u64::MAX as u128 });
     assert_round_trip("{\"field\":\"18446744073709551616\"}", Test { field: 18446744073709551616 });
-    assert_deserialise("{\"field\":42}", Test { field: 42 });
+    assert_deserialize("{\"field\":42}", Test { field: 42 });
     assert_de_error::<Test>("{\"field\":null}");
     assert_de_error::<Test>("{\"field\":42.0}");
 }
@@ -178,31 +178,31 @@ fn test_option_u128_dec_format() {
         "{\"field\":\"18446744073709551616\"}",
         Test { field: Some(18446744073709551616) },
     );
-    assert_deserialise("{\"field\":42}", Test { field: Some(42) });
+    assert_deserialize("{\"field\":42}", Test { field: Some(42) });
     assert_de_error::<Test>("{\"field\":42.0}");
 }
 
 #[cfg(test)]
 #[track_caller]
-fn assert_round_trip<'a, T>(serialised: &'a str, obj: T)
+fn assert_round_trip<'a, T>(serialized: &'a str, obj: T)
 where
     T: serde::Deserialize<'a> + serde::Serialize + std::fmt::Debug + std::cmp::PartialEq,
 {
-    assert_eq!(serialised, serde_json::to_string(&obj).unwrap());
-    assert_eq!(obj, serde_json::from_str(serialised).unwrap());
+    assert_eq!(serialized, serde_json::to_string(&obj).unwrap());
+    assert_eq!(obj, serde_json::from_str(serialized).unwrap());
 }
 
 #[cfg(test)]
 #[track_caller]
-fn assert_deserialise<'a, T>(serialised: &'a str, obj: T)
+fn assert_deserialize<'a, T>(serialized: &'a str, obj: T)
 where
     T: serde::Deserialize<'a> + std::fmt::Debug + std::cmp::PartialEq,
 {
-    assert_eq!(obj, serde_json::from_str(serialised).unwrap());
+    assert_eq!(obj, serde_json::from_str(serialized).unwrap());
 }
 
 #[cfg(test)]
 #[track_caller]
-fn assert_de_error<'a, T: serde::Deserialize<'a> + std::fmt::Debug>(serialised: &'a str) {
-    serde_json::from_str::<T>(serialised).unwrap_err();
+fn assert_de_error<'a, T: serde::Deserialize<'a> + std::fmt::Debug>(serialized: &'a str) {
+    serde_json::from_str::<T>(serialized).unwrap_err();
 }

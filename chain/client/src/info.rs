@@ -339,7 +339,7 @@ impl InfoHelper {
             // adapter calls) is expensive when node is syncing so we’re simply
             // not collecting the statistics.  The statistics are used to update
             // a few Prometheus metrics only so we prefer to leave the metrics
-            // unset until node finishes synchronising.  TODO(#6763): If we
+            // unset until node finishes synchronizing.  TODO(#6763): If we
             // manage to get get_validator_info fasts again (or return an error
             // if computation would be too slow), remove the ‘if is_syncing’
             // check.
@@ -521,14 +521,17 @@ impl InfoHelper {
                     metrics::VALIDATORS_CHUNKS_EXPECTED
                         .with_label_values(&[stats.account_id.as_str()])
                         .set(stats.num_expected_chunks as i64);
-                    for i in 0..stats.shards.len() {
-                        let shard = stats.shards[i];
+                    for i in 0..stats.shards_produced.len() {
+                        let shard = stats.shards_produced[i];
                         metrics::VALIDATORS_CHUNKS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_chunks_per_shard[i] as i64);
                         metrics::VALIDATORS_CHUNKS_PRODUCED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_produced_chunks_per_shard[i] as i64);
+                    }
+                    for i in 0..stats.shards_endorsed.len() {
+                        let shard = stats.shards_endorsed[i];
                         metrics::VALIDATORS_CHUNK_ENDORSEMENTS_EXPECTED_BY_SHARD
                             .with_label_values(&[stats.account_id.as_str(), &shard.to_string()])
                             .set(stats.num_expected_endorsements_per_shard[i] as i64);
@@ -612,12 +615,14 @@ impl InfoHelper {
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
+
+        let mut json = serde_json::to_value(info).expect("Telemetry must serialize to JSON");
         // Sign telemetry if there is a signer present.
         if let Some(signer) = signer {
-            signer.sign_telemetry(&info)
-        } else {
-            serde_json::to_value(&info).expect("Telemetry must serialize to json")
+            let content = serde_json::to_string(&json).expect("Telemetry must serialize to JSON");
+            json["signature"] = signer.sign_bytes(content.as_bytes()).to_string().into();
         }
+        json
     }
 
     fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
@@ -868,6 +873,7 @@ impl std::fmt::Display for PrettyNumber {
         if num < 1_000 {
             return write!(f, "{} {}", num, unit);
         }
+        // cspell:ignore MGTPE
         for prefix in b"kMGTPE" {
             if num < 1_000_000 {
                 let precision = if num < 10_000 {
@@ -909,7 +915,10 @@ struct ValidatorProductionStats {
     num_expected_blocks: NumBlocks,
     num_produced_chunks: NumBlocks,
     num_expected_chunks: NumBlocks,
-    shards: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk producer in the current epoch.
+    shards_produced: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk validator in the current epoch.
+    shards_endorsed: Vec<ShardId>,
     num_produced_chunks_per_shard: Vec<NumBlocks>,
     num_expected_chunks_per_shard: Vec<NumBlocks>,
     num_produced_endorsements_per_shard: Vec<NumBlocks>,
@@ -921,13 +930,24 @@ impl ValidatorProductionStatus {
         Self::Kickout(kickout.account_id)
     }
     pub fn validator(info: CurrentEpochValidatorInfo) -> Self {
+        debug_assert_eq!(
+            info.shards_produced.len(),
+            info.num_expected_chunks_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
+        debug_assert_eq!(
+            info.shards_endorsed.len(),
+            info.num_expected_endorsements_per_shard.len(),
+            "Number of shards must match number of shards expected to produce a chunk for"
+        );
         Self::Validator(ValidatorProductionStats {
             account_id: info.account_id,
             num_produced_blocks: info.num_produced_blocks,
             num_expected_blocks: info.num_expected_blocks,
             num_produced_chunks: info.num_produced_chunks,
             num_expected_chunks: info.num_expected_chunks,
-            shards: info.shards,
+            shards_produced: info.shards_produced,
+            shards_endorsed: info.shards_endorsed,
             num_produced_chunks_per_shard: info.num_produced_chunks_per_shard,
             num_expected_chunks_per_shard: info.num_expected_chunks_per_shard,
             num_produced_endorsements_per_shard: info.num_produced_endorsements_per_shard,

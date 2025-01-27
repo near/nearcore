@@ -18,8 +18,8 @@ pub struct TrieStoreAdapter {
 }
 
 impl StoreAdapter for TrieStoreAdapter {
-    fn store(&self) -> Store {
-        self.store.clone()
+    fn store_ref(&self) -> &Store {
+        &self.store
     }
 }
 
@@ -168,9 +168,32 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         )
     }
 
+    /// Remove State of any shard that uses `shard_uid_db_key_prefix` as database key prefix.
+    /// That is potentially State of any descendant of the shard with the given `ShardUId`.
+    /// Use with caution, as it might potentially remove the State of a descendant shard that is still in use!
+    pub fn delete_shard_uid_prefixed_state(&mut self, shard_uid_db_key_prefix: ShardUId) {
+        let key_from = shard_uid_db_key_prefix.to_bytes();
+        let key_to = ShardUId::get_upper_bound_db_key(&key_from);
+        self.store_update.delete_range(DBCol::State, &key_from, &key_to);
+    }
+
     pub fn delete_all_state(&mut self) {
         self.store_update.delete_all(DBCol::State)
     }
+}
+
+/// Get the `ShardUId` mapping for child_shard_uid. If the mapping does not exist, map the shard to itself.
+/// Used by Resharding V3 for State mapping.
+///
+/// It is kept out of `TrieStoreAdapter`, so that `TrieStoreUpdateAdapter` can use it without
+/// cloning `store` each time, see https://github.com/near/nearcore/pull/12232#discussion_r1804810508.
+pub fn get_shard_uid_mapping(store: &Store, child_shard_uid: ShardUId) -> ShardUId {
+    store
+        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &child_shard_uid.to_bytes())
+        .unwrap_or_else(|_| {
+            panic!("get_shard_uid_mapping() failed for child_shard_uid = {}", child_shard_uid)
+        })
+        .unwrap_or(child_shard_uid)
 }
 
 /// Constructs db key to be used to access the State column.
@@ -186,10 +209,7 @@ fn get_key_from_shard_uid_and_hash(
     shard_uid: ShardUId,
     hash: &CryptoHash,
 ) -> [u8; 40] {
-    let mapped_shard_uid = store
-        .get_ser::<ShardUId>(DBCol::StateShardUIdMapping, &shard_uid.to_bytes())
-        .expect("get_key_from_shard_uid_and_hash() failed")
-        .unwrap_or(shard_uid);
+    let mapped_shard_uid = get_shard_uid_mapping(store, shard_uid);
     let mut key = [0; 40];
     key[0..8].copy_from_slice(&mapped_shard_uid.to_bytes());
     key[8..].copy_from_slice(hash.as_ref());

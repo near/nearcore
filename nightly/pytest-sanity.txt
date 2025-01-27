@@ -1,4 +1,5 @@
 # python sanity tests
+# cspell:ignore manytx onetx notx
 pytest sanity/simple.py
 pytest sanity/simple.py --features nightly
 pytest sanity/block_production.py
@@ -41,6 +42,8 @@ pytest --timeout=240 sanity/state_sync5.py --features nightly
 #pytest --timeout=300 sanity/state_sync_late.py notx --features nightly
 pytest sanity/state_sync_missing_chunks.py
 pytest sanity/state_sync_missing_chunks.py --features nightly
+pytest --timeout=600 sanity/state_sync_routed.py manytx 115
+pytest --timeout=600 sanity/state_sync_routed.py manytx 115 --features nightly
 
 pytest --timeout=270 sanity/single_shard_tracking.py
 pytest --timeout=270 sanity/single_shard_tracking.py --features nightly
@@ -59,10 +62,12 @@ pytest sanity/sync_chunks_from_archival.py
 pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
+pytest sanity/rpc_missing_block.py
+pytest sanity/rpc_missing_block.py --features nightly
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/one_val.py nightly --features nightly
-pytest --timeout=240 sanity/lightclnt.py
-pytest --timeout=240 sanity/lightclnt.py --features nightly
+pytest --timeout=240 sanity/lightclient_test.py
+pytest --timeout=240 sanity/lightclient_test.py --features nightly
 pytest sanity/rpc_light_client_execution_outcome_proof.py
 pytest sanity/rpc_light_client_execution_outcome_proof.py --features nightly
 pytest --timeout=240 sanity/block_sync.py
@@ -103,8 +108,6 @@ pytest --timeout=300 sanity/gc_after_sync1.py
 pytest --timeout=300 sanity/gc_after_sync1.py --features nightly
 pytest --timeout=300 sanity/gc_sync_after_sync.py
 pytest --timeout=300 sanity/gc_sync_after_sync.py --features nightly
-pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes
-pytest --timeout=300 sanity/gc_sync_after_sync.py swap_nodes --features nightly
 pytest --timeout=300 sanity/large_messages.py
 pytest --timeout=300 sanity/large_messages.py --features nightly
 pytest --timeout=120 sanity/handshake_tie_resolution.py

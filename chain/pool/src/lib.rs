@@ -89,7 +89,7 @@ impl TransactionPool {
             return InsertTransactionResult::Duplicate;
         }
         // We never expect the total size to go over `u64` during real operation as that would
-        // be more than 10^9 GiB of RAM consumed for transaction pool, so panicing here is intended
+        // be more than 10^9 GiB of RAM consumed for transaction pool, so panicking here is intended
         // to catch a logic error in estimation of transaction size.
         let new_total_transaction_size = self
             .total_transaction_size
@@ -147,7 +147,7 @@ impl TransactionPool {
                     if !hashes.contains(&tx.get_hash()) {
                         return true;
                     }
-                    // See the comment above where we increase the size for reasoning why panicing
+                    // See the comment above where we increase the size for reasoning why panicking
                     // here catches a logic error.
                     self.total_transaction_size = self
                         .total_transaction_size
@@ -245,7 +245,7 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
                         self.pool.unique_transactions.remove(&hash);
                     }
                     // See the comment in `insert_transaction` where we increase the size for reasoning
-                    // why panicing here catches a logic error.
+                    // why panicking here catches a logic error.
                     self.pool.total_transaction_size = self
                         .pool
                         .total_transaction_size
@@ -276,7 +276,7 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
                 self.pool.unique_transactions.remove(&hash);
             }
             // See the comment in `insert_transaction` where we increase the size for reasoning
-            // why panicing here catches a logic error.
+            // why panicking here catches a logic error.
             self.pool.total_transaction_size = self
                 .pool
                 .total_transaction_size
@@ -351,9 +351,8 @@ mod tests {
         end_nonce: u64,
     ) -> Vec<SignedTransaction> {
         let signer_id: AccountId = signer_id.parse().unwrap();
-        let signer = Arc::new(
-            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed).into(),
-        );
+        let signer =
+            Arc::new(InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed));
         (starting_nonce..=end_nonce)
             .map(|i| {
                 SignedTransaction::send_money(
@@ -467,10 +466,11 @@ mod tests {
             .map(|i| {
                 let signer_id = AccountId::try_from(format!("user_{}", i % 5)).unwrap();
                 let signer_seed = format!("user_{}", i % 3);
-                let signer = Arc::new(
-                    InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, &signer_seed)
-                        .into(),
-                );
+                let signer = Arc::new(InMemorySigner::from_seed(
+                    signer_id.clone(),
+                    KeyType::ED25519,
+                    &signer_seed,
+                ));
                 SignedTransaction::send_money(
                     i,
                     signer_id,
@@ -560,11 +560,7 @@ mod tests {
         let transactions = (1..=10)
             .map(|i| {
                 let signer_id = AccountId::try_from(format!("user_{}", i)).unwrap();
-                let signer_seed = signer_id.as_ref();
-                let signer = Arc::new(
-                    InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_seed)
-                        .into(),
-                );
+                let signer = Arc::new(InMemorySigner::test_signer(&signer_id));
                 SignedTransaction::send_money(
                     i,
                     signer_id,

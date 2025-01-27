@@ -2,8 +2,25 @@ use crate::trie::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
 use crate::DBCol;
-use near_primitives::shard_layout::ShardUId;
-use std::{collections::HashMap, iter::FromIterator};
+use near_primitives::chains::MAINNET;
+use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::types::AccountId;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_time::Duration;
+use std::{collections::HashMap, str::FromStr};
+
+// known cache access patterns per prominent contract account
+// used to derive config `per_account_max_bytes`
+const PER_ACCOUNT_CACHE_SIZE: &[(&'static str, bytesize::ByteSize)] = &[
+    // aurora has its dedicated shard and it had very few cache misses even with
+    // cache size of only 50MB
+    ("aurora", bytesize::ByteSize::mb(50)),
+    // size was chosen by the estimation of the largest contract (token.sweat) storage size
+    // we are aware as of 23/08/2022
+    // Note: on >= 1.34 nearcore version use 1gb if you have minimal hardware
+    ("token.sweat", bytesize::ByteSize::gb(3)),
+];
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -66,9 +83,11 @@ pub struct StoreConfig {
     /// List of shard UIDs for which we should load the tries in memory.
     /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
     /// strategy for that.
-    pub load_mem_tries_for_shards: Vec<ShardUId>,
-    /// If true, load mem trie for each shard being tracked; this has priority over `load_mem_tries_for_shards`.
-    pub load_mem_tries_for_tracked_shards: bool,
+    #[serde(rename = "load_mem_tries_for_shards")]
+    pub load_memtries_for_shards: Vec<ShardUId>,
+    /// If true, load mem trie for each shard being tracked; this has priority over `load_memtries_for_shards`.
+    #[serde(rename = "load_mem_tries_for_tracked_shards")]
+    pub load_memtries_for_tracked_shards: bool,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -173,6 +192,35 @@ impl StoreConfig {
             _ => bytesize::ByteSize::mib(32),
         }
     }
+
+    fn default_per_shard_max_bytes() -> HashMap<ShardUId, bytesize::ByteSize> {
+        let epoch_config_store = EpochConfigStore::for_chain_id(MAINNET, None).unwrap();
+        let mut shard_layouts: Vec<ShardLayout> = Vec::new();
+        // Ideally we should use the protocol version from current epoch config as start of
+        // the range, but store should not need to depend on the knowledge of current epoch.
+        let start_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
+        // T-1 to ensure cache limits for old layout are included on the edge of upgrading.
+        let start_version = start_version.min(PROTOCOL_VERSION - 1);
+        for protocol_version in start_version..=PROTOCOL_VERSION {
+            let epoch_config = epoch_config_store.get_config(protocol_version);
+            let shard_layout = epoch_config.shard_layout.clone();
+            // O(n) is fine as list is short
+            if !shard_layouts.contains(&shard_layout) {
+                shard_layouts.push(shard_layout);
+            }
+        }
+
+        let mut per_shard_max_bytes: HashMap<ShardUId, bytesize::ByteSize> = HashMap::new();
+        for (account_id, bytes) in PER_ACCOUNT_CACHE_SIZE.iter() {
+            let account_id = AccountId::from_str(account_id)
+                .expect("the hardcoded account id should guarantee to be valid");
+            for shard_layout in shard_layouts.iter() {
+                let shard_uid = shard_layout.account_id_to_shard_uid(&account_id);
+                per_shard_max_bytes.insert(shard_uid, *bytes);
+            }
+        }
+        per_shard_max_bytes
+    }
 }
 
 impl Default for StoreConfig {
@@ -204,31 +252,13 @@ impl Default for StoreConfig {
             // #9389.
             col_flat_state_cache_size: bytesize::ByteSize::mib(128),
 
-            // This value was taken from the Openethereum default parameter and
+            // This value was taken from the open-ethereum default parameter and
             // we use it since then.
             block_size: bytesize::ByteSize::kib(16),
 
             trie_cache: TrieCacheConfig {
                 default_max_bytes: bytesize::ByteSize::mb(500),
-                // TODO(resharding) The cache size needs to adjusted for every resharding.
-                // Make that automatic e.g. by defining the minimum cache size per account rather than shard.
-                per_shard_max_bytes: HashMap::from_iter([
-                    // Temporary solution to make contracts with heavy trie access
-                    // patterns on shard 3 more stable. It was chosen by the estimation
-                    // of the largest contract storage size we are aware as of 23/08/2022.
-                    // Note: on >= 1.34 nearcore version use 1gb if you have minimal hardware.
-                    // In simple nightshade the heavy contract "token.sweat" is in shard 3
-                    (ShardUId { version: 1, shard_id: 3 }, bytesize::ByteSize::gb(3)),
-                    // In simple nightshade v2 the heavy contract "token.sweat" is in shard 4
-                    (ShardUId { version: 2, shard_id: 4 }, bytesize::ByteSize::gb(3)),
-                    // In simple nightshade v3 the heavy contract "token.sweat" is in shard 5
-                    (ShardUId { version: 3, shard_id: 5 }, bytesize::ByteSize::gb(3)),
-                    // Shard 1 is dedicated to aurora and it had very few cache
-                    // misses even with cache size of only 50MB
-                    (ShardUId { version: 1, shard_id: 1 }, bytesize::ByteSize::mb(50)),
-                    (ShardUId { version: 2, shard_id: 1 }, bytesize::ByteSize::mb(50)),
-                    (ShardUId { version: 3, shard_id: 1 }, bytesize::ByteSize::mb(50)),
-                ]),
+                per_shard_max_bytes: Self::default_per_shard_max_bytes(),
                 shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             },
 
@@ -237,6 +267,7 @@ impl Default for StoreConfig {
             view_trie_cache: TrieCacheConfig::default(),
 
             enable_receipt_prefetching: true,
+            // cspell:ignore vfinal
             sweat_prefetch_receivers: vec![
                 "token.sweat".to_owned(),
                 "vfinal.token.sweat.testnet".to_owned(),
@@ -261,8 +292,8 @@ impl Default for StoreConfig {
             // Doesn't work for resharding.
             // It will speed up processing of shards where it is enabled, but
             // requires more RAM and takes several minutes on startup.
-            load_mem_tries_for_shards: Default::default(),
-            load_mem_tries_for_tracked_shards: false,
+            load_memtries_for_shards: Default::default(),
+            load_memtries_for_tracked_shards: false,
 
             migration_snapshot: Default::default(),
 
@@ -335,6 +366,59 @@ impl Default for TrieCacheConfig {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct SplitStorageConfig {
+    #[serde(default = "default_enable_split_storage_view_client")]
+    pub enable_split_storage_view_client: bool,
+
+    #[serde(default = "default_cold_store_initial_migration_batch_size")]
+    pub cold_store_initial_migration_batch_size: usize,
+    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub cold_store_initial_migration_loop_sleep_duration: Duration,
+
+    #[serde(default = "default_cold_store_loop_sleep_duration")]
+    #[serde(with = "near_time::serde_duration_as_std")]
+    pub cold_store_loop_sleep_duration: Duration,
+
+    #[serde(default = "default_num_cold_store_read_threads")]
+    pub num_cold_store_read_threads: usize,
+}
+
+impl Default for SplitStorageConfig {
+    fn default() -> Self {
+        SplitStorageConfig {
+            enable_split_storage_view_client: default_enable_split_storage_view_client(),
+            cold_store_initial_migration_batch_size:
+                default_cold_store_initial_migration_batch_size(),
+            cold_store_initial_migration_loop_sleep_duration:
+                default_cold_store_initial_migration_loop_sleep_duration(),
+            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
+            num_cold_store_read_threads: default_num_cold_store_read_threads(),
+        }
+    }
+}
+
+fn default_enable_split_storage_view_client() -> bool {
+    false
+}
+
+fn default_cold_store_initial_migration_batch_size() -> usize {
+    500_000_000
+}
+
+fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
+    Duration::seconds(30)
+}
+
+fn default_num_cold_store_read_threads() -> usize {
+    4
+}
+
+fn default_cold_store_loop_sleep_duration() -> Duration {
+    Duration::seconds(1)
+}
+
 /// Parameters for prefetching certain contract calls.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -345,4 +429,92 @@ pub struct PrefetchConfig {
     pub sender: String,
     /// Contract method name.
     pub method_name: String,
+}
+
+/// Configures the archival storage used by the archival nodes.
+///
+/// If the archival storage is ColdDB, this config is complemented by the other parts of the Near node config,
+/// for example, the `StoreConfig` stored in the `Config.cold_store` field is used to configure the cold RocksDB
+/// and the `SplitStorageConfig` stored in the `Config.split_storage` field is used to configure the process
+/// that copies database entries from hot to cold DB.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ArchivalStoreConfig {
+    /// The storage to persist the archival data (by default ColdDB).
+    pub storage: ArchivalStorageLocation,
+}
+
+/// Similar to External
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum ArchivalStorageLocation {
+    /// Archival data is persisted in the ColdDB.
+    /// In this case, the ColdDB is configured by the `Config.cold_store`
+    /// (which contain a [`StoreConfig`] that configures for the cold RocksDB),
+    /// and `Config.split_storage` (which contains a [`SplitStorageConfig`] that
+    /// configures the hot-to-cold copy process).
+    #[default]
+    ColdDB,
+    /// Archival data is persisted in the filesystem.
+    /// NOTE: This option not implemented yet.
+    Filesystem {
+        /// Root directory containing the archival storage files.
+        _path: std::path::PathBuf,
+    },
+    /// Archival data is persisted in the Google Cloud Storage.
+    /// NOTE: This option not implemented yet.
+    GCloud {
+        /// GCS bucket containing the archival storage objects.
+        _bucket: String,
+    },
+}
+
+/// Contains references to the sub-configs from the Near node config that are related to archival storage.
+pub struct ArchivalConfig<'a> {
+    pub archival_store_config: Option<&'a ArchivalStoreConfig>,
+    pub cold_store_config: Option<&'a StoreConfig>,
+    pub split_storage_config: Option<&'a SplitStorageConfig>,
+}
+
+impl<'a> ArchivalConfig<'a> {
+    /// Returns `Some(ArchivalConfig)` if the node is an archival node (ie. `archive` is true), otherwise returns None.
+    /// In the former case, the `ArchivalConfig` contains references to the archival related sub-configs provided in the params.
+    /// Also validates the config, for example, panics if `archive` is true and no archival storage configuration is provided or
+    /// `archive` is false but cold-storage or archival-store configuration is provided.
+    pub fn new(
+        archive: bool,
+        archival_store_config: Option<&'a ArchivalStoreConfig>,
+        cold_store_config: Option<&'a StoreConfig>,
+        split_storage_config: Option<&'a SplitStorageConfig>,
+    ) -> Option<Self> {
+        Self::validate_configs(
+            archive,
+            archival_store_config,
+            cold_store_config,
+            split_storage_config,
+        );
+        archive.then_some(Self { archival_store_config, cold_store_config, split_storage_config })
+    }
+
+    fn validate_configs(
+        archive: bool,
+        archival_store_config: Option<&'a ArchivalStoreConfig>,
+        cold_store_config: Option<&'a StoreConfig>,
+        split_storage_config: Option<&'a SplitStorageConfig>,
+    ) {
+        if archive {
+            // Since only ColdDB storage is supported for now, assert that cold storage is configured.
+            // TODO: Change this condition after supporting other archival storage options such as GCS.
+            assert!(cold_store_config.is_some()
+                    && (archival_store_config.is_none()
+                        || matches!(archival_store_config.unwrap().storage, ArchivalStorageLocation::ColdDB)),
+                    "Archival storage must be ColdDB and it must be configured with a valid StoreConfig");
+        } else {
+            assert!(
+                cold_store_config.is_none()
+                    && archival_store_config.is_none()
+                    && split_storage_config.is_none(),
+                "Cold-store config and archival config must not be set for non-archival nodes"
+            );
+        }
+    }
 }

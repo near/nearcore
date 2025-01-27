@@ -297,6 +297,15 @@ pub(crate) static PEER_MANAGER_MESSAGES_TIME: LazyLock<HistogramVec> = LazyLock:
     )
     .unwrap()
 });
+pub(crate) static PEER_MANAGER_TIER3_REQUEST_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_peer_manager_tier3_request_time",
+        "Time that PeerManagerActor spends on handling tier3 requests",
+        &["request"],
+        Some(exponential_buckets(0.0001, 2., 15).unwrap()),
+    )
+    .unwrap()
+});
 pub(crate) static ROUTED_MESSAGE_DROPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_routed_message_dropped",
@@ -346,7 +355,7 @@ static NETWORK_ROUTED_MSG_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
 static NETWORK_ROUTED_MSG_NUM_HOPS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "near_network_routed_msg_hops",
-        "Number of peers the routed message travelled through",
+        "Number of peers the routed message traveled through",
         &["routed", "hops"],
     )
     .unwrap()
@@ -435,17 +444,13 @@ fn record_routed_msg_latency(
 // The routed message reached its destination. If the number of hops is known, then update the
 // corresponding metric.
 fn record_routed_msg_hops(msg: &RoutedMessageV2) {
-    const MAX_NUM_HOPS: i32 = 20;
+    const MAX_NUM_HOPS: u32 = 20;
     // We assume that the number of hops is small.
     // As long as the number of hops is below 10, this metric will not consume too much memory.
-    if let Some(num_hops) = msg.num_hops {
-        if num_hops >= 0 {
-            let num_hops = if num_hops > MAX_NUM_HOPS { MAX_NUM_HOPS } else { num_hops };
-            NETWORK_ROUTED_MSG_NUM_HOPS
-                .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
-                .inc();
-        }
-    }
+    let num_hops = std::cmp::min(MAX_NUM_HOPS, msg.num_hops);
+    NETWORK_ROUTED_MSG_NUM_HOPS
+        .with_label_values(&[msg.body_variant(), &num_hops.to_string()])
+        .inc();
 }
 
 #[derive(Clone, Copy, strum::AsRefStr)]

@@ -10,7 +10,7 @@ The practical effect of this issue is that requests querying the state of an acc
 
 The simplest way to check whether or not a node has suffered data loss is to run one of the following queries:
 
-*replace <RPC_URL> with the correct URL (example: http://localhost:3030)*
+*replace <RPC_URL> with the correct URL (example: <http://localhost:3030>)*
 
 ```bash
 curl -X POST <RPC_URL> \
@@ -26,6 +26,7 @@ curl -X POST <RPC_URL> \
         { "id": "dontcare", "jsonrpc": "2.0", "method": "query", "params": { "account_id": "token2.near", "block_id": 114580308, "request_type": "view_account" } }'
 ```
 
+<!-- cspell:ignore timpanic -->
 ```bash
 curl -X POST <RPC_URL> \
         -H "Content-Type: application/json" \
@@ -46,13 +47,12 @@ If for any of the above requests you get an error of the kind `MissingTrieValue`
 
 ## Option A (recommended): download a new DB snapshot
 
-
 1. Stop `neard`
 2. Delete the existing `hot` and `cold` databases. Example assuming default configuration:
+
     ```bash
     rm -rf ~/.near/hot-data && rm -rf ~/.near/cold-data
     ```
-
 
 3. Download an up-to-date snapshot, following this guide: [Storage snapshots](https://near-nodes.io/archival/split-storage-archival#S3%20migration)
 

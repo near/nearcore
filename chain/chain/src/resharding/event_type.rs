@@ -1,9 +1,9 @@
 //! Collection of all resharding V3 event types.
 
 use near_chain_primitives::Error;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
+use near_store::flat::BlockInfo;
 use near_store::ShardUId;
 use tracing::error;
 
@@ -27,7 +27,7 @@ pub struct ReshardingSplitShardParams {
     /// The account at the boundary between the two children.
     pub boundary_account: AccountId,
     /// Hash of the last block having the old shard layout.
-    pub resharding_hash: CryptoHash,
+    pub resharding_block: BlockInfo,
 }
 
 impl ReshardingSplitShardParams {
@@ -48,7 +48,7 @@ impl ReshardingEventType {
     /// `next_shard_layout`, otherwise returns `None`.
     pub fn from_shard_layout(
         next_shard_layout: &ShardLayout,
-        resharding_hash: CryptoHash,
+        resharding_block: BlockInfo,
     ) -> Result<Option<ReshardingEventType>, Error> {
         let log_and_error = |err_msg: &str| {
             error!(target: "resharding", ?next_shard_layout, err_msg);
@@ -79,6 +79,11 @@ impl ReshardingEventType {
                         return log_and_error("can't perform two reshardings at the same time!");
                     }
                     // Parent shard is no longer part of this shard layout.
+                    //
+                    // Please note the use of the next shard layout version.
+                    // Technically speaking the current shard layout version
+                    // should be used for the parent. However since
+                    // ShardLayoutV2 the version is frozen so it is ok.
                     let parent_shard = ShardUId::new(next_shard_layout.version(), *parent_id);
                     let left_child_shard =
                         ShardUId::from_shard_id_and_layout(children_ids[0], next_shard_layout);
@@ -99,7 +104,7 @@ impl ReshardingEventType {
                         left_child_shard,
                         right_child_shard,
                         boundary_account,
-                        resharding_hash,
+                        resharding_block,
                     }));
                 }
                 _ => {
@@ -118,6 +123,7 @@ impl ReshardingEventType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::{AccountId, ShardId};
     use near_store::ShardUId;
@@ -133,7 +139,11 @@ mod tests {
     /// Verify that the correct type of resharding is deduced from a new shard layout.
     #[test]
     fn parse_event_type_from_shard_layout() {
-        let block = CryptoHash::hash_bytes(&[1]);
+        let block = BlockInfo {
+            hash: CryptoHash::hash_bytes(&[1]),
+            height: 1,
+            prev_hash: CryptoHash::hash_bytes(&[2]),
+        };
 
         let s0 = ShardId::new(0);
         let s1 = ShardId::new(1);
@@ -145,7 +155,9 @@ mod tests {
         // Shard layouts V0 and V1 are rejected.
         #[allow(deprecated)]
         let layout_v0 = ShardLayout::v0(1, 0);
-        let layout_v1 = ShardLayout::v1_test();
+        #[allow(deprecated)]
+        let layout_v1 =
+            ShardLayout::v1(vec!["ccc".parse().unwrap(), "kkk".parse().unwrap()], None, 1);
         assert!(ReshardingEventType::from_shard_layout(&layout_v0, block).is_err());
         assert!(ReshardingEventType::from_shard_layout(&layout_v1, block).is_err());
 
@@ -170,7 +182,7 @@ mod tests {
                 parent_shard: ShardUId { version: 3, shard_id: 1 },
                 left_child_shard: ShardUId { version: 3, shard_id: 2 },
                 right_child_shard: ShardUId { version: 3, shard_id: 3 },
-                resharding_hash: block,
+                resharding_block: block,
                 boundary_account: account!("pp")
             }))
         );

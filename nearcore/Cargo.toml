@@ -28,6 +28,7 @@ hex.workspace = true
 hyper-tls.workspace = true
 hyper.workspace = true
 indicatif.workspace = true
+itertools.workspace = true
 num-rational.workspace = true
 rand.workspace = true
 rayon.workspace = true
@@ -43,6 +44,7 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 tracing.workspace = true
 xz2.workspace = true
 
@@ -103,18 +105,8 @@ expensive_tests = [
   "near-epoch-manager/expensive_tests",
   "near-chain/expensive_tests",
 ]
-no_cache = [
-  "node-runtime/no_cache",
-  "near-store/no_cache",
-  "near-chain/no_cache",
-  "near-epoch-manager/no_cache",
-]
 rosetta_rpc = ["near-rosetta-rpc"]
 json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
-protocol_feature_fix_staking_threshold = [
-  "near-primitives/protocol_feature_fix_staking_threshold",
-  "near-epoch-manager/protocol_feature_fix_staking_threshold",
-]
 protocol_feature_fix_contract_loading_cost = [
   "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
@@ -147,7 +139,6 @@ nightly = [
   "nightly_protocol",
   "node-runtime/nightly",
   "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
 ]

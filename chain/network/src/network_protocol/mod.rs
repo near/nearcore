@@ -179,7 +179,7 @@ impl VersionedAccountData {
     /// intermediate SerializedAccountData type) so that sign() then could fail only
     /// due to account_id mismatch. Then instead of panicking we could return an error
     /// and the caller (who constructs the arguments) would do an unwrap(). This would
-    /// consistute a cleaner never-panicking interface.
+    /// constitute a cleaner never-panicking interface.
     pub fn sign(self, signer: &ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
             self.account_key,
@@ -194,7 +194,7 @@ impl VersionedAccountData {
                 MAX_ACCOUNT_DATA_SIZE_BYTES
             );
         }
-        let signature = signer.sign_account_key_payload(&payload);
+        let signature = signer.sign_bytes(&payload);
         Ok(SignedAccountData {
             account_data: self,
             payload: AccountKeySignedPayload { payload, signature },
@@ -273,7 +273,7 @@ impl OwnedAccount {
             "OwnedAccount.account_key doesn't match the signer's account_key"
         );
         let payload = proto::AccountKeyPayload::from(&self).write_to_bytes().unwrap();
-        let signature = signer.sign_account_key_payload(&payload);
+        let signature = signer.sign_bytes(&payload);
         SignedOwnedAccount {
             owned_account: self,
             payload: AccountKeySignedPayload { payload, signature },
@@ -625,7 +625,7 @@ impl fmt::Debug for RoutedMessageBody {
                 response.chunk_hash,
                 response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
             ),
-            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartiaEncodedChunk"),
+            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartialEncodedChunk"),
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
@@ -703,9 +703,9 @@ pub struct RoutedMessageV2 {
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
-    /// Number of peers this routed message travelled through.
+    /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
-    pub num_hops: Option<i32>,
+    pub num_hops: u32,
 }
 
 impl std::ops::Deref for RoutedMessageV2 {
@@ -946,7 +946,7 @@ impl RawRoutedMessage {
                 body: self.body,
             },
             created_at: now,
-            num_hops: Some(0),
+            num_hops: 0,
         }
     }
 }

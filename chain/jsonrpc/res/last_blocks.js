@@ -1,3 +1,5 @@
+// cspell:ignore ellipsify ellipsifies xarrow xarrows xwrapper darkgray
+
 function ellipsify(str, maxLen) {
     if (str.length > maxLen) {
         return str.substring(0, maxLen - 3) + '...';

@@ -25,7 +25,7 @@ use near_store::trie::TrieNodesCount;
 use std::sync::Arc;
 
 use crate::node::Node;
-use crate::user::User;
+use crate::user::{CommitError, User};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils;
@@ -715,7 +715,7 @@ pub fn test_swap_key(node: impl Node) {
         .swap_key(
             eve_dot_alice_account(),
             node.signer().public_key(),
-            signer2.public_key.clone(),
+            signer2.public_key(),
             AccessKey::full_access(),
         )
         .unwrap();
@@ -727,7 +727,7 @@ pub fn test_swap_key(node: impl Node) {
     assert!(node_user
         .get_access_key(&eve_dot_alice_account(), &node.signer().public_key())
         .is_err());
-    assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key).is_ok());
+    assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key()).is_ok());
 }
 
 pub fn test_add_key(node: impl Node) {
@@ -841,13 +841,13 @@ pub fn test_delete_key_last(node: impl Node) {
             // forget the nonce when we delete a key!
             assert_eq!(
                 err,
-                ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-                    InvalidTxError::InvalidAccessKeyError(
+                CommitError::Server(ServerError::TxExecutionError(
+                    TxExecutionError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
                         InvalidAccessKeyError::AccessKeyNotFound {
                             account_id: account_id.clone(),
                             public_key: node.signer().public_key().into(),
                         },
-                    )
+                    ))
                 ))
             )
         }
@@ -1058,14 +1058,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     let transaction_result = node_user
         .function_call(account_id.clone(), bob_account(), "run_test", vec![], 10u64.pow(14), 0)
         .unwrap_err();
-    assert_eq!(
-        transaction_result,
-        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::MethodNameMismatch {
-                method_name: "run_test".to_string()
-            })
-        ))
-    );
+    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
 }
 
 pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
@@ -1093,15 +1086,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
             0,
         )
         .unwrap_err();
-    assert_eq!(
-        transaction_result,
-        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::ReceiverMismatch {
-                tx_receiver: eve_dot_alice_account(),
-                ak_receiver: bob_account().into()
-            })
-        ))
-    );
+    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
 }
 
 pub fn test_access_key_reject_non_function_call(node: impl Node) {
@@ -1121,12 +1106,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
 
     let transaction_result =
         node_user.delete_key(account_id.clone(), node.signer().public_key()).unwrap_err();
-    assert_eq!(
-        transaction_result,
-        ServerError::TxExecutionError(TxExecutionError::InvalidTxError(
-            InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::RequiresFullAccess)
-        ))
-    );
+    assert_eq!(transaction_result, CommitError::OutcomeNotFound);
 }
 
 pub fn test_increase_stake(node: impl Node) {
@@ -1201,9 +1181,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
 pub fn test_fail_not_enough_balance_for_storage(node: impl Node) {
     let mut node_user = node.user();
     let account_id = bob_account();
-    let signer = Arc::new(
-        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref()).into(),
-    );
+    let signer = Arc::new(InMemorySigner::test_signer(&account_id));
     node_user.set_signer(signer);
     node_user.send_money(account_id, alice_account(), 10).unwrap_err();
 }

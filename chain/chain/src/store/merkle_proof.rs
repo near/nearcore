@@ -136,8 +136,8 @@ impl MerkleProofAccess for Store {
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
-        self.get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?.ok_or(
-            Error::Other(format!("Could not find block hash from ordinal {}", block_ordinal)),
+        self.get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?.ok_or_else(
+            || Error::Other(format!("Could not find block hash from ordinal {}", block_ordinal)),
         )
     }
 }
@@ -222,6 +222,7 @@ mod tests {
         }
 
         fn verify_proof(&self, index: u64, against: u64, proof: &MerklePath) {
+            // cspell:words provee
             let provee = self.block_hashes[index as usize];
             let root = self.block_merkle_roots[against as usize];
             assert!(verify_hash(root, proof, provee));

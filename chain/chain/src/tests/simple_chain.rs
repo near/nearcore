@@ -21,7 +21,7 @@ fn build_chain() {
     // The hashes here will have to be modified after changes to the protocol.
     // In particular if you update protocol version or add new protocol
     // features.  If this assert is failing without you adding any new or
-    // stabilising any existing protocol features, this indicates bug in your
+    // stabilizing any existing protocol features, this indicates bug in your
     // code which unexpectedly changes the protocol.
     //
     // To update the hashes you can use cargo-insta.  Note that you’ll need to
@@ -33,9 +33,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"9wttoQUyJeYqgKePRMqsRjXysqK1ZsvPJ7XsgmVgnvQj");
+        insta::assert_snapshot!(hash, @"GARF4HBtQJ41quFA9fvjHpbVYT4o15syhL3FkH1o7poT");
     } else {
-        insta::assert_snapshot!(hash, @"GHZFAFiMdGzAfnWTcS9u9wqFvxMrgFpyEr6Use7jk2Lo");
+        insta::assert_snapshot!(hash, @"3e2u5p2hUijQd7o5Dg1pK9QAHGZ9uCK19KDV86TJW78f");
     }
 
     for i in 1..5 {
@@ -51,9 +51,9 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"4Ut3XtWN8ReA74U1ZwJE3vLqkWMDytZohTa9kTMLdWPP");
+        insta::assert_snapshot!(hash, @"HiXuBfW5Xd6e8ZTbMhwtPEXeZxe7macc8DvaWryNdvcf");
     } else {
-        insta::assert_snapshot!(hash, @"3Pdm44L71Bk8EokPHF1pxakHojsriNadBdZZSpcoDv9q");
+        insta::assert_snapshot!(hash, @"Gh5KqeboPbLh2ZwTqQLY2n5FQdPasFAEkPVfnM66LGjn");
     }
 }
 
@@ -69,6 +69,7 @@ fn build_chain_with_orphans() {
     }
     let last_block = &blocks[blocks.len() - 1];
     let block = Block::produce(
+        PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
         last_block.header(),
@@ -90,6 +91,7 @@ fn build_chain_with_orphans() {
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
         clock,
+        None,
         None,
     );
     assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);

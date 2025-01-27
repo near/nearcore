@@ -58,7 +58,7 @@ To add a new page to the book:
 The doc itself is in vanilla markdown.
 
 To render documentation locally:
-
+<!-- cspell:ignore mdbook -->
 ```console
 # Install mdBook
 $ cargo install mdbook

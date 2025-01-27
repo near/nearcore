@@ -65,9 +65,9 @@
                         $('.js-num-block-producers').text(block_producers.length);
                         $('.js-num-known-block-producers').text(getIntersection(block_producer_set, known_set).size);
                         $('.js-num-reachable-block-producers').text(getIntersection(block_producer_set, reachable_set).size);
-                        let uknown_set = getDifference(block_producer_set, known_set);
+                        let unknown_set = getDifference(block_producer_set, known_set);
                         let known_but_unreachable = getIntersection(block_producer_set, getDifference(known_set, reachable_set));
-                        $('.js-unknown-block-producers').text(Array.from(uknown_set).join(","));
+                        $('.js-unknown-block-producers').text(Array.from(unknown_set).join(","));
                         $('.js-unreachable-block-producers').text(Array.from(known_but_unreachable).join(","));
 
 
@@ -75,9 +75,9 @@
                         $('.js-num-chunk-producers').text(chunk_producers.length);
                         $('.js-num-known-chunk-producers').text(getIntersection(chunk_producer_set, known_set).size);
                         $('.js-num-reachable-chunk-producers').text(getIntersection(chunk_producer_set, reachable_set).size);
-                        let chunk_uknown_set = getDifference(chunk_producer_set, known_set);
+                        let chunk_unknown_set = getDifference(chunk_producer_set, known_set);
                         let chunk_known_but_unreachable = getIntersection(chunk_producer_set, getDifference(known_set, reachable_set));
-                        $('.js-unknown-chunk-producers').text(Array.from(chunk_uknown_set).join(","));
+                        $('.js-unknown-chunk-producers').text(Array.from(chunk_unknown_set).join(","));
                         $('.js-unreachable-chunk-producers').text(Array.from(chunk_known_but_unreachable).join(","));
 
                         let node_public_key = data.node_public_key;

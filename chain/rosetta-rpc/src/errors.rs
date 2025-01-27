@@ -8,6 +8,8 @@ pub(crate) enum ErrorKind {
     InvalidInput(String),
     #[error("Not found: {0}")]
     NotFound(String),
+    #[error("Missing block: {0}")]
+    MissingBlock(String),
     #[error("Wrong network: {0}")]
     WrongNetwork(String),
     #[error("Timeout: {0}")]
@@ -73,7 +75,7 @@ impl From<ParseIntError> for ErrorKind {
 
 impl From<serde_json::Error> for ErrorKind {
     fn from(value: serde_json::Error) -> Self {
-        Self::InternalInvariantError(format!("JSON Serialisation Error, {:?}", value))
+        Self::InternalInvariantError(format!("JSON Serialization Error, {:?}", value))
     }
 }
 impl From<near_client_primitives::types::GetStateChangesError> for ErrorKind {

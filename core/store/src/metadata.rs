@@ -2,14 +2,14 @@
 pub type DbVersion = u32;
 
 /// Current version of the database.
-pub const DB_VERSION: DbVersion = 42;
+pub const DB_VERSION: DbVersion = 43;
 
 /// Database version at which point DbKind was introduced.
 const DB_VERSION_WITH_KIND: DbVersion = 34;
 
 /// Key for the version entry in DBCol::DbVersion.
 ///
-/// The key holds [`DbVersion`] value serialised to a string.
+/// The key holds [`DbVersion`] value serialized to a string.
 ///
 /// The version is strictly increasing.  We bump it each time
 /// a backwards-incompatible change to the database is required.  Increasing the
@@ -19,7 +19,7 @@ pub(super) const VERSION_KEY: &[u8; 7] = b"VERSION";
 
 /// Key for the database kind entry in DBCol::DbVersion.
 ///
-/// The key holds a [`DbKind`] value serialised to a string.
+/// The key holds a [`DbKind`] value serialized to a string.
 pub(super) const KIND_KEY: &[u8; 4] = b"KIND";
 
 /// Describes what kind the storage is.
@@ -56,7 +56,7 @@ pub(super) struct DbMetadata {
 
 impl DbMetadata {
     /// Reads metadata from the database. This method enforces the invariant
-    /// that version and kind must alwasy be set.
+    /// that version and kind must always be set.
     ///
     /// If the database version is not present, returns an error.  Similarly, if
     /// database version is ≥ [`DB_VERSION_WITH_KIND`] but the kind is not

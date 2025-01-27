@@ -22,8 +22,12 @@ pub fn do_migrate_30_to_31(
     store: &Store,
     genesis_config: &near_chain_configs::GenesisConfig,
 ) -> anyhow::Result<()> {
-    let genesis_height = genesis_config.genesis_height;
-    let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+    let chain_store = ChainStore::new(
+        store.clone(),
+        genesis_config.genesis_height,
+        false,
+        genesis_config.transaction_validity_period,
+    );
     let head = chain_store.head()?;
     let mut store_update = BatchedStoreUpdate::new(store, 10_000_000);
     let mut count = 0;
@@ -88,6 +92,7 @@ impl<'a> near_store::StoreMigrator for Migrator<'a> {
             39 => near_store::migrations::migrate_39_to_40(store),
             40 => near_store::migrations::migrate_40_to_41(store),
             41 => near_store::migrations::migrate_41_to_42(store),
+            42 => near_store::migrations::migrate_42_to_43(store),
             DB_VERSION.. => unreachable!(),
         }
     }

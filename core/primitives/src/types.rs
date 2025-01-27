@@ -3,6 +3,7 @@ use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::shard_layout::ShardLayout;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
@@ -20,6 +21,14 @@ pub use chunk_validator_stats::ChunkStats;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
+
+/// An arbitrary static string to make sure that this struct cannot be
+/// serialized to look identical to another serialized struct. For chunk
+/// production we are signing a chunk hash, so we need to make sure that
+/// this signature means something different.
+///
+/// This is a messy workaround until we know what to do with NEP 483.
+pub(crate) type SignatureDifferentiator = String;
 
 /// Different types of finality.
 #[derive(
@@ -357,6 +366,10 @@ impl StateChanges {
                 TrieKey::BufferedReceiptIndices => {}
                 TrieKey::BufferedReceipt { .. } => {}
                 TrieKey::BandwidthSchedulerState => {}
+                TrieKey::BufferedReceiptGroupsQueueData { .. } => {}
+                TrieKey::BufferedReceiptGroupsQueueItem { .. } => {}
+                // Global contract code is not a part of account, so ignoring it as well.
+                TrieKey::GlobalContractCode { .. } => {}
             }
         }
 
@@ -684,7 +697,7 @@ pub mod validator_stake {
             // Integer division in Rust returns the floor as described here
             // https://doc.rust-lang.org/std/primitive.u64.html#method.div_euclid
             u16::try_from(self.stake() / stake_per_mandate)
-                .expect("number of mandats should fit u16")
+                .expect("number of mandates should fit u16")
         }
 
         /// Returns the weight attributed to the validator's partial mandate.
@@ -693,7 +706,7 @@ pub mod validator_stake {
         /// `stake_per_mandate`. The remainder of that division is the weight of the partial
         /// mandate.
         ///
-        /// Due to this definintion a validator has exactly one partial mandate with `0 <= weight <
+        /// Due to this definition a validator has exactly one partial mandate with `0 <= weight <
         /// stake_per_mandate`.
         ///
         /// # Example
@@ -955,6 +968,16 @@ pub mod chunk_extra {
         }
 
         #[inline]
+        pub fn congestion_info_mut(&mut self) -> Option<&mut CongestionInfo> {
+            match self {
+                Self::V1(_) => None,
+                Self::V2(_) => None,
+                Self::V3(v3) => Some(&mut v3.congestion_info),
+                Self::V4(v4) => Some(&mut v4.congestion_info),
+            }
+        }
+
+        #[inline]
         pub fn bandwidth_requests(&self) -> Option<&BandwidthRequests> {
             match self {
                 Self::V1(_) | Self::V2(_) | Self::V3(_) => None,
@@ -1074,6 +1097,7 @@ impl serde::Serialize for EpochReference {
     where
         S: serde::Serializer,
     {
+        // cspell:words newtype
         match self {
             EpochReference::EpochId(epoch_id) => {
                 s.serialize_newtype_variant("EpochReference", 0, "epoch_id", epoch_id)
@@ -1164,12 +1188,7 @@ pub trait EpochInfoProvider: Send + Sync {
     /// Get the chain_id of the chain this epoch belongs to
     fn chain_id(&self) -> String;
 
-    /// Which shard the account belongs to in the given epoch.
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError>;
+    fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
 }
 
 /// Mode of the trie cache.

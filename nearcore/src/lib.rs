@@ -90,9 +90,8 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
     let migrator = migrations::Migrator::new(near_config);
     let opener = NodeStorage::opener(
         home_dir,
-        near_config.client_config.archive,
         &near_config.config.store,
-        near_config.config.cold_store.as_ref(),
+        near_config.config.archival_config(),
     )
     .with_migrator(&migrator);
     let storage = match opener.open() {
@@ -226,6 +225,8 @@ pub struct NearNode {
     pub resharding_handle: ReshardingHandle,
     // The threads that state sync runs in.
     pub state_sync_runtime: Arc<tokio::runtime::Runtime>,
+    /// Shard tracker, allows querying of which shards are tracked by this node.
+    pub shard_tracker: ShardTracker,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -255,8 +256,11 @@ pub fn start_with_config_and_synchronization(
         config.client_config.log_summary_period,
     )?;
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config, None);
+    let epoch_manager = EpochManager::new_arc_handle(
+        storage.get_hot_store(),
+        &config.genesis.config,
+        Some(home_dir),
+    );
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
@@ -283,8 +287,11 @@ pub fn start_with_config_and_synchronization(
     let split_store = get_split_store(&config, &storage)?;
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
-            let view_epoch_manager =
-                EpochManager::new_arc_handle(split_store.clone(), &config.genesis.config, None);
+            let view_epoch_manager = EpochManager::new_arc_handle(
+                split_store.clone(),
+                &config.genesis.config,
+                Some(home_dir),
+            );
             let view_shard_tracker = ShardTracker::new(
                 TrackedConfig::from_config(&config.client_config),
                 epoch_manager.clone(),
@@ -365,23 +372,27 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
+            Arc::new(RayonAsyncComputationSpawner),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
         runtime.store().clone(),
-        chain_genesis.height,
+        &chain_genesis,
         runtime.clone(),
         epoch_manager.clone(),
+        shard_tracker.clone(),
+        config.validator_signer.clone(),
         config.client_config.gc.clone(),
         config.client_config.archive,
     ));
 
     let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), chain_genesis.height));
+        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), &chain_genesis));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
 
+    let state_sync_spawner = Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone()));
     let StartClientResult { client_actor, client_arbiter_handle, resharding_handle } = start_client(
         Clock::real(),
         config.client_config.clone(),
@@ -390,7 +401,7 @@ pub fn start_with_config_and_synchronization(
         shard_tracker.clone(),
         runtime.clone(),
         node_id,
-        Arc::new(TokioRuntimeFutureSpawner(state_sync_runtime.clone())),
+        state_sync_spawner.clone(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
@@ -423,10 +434,11 @@ pub fn start_with_config_and_synchronization(
         client_config: config.client_config.clone(),
         chain_genesis,
         epoch_manager,
-        shard_tracker,
+        shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
         dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        future_spawner: state_sync_spawner,
         handle: None,
     };
     state_sync_dumper.start()?;
@@ -440,6 +452,7 @@ pub fn start_with_config_and_synchronization(
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client_addr.clone()),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,
@@ -505,5 +518,6 @@ pub fn start_with_config_and_synchronization(
         state_sync_dumper,
         resharding_handle,
         state_sync_runtime,
+        shard_tracker,
     })
 }

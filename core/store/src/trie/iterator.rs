@@ -71,7 +71,7 @@ pub struct DiskTrieIterator<'a> {
     prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
 }
 
-/// The TrieTiem is a tuple of (key, value) of the node.
+/// The TrieItem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
@@ -455,7 +455,7 @@ mod tests {
     use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
     use itertools::Itertools;
-    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::shard_layout::{ShardLayout, ShardUId};
     use rand::seq::SliceRandom;
     use rand::Rng;
     use std::collections::BTreeMap;
@@ -650,12 +650,13 @@ mod tests {
         rng: &mut rand::rngs::ThreadRng,
         use_memtries: bool,
     ) -> (Vec<(Vec<u8>, Option<Vec<u8>>)>, BTreeMap<Vec<u8>, Vec<u8>>, Trie) {
+        let shard_layout = ShardLayout::multi_shard(2, 1);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
         let tries = TestTriesBuilder::new()
-            .with_shard_layout(1, 2)
+            .with_shard_layout(shard_layout)
             .with_flat_storage(use_memtries)
             .with_in_memory_tries(use_memtries)
             .build();
-        let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = gen_changes(rng, 10);
         let trie_changes = simplify_changes(&trie_changes);
 

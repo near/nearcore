@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::num::ParseIntError;
 use std::ops::Add;
 use std::str::FromStr;
@@ -55,11 +54,11 @@ pub type ProtocolVersion = u32;
 /// used instead.
 pub type ShardIndex = usize;
 
-/// The shard identifier. It may be a arbitrary number - it does not need to be
+/// The shard identifier. It may be an arbitrary number - it does not need to be
 /// a number in the range 0..NUM_SHARDS. The shard ids do not need to be
 /// sequential or contiguous.
 ///
-/// The shard id is wrapped in a newtype to prevent the old pattern of using
+/// The shard id is wrapped in a new type to prevent the old pattern of using
 /// indices in range 0..NUM_SHARDS and casting to ShardId. Once the transition
 /// if fully complete it potentially may be simplified to a regular type alias.
 #[derive(
@@ -71,7 +70,6 @@ pub type ShardIndex = usize;
     Hash,
     Clone,
     Copy,
-    Debug,
     PartialEq,
     Eq,
     PartialOrd,
@@ -123,7 +121,13 @@ impl ShardId {
     }
 }
 
-impl Display for ShardId {
+impl std::fmt::Debug for ShardId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::fmt::Display for ShardId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -200,12 +204,6 @@ impl PartialEq<u64> for ShardId {
     }
 }
 
-impl PartialOrd<u64> for ShardId {
-    fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
-    }
-}
-
 impl FromStr for ShardId {
     type Err = ParseIntError;
 
@@ -221,7 +219,7 @@ mod tests {
 
     // Check that the ShardId is serialized the same as u64. This is to make
     // sure that the transition from ShardId being a type alias to being a
-    // newtype is not a protocol upgrade.
+    // new type is not a protocol upgrade.
     #[test]
     fn test_shard_id_borsh() {
         let shard_id_u64 = 42;

@@ -1,9 +1,9 @@
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
+use near_client::test_utils::{TestEnv, TestEnvBuilder};
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountId;
@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::ShardId;
+use near_primitives::types::{EpochId, ShardId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
@@ -23,7 +23,8 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::bootstrap_congestion_info;
 use std::sync::Arc;
 
-const CONTRACT_ID: &str = "contract.test0";
+const ACCOUNT_PARENT_ID: &str = "near";
+const CONTRACT_ID: &str = "contract.near";
 
 fn get_runtime_config(
     config_store: &RuntimeConfigStore,
@@ -32,31 +33,43 @@ fn get_runtime_config(
     let mut config = config_store.get_config(protocol_version).clone();
     let mut_config = Arc::make_mut(&mut config);
 
-    adjust_runtime_config(mut_config);
+    set_wasm_cost(mut_config);
 
     config
 }
 
 // Make 1 wasm op cost ~4 GGas, to let "loop_forever" finish more quickly.
-fn adjust_runtime_config(config: &mut RuntimeConfig) {
+fn set_wasm_cost(config: &mut RuntimeConfig) {
     let wasm_config = Arc::make_mut(&mut config.wasm_config);
     wasm_config.regular_op_cost = u32::MAX;
 }
 
+// Set the default congestion control parameters for the given runtime config.
+// This is important to prevent needing to fix the congestion control tests
+// every time the parameters are updated.
+fn set_default_congestion_control(config_store: &RuntimeConfigStore, config: &mut RuntimeConfig) {
+    let cc_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+    let cc_config = get_runtime_config(&config_store, cc_protocol_version);
+    config.congestion_control_config = cc_config.congestion_control_config;
+}
+
 /// Set up the test runtime with the given protocol version and runtime configs.
 /// The test version of runtime has custom gas cost.
-fn setup_test_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
-    let mut genesis = Genesis::test_sharded_new_version(vec![sender_id], 1, vec![1, 1, 1, 1]);
+fn setup_test_runtime(_sender_id: AccountId, protocol_version: ProtocolVersion) -> TestEnv {
+    let accounts = TestEnvBuilder::make_accounts(1);
+    let mut genesis = Genesis::test_sharded_new_version(accounts, 1, vec![1, 1, 1, 1]);
     genesis.config.epoch_length = 10;
     genesis.config.protocol_version = protocol_version;
 
     // Chain must be sharded to test cross-shard congestion control.
-    genesis.config.shard_layout = ShardLayout::v1_test();
+    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
 
+    let config_store = RuntimeConfigStore::new(None);
     let mut config = RuntimeConfig::test_protocol_version(protocol_version);
-    adjust_runtime_config(&mut config);
-    let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
+    set_wasm_cost(&mut config);
+    set_default_congestion_control(&config_store, &mut config);
 
+    let runtime_configs = vec![RuntimeConfigStore::with_one_config(config)];
     TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, runtime_configs)
         .build()
@@ -71,11 +84,16 @@ fn setup_real_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -
     genesis.config.protocol_version = protocol_version;
 
     // Chain must be sharded to test cross-shard congestion control.
-    genesis.config.shard_layout = ShardLayout::v1_test();
+    genesis.config.shard_layout = ShardLayout::multi_shard(4, 3);
 
+    // Get the runtime configs for before and after the protocol upgrade.
     let config_store = RuntimeConfigStore::new(None);
     let pre_config = get_runtime_config(&config_store, protocol_version);
-    let post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
+    let mut post_config = get_runtime_config(&config_store, PROTOCOL_VERSION);
+
+    // Use the original congestion control parameters for the post config.
+    let post_runtime_config = Arc::get_mut(&mut post_config).unwrap();
+    set_default_congestion_control(&config_store, post_runtime_config);
 
     // Checking the migration from Receipt to StateStoredReceipt requires the
     // relevant config to be disabled before the protocol upgrade and enabled
@@ -92,36 +110,65 @@ fn setup_real_runtime(sender_id: AccountId, protocol_version: ProtocolVersion) -
         .build()
 }
 
+fn setup_account(
+    env: &mut TestEnv,
+    nonce: &mut u64,
+    account_id: &AccountId,
+    account_parent_id: &AccountId,
+) {
+    let block = env.clients[0].chain.get_head_block().unwrap();
+    let block_hash = block.hash();
+
+    let signer_id = account_parent_id.clone();
+    let signer = InMemorySigner::test_signer(&signer_id);
+
+    let public_key = PublicKey::from_seed(KeyType::ED25519, account_id.as_str());
+    let amount = 10 * 10u128.pow(24);
+
+    *nonce += 1;
+    let create_account_tx = SignedTransaction::create_account(
+        *nonce,
+        signer_id,
+        account_id.clone(),
+        amount,
+        public_key,
+        &signer,
+        *block_hash,
+    );
+
+    env.execute_tx(create_account_tx).unwrap().assert_success();
+}
+
 /// Set up the RS-Contract, which includes useful functions, such as
 /// `loop_forever`.
 ///
 /// This function also advances the chain to complete the deployment and checks
 /// it can be called successfully.
-fn setup_contract(env: &mut TestEnv) {
+fn setup_contract(env: &mut TestEnv, nonce: &mut u64) {
     let block = env.clients[0].chain.get_head_block().unwrap();
-    let contract = near_test_contracts::rs_contract();
-    // the client account exists and has enough balance to create the account
-    // and deploy the contract
-    let signer_id = env.get_client_id(0);
-    let signer = InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_str());
-    let mut nonce = 1;
+    let contract = near_test_contracts::congestion_control_test_contract();
+
+    let signer_id: AccountId = ACCOUNT_PARENT_ID.parse().unwrap();
+    let signer = InMemorySigner::test_signer(&signer_id);
+
+    *nonce += 1;
     let create_contract_tx = SignedTransaction::create_contract(
-        nonce,
+        *nonce,
         signer_id,
         CONTRACT_ID.parse().unwrap(),
         contract.to_vec(),
         10 * 10u128.pow(24),
         PublicKey::from_seed(KeyType::ED25519, CONTRACT_ID),
-        &signer.clone().into(),
+        &signer,
         *block.hash(),
     );
     // this adds the tx to the pool and then produces blocks until the tx result is available
     env.execute_tx(create_contract_tx).unwrap().assert_success();
-    nonce += 1;
 
     // Test the function call works as expected, ending in a gas exceeded error.
+    *nonce += 1;
     let block = env.clients[0].chain.get_head_block().unwrap();
-    let fn_tx = new_fn_call_100tgas(&mut nonce, &signer, *block.hash());
+    let fn_tx = new_fn_call_100tgas(nonce, &signer, *block.hash());
     let FinalExecutionStatus::Failure(TxExecutionError::ActionError(action_error)) =
         env.execute_tx(fn_tx).unwrap().status
     else {
@@ -147,6 +194,10 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
 
     let mut check_congested_protocol_upgrade_done = false;
 
+    let shard_layout = client.epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
+    let contract_id = CONTRACT_ID.parse().unwrap();
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
+
     for height in genesis_height..head_height + 1 {
         let block = client.chain.get_block_by_height(height);
         let Ok(block) = block else {
@@ -159,7 +210,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
         let protocol_config = client.runtime_adapter.get_protocol_config(&epoch_id).unwrap();
         let runtime_config = protocol_config.runtime_config;
 
-        for (shard_index, chunk) in block.chunks().iter_deprecated().enumerate() {
+        for (shard_index, chunk) in block.chunks().iter_raw().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
 
             let prev_state_root = chunk.prev_state_root();
@@ -189,7 +240,7 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
                 height, shard_id
             );
 
-            if shard_id == ShardId::new(1)
+            if shard_id == contract_shard_id
                 && check_congested_protocol_upgrade
                 && !check_congested_protocol_upgrade_done
             {
@@ -281,7 +332,7 @@ fn head_chunk(env: &TestEnv, shard_id: ShardId) -> Arc<ShardChunk> {
 }
 
 #[test]
-fn test_protocol_upgrade_under_congestion() {
+fn slow_test_protocol_upgrade_under_congestion() {
     init_test_logger();
 
     // The following only makes sense to test if the feature is enabled in the current build.
@@ -296,10 +347,10 @@ fn test_protocol_upgrade_under_congestion() {
     );
 
     // prepare a contract to call
-    setup_contract(&mut env);
-
-    let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
     let mut nonce = 10;
+    setup_contract(&mut env, &mut nonce);
+
+    let signer = InMemorySigner::test_signer(&sender_id);
     // Now, congest the network with ~100 Pgas, enough to have some left after the protocol upgrade.
     let n = 1000;
     submit_n_100tgas_fns(&mut env, n, &mut nonce, &signer);
@@ -415,7 +466,7 @@ fn check_old_protocol(env: &TestEnv) {
 /// Create a function call that has 100 Tgas attached and will burn it all.
 fn new_fn_call_100tgas(
     nonce_source: &mut u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
     let hundred_tgas = 100 * 10u64.pow(12);
@@ -424,9 +475,9 @@ fn new_fn_call_100tgas(
     *nonce_source += 1;
     SignedTransaction::call(
         nonce,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         CONTRACT_ID.parse().unwrap(),
-        &signer.clone().into(),
+        &signer,
         deposit,
         // easy way to burn all attached gas
         "loop_forever".to_owned(),
@@ -440,7 +491,7 @@ fn new_fn_call_100tgas(
 /// executed. It has only 1 Tgas attached.
 fn new_cheap_fn_call(
     nonce_source: &mut u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     receiver: AccountId,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
@@ -450,9 +501,9 @@ fn new_cheap_fn_call(
     *nonce_source += 1;
     SignedTransaction::call(
         nonce,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         receiver,
-        &signer.clone().into(),
+        &signer,
         deposit,
         "foo_does_not_exists".to_owned(),
         vec![],
@@ -463,12 +514,7 @@ fn new_cheap_fn_call(
 
 /// Submit N transaction containing a function call action with 100 Tgas
 /// attached that will all be burned when called.
-fn submit_n_100tgas_fns(
-    env: &mut TestEnv,
-    n: u32,
-    nonce: &mut u64,
-    signer: &InMemorySigner,
-) -> u32 {
+fn submit_n_100tgas_fns(env: &mut TestEnv, n: u32, nonce: &mut u64, signer: &Signer) -> u32 {
     let mut included = 0;
     let block = env.clients[0].chain.get_head_block().unwrap();
     for _ in 0..n {
@@ -491,7 +537,7 @@ fn submit_n_cheap_fns(
     env: &mut TestEnv,
     n: u32,
     nonce: &mut u64,
-    signer: &InMemorySigner,
+    signer: &Signer,
     receiver: &AccountId,
 ) {
     let block = env.clients[0].chain.get_head_block().unwrap();
@@ -520,13 +566,10 @@ fn test_transaction_limit_for_local_congestion() {
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
-
     // Fix the initial configuration of congestion control for the tests.
     let protocol_version = ProtocolFeature::CongestionControl.protocol_version();
-    let config = runtime_config_store.get_config(protocol_version);
     // We don't want to go into the TX rejection limit in this test.
-    let upper_limit_congestion = config.congestion_control_config.reject_tx_congestion_threshold;
+    let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
     // For this test, the contract and the sender are on the same shard, even
     // the same account.
@@ -572,13 +615,12 @@ fn test_transaction_limit_for_local_congestion() {
 /// rejection.
 #[test]
 fn test_transaction_limit_for_remote_congestion() {
+    init_test_logger();
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
-    let config = runtime_config_store.get_config(PROTOCOL_VERSION);
     // We don't want to go into the TX rejection limit in this test.
-    let upper_limit_congestion = config.congestion_control_config.reject_tx_congestion_threshold;
+    let upper_limit_congestion = UpperLimitCongestion::BelowRejectThreshold;
 
     let (
         remote_tx_included_without_congestion,
@@ -606,17 +648,14 @@ fn test_transaction_limit_for_remote_congestion() {
 
 /// Test that clients stop including transactions to fully congested receivers.
 #[test]
-fn test_transaction_filtering() {
+fn slow_test_transaction_filtering() {
     init_test_logger();
 
     if !ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let runtime_config_store = RuntimeConfigStore::new(None);
-    let config = runtime_config_store.get_config(PROTOCOL_VERSION);
     // This test should go beyond into the TX rejection limit in this test.
-    let upper_limit_congestion =
-        3.0 * config.congestion_control_config.reject_tx_congestion_threshold;
+    let upper_limit_congestion = UpperLimitCongestion::AboveRejectThreshold;
 
     let (
         remote_tx_included_without_congestion,
@@ -638,20 +677,25 @@ fn test_transaction_filtering() {
     assert_eq!(remote_tx_included_with_congestion, 0);
 }
 
+enum UpperLimitCongestion {
+    BelowRejectThreshold,
+    AboveRejectThreshold,
+}
+
 /// Calls [`measure_tx_limit`] with accounts on three different shards.
-fn measure_remote_tx_limit(upper_limit_congestion: f64) -> (usize, usize, usize, usize) {
-    let remote_id: AccountId = "test0".parse().unwrap();
+fn measure_remote_tx_limit(
+    upper_limit_congestion: UpperLimitCongestion,
+) -> (usize, usize, usize, usize) {
     let contract_id: AccountId = CONTRACT_ID.parse().unwrap();
-    let dummy_id: AccountId = "a_dummy_receiver".parse().unwrap();
+    let remote_id: AccountId = "test1.near".parse().unwrap();
+    let dummy_id: AccountId = "test2.near".parse().unwrap();
     let env = setup_test_runtime(remote_id.clone(), PROTOCOL_VERSION);
 
     let tip = env.clients[0].chain.head().unwrap();
-    let remote_shard_id =
-        env.clients[0].epoch_manager.account_id_to_shard_id(&remote_id, &tip.epoch_id).unwrap();
-    let contract_shard_id =
-        env.clients[0].epoch_manager.account_id_to_shard_id(&contract_id, &tip.epoch_id).unwrap();
-    let dummy_shard_id =
-        env.clients[0].epoch_manager.account_id_to_shard_id(&dummy_id, &tip.epoch_id).unwrap();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
+    let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
+    let dummy_shard_id = shard_layout.account_id_to_shard_id(&dummy_id);
 
     // For a clean test setup, ensure we use 3 different shards.
     assert_ne!(remote_shard_id, contract_shard_id);
@@ -677,23 +721,29 @@ fn measure_tx_limit(
     remote_id: AccountId,
     contract_id: AccountId,
     dummy_receiver: AccountId,
-    upper_limit_congestion: f64,
+    upper_limit_congestion: UpperLimitCongestion,
 ) -> (usize, usize, usize, usize) {
-    let remote_signer =
-        InMemorySigner::from_seed(remote_id.clone(), KeyType::ED25519, remote_id.as_str());
-    let local_signer =
-        InMemorySigner::from_seed(contract_id.clone(), KeyType::ED25519, contract_id.as_str());
-    let tip = env.clients[0].chain.head().unwrap();
-    let remote_shard_id =
-        env.clients[0].epoch_manager.account_id_to_shard_id(&remote_id, &tip.epoch_id).unwrap();
-    let contract_shard_id =
-        env.clients[0].epoch_manager.account_id_to_shard_id(&contract_id, &tip.epoch_id).unwrap();
+    let mut nonce = 1;
+    setup_contract(&mut env, &mut nonce);
+    if remote_id != contract_id {
+        setup_account(&mut env, &mut nonce, &remote_id, &ACCOUNT_PARENT_ID.parse().unwrap());
+    }
 
-    setup_contract(&mut env);
+    let remote_signer = InMemorySigner::test_signer(&remote_id);
+    let local_signer = InMemorySigner::test_signer(&contract_id);
+    let tip = env.clients[0].chain.head().unwrap();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let remote_shard_id = shard_layout.account_id_to_shard_id(&remote_id);
+    let contract_shard_id = shard_layout.account_id_to_shard_id(&contract_id);
 
     // put in enough transactions to create up to
     // `reject_tx_congestion_threshold` incoming congestion
     let config = head_congestion_control_config(&env);
+    let upper_limit_congestion = match upper_limit_congestion {
+        UpperLimitCongestion::BelowRejectThreshold => config.reject_tx_congestion_threshold,
+        UpperLimitCongestion::AboveRejectThreshold => config.reject_tx_congestion_threshold * 2.0,
+    };
+
     let num_full_congestion = config.max_congestion_incoming_gas / (100 * 10u64.pow(12));
     let n = num_full_congestion as f64 * upper_limit_congestion;
     // Key of new account starts at block_height * 1_000_000
@@ -714,10 +764,11 @@ fn measure_tx_limit(
         let height = tip.height + i;
         env.produce_block(0, height);
 
-        let sender_chunk = head_chunk(&env, remote_shard_id);
+        let remote_chunk = head_chunk(&env, remote_shard_id);
         let contract_chunk = head_chunk(&env, contract_shard_id);
-        let remote_num_tx = sender_chunk.transactions().len();
+        let remote_num_tx = remote_chunk.transactions().len();
         let local_num_tx = contract_chunk.transactions().len();
+
         if i == 2 {
             remote_tx_included_without_congestion = remote_num_tx;
             local_tx_included_without_congestion = local_num_tx;
@@ -736,8 +787,8 @@ fn measure_tx_limit(
     let congestion_level = congestion_info.localized_congestion_level(&config);
     // congestion should be non-trivial and below the upper limit
     assert!(
-        incoming_congestion > upper_limit_congestion / 4.0,
-        "{incoming_congestion} > {upper_limit_congestion} / 4 failed, {congestion_info:?}"
+        incoming_congestion > upper_limit_congestion / 2.0,
+        "{incoming_congestion} > {upper_limit_congestion} / 2 failed, {congestion_info:?}"
     );
     assert!(
         congestion_level < upper_limit_congestion,
@@ -770,10 +821,10 @@ fn test_rpc_client_rejection() {
     let mut env = setup_test_runtime(sender_id.clone(), PROTOCOL_VERSION);
 
     // prepare a contract to call
-    setup_contract(&mut env);
-
-    let signer = InMemorySigner::from_seed(sender_id.clone(), KeyType::ED25519, sender_id.as_str());
     let mut nonce = 10;
+    setup_contract(&mut env, &mut nonce);
+
+    let signer = InMemorySigner::test_signer(&sender_id);
 
     // Check we can send transactions at the start.
     let fn_tx = new_fn_call_100tgas(

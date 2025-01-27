@@ -69,7 +69,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
@@ -166,6 +166,7 @@ pub fn start_client(
         resharding_sender,
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
+        PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_manager.resharding_handle.clone();
@@ -401,6 +402,29 @@ pub enum AdvProduceChunksMode {
 }
 
 #[cfg(feature = "test_features")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum AdvProduceBlockHeightSelection {
+    /// Place the new block on top of the latest known block. Block's height will be the next
+    /// integer.
+    NextHeightOnLatestKnown,
+    /// Place the new block on top of the latest known block. Block height is arbitrary.
+    SelectedHeightOnLatestKnown { produced_block_height: BlockHeight },
+    /// Place the new block on top of the current head. Block's height will be the next integer.
+    NextHeightOnCurrentHead,
+    /// Place the new block on top of current head. Block height is arbitrary.
+    SelectedHeightOnCurrentHead { produced_block_height: BlockHeight },
+    /// Place the new block on top of an existing block at height `base_block_height`. Block's
+    /// height will be the next integer.
+    NextHeightOnSelectedBlock { base_block_height: BlockHeight },
+    /// Place the new block on top of an existing block at height `base_block_height`. Block height
+    /// is arbitrary.
+    SelectedHeightOnSelectedBlock {
+        produced_block_height: BlockHeight,
+        base_block_height: BlockHeight,
+    },
+}
+
+#[cfg(feature = "test_features")]
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Option<u64>")]
 pub enum NetworkAdversarialMessage {
@@ -430,38 +454,11 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 None
             }
             NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
-                info!(target: "adversary", num_blocks, "Starting adversary blocks production");
-                if only_valid {
-                    self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
-                } else {
-                    self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
-                }
-                let start_height =
-                    self.client.chain.mut_chain_store().get_latest_known().unwrap().height + 1;
-                let signer = self.client.validator_signer.get();
-                let mut blocks_produced = 0;
-                for height in start_height.. {
-                    let block =
-                        self.client.produce_block(height).expect("block should be produced");
-                    if only_valid && block == None {
-                        continue;
-                    }
-                    let block = block.expect("block should exist after produced");
-                    info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::Block { block: block.clone() },
-                    ));
-                    let _ = self.client.start_process_block(
-                        block.into(),
-                        Provenance::PRODUCED,
-                        Some(self.myself_sender.apply_chunks_done.clone()),
-                        &signer,
-                    );
-                    blocks_produced += 1;
-                    if blocks_produced == num_blocks {
-                        break;
-                    }
-                }
+                self.adv_produce_blocks_on(
+                    num_blocks,
+                    only_valid,
+                    AdvProduceBlockHeightSelection::NextHeightOnLatestKnown,
+                );
                 None
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
@@ -495,7 +492,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                     self.client.epoch_manager.clone(),
                     self.client.shard_tracker.clone(),
                     self.client.runtime_adapter.clone(),
-                    self.client.chain.chain_store().store().clone(),
+                    self.client.chain.chain_store().store(),
                     self.adv.is_archival(),
                 );
                 store_validator.set_timeout(timeout);
@@ -553,7 +550,7 @@ impl Handler<BlockResponse> for ClientActorInner {
                 Ok(epoch_id) => {
                     if let Some(hashes) = blocks_at_height.unwrap().get(&epoch_id) {
                         if !hashes.contains(block.header().hash()) {
-                            warn!(target: "client", "Rejecting unrequested block {}, height {}", block.header().hash(), block.header().height());
+                            warn!(target: "client", "Rejecting un-requested block {}, height {}", block.header().hash(), block.header().height());
                         }
                     }
                 }
@@ -914,8 +911,6 @@ impl fmt::Display for SyncRequirement {
 
 impl ClientActorInner {
     pub fn start(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        self.start_flat_storage_creation(ctx);
-
         // Start syncing job.
         self.start_sync(ctx);
 
@@ -972,15 +967,10 @@ impl ClientActorInner {
             debug!(target: "client", "Sending announce account for {}", signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
-            let signature =
-                signer.sign_account_announce(signer.validator_id(), &self.node_id, &next_epoch_id);
+            let announce_account =
+                AnnounceAccount::new(signer.as_ref(), self.node_id.clone(), next_epoch_id);
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }),
+                NetworkRequests::AnnounceAccount(announce_account),
             ));
         }
     }
@@ -1127,40 +1117,56 @@ impl ClientActorInner {
             }
         }
 
+        let prev_block_hash = &head.last_block_hash;
         for height in
             latest_known.height + 1..=self.client.doomslug.get_largest_height_crossing_threshold()
         {
             let next_block_producer_account =
                 self.client.epoch_manager.get_block_producer(&epoch_id, height)?;
 
-            if me == next_block_producer_account {
-                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-                    &head.last_block_hash,
-                    &mut self.client.chunk_endorsement_tracker,
-                )?;
-                let num_chunks = self
-                    .client
-                    .chunk_inclusion_tracker
-                    .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
-                let have_all_chunks = head.height == 0
-                    || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
+            if me != next_block_producer_account {
+                continue;
+            }
 
-                if self.client.doomslug.ready_to_produce_block(
-                    height,
-                    have_all_chunks,
-                    log_block_production_info,
-                ) {
-                    self.client
-                        .chunk_inclusion_tracker
-                        .record_endorsement_metrics(&head.last_block_hash);
-                    if let Err(err) = self.produce_block(height, signer) {
-                        // If there is an error, report it and let it retry on the next loop step.
-                        error!(target: "client", height, "Block production failed: {}", err);
-                    } else {
-                        self.post_block_production();
-                    }
+            self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+                prev_block_hash,
+                &mut self.client.chunk_endorsement_tracker,
+            )?;
+            let num_chunks = self
+                .client
+                .chunk_inclusion_tracker
+                .num_chunk_headers_ready_for_inclusion(&epoch_id, prev_block_hash);
+            let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+            let have_all_chunks = head.height == 0 || num_chunks == shard_ids.len();
+
+            if self.client.doomslug.ready_to_produce_block(
+                height,
+                have_all_chunks,
+                log_block_production_info,
+            ) {
+                self.client
+                    .chunk_inclusion_tracker
+                    .record_endorsement_metrics(prev_block_hash, &shard_ids);
+                if let Err(err) = self.produce_block(height, signer) {
+                    // If there is an error, report it and let it retry on the next loop step.
+                    error!(target: "client", height, "Block production failed: {}", err);
+                } else {
+                    self.post_block_production();
                 }
             }
+        }
+
+        let protocol_version = self.client.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if !ProtocolFeature::ProduceOptimisticBlock.enabled(protocol_version) {
+            return Ok(());
+        }
+        let optimistic_block_height = self.client.doomslug.get_timer_height();
+        if me != self.client.epoch_manager.get_block_producer(&epoch_id, optimistic_block_height)? {
+            return Ok(());
+        }
+        if let Err(err) = self.produce_optimistic_block(optimistic_block_height) {
+            // If there is an error, report it and let it retry.
+            error!(target: "client", optimistic_block_height, ?err, "Optimistic block production failed!");
         }
 
         Ok(())
@@ -1190,8 +1196,8 @@ impl ClientActorInner {
         let _span = tracing::debug_span!(target: "client", "check_triggers").entered();
         if let Some(config_updater) = &mut self.config_updater {
             let update_result = config_updater.try_update(
-                &|updateable_client_config| {
-                    self.client.update_client_config(updateable_client_config)
+                &|updatable_client_config| {
+                    self.client.update_client_config(updatable_client_config)
                 },
                 &|validator_signer| self.client.update_validator_signer(validator_signer),
             );
@@ -1239,7 +1245,7 @@ impl ClientActorInner {
             delay = std::cmp::min(delay, self.sync_timer_next_attempt - now);
 
             self.doomslug_timer_next_attempt = self.run_timer(
-                self.client.config.doosmslug_step_period,
+                self.client.config.doomslug_step_period,
                 self.doomslug_timer_next_attempt,
                 ctx,
                 |act, _| act.try_doomslug_timer(),
@@ -1380,6 +1386,32 @@ impl ClientActorInner {
                 Err(error.into())
             }
         }
+    }
+
+    /// Produce optimistic block if we are block producer for given `next_height` height.
+    fn produce_optimistic_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "client", "produce_optimistic_block", next_height)
+            .entered();
+        // Check if optimistic block is already produced
+        if self.client.is_optimistic_block_done(next_height) {
+            return Ok(());
+        }
+
+        let Some(optimistic_block) = self.client.produce_optimistic_block_on_head(next_height)?
+        else {
+            return Ok(());
+        };
+
+        /* TODO(#10584): If we produced the optimistic block, send it out before we save it.
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::OptimisticBlock { optimistic_block: block.clone() },
+        ));
+        */
+
+        // We’ve produced the optimistic block, mark it as done so we don't produce it again.
+        self.client.save_optimistic_block(&optimistic_block);
+
+        Ok(())
     }
 
     fn send_chunks_metrics(&mut self, block: &Block) {
@@ -1526,29 +1558,6 @@ impl ClientActorInner {
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
             }
         }
-    }
-
-    fn start_flat_storage_creation(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        if !self.client.config.flat_storage_creation_enabled {
-            return;
-        }
-        match self.client.run_flat_storage_creation_step() {
-            Ok(false) => {}
-            Ok(true) => {
-                return;
-            }
-            Err(err) => {
-                error!(target: "client", "Error occurred during flat storage creation step: {:?}", err);
-            }
-        }
-
-        ctx.run_later(
-            "ClientActor start_flat_storage_creation",
-            self.client.config.flat_storage_creation_period,
-            move |act, ctx| {
-                act.start_flat_storage_creation(ctx);
-            },
-        );
     }
 
     /// Starts syncing and then switches to either syncing or regular mode.
@@ -1766,7 +1775,7 @@ impl ClientActorInner {
             sync_hash,
             state_sync_status,
             &self.network_info.highest_height_peers,
-            shards_to_sync,
+            &shards_to_sync,
         );
         let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
         match state_sync_result {
@@ -1941,7 +1950,7 @@ impl ClientActorInner {
                 return Ok(false);
             }
             if epoch_sync_boundary_block_header.height()
-                + self.client.chain.transaction_validity_period
+                + self.client.chain.transaction_validity_period()
                 > current_epoch_start
             {
                 // We also do not want to state sync, if by doing so we would not have enough headers to
@@ -1986,7 +1995,7 @@ impl ClientActorInner {
         if block_exists {
             return Ok((false, true));
         }
-        let timeout = self.client.config.state_sync_timeout;
+        let timeout = self.client.config.state_sync_external_timeout;
         let timeout = near_async::time::Duration::try_from(timeout);
         let timeout = timeout.unwrap();
 
@@ -2095,6 +2104,88 @@ impl ClientActorInner {
             return true;
         }
         true
+    }
+
+    /// Produces `num_blocks` number of blocks.
+    ///
+    /// The parameter `height_selection` governs the produced blocks' heights and what base block
+    /// height they are placed.
+    #[cfg(feature = "test_features")]
+    pub fn adv_produce_blocks_on(
+        &mut self,
+        num_blocks: BlockHeight,
+        only_valid: bool,
+        height_selection: AdvProduceBlockHeightSelection,
+    ) {
+        use AdvProduceBlockHeightSelection::*;
+
+        info!(target: "adversary", num_blocks, "Starting adversary blocks production");
+        if only_valid {
+            self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::OnlyValid);
+        } else {
+            self.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
+        }
+        let (start_height, prev_block_height) = match height_selection {
+            NextHeightOnLatestKnown => {
+                let latest_height =
+                    self.client.chain.mut_chain_store().get_latest_known().unwrap().height;
+                (latest_height + 1, latest_height)
+            }
+            SelectedHeightOnLatestKnown { produced_block_height } => (
+                produced_block_height,
+                self.client.chain.mut_chain_store().get_latest_known().unwrap().height,
+            ),
+            NextHeightOnCurrentHead => {
+                let head_height = self.client.chain.mut_chain_store().head().unwrap().height;
+                (head_height + 1, head_height)
+            }
+            SelectedHeightOnCurrentHead { produced_block_height } => {
+                (produced_block_height, self.client.chain.mut_chain_store().head().unwrap().height)
+            }
+            NextHeightOnSelectedBlock { base_block_height } => {
+                (base_block_height + 1, base_block_height)
+            }
+            SelectedHeightOnSelectedBlock { produced_block_height, base_block_height } => {
+                (produced_block_height, base_block_height)
+            }
+        };
+        let is_based_on_current_head =
+            prev_block_height == self.client.chain.mut_chain_store().head().unwrap().height;
+        let signer = self.client.validator_signer.get();
+        let mut blocks_produced = 0;
+        for height in start_height.. {
+            let block: Option<Block> = if is_based_on_current_head {
+                self.client.produce_block(height).expect("block should be produced")
+            } else {
+                let prev_block_hash = self
+                    .client
+                    .chain
+                    .chain_store()
+                    .get_block_hash_by_height(prev_block_height)
+                    .expect("prev block should exist");
+                self.client
+                    .produce_block_on(height, prev_block_hash)
+                    .expect("block should be produced")
+            };
+            if only_valid && block == None {
+                continue;
+            }
+            let block = block.expect("block should exist after produced");
+            info!(target: "adversary", blocks_produced, num_blocks, height, "Producing adversary block");
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
+            let _ = self.client.start_process_block(
+                block.into(),
+                Provenance::PRODUCED,
+                Some(self.myself_sender.apply_chunks_done.clone()),
+                &signer,
+            );
+            blocks_produced += 1;
+            if blocks_produced == num_blocks {
+                break;
+            }
+        }
     }
 }
 

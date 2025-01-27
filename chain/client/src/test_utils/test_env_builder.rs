@@ -199,12 +199,12 @@ impl TestEnvBuilder {
             .iter()
             .map(|home_dir| {
                 // The max number of open files across all RocksDB instances is INT_MAX i.e. 65,535
-                // The default value of max_open_files is 10,000 which only allows upto 6 RocksDB
+                // The default value of max_open_files is 10,000 which only allows up to 6 RocksDB
                 // instance to open at a time. This is problematic in testing resharding. To overcome
                 // this limit, we set the max_open_files config to 1000.
                 let mut store_config = StoreConfig::default();
                 store_config.max_open_files = 1000;
-                NodeStorage::opener(home_dir.as_path(), false, &store_config, None)
+                NodeStorage::opener(home_dir.as_path(), &store_config, None)
                     .open()
                     .unwrap()
                     .get_hot_store()
@@ -265,9 +265,9 @@ impl TestEnvBuilder {
         );
         let ret = self.ensure_stores();
 
-        // TODO(#11265): consider initialising epoch config separately as it
+        // TODO(#11265): consider initializing epoch config separately as it
         // should be decoupled from the genesis config.
-        // However, there are a lot of tests which only initialise genesis.
+        // However, there are a lot of tests which only initialize genesis.
         let mut base_epoch_config: EpochConfig = (&ret.genesis_config).into();
         if let Some(block_producer_kickout_threshold) =
             test_overrides.block_producer_kickout_threshold
@@ -588,7 +588,7 @@ impl TestEnvBuilder {
                         None => TEST_SEED,
                     };
                     let tries = runtime.get_tries();
-                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _epoch_height, shard_uids: Vec<(ShardIndex, ShardUId)>, block| {
+                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _min_chunk_prev_height, _epoch_height, shard_uids: Vec<(ShardIndex, ShardUId)>, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
                         tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
@@ -647,7 +647,7 @@ impl TestEnvBuilder {
         }
     }
 
-    fn make_accounts(count: usize) -> Vec<AccountId> {
+    pub fn make_accounts(count: usize) -> Vec<AccountId> {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 

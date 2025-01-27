@@ -86,10 +86,11 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     // The `excluded_validator` will receive a chunk witness for the chunk in `block2`, but it won't
     // have `block1`, so it will become an orphaned chunk state witness.
     let tip = env.clients[0].chain.head().unwrap();
+    let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let block1_producer = env.get_block_producer_at_offset(&tip, 1);
     let block2_producer = env.get_block_producer_at_offset(&tip, 2);
-    let shard_id = ShardId::new(0);
     let block2_chunk_producer = env.get_chunk_producer_at_offset(&tip, 2, shard_id);
 
     // The excluded validator shouldn't produce any blocks or chunks in the next two blocks.
@@ -134,16 +135,13 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     let partial_witness_adapter =
         env.partial_witness_adapters[env.get_client_index(&block2_chunk_producer)].clone();
     while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-        let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness, .. } = request;
+        let DistributeStateWitnessRequest { state_witness, .. } = request;
         let raw_witness_size = borsh_size(&state_witness);
+        let key = state_witness.chunk_production_key();
         let chunk_validators = env
             .client(&block2_chunk_producer)
             .epoch_manager
-            .get_chunk_validator_assignments(
-                &epoch_id,
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-            )
+            .get_chunk_validator_assignments(&key.epoch_id, key.shard_id, key.height_created)
             .unwrap()
             .ordered_chunk_validators();
 

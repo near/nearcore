@@ -15,9 +15,10 @@ use near_primitives::sharding::{
     EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV2,
     ShardChunkHeader,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
-use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::adapter::StoreAdapter;
@@ -78,6 +79,7 @@ impl ChunkTestFixture {
             2,
         );
         let epoch_manager = epoch_manager.into_handle();
+        let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let shard_tracker = ShardTracker::new(
             if track_all_shards { TrackedConfig::AllShards } else { TrackedConfig::new_empty() },
             Arc::new(epoch_manager.clone()),
@@ -93,11 +95,17 @@ impl ChunkTestFixture {
         let (mock_parent_hash, mock_height) =
             if orphan_chunk { (CryptoHash::hash_bytes(&[]), 2) } else { (mock_ancestor_hash, 1) };
         // setting this to 2 instead of 0 so that when chunk producers
-        let mock_shard_id: ShardId = ShardId::new(0);
+        let mock_shard_id = shard_layout.shard_ids().next().unwrap();
         let mock_epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(&mock_ancestor_hash).unwrap();
-        let mock_chunk_producer =
-            epoch_manager.get_chunk_producer(&mock_epoch_id, mock_height, mock_shard_id).unwrap();
+        let mock_chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id: mock_epoch_id,
+                height_created: mock_height,
+                shard_id: mock_shard_id,
+            })
+            .unwrap()
+            .take_account_id();
         let signer = create_test_signer(mock_chunk_producer.as_str());
         let validators: Vec<_> = epoch_manager
             .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
@@ -175,7 +183,7 @@ impl ChunkTestFixture {
             Vec::new(),
             &mock_merkle_paths,
         );
-        let chain_store = ChainStore::new(store.clone(), 0, true);
+        let chain_store = ChainStore::new(store.clone(), 0, true, 5);
 
         ChunkTestFixture {
             store: store.chunk_store(),

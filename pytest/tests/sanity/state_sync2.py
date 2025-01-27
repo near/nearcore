@@ -15,6 +15,7 @@ from configured_logger import logger
 import state_sync_lib
 import utils
 
+# cspell:ignore SETFL
 fcntl.fcntl(1, fcntl.F_SETFL, 0)  # no cache when execute from nightly runner
 
 BLOCKS = 105  # should be enough to trigger state sync for node 1 later, see comments there

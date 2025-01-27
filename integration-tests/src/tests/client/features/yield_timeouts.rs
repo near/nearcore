@@ -1,12 +1,11 @@
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::config::TEST_CONFIG_YIELD_TIMEOUT_LENGTH;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptEnum::{PromiseResume, PromiseYield};
-use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -30,7 +29,7 @@ fn find_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let epoch_id = *genesis_block.header().epoch_id();
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
-    let shard_id = account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap(), &shard_layout);
+    let shard_id = shard_layout.account_id_to_shard_id(&"test0".parse::<AccountId>().unwrap());
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block_height = env.clients[0].chain.head().unwrap().height;
 
@@ -65,8 +64,7 @@ fn prepare_env_with_yield(
     }
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
     // Submit transaction deploying contract to test0
     let tx = SignedTransaction::from_actions(
@@ -133,14 +131,14 @@ fn invoke_yield_resume(
     data_id: CryptoHash,
     yield_payload: Vec<u8>,
 ) -> CryptoHash {
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let resume_transaction = SignedTransaction::from_actions(
         200,
         "test0".parse().unwrap(),
         "test0".parse().unwrap(),
-        &signer.into(),
+        &signer,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_yield_resume".to_string(),
             args: yield_payload.into_iter().chain(data_id.as_bytes().iter().cloned()).collect(),
@@ -163,8 +161,7 @@ fn invoke_yield_resume(
 /// Note that these transactions start to be processed in the *second* block produced after they are
 /// inserted to client 0's mempool.
 fn create_congestion(env: &mut TestEnv) {
-    let signer =
-        InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0").into();
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let mut tx_hashes = vec![];

@@ -7,10 +7,11 @@
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+/// cspell:ignore txes
 /// How long does it take to produce a large chunk?
 ///
 /// Chunk production work does **not** include any transaction execution: it is
@@ -30,8 +31,7 @@ fn benchmark_large_chunk_production_time() {
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let account_id = env.get_client_id(0);
-    let signer =
-        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref()).into();
+    let signer = InMemorySigner::test_signer(&account_id);
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     for i in 0..n_txes {
         let tx = SignedTransaction::from_actions(

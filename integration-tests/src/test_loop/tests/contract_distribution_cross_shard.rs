@@ -1,18 +1,25 @@
 use itertools::Itertools;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::ContractCode;
 
 use crate::test_loop::builder::TestLoopBuilder;
-use crate::test_loop::env::{TestData, TestLoopEnv};
+use crate::test_loop::env::TestLoopEnv;
+use crate::test_loop::utils::contract_distribution::{
+    assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
+    run_until_caches_contain_contract,
+};
+use crate::test_loop::utils::get_head_height;
 use crate::test_loop::utils::transactions::{
     call_contract, check_txs, deploy_contract, make_accounts,
 };
-use crate::test_loop::utils::ONE_NEAR;
 
-const NUM_ACCOUNTS: usize = 9;
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
 
@@ -20,6 +27,7 @@ const NUM_BLOCK_AND_CHUNK_PRODUCERS: usize = 4;
 const NUM_CHUNK_VALIDATORS_ONLY: usize = 4;
 const NUM_RPC: usize = 1;
 const NUM_VALIDATORS: usize = NUM_BLOCK_AND_CHUNK_PRODUCERS + NUM_CHUNK_VALIDATORS_ONLY;
+const NUM_ACCOUNTS: usize = NUM_VALIDATORS + NUM_RPC;
 
 /// Tests a scenario that different contracts are deployed to a number of accounts and
 /// these contracts are called from a set of accounts.
@@ -32,10 +40,11 @@ fn test_contract_distribution_cross_shard() {
     init_test_logger();
     let accounts = make_accounts(NUM_ACCOUNTS);
 
-    let (env, rpc_id) = setup(&accounts);
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = env;
+    let (mut env, rpc_id) = setup(&accounts);
 
-    let mut nonce = 2;
+    let mut nonce = 1;
+    let rpc_index = 8;
+    assert_eq!(accounts[rpc_index], rpc_id);
 
     // Deploy a contract for each shard (account0 from first one, and account4 from second one).
     // Then take two accounts from each shard (one with a contract deployed and one without) and
@@ -43,25 +52,31 @@ fn test_contract_distribution_cross_shard() {
     let contract_ids = [&accounts[0], &accounts[4]];
     let sender_ids = [&accounts[0], &accounts[1], &accounts[4], &accounts[5]];
 
+    let start_height = get_head_height(&mut env);
+
     // First deploy and call the contracts as described above.
     // Next, clear the compiled contract cache and repeat the same contract calls.
-    deploy_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &mut nonce);
+    let contracts = deploy_contracts(&mut env, &rpc_id, &contract_ids, &mut nonce);
 
-    call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
+    for contract in contracts.into_iter() {
+        run_until_caches_contain_contract(&mut env, contract.hash());
+    }
 
-    #[cfg(feature = "test_features")]
-    clear_compiled_contract_caches(&mut test_loop, &node_datas);
+    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
 
-    call_contracts(&mut test_loop, &node_datas, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
+    clear_compiled_contract_caches(&mut env);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
-        .shutdown_and_drain_remaining_events(Duration::seconds(20));
+    call_contracts(&mut env, &rpc_id, &contract_ids, &sender_ids, &mut nonce);
+
+    let end_height = get_head_height(&mut env);
+    assert_all_chunk_endorsements_received(&mut env, start_height, end_height);
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
 fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let builder = TestLoopBuilder::new();
 
-    let initial_balance = 10000 * ONE_NEAR;
     // All block_and_chunk_producers will be both block and chunk validators.
     let block_and_chunk_producers =
         (0..NUM_BLOCK_AND_CHUNK_PRODUCERS).map(|idx| accounts[idx].as_str()).collect_vec();
@@ -73,22 +88,27 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let clients = accounts.iter().take(NUM_VALIDATORS + NUM_RPC).cloned().collect_vec();
     let rpc_id = accounts[NUM_VALIDATORS].clone();
 
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .protocol_version_latest()
-        .genesis_height(GENESIS_HEIGHT)
-        .gas_prices_free()
-        .gas_limit_one_petagas()
-        .shard_layout_simple_v1(&["account4"])
-        .transaction_validity_period(1000)
-        .epoch_length(EPOCH_LENGTH)
-        .validators_desired_roles(&block_and_chunk_producers, &chunk_validators_only)
-        .shuffle_shard_assignment_for_chunk_producers(true);
-    for account in accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let shard_layout = ShardLayout::simple_v1(&["account4"]);
+    let validators_spec =
+        ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
+
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length: EPOCH_LENGTH,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
+        |genesis_builder| {
+            genesis_builder.genesis_height(GENESIS_HEIGHT).transaction_validity_period(1000)
+        },
+        |epoch_config_builder| {
+            epoch_config_builder
+                .shuffle_shard_assignment_for_chunk_producers(true)
+                .minimum_validators_per_shard(2)
+        },
+    );
 
     let env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
@@ -97,29 +117,39 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
 
 /// Deploys a contract for the given accounts (`contract_ids`) and waits until the transactions are executed.
 /// Each account in `contract_ids` gets a fake contract with a different size (thus code-hashes are different)
+/// Returns the list of contracts deployed.
 fn deploy_contracts(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_ids: &[&AccountId],
     nonce: &mut u64,
-) {
+) -> Vec<ContractCode> {
+    let mut contracts = vec![];
     let mut txs = vec![];
     for (i, contract_id) in contract_ids.into_iter().enumerate() {
         tracing::info!(target: "test", ?rpc_id, ?contract_id, "Deploying contract.");
-        let code = near_test_contracts::sized_contract((i + 1) * 100).to_vec();
-        let tx = deploy_contract(test_loop, node_datas, rpc_id, contract_id, code, *nonce);
+        let contract =
+            ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100).to_vec(), None);
+        let tx = deploy_contract(
+            &mut env.test_loop,
+            &env.datas,
+            rpc_id,
+            contract_id,
+            contract.code().to_vec(),
+            *nonce,
+        );
         txs.push(tx);
         *nonce += 1;
+        contracts.push(contract);
     }
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(&*test_loop, node_datas, rpc_id, &txs);
+    env.test_loop.run_for(Duration::seconds(2));
+    check_txs(&env.test_loop.data, &env.datas, rpc_id, &txs);
+    contracts
 }
 
 /// Makes calls to the contracts from sender_ids to the contract_ids (at which contracts are deployed).
 fn call_contracts(
-    test_loop: &mut TestLoopV2,
-    node_datas: &Vec<TestData>,
+    env: &mut TestLoopEnv,
     rpc_id: &AccountId,
     contract_ids: &[&AccountId],
     sender_ids: &[&AccountId],
@@ -131,8 +161,8 @@ fn call_contracts(
         for contract_id in contract_ids.into_iter() {
             tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "Calling contract.");
             let tx = call_contract(
-                test_loop,
-                node_datas,
+                &mut env.test_loop,
+                &env.datas,
                 rpc_id,
                 sender_id,
                 contract_id,
@@ -144,17 +174,6 @@ fn call_contracts(
             *nonce += 1;
         }
     }
-    test_loop.run_for(Duration::seconds(2));
-    check_txs(&*test_loop, node_datas, &rpc_id, &txs);
-}
-
-/// Clears the compiled contract caches for all the clients.
-#[cfg(feature = "test_features")]
-pub fn clear_compiled_contract_caches(test_loop: &mut TestLoopV2, node_datas: &Vec<TestData>) {
-    for i in 0..node_datas.len() {
-        let client_handle = node_datas[i].client_sender.actor_handle();
-        let contract_cache_handle =
-            test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
-        contract_cache_handle.test_only_clear().unwrap();
-    }
+    env.test_loop.run_for(Duration::seconds(2));
+    check_txs(&env.test_loop.data, &env.datas, &rpc_id, &txs);
 }

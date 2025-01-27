@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# test fast fowarding by a specific block height within a sandbox node. This will
+# test fast forwarding by a specific block height within a sandbox node. This will
 # fail if the block height is not past the forwarded height. Also we will test
 # for the timestamps and epoch height being adjusted correctly after the block
 # height is changed.

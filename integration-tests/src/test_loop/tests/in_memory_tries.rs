@@ -1,15 +1,17 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+};
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::types::{AccountId, ShardId};
-use near_store::ShardUId;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::AccountId;
+use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
 use crate::test_loop::utils::transactions::execute_money_transfers;
-use crate::test_loop::utils::ONE_NEAR;
 
 /// Runs chain with sequence of chunks with empty state changes, long enough to
 /// cover 5 epochs which is default GC period.
@@ -26,27 +28,28 @@ fn test_load_memtrie_after_empty_chunks() {
     let num_accounts = 3;
     let num_clients = 2;
     let epoch_length = 5;
-    let initial_balance = 10000 * ONE_NEAR;
+    // Set 2 shards, first of which doesn't have any validators.
+    let shard_layout = ShardLayout::simple_v1(&["account1"]);
     let accounts = (num_accounts - num_clients..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
     let client_accounts = accounts.iter().take(num_clients).cloned().collect_vec();
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&builder.clock())
-        .protocol_version_latest()
-        .genesis_height(10000)
-        .gas_prices_free()
-        .gas_limit_one_petagas()
-        // Set 2 shards, first of which doesn't have any validators.
-        .shard_layout_simple_v1(&["account1"])
-        .transaction_validity_period(1000)
-        .epoch_length(epoch_length)
-        .validators_desired_roles(&client_accounts.iter().map(|t| t.as_str()).collect_vec(), &[]);
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let validators_spec = ValidatorsSpec::desired_roles(
+        &client_accounts.iter().map(|t| t.as_str()).collect_vec(),
+        &[],
+    );
+
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout: shard_layout.clone(),
+            validators_spec,
+            accounts: &accounts,
+        },
+        |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
+        |epoch_config_builder| epoch_config_builder,
+    );
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
@@ -66,7 +69,9 @@ fn test_load_memtrie_after_empty_chunks() {
         Duration::seconds(10),
     );
 
-    // Find client currently tracking shard 0.
+    // Find client currently tracking shard with index 0.
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
+    let shard_id = shard_uid.shard_id();
     let clients = node_datas
         .iter()
         .map(|data| &test_loop.data.get(&data.client_sender.actor_handle()).client)
@@ -77,33 +82,16 @@ fn test_load_memtrie_after_empty_chunks() {
         current_tracked_shards
             .iter()
             .enumerate()
-            .find_map(
-                |(idx, shards)| {
-                    if shards.contains(&ShardId::new(0)) {
-                        Some(idx)
-                    } else {
-                        None
-                    }
-                },
-            )
+            .find_map(|(idx, shards)| if shards.contains(&shard_id) { Some(idx) } else { None })
             .expect("Not found any client tracking shard 0")
     };
 
     // Unload memtrie and load it back, check that it doesn't panic.
-    let tip = clients[idx].chain.head().unwrap();
-    let shard_layout = clients[idx].epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    clients[idx].runtime_adapter.get_tries().unload_memtrie(&shard_uid);
     clients[idx]
         .runtime_adapter
         .get_tries()
-        .unload_mem_trie(&ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout));
-    clients[idx]
-        .runtime_adapter
-        .get_tries()
-        .load_mem_trie(
-            &ShardUId::from_shard_id_and_layout(ShardId::new(0), &shard_layout),
-            None,
-            true,
-        )
+        .load_memtrie(&shard_uid, None, true)
         .expect("Couldn't load memtrie");
 
     // Give the test a chance to finish off remaining events in the event loop, which can

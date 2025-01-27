@@ -1,17 +1,17 @@
 # Integration tests
- 
+
 ## TestLoopEnv
 
-`TestLoopEnv` is a framework that enables writing multi-node tests for NEAR protocol 
+`TestLoopEnv` is a framework that enables writing multi-node tests for NEAR protocol
 components. It simulates an entire blockchain environment within a single test,
 allowing for synchronous testing of complex scenarios.
 
-We recommend to use `TestLoopEnv` for writing multi-node tests and put new 
-tests into `src/test_loop/tests` folder. This framework is an attempt to 
-achieve the best of all our previous frameworks, to make tests powerful, 
-deterministic and easy to write and understand. The doc how it works is on 
+We recommend to use `TestLoopEnv` for writing multi-node tests and put new
+tests into `src/test_loop/tests` folder. This framework is an attempt to
+achieve the best of all our previous frameworks, to make tests powerful,
+deterministic and easy to write and understand. The doc how it works is on
 `core/async/src/test_loop.rs`.
- 
+
 Here's a step-by-step guide on how to create a test.
 
 ## 1. Build the environment
@@ -113,22 +113,23 @@ TestLoopEnv { test_loop, datas: node_datas }
 
 For historical context, there are multiple existing ways for writing such
 tests. The following list presents these methods in order of their development:
+
 * `run_actix(... setup_mock_all_validators(...))` - very powerful, spawns all
-actors required for multi-node chain to operate and supports network 
-communication among them. However, very hard to understand, uses a lot of 
+actors required for multi-node chain to operate and supports network
+communication among them. However, very hard to understand, uses a lot of
 resources and almost not maintained.
-* pytest - quite powerful as well, spawns actual nodes in Python and uses 
-exposed RPC handlers to test different behaviour. Quite obsolete as well,
+* pytest - quite powerful as well, spawns actual nodes in Python and uses
+exposed RPC handlers to test different behavior. Quite obsolete as well,
 exposed to flakiness.
 * different environments spawning clients: `TestEnv`, `TestReshardingEnv`, ...
-Good middle ground for testing specific features, but doesn't test actual 
-network behaviour. Modifications like forcing skipping chunks require a lot
+Good middle ground for testing specific features, but doesn't test actual
+network behavior. Modifications like forcing skipping chunks require a lot
 of manual intervention.
 
-If test became problematic, it is encouraged to migrate it to `TestLoopEnv`. 
-However, it would be _extremely_ hard to migrate the logic precisely. Instead, 
+If test became problematic, it is encouraged to migrate it to `TestLoopEnv`.
+However, it would be _extremely_ hard to migrate the logic precisely. Instead,
 migrate tests only if they make sense to you and their current implementation
-became a huge burden. We hope that reproducing such logic in `TestLoopEnv` is 
-much easier. 
+became a huge burden. We hope that reproducing such logic in `TestLoopEnv` is
+much easier.
 
 Enjoy!

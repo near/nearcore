@@ -13,10 +13,15 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
+use crate::signature_verification::{
+    verify_block_header_signature_with_epoch_manager,
+    verify_chunk_header_signature_with_epoch_manager,
+};
 use crate::types::RuntimeAdapter;
 use crate::{byzantine_assert, Chain};
 use crate::{ChainStore, Error};
@@ -282,7 +287,7 @@ fn validate_header_authorship(
     epoch_manager: &dyn EpochManagerAdapter,
     block_header: &BlockHeader,
 ) -> Result<(), Error> {
-    if epoch_manager.verify_header_signature(block_header)? {
+    if verify_block_header_signature_with_epoch_manager(epoch_manager, block_header)? {
         Ok(())
     } else {
         Err(Error::InvalidChallenge)
@@ -293,17 +298,21 @@ fn validate_chunk_authorship(
     epoch_manager: &dyn EpochManagerAdapter,
     chunk_header: &ShardChunkHeader,
 ) -> Result<AccountId, Error> {
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&chunk_header.prev_block_hash())?;
-    if epoch_manager.verify_chunk_header_signature(
+    let parent_hash = chunk_header.prev_block_hash();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+    if verify_chunk_header_signature_with_epoch_manager(
+        epoch_manager,
         chunk_header,
-        &epoch_id,
-        &chunk_header.prev_block_hash(),
+        parent_hash,
+        epoch_id,
     )? {
-        let chunk_producer = epoch_manager.get_chunk_producer(
-            &epoch_id,
-            chunk_header.height_created(),
-            chunk_header.shard_id(),
-        )?;
+        let chunk_producer = epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_header.height_created(),
+                shard_id: chunk_header.shard_id(),
+            })?
+            .take_account_id();
         Ok(chunk_producer)
     } else {
         Err(Error::InvalidChallenge)
@@ -485,7 +494,7 @@ mod tests {
             nonce,
             account_id,
             "bob".parse().unwrap(),
-            &signer.into(),
+            &signer,
             10,
             CryptoHash::default(),
         )

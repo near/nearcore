@@ -48,6 +48,7 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
@@ -626,11 +627,12 @@ impl ViewClientActorInner {
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .epoch_manager
-                    .get_chunk_producer(
-                        &head.epoch_id,
-                        head.height + self.config.tx_routing_height_horizon - 1,
-                        target_shard_id,
-                    )
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id: head.epoch_id,
+                        height_created: head.height + self.config.tx_routing_height_horizon - 1,
+                        shard_id: target_shard_id,
+                    })
+                    .map(|info| info.take_account_id())
                     .map_err(|err| TxStatusError::ChainError(err.into()))?;
 
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -761,19 +763,17 @@ fn get_chunk_from_block(
     let epoch_id = block.header().epoch_id();
     let shard_layout = chain.epoch_manager.get_shard_layout(epoch_id)?;
     let shard_index = shard_layout.get_shard_index(shard_id)?;
-    let chunk_header = block
-        .chunks()
-        .get(shard_index)
-        .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
-        .clone();
+    let chunk_header =
+        block.chunks().get(shard_index).ok_or(near_chain::Error::InvalidShardId(shard_id))?.clone();
     let chunk_hash = chunk_header.chunk_hash();
     let chunk = chain.get_chunk(&chunk_hash)?;
-    let res = ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or(
-        near_chain::Error::Other(format!(
-            "Mismatched versions for chunk with hash {}",
-            chunk_hash.0
-        )),
-    )?;
+    let res =
+        ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or_else(|| {
+            near_chain::Error::Other(format!(
+                "Mismatched versions for chunk with hash {}",
+                chunk_hash.0
+            ))
+        })?;
     Ok(res)
 }
 
@@ -830,7 +830,12 @@ impl Handler<GetChunk> for ViewClientActorInner {
             .into_chain_error()?;
         let author = self
             .epoch_manager
-            .get_chunk_producer(&epoch_id, chunk_inner.height_created(), chunk_inner.shard_id())
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: chunk_inner.height_created(),
+                shard_id: chunk_inner.shard_id(),
+            })
+            .map(|info| info.take_account_id())
             .into_chain_error()?;
 
         Ok(ChunkView::from_author_chunk(author, chunk))
@@ -1347,7 +1352,7 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
             .start_timer();
         let StateRequestHeader { shard_id, sync_hash } = msg;
         if self.throttle_state_sync_request() {
-            tracing::debug!(target: "sync", ?sync_hash, "Throttle state sync requests");
+            metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
         let header = match self.chain.check_sync_hash_validity(&sync_hash) {
@@ -1417,7 +1422,7 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
             .start_timer();
         let StateRequestPart { shard_id, sync_hash, part_id } = msg;
         if self.throttle_state_sync_request() {
-            tracing::debug!(target: "sync", ?sync_hash, "Throttle state sync requests");
+            metrics::STATE_SYNC_REQUESTS_THROTTLED_TOTAL.inc();
             return None;
         }
         if let Err(err) = self.has_state_snapshot(&sync_hash, shard_id) {

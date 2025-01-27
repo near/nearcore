@@ -50,35 +50,40 @@ def upload_to_s3(file_lines: list, account: str) -> str:
     for line in file_lines:
         file_string.write(line)
 
+    # cspell:words getsizeof
     file_obj = io.BytesIO(file_string.getvalue().encode())
     gzipped_content = gzip.compress(file_obj.read())
     print(
         f"uploading compressed file. File size is: {sys.getsizeof(gzipped_content)} Bytes"
     )
 
-    s3 = boto3.resource('s3')
+    s3 = boto3.resource("s3")
     s3.Bucket(BUCKET).upload_fileobj(io.BytesIO(gzipped_content),
                                      f"logs/{s3_destination}")
-    s3_link = f"https://{BUCKET}.s3.amazonaws.com/logs/{urllib.parse.quote(s3_destination)}"
+    s3_link = (
+        f"https://{BUCKET}.s3.amazonaws.com/logs/{urllib.parse.quote(s3_destination)}"
+    )
     print(f"Log File was uploaded to S3: {s3_link}")
     file_obj.close()
     return s3_link
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Send logs to near.')
-    parser.add_argument('--log_file',
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Send logs to near.")
+    parser.add_argument("--log_file",
                         type=str,
-                        help='Absolute path to log file.',
+                        help="Absolute path to log file.",
                         required=True)
-    parser.add_argument('--account',
+    parser.add_argument("--account",
                         type=str,
-                        help='Near account id.',
+                        help="Near account id.",
                         required=True)
-    parser.add_argument('--last_seconds',
-                        type=int,
-                        help='Filter logs for last x seconds.',
-                        required=True)
+    parser.add_argument(
+        "--last_seconds",
+        type=int,
+        help="Filter logs for last x seconds.",
+        required=True,
+    )
     args = parser.parse_args()
 
     log_file_path = args.log_file

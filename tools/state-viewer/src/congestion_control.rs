@@ -54,6 +54,7 @@ impl PrintCmd {
             store,
             near_config.genesis.config.genesis_height,
             near_config.client_config.save_trie_changes,
+            near_config.genesis.config.transaction_validity_period,
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
@@ -203,7 +204,7 @@ impl PrepareBenchmarkCmd {
             let receipt = self.create_receipt();
             let receipt = Cow::Borrowed(&receipt);
             let receipt = ReceiptOrStateStoredReceipt::Receipt(receipt);
-            queue.push(&mut trie_update, &receipt).unwrap();
+            queue.push_back(&mut trie_update, &receipt).unwrap();
         }
 
         trie_update.commit(StateChangeCause::UpdatedDelayedReceipts);

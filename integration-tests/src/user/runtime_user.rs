@@ -26,10 +26,11 @@ use near_primitives::views::{
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
 use node_runtime::state_viewer::TrieViewer;
+use node_runtime::SignedValidPeriodTransactions;
 use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -82,7 +83,7 @@ impl RuntimeUser {
 
     pub fn apply_all(
         &self,
-        apply_state: ApplyState,
+        mut apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
         use_flat_storage: bool,
@@ -102,7 +103,10 @@ impl RuntimeUser {
                     false,
                 )
             } else {
-                client.tries.get_trie_for_shard(ShardUId::single_shard(), client.state_root)
+                let shard_uid = ShardUId::single_shard();
+                let mut trie = client.tries.get_trie_for_shard(shard_uid, client.state_root);
+                trie.set_charge_gas_for_trie_node_access(true);
+                trie
             };
             let apply_result = client
                 .runtime
@@ -111,7 +115,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    &txs,
+                    SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
                     &self.epoch_info_provider,
                     Default::default(),
                 )
@@ -144,24 +148,42 @@ impl RuntimeUser {
             }
             update.commit().unwrap();
             client.state_root = apply_result.state_root;
-            if apply_result.outgoing_receipts.is_empty() {
-                return Ok(());
-            }
             for receipt in apply_result.outgoing_receipts.iter() {
                 self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];
+
+            if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+                apply_state.bandwidth_requests = BlockBandwidthRequests {
+                    shards_bandwidth_requests: [(apply_state.shard_id, bandwidth_requests)]
+                        .into_iter()
+                        .collect(),
+                };
+            }
+            let mut have_queued_receipts = false;
+            if let Some(congestion_info) = apply_result.congestion_info {
+                if congestion_info.receipt_bytes() > 0 {
+                    have_queued_receipts = true;
+                }
+                apply_state.congestion_info.insert(
+                    apply_state.shard_id,
+                    ExtendedCongestionInfo { missed_chunks_count: 0, congestion_info },
+                );
+            }
+            if receipts.is_empty() && !have_queued_receipts {
+                return Ok(());
+            }
         }
     }
 
     fn apply_state(&self) -> ApplyState {
-        // TODO(congestion_control) - Set shard id somehow.
-        let shard_id = ShardId::new(0);
-        // TODO(congestion_control) - Set other shard ids somehow.
-        let all_shard_ids = [0, 1, 2, 3, 4, 5].into_iter().map(ShardId::new).collect_vec();
+        let shard_layout = ShardLayout::single_shard();
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+        let shard_id = *shard_ids.first().unwrap();
+
         let congestion_info = if ProtocolFeature::CongestionControl.enabled(PROTOCOL_VERSION) {
-            all_shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
+            shard_ids.into_iter().map(|id| (id, ExtendedCongestionInfo::default())).collect()
         } else {
             Default::default()
         };
@@ -215,43 +237,44 @@ impl RuntimeUser {
     }
 
     // TODO(#10942) get rid of copy pasted code, it's outdated comparing to the original
-    fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
+    fn get_final_transaction_result(&self, hash: &CryptoHash) -> Option<FinalExecutionOutcomeView> {
         let mut outcomes = self.get_recursive_transaction_results(hash);
         let mut looking_for_id = *hash;
         let num_outcomes = outcomes.len();
-        let status = outcomes
-            .iter()
-            .find_map(|outcome_with_id| {
-                if outcome_with_id.id == looking_for_id {
-                    match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
-                            Some(FinalExecutionStatus::NotStarted)
-                        }
-                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure(e) => {
-                            Some(FinalExecutionStatus::Failure(e.clone()))
-                        }
-                        ExecutionStatusView::SuccessValue(v) => {
-                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
-                        }
-                        ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = *id;
-                            None
-                        }
+        let status = outcomes.iter().find_map(|outcome_with_id| {
+            if outcome_with_id.id == looking_for_id {
+                match &outcome_with_id.outcome.status {
+                    ExecutionStatusView::Unknown if num_outcomes == 1 => {
+                        Some(FinalExecutionStatus::NotStarted)
                     }
-                } else {
-                    None
+                    ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
+                    ExecutionStatusView::Failure(e) => {
+                        Some(FinalExecutionStatus::Failure(e.clone()))
+                    }
+                    ExecutionStatusView::SuccessValue(v) => {
+                        Some(FinalExecutionStatus::SuccessValue(v.clone()))
+                    }
+                    ExecutionStatusView::SuccessReceiptId(id) => {
+                        looking_for_id = *id;
+                        None
+                    }
                 }
-            })
-            .expect("results should resolve to a final outcome");
+            } else {
+                None
+            }
+        });
+        // If we don't find the transaction at all, it must have been ignored due to having
+        // been an invalid transaction (but due to relaxed validation we do not invalidate the
+        // entire chunk.)
+        let status = status?;
         let receipts = outcomes.split_off(1);
         let transaction = self.transactions.borrow().get(hash).unwrap().clone().into();
-        FinalExecutionOutcomeView {
+        Some(FinalExecutionOutcomeView {
             status,
             transaction,
             transaction_outcome: outcomes.pop().unwrap(),
             receipts_outcome: receipts,
-        }
+        })
     }
 }
 
@@ -307,7 +330,7 @@ impl User for RuntimeUser {
             block_height: apply_state.block_height,
             prev_block_hash: apply_state.prev_block_hash,
             block_hash: apply_state.block_hash,
-            shard_id: shard_id,
+            shard_id,
             epoch_id: apply_state.epoch_id,
             epoch_height: apply_state.epoch_height,
             block_timestamp: apply_state.block_timestamp,
@@ -337,9 +360,11 @@ impl User for RuntimeUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()], true)?;
-        Ok(self.get_transaction_final_result(&transaction.get_hash()))
+    ) -> Result<FinalExecutionOutcomeView, super::CommitError> {
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()], true)
+            .map_err(super::CommitError::Server)?;
+        self.get_transaction_final_result(&transaction.get_hash())
+            .ok_or(super::CommitError::OutcomeNotFound)
     }
 
     fn add_receipts(
@@ -376,7 +401,7 @@ impl User for RuntimeUser {
         self.transaction_results.borrow().get(hash).cloned()
     }
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> Option<FinalExecutionOutcomeView> {
         self.get_final_transaction_result(hash)
     }
 

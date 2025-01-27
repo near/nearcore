@@ -2,7 +2,7 @@ use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
     total_prepaid_gas, total_prepaid_send_fees,
 };
-use crate::safe_add_balance_apply;
+use crate::{safe_add_balance_apply, SignedValidPeriodTransactions};
 use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::errors::{
@@ -10,7 +10,6 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -180,11 +179,11 @@ fn all_touched_accounts(
     incoming_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
-    transactions: &[SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'_>,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
 ) -> Result<HashSet<AccountId>, RuntimeError> {
     let mut all_accounts_ids: HashSet<AccountId> = transactions
-        .iter()
+        .iter_nonexpired_transactions()
         .map(|tx| tx.transaction.signer_id().clone())
         .chain(incoming_receipts.iter().map(|r| r.receiver_id().clone()))
         .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id().clone()))
@@ -275,8 +274,9 @@ pub(crate) fn check_balance(
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
+    processed_delayed_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
-    transactions: &[SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'_>,
     outgoing_receipts: &[Receipt],
     stats: &ApplyStats,
 ) -> Result<(), RuntimeError> {
@@ -288,11 +288,6 @@ pub(crate) fn check_balance(
     let final_delayed_receipt_indices: DelayedReceiptIndices =
         get(final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
 
-    // Previously delayed receipts that were processed this time.
-    let processed_delayed_receipts = get_delayed_receipts(
-        initial_state,
-        initial_delayed_receipt_indices.first_index..final_delayed_receipt_indices.first_index,
-    )?;
     // Receipts that were not processed this time and are delayed now.
     let new_delayed_receipts = get_delayed_receipts(
         final_state,
@@ -393,13 +388,13 @@ pub(crate) fn check_balance(
 mod tests {
     use super::*;
     use crate::ApplyStats;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::InMemorySigner;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{
         ActionReceipt, BufferedReceiptIndices, ReceiptPriority, ReceiptV0, TrieQueueIndices,
     };
     use near_primitives::test_utils::account_new;
-    use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::transaction::{Action, SignedTransaction, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{set, set_account, Trie};
@@ -426,6 +421,7 @@ mod tests {
             &[],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &[],
             &ApplyStats::default(),
         )
@@ -444,6 +440,7 @@ mod tests {
             &[Receipt::new_balance_refund(&alice_account(), 1000, ReceiptPriority::NoPriority)],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &[],
             &ApplyStats::default(),
         )
@@ -508,6 +505,7 @@ mod tests {
             )],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &[],
             &ApplyStats::default(),
         )
@@ -555,7 +553,8 @@ mod tests {
             &None,
             &[],
             &[],
-            &[tx],
+            &[],
+            SignedValidPeriodTransactions::new(&[tx], &[true]),
             &[receipt],
             &ApplyStats {
                 tx_burnt_amount: total_validator_reward,
@@ -568,12 +567,12 @@ mod tests {
     }
 
     fn transfer_tx(sender: AccountId, receiver: AccountId, deposit: u128) -> SignedTransaction {
-        let signer = InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
+        let signer = InMemorySigner::test_signer(&sender);
         let tx = SignedTransaction::send_money(
             0,
             sender,
             receiver,
-            &signer.into(),
+            &signer,
             deposit,
             CryptoHash::default(),
         );
@@ -627,7 +626,8 @@ mod tests {
                 &None,
                 &[receipt],
                 &[],
-                &[tx],
+                &[],
+                SignedValidPeriodTransactions::new(&[tx], &[true]),
                 &[],
                 &ApplyStats::default(),
             ),
@@ -669,7 +669,8 @@ mod tests {
                 &None,
                 &[receipt],
                 &[],
-                &[tx],
+                &[],
+                SignedValidPeriodTransactions::new(&[tx], &[true]),
                 &[],
                 &ApplyStats::default(),
             ),
@@ -748,7 +749,8 @@ mod tests {
             &None,
             &[],
             &[],
-            &[tx],
+            &[],
+            SignedValidPeriodTransactions::new(&[tx], &[true]),
             &[],
             &ApplyStats {
                 // send gas was burnt on this shard, exec gas is part of the receipt value
@@ -819,6 +821,7 @@ mod tests {
             &[],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &outgoing_receipts,
             &ApplyStats::default(),
         )
@@ -882,6 +885,7 @@ mod tests {
             &[],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &outgoing_receipts,
             &ApplyStats::default(),
         );

@@ -1,5 +1,5 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
 };
@@ -344,6 +344,12 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
             },
+            bandwidth_scheduler_config: BandwidthSchedulerConfig {
+                max_shard_bandwidth: params.get(Parameter::MaxShardBandwidth)?,
+                max_single_grant: params.get(Parameter::MaxSingleGrant)?,
+                max_allowance: params.get(Parameter::MaxAllowance)?,
+                max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
+            },
             use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
         })
     }
@@ -584,7 +590,7 @@ mod tests {
         check_parameter_table("", &[], []);
     }
 
-    /// Reading reading a normally formatted base parameter file with no diffs
+    /// Reading a normally formatted base parameter file with no diffs
     #[test]
     fn test_basic_parameter_table() {
         check_parameter_table(
@@ -605,7 +611,7 @@ mod tests {
         );
     }
 
-    /// Reading reading a slightly funky formatted base parameter file with no diffs
+    /// Reading a slightly funky formatted base parameter file with no diffs
     #[test]
     fn test_basic_parameter_table_weird_syntax() {
         check_parameter_table(

@@ -197,6 +197,7 @@ fn assert_view_state(
     want_values: &[(&[u8], &[u8])],
     want_proof: &[&'static str],
 ) -> ProofVerifier {
+    // cspell:ignore alina
     let alice = alice_account();
     let alina = "alina".parse().unwrap();
 

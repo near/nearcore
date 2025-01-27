@@ -36,8 +36,8 @@ SHARD_LAYOUT = {
     "V1": {
         "boundary_accounts": BOUNDARY_ACCOUNT_LIST,
         "version": 2,
-        "shards_split_map": [],
-        "to_parent_shard_map": [],
+        "shards_split_map": None,
+        "to_parent_shard_map": None,
     }
 }
 
@@ -105,15 +105,16 @@ class CongestionControlTest(unittest.TestCase):
     def __run_under_congestion(self, node):
         logger.info("Checking the chain under congestion")
         (start_height, _) = node.get_latest_block()
-        target = start_height + 20
+        target = start_height + 10
         for height, hash in poll_blocks(node, __target=target):
             # Wait for a few blocks to congest the chain.
             if height < start_height + 5:
                 continue
 
             # Check the target shard.
+            shard_id = 0
 
-            chunk = self.__get_chunk(node, hash, 0)
+            chunk = self.__get_chunk(node, hash, shard_id)
 
             # Check that the target is busy - always using 1000TG.
             gas_used = chunk['header']['gas_used']
@@ -125,8 +126,11 @@ class CongestionControlTest(unittest.TestCase):
             self.assertGreater(int(congestion_info['delayed_receipts_gas']), 0)
             self.assertGreater(congestion_info['receipt_bytes'], 0)
 
+            congestion_level = self.__get_congestion_level(node, hash, shard_id)
+            self.assertGreater(congestion_level, 0)
+
             logger.info(
-                f"#{height} target gas used: {gas_used} congestion info {congestion_info}"
+                f"#{height} target gas used: {gas_used} congestion level {congestion_level} congestion info {congestion_info}"
             )
 
             # Check one other shard.
@@ -265,6 +269,11 @@ class CongestionControlTest(unittest.TestCase):
         genesis_config_changes = [
             ("epoch_length", epoch_length),
             ("shard_layout", SHARD_LAYOUT),
+            # This is a custom chain id that will set the congestion control
+            # runtime parameters to their original values. This is needed so
+            # that the test doesn't need to be updated every time the parameters
+            # are changed.
+            ("chain_id", "congestion_control_test"),
         ]
         client_config_changes = {
             0: {
@@ -414,6 +423,17 @@ class CongestionControlTest(unittest.TestCase):
         })
         self.assertIn('result', result, result)
         return result['result']
+
+    def __get_congestion_level(self, node: BaseNode, block_hash, shard_id):
+        result = node.json_rpc("EXPERIMENTAL_congestion_level", {
+            "block_id": block_hash,
+            "shard_id": shard_id
+        })
+        self.assertIn('result', result, result)
+
+        result = result['result']
+        self.assertIn('congestion_level', result, result)
+        return result['congestion_level']
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ mod metrics;
 pub mod test_genesis;
 #[cfg(feature = "test_utils")]
 pub mod test_utils;
-mod updateable_config;
+mod updatable_config;
 
 pub use client_config::{
     default_enable_multiline_logging, default_epoch_sync,
@@ -15,14 +15,16 @@ pub use client_config::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads,
-    default_view_client_throttle_period, ChunkDistributionNetworkConfig, ChunkDistributionUris,
-    ClientConfig, DumpConfig, EpochSyncConfig, ExternalStorageConfig, ExternalStorageLocation,
-    GCConfig, LogSummaryStyle, ReshardingConfig, ReshardingHandle, StateSyncConfig, SyncConfig,
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+    default_state_sync_enabled, default_state_sync_external_backoff,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, default_view_client_throttle_period,
+    ChunkDistributionNetworkConfig, ChunkDistributionUris, ClientConfig, DumpConfig,
+    EpochSyncConfig, ExternalStorageConfig, ExternalStorageLocation, GCConfig, LogSummaryStyle,
+    ReshardingConfig, ReshardingHandle, StateSyncConfig, SyncConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL, MIN_GC_NUM_EPOCHS_TO_KEEP,
     TEST_STATE_SYNC_TIMEOUT,
 };
@@ -32,8 +34,8 @@ pub use genesis_config::{
 };
 use near_primitives::types::{Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
 use num_rational::Rational32;
-pub use updateable_config::{
-    MutableConfigValue, MutableValidatorSigner, UpdateableClientConfig, UpdateableValidatorSigner,
+pub use updatable_config::{
+    MutableConfigValue, MutableValidatorSigner, UpdatableClientConfig, UpdatableValidatorSigner,
 };
 
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";

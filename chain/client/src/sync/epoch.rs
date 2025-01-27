@@ -163,7 +163,7 @@ impl EpochSync {
             .ok_or_else(|| Error::Other("Could not find tip".to_string()))?;
         let current_epoch_start_height = store
             .get_ser::<BlockHeight>(DBCol::EpochStart, tip.epoch_id.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(tip.epoch_id))?;
+            .ok_or(Error::EpochOutOfBounds(tip.epoch_id))?;
         let next_next_epoch_id = tip.next_epoch_id;
         // Last block hash of the target epoch is the same as the next next EpochId.
         // That's a general property for Near's epochs.
@@ -211,11 +211,11 @@ impl EpochSync {
         let current_epoch = *last_final_block_header_in_current_epoch.epoch_id();
         let current_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, current_epoch.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(current_epoch))?;
+            .ok_or(Error::EpochOutOfBounds(current_epoch))?;
         let next_epoch = *last_final_block_header_in_current_epoch.next_epoch_id();
         let next_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, next_epoch.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(next_epoch))?;
+            .ok_or(Error::EpochOutOfBounds(next_epoch))?;
 
         let genesis_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, EpochId::default().0.as_bytes())?
@@ -267,7 +267,7 @@ impl EpochSync {
             .epoch_id();
         let prev_epoch_info = store
             .get_ser::<EpochInfo>(DBCol::EpochInfo, prev_epoch.0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(prev_epoch))?;
+            .ok_or(Error::EpochOutOfBounds(prev_epoch))?;
 
         let last_block_of_prev_epoch = store
             .get_ser::<BlockHeader>(DBCol::BlockHeader, next_epoch.0.as_bytes())?
@@ -604,9 +604,6 @@ impl EpochSync {
             return Ok(());
         }
         match status {
-            SyncStatus::AwaitingPeers | SyncStatus::StateSync(_) => {
-                return Ok(());
-            }
             SyncStatus::EpochSync(status) => {
                 if status.attempt_time + self.config.timeout_for_epoch_sync < self.clock.now_utc() {
                     tracing::warn!("Epoch sync from {} timed out; retrying", status.source_peer_id);
@@ -655,7 +652,7 @@ impl EpochSync {
                 .current_epoch
                 .first_block_header_in_epoch
                 .height()
-                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period))
+                .saturating_add(chain.epoch_length.max(chain.transaction_validity_period()))
                 >= status.source_peer_height
             {
                 tracing::error!(
@@ -687,7 +684,7 @@ impl EpochSync {
         let mut store_update = chain.chain_store.store().store_update();
 
         // Store the EpochSyncProof, so that this node can derive a more recent EpochSyncProof
-        // to faciliate epoch sync of other nodes.
+        // to facilitate epoch sync of other nodes.
         let proof = EpochSyncProof::V1(proof); // convert to avoid cloning
         store_update.set_ser(DBCol::EpochSyncProof, &[], &proof)?;
         let proof = proof.into_v1();
@@ -902,9 +899,10 @@ impl EpochSync {
             &last_epoch.next_epoch_info,
             &last_epoch.next_next_epoch_info,
         ));
-        let expected_epoch_sync_data_hash = current_epoch_first_block_header
-            .epoch_sync_data_hash()
-            .ok_or(Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string()))?;
+        let expected_epoch_sync_data_hash =
+            current_epoch_first_block_header.epoch_sync_data_hash().ok_or_else(|| {
+                Error::InvalidEpochSyncProof("missing epoch_sync_data_hash".to_string())
+            })?;
         if epoch_sync_data_hash != expected_epoch_sync_data_hash {
             return Err(Error::InvalidEpochSyncProof("invalid epoch_sync_data_hash".to_string()));
         }
@@ -989,14 +987,14 @@ impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
         if self.client.epoch_sync.config.ignore_epoch_sync_network_requests {
-            // Temporary killswitch for the rare case there were issues with this network request.
+            // Temporary kill switch for the rare case there were issues with this network request.
             return;
         }
-        let store = self.client.chain.chain_store.store().clone();
+        let store = self.client.chain.chain_store.store();
         let network_adapter = self.client.network_adapter.clone();
         let requester_peer_id = msg.from_peer;
         let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
-        let transaction_validity_period = self.client.chain.transaction_validity_period;
+        let transaction_validity_period = self.client.chain.transaction_validity_period();
         self.client.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync request",
             move || {

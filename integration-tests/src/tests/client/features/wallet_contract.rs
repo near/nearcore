@@ -5,7 +5,7 @@ use aurora_engine_types::types::{Address, Wei};
 use ethabi::ethereum_types::U256;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::{test_utils::TestEnv, ProcessTxResponse};
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
@@ -92,15 +92,15 @@ fn test_eth_implicit_account_creation() {
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let chain_id = &genesis.config.chain_id;
 
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let eth_implicit_account_id = eth_implicit_test_account();
 
     // Make zero-transfer to ETH-implicit account, invoking its creation.
     let transfer_tx = SignedTransaction::send_money(
         1,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         eth_implicit_account_id.clone(),
-        &signer.into(),
+        &signer,
         0,
         *genesis_block.hash(),
     );
@@ -148,7 +148,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let deposit_for_account_creation = NEAR_BASE;
     let mut height = 1;
     let blocks_number = 5;
-    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
+    let signer1 = InMemorySigner::test_signer(&"test1".parse().unwrap());
 
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
     let public_key = secret_key.public_key();
@@ -161,7 +161,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         1,
         "test1".parse().unwrap(),
         eth_implicit_account_id.clone(),
-        &signer1.into(),
+        &signer1,
         deposit_for_account_creation,
         *genesis_block.hash(),
     );
@@ -266,8 +266,7 @@ fn test_wallet_contract_interaction() {
     // here in order to make transfer later from this account.
     let deposit_for_account_creation = NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: deposit_for_account_creation })];
-    let nonce =
-        view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key.clone()) + 1;
+    let nonce = view_nonce(&env, relayer_signer.account_id, relayer_signer.signer.public_key()) + 1;
     let block_hash = *genesis_block.hash();
     let signed_transaction = SignedTransaction::from_actions(
         nonce,
@@ -282,7 +281,7 @@ fn test_wallet_contract_interaction() {
 
     // The relayer adds its key to the eth implicit account so that
     // can sign Near transactions for the user.
-    let relayer_pk = relayer_signer.signer.public_key.clone();
+    let relayer_pk = relayer_signer.signer.public_key();
     let action = Action::AddKey(Box::new(AddKeyAction {
         public_key: relayer_pk,
         access_key: AccessKey {
@@ -390,13 +389,13 @@ pub fn create_rlp_execute_tx(
         gas: 300_000_000_000_000,
         deposit: 0,
     }))];
-    let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key.clone()) + 1;
+    let nonce = view_nonce(env, near_signer.account_id, near_signer.signer.public_key()) + 1;
     let block_hash = *env.clients[0].chain.get_head_block().unwrap().hash();
     SignedTransaction::from_actions(
         nonce,
         near_signer.account_id.into(),
         eth_implicit_account.into(),
-        &near_signer.signer.clone().into(),
+        &near_signer.signer.clone(),
         actions,
         block_hash,
         0,
@@ -405,7 +404,7 @@ pub fn create_rlp_execute_tx(
 
 pub struct NearSigner<'a> {
     pub account_id: &'a AccountIdRef,
-    pub signer: InMemorySigner,
+    pub signer: Signer,
 }
 
 fn abi_encode(target: String, action: Action) -> Vec<u8> {
@@ -432,6 +431,7 @@ fn abi_encode(target: String, action: Action) -> Vec<u8> {
                         permission.method_names,
                     ),
                 };
+            // cspell:ignore ethabi
             let tokens = &[
                 ethabi::Token::Uint(public_key_kind.into()),
                 ethabi::Token::Bytes(public_key),

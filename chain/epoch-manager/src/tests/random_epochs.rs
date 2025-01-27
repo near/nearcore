@@ -211,12 +211,12 @@ fn verify_epochs(epoch_infos: &[Arc<EpochInfo>]) {
             continue;
         }
         for (account_id, reason) in epoch_info.validator_kickout() {
-            let was_validaror_2_ago = (i >= 2
+            let was_validator_2_ago = (i >= 2
                 && epoch_infos[i - 2].account_is_validator(account_id))
                 || (i == 1 && epoch_infos[0].account_is_validator(account_id));
             let in_slashes_set = reason == &ValidatorKickoutReason::Slashed;
             assert!(
-                was_validaror_2_ago || in_slashes_set,
+                was_validator_2_ago || in_slashes_set,
                 "Kickout set can only have validators from 2 epochs ago"
             );
         }

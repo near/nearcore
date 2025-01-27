@@ -2,9 +2,8 @@ use super::downloader::StateSyncDownloader;
 use super::task_tracker::TaskTracker;
 use crate::metrics;
 use crate::sync::state::chain_requests::ChainFinalizationRequest;
-use crate::sync::state::util::query_epoch_id_and_height_for_block;
 use futures::{StreamExt, TryStreamExt};
-use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::futures::{respawn_for_parallelism, FutureSpawner};
 use near_async::messaging::AsyncSender;
 use near_chain::types::RuntimeAdapter;
 use near_chain::BlockHeader;
@@ -15,9 +14,12 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::{EpochId, ShardId};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, ShardUId, Store};
+use rand::prelude::SliceRandom;
+use rand::thread_rng;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -52,6 +54,7 @@ macro_rules! return_if_cancelled {
         }
     };
 }
+
 pub(super) async fn run_state_sync_for_shard(
     store: Store,
     shard_id: ShardId,
@@ -82,24 +85,50 @@ pub(super) async fn run_state_sync_for_shard(
 
     return_if_cancelled!(cancel);
     *status.lock().unwrap() = ShardSyncStatus::StateDownloadParts;
-    tokio_stream::iter(0..num_parts)
-        .map(|part_id| {
-            let future = downloader.ensure_shard_part_downloaded(
-                shard_id,
-                sync_hash,
-                part_id,
-                header.clone(),
-                cancel.clone(),
-            );
-            respawn_for_parallelism(&*future_spawner, "state sync download part", future)
-        })
-        .buffer_unordered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
-        .try_collect::<Vec<_>>()
-        .await?;
+    let mut parts_to_download: Vec<u64> = (0..num_parts).collect();
+    {
+        // Peer selection is designed such that different nodes downloading the same part will tend
+        // to send the requests to the same host. It allows the host to benefit from caching the part.
+        //
+        // At the start of an epoch, a number of nodes begin state sync at the same time. If we
+        // don't randomize the order in which the parts are requested, the nodes will request the
+        // parts in roughly the same order, producing spikes of traffic to the same hosts.
+        let mut rng = thread_rng();
+        parts_to_download.shuffle(&mut rng);
+    }
+    let mut attempt_count = 0;
+    while !parts_to_download.is_empty() {
+        return_if_cancelled!(cancel);
+        let results = tokio_stream::iter(parts_to_download.clone())
+            .map(|part_id| {
+                let future = downloader.ensure_shard_part_downloaded_single_attempt(
+                    shard_id,
+                    sync_hash,
+                    state_root,
+                    num_parts,
+                    part_id,
+                    attempt_count,
+                    cancel.clone(),
+                );
+                respawn_for_parallelism(&*future_spawner, "state sync download part", future)
+            })
+            .buffered(MAX_PARALLELISM_PER_SHARD_FOR_FAIRNESS)
+            .collect::<Vec<_>>()
+            .await;
+        attempt_count += 1;
+        // Update the list of parts_to_download retaining only the ones that failed
+        parts_to_download = results
+            .iter()
+            .enumerate()
+            .filter_map(|(task_index, res)| {
+                res.as_ref().err().map(|_| parts_to_download[task_index])
+            })
+            .collect();
+    }
 
     return_if_cancelled!(cancel);
     *status.lock().unwrap() = ShardSyncStatus::StateApplyInProgress;
-    runtime.get_tries().unload_mem_trie(&shard_uid);
+    runtime.get_tries().unload_memtrie(&shard_uid);
     let mut store_update = store.store_update();
     runtime
         .get_flat_storage_manager()
@@ -134,8 +163,6 @@ pub(super) async fn run_state_sync_for_shard(
     return_if_cancelled!(cancel);
     // Create flat storage.
     {
-        let (epoch_id, _) = query_epoch_id_and_height_for_block(&store, sync_hash)?;
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let chunk = header.cloned_chunk();
         let block_hash = chunk.prev_block();
 
@@ -152,8 +179,15 @@ pub(super) async fn run_state_sync_for_shard(
     // Load memtrie.
     {
         let handle = computation_task_tracker.get_handle(&format!("shard {}", shard_id)).await;
+        let head_protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_uids_pending_resharding = epoch_manager
+            .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
         handle.set_status("Loading memtrie");
-        runtime.get_tries().load_mem_trie_on_catchup(&shard_uid, &state_root)?;
+        runtime.get_tries().load_memtrie_on_catchup(
+            &shard_uid,
+            &state_root,
+            &shard_uids_pending_resharding,
+        )?;
     }
 
     return_if_cancelled!(cancel);
@@ -246,22 +280,4 @@ async fn apply_state_part(
         &epoch_id,
     )?;
     Ok(())
-}
-
-/// Given a future, respawn it as an equivalent future but which does not block the
-/// driver of the future. For example, if the given future directly performs
-/// computation, normally the whoever drives the future (such as a buffered_unordered)
-/// would be blocked by the computation, thereby not allowing computation of other
-/// futures driven by the same driver to proceed. This function respawns the future
-/// onto the FutureSpawner, so the driver of the returned future would not be blocked.
-fn respawn_for_parallelism<T: Send + 'static>(
-    future_spawner: &dyn FutureSpawner,
-    name: &'static str,
-    f: impl std::future::Future<Output = T> + Send + 'static,
-) -> impl std::future::Future<Output = T> + Send + 'static {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    future_spawner.spawn(name, async move {
-        sender.send(f.await).ok();
-    });
-    async move { receiver.await.unwrap() }
 }

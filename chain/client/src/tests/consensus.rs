@@ -23,8 +23,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 /// Periodically verify finality is not violated.
 /// This test is designed to reproduce finality bugs on the epoch boundaries.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn test_consensus_with_epoch_switches() {
+fn ultra_slow_test_consensus_with_epoch_switches() {
     init_integration_logger();
 
     const HEIGHT_GOAL: u64 = 120;
@@ -266,7 +265,7 @@ fn test_consensus_with_epoch_switches() {
                             // over the network, they have one more approval ready to produce their
                             // block than the block producer that will be at the later height). If
                             // such a block is indeed produced faster than all the skips are created,
-                            // the paritcipants who haven't sent their endorsements to be converted
+                            // the participants who haven't sent their endorsements to be converted
                             // to skips change their head.
                             if my_ord % 8 < 2 {
                                 return (NetworkResponses::NoResponse.into(), false);

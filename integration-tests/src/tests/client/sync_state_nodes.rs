@@ -9,7 +9,7 @@ use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig}
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
@@ -33,8 +33,7 @@ use crate::tests::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn sync_state_nodes() {
+fn ultra_slow_test_sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -135,10 +134,8 @@ fn sync_state_nodes() {
 }
 
 /// One client is in front, another must sync to it using state (fast) sync.
-#[cfg(feature = "expensive_tests")]
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn sync_state_nodes_multishard() {
+fn ultra_slow_test_sync_state_nodes_multishard() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -295,143 +292,13 @@ fn sync_state_nodes_multishard() {
     });
 }
 
-/// Start a validator that validators four shards. Since we only have 3 accounts one shard must have
-/// empty state. Start another node that does state sync. Check state sync on empty state works.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn sync_empty_state() {
-    heavy_test(|| {
-        init_integration_logger();
-
-        let mut genesis = Genesis::test_sharded_new_version(
-            vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
-            1,
-            vec![1, 1, 1, 1],
-        );
-        genesis.config.epoch_length = 20;
-
-        let _dir1 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap());
-        let dir1 = _dir1.clone();
-        let _dir2 = Arc::new(tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap());
-        let dir2 = _dir2.clone();
-
-        run_actix(async move {
-            let (port1, port2) =
-                (tcp::ListenerAddr::reserve_for_test(), tcp::ListenerAddr::reserve_for_test());
-
-            // State sync triggers when header head is two epochs in the future.
-            // Produce more blocks to make sure that state sync gets triggered when the second node starts.
-            let state_sync_horizon = 10;
-            let block_header_fetch_horizon = 1;
-            let block_fetch_horizon = 1;
-
-            let mut near1 = load_test_config("test1", port1, genesis.clone());
-            near1.client_config.min_num_peers = 0;
-            near1.client_config.min_block_production_delay = Duration::milliseconds(200);
-            near1.client_config.max_block_production_delay = Duration::milliseconds(400);
-
-            let nearcore::NearNode { view_client: view_client1, .. } =
-                start_with_config(dir1.path(), near1).expect("start_with_config");
-
-            let view_client2_holder = Arc::new(RwLock::new(None));
-            let arbiters_holder = Arc::new(RwLock::new(vec![]));
-            let arbiters_holder2 = arbiters_holder;
-
-            WaitOrTimeoutActor::new(
-                Box::new(move |_ctx| {
-                    if view_client2_holder.read().unwrap().is_none() {
-                        let view_client2_holder2 = view_client2_holder.clone();
-                        let arbiters_holder2 = arbiters_holder2.clone();
-                        let genesis2 = genesis.clone();
-                        let dir2 = dir2.clone();
-
-                        let actor = view_client1.send(GetBlock::latest().with_span_context());
-                        let actor = actor.then(move |res| {
-                            match &res {
-                                Ok(Ok(b)) if b.header.height >= state_sync_horizon + 1 => {
-                                    let mut view_client2_holder2 =
-                                        view_client2_holder2.write().unwrap();
-                                    let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
-
-                                    if view_client2_holder2.is_none() {
-                                        let mut near2 = load_test_config("test2", port2, genesis2);
-                                        near2.network_config.peer_store.boot_nodes =
-                                            convert_boot_nodes(vec![("test1", *port1)]);
-                                        near2.client_config.min_num_peers = 1;
-                                        near2.client_config.min_block_production_delay =
-                                            Duration::milliseconds(200);
-                                        near2.client_config.max_block_production_delay =
-                                            Duration::milliseconds(400);
-                                        near2.client_config.block_header_fetch_horizon =
-                                            block_header_fetch_horizon;
-                                        near2.client_config.block_fetch_horizon =
-                                            block_fetch_horizon;
-                                        near2.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
-
-                                        let nearcore::NearNode {
-                                            view_client: view_client2,
-                                            arbiters,
-                                            ..
-                                        } = start_with_config(dir2.path(), near2)
-                                            .expect("start_with_config");
-                                        *view_client2_holder2 = Some(view_client2);
-                                        *arbiters_holder2 = arbiters;
-                                    }
-                                }
-                                Ok(Ok(b)) if b.header.height <= state_sync_horizon => {
-                                    println!("FIRST STAGE {}", b.header.height)
-                                }
-                                Err(_) => return future::ready(()),
-                                _ => {}
-                            };
-                            future::ready(())
-                        });
-                        actix::spawn(actor);
-                    }
-
-                    if let Some(view_client2) = &*view_client2_holder.write().unwrap() {
-                        let actor = view_client2.send(GetBlock::latest().with_span_context());
-                        let actor = actor.then(|res| {
-                            match &res {
-                                Ok(Ok(b)) if b.header.height >= 40 => System::current().stop(),
-                                Ok(Ok(b)) if b.header.height < 40 => {
-                                    println!("SECOND STAGE {}", b.header.height)
-                                }
-                                Ok(Err(e)) => {
-                                    println!("SECOND STAGE ERROR1: {:?}", e);
-                                    return future::ready(());
-                                }
-                                Err(e) => {
-                                    println!("SECOND STAGE ERROR2: {:?}", e);
-                                    return future::ready(());
-                                }
-                                _ => {
-                                    assert!(false);
-                                }
-                            };
-                            future::ready(())
-                        });
-                        actix::spawn(actor);
-                    }
-                }),
-                100,
-                600000,
-            )
-            .start();
-        });
-        drop(_dir1);
-        drop(_dir2);
-    });
-}
-
-#[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
 // FIXME(#9650): locks should not be held across await points, allowed currently only because the
 // lint started triggering during a toolchain bump.
 #[allow(clippy::await_holding_lock)]
 /// Runs one node for some time, which dumps state to a temp directory.
 /// Start the second node which gets state parts from that temp directory.
-fn sync_state_dump() {
+fn ultra_slow_test_sync_state_dump() {
     heavy_test(|| {
         init_integration_logger();
 
@@ -442,7 +309,7 @@ fn sync_state_dump() {
         );
         // Needs to be long enough to give enough time to the second node to
         // start, sync headers and find a dump of state.
-        genesis.config.epoch_length = 30;
+        genesis.config.epoch_length = 70;
 
         let _dump_dir =
             Arc::new(tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap());
@@ -486,7 +353,7 @@ fn sync_state_dump() {
             let arbiters_holder = Arc::new(RwLock::new(vec![]));
             let arbiters_holder2 = arbiters_holder;
 
-            wait_or_timeout(1000, 60000, || async {
+            wait_or_timeout(1000, 120000, || async {
                 if view_client2_holder.read().unwrap().is_none() {
                     let view_client2_holder2 = view_client2_holder.clone();
                     let arbiters_holder2 = arbiters_holder2.clone();
@@ -511,7 +378,9 @@ fn sync_state_dump() {
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
                                 near2.client_config.tracked_shards = vec![ShardId::new(0)]; // Track all shards.
                                 near2.client_config.state_sync_enabled = true;
-                                near2.client_config.state_sync_timeout = Duration::seconds(2);
+                                near2.client_config.state_sync_external_timeout =
+                                    Duration::seconds(2);
+                                near2.client_config.state_sync_p2p_timeout = Duration::seconds(2);
                                 near2.client_config.state_sync.sync =
                                     SyncConfig::ExternalStorage(ExternalStorageConfig {
                                         location: Filesystem {
@@ -573,11 +442,13 @@ fn sync_state_dump() {
 }
 
 #[test]
-// Test that state sync behaves well when the chunks are absent at the end of the epoch.
-fn test_dump_epoch_missing_chunk_in_last_block() {
+// Test that state sync behaves well when the chunks are absent before the sync_hash block.
+// TODO: consider adding more scenarios for the CurrentEpochStateSync case, because with only one shard,
+// it's not possible to have the block before the sync_hash block miss any chunks.
+fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
     heavy_test(|| {
         init_test_logger();
-        let epoch_length = 10;
+        let epoch_length = 12;
         let shard_id = ShardId::new(0);
 
         for num_chunks_missing in 0..6 {
@@ -600,9 +471,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
             let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
             let mut blocks = vec![genesis_block.clone()];
-            let signer =
-                InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
-                    .into();
+            let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
 
             let next_epoch_start = epoch_length + 1;
             let protocol_version = env.clients[0]
@@ -611,28 +480,30 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 .unwrap();
             // Note that the height to skip here refers to the height at which not to produce chunks for the next block, so really
             // one before the block height that will have no chunks. The sync_height is the height of the sync_hash block.
-            let (start_skipping_chunks, sync_height) =
-                if ProtocolFeature::StateSyncHashUpdate.enabled(protocol_version) {
-                    // At the beginning of the epoch, produce one block with chunks and then start skipping chunks.
+            let (start_skipping_chunks, stop_skipping_chunks, sync_height) =
+                if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
+                    // At the beginning of the epoch, produce two blocks with chunks and then start skipping chunks.
+                    // The very first block in the epoch does not count towards the number of new chunks we tally when computing
+                    // the sync hash. So after those two blocks, the tally is 1.
                     let start_skipping_chunks = next_epoch_start + 1;
-                    // Then we will skip `num_chunks_missing` chunks, and produce one more with chunks, which will be the sync height.
-                    let sync_height = start_skipping_chunks + num_chunks_missing + 1;
-                    (start_skipping_chunks, sync_height)
+                    // Then we will skip `num_chunks_missing` chunks.
+                    let stop_skipping_chunks = start_skipping_chunks + num_chunks_missing;
+                    // Then after one more with new chunks, the next one after that will be the sync block.
+                    let sync_height = stop_skipping_chunks + 2;
+                    (start_skipping_chunks, stop_skipping_chunks, sync_height)
                 } else {
                     // here the sync hash is the first hash of the epoch
                     let sync_height = next_epoch_start;
                     // skip chunks before the epoch start, but not including the one right before the epochs start.
                     let start_skipping_chunks = sync_height - num_chunks_missing - 1;
-                    (start_skipping_chunks, sync_height)
+                    let stop_skipping_chunks = sync_height - 1;
+                    (start_skipping_chunks, stop_skipping_chunks, sync_height)
                 };
-
-            // produce chunks right before the sync hash block, so that the sync hash block itself will have new chunks.
-            let stop_skipping_chunks = sync_height - 1;
 
             assert!(sync_height < 2 * epoch_length + 1);
 
-            // Produce blocks up to sync_height + 1 to give nodes a chance to create the necessary state snapshot
-            for i in 1..=sync_height + 1 {
+            // Produce blocks up to sync_height + 3 so that the sync_height block will become final
+            for i in 1..=sync_height + 3 {
                 tracing::info!(
                     target: "test",
                     height=i,
@@ -778,13 +649,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                         .chain
                         .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
                         .unwrap();
-                    let expected_height = if ProtocolFeature::BandwidthScheduler
-                        .enabled(genesis.config.protocol_version)
-                    {
-                        height
-                    } else {
-                        sync_prev_height_included
-                    };
+                    let expected_height = height;
                     let expected_chunk_extra = env.clients[0]
                         .chain
                         .get_chunk_extra(
@@ -802,7 +667,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
 
 #[test]
 // Tests StateRequestHeader and StateRequestPart.
-fn test_state_sync_headers() {
+fn slow_test_state_sync_headers() {
     heavy_test(|| {
         init_test_logger();
 
@@ -837,7 +702,7 @@ fn test_state_sync_headers() {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
-                // async is hard, will use this construct to reduce nestedness.
+                // async is hard, will use this construct to reduce nested code.
                 let epoch_id = match epoch_id {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
@@ -862,13 +727,13 @@ fn test_state_sync_headers() {
                 };
                 tracing::info!(epoch_start_height, "got epoch_start_height");
 
-                let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION)
-                {
-                    // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                    epoch_start_height + 2
-                } else {
-                    epoch_start_height
-                };
+                let sync_height =
+                    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                        epoch_start_height + 3
+                    } else {
+                        epoch_start_height
+                    };
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
                 let block_view = view_client1.send(GetBlock(block_id).with_span_context()).await;
                 let Ok(Ok(block_view)) = block_view else {
@@ -959,7 +824,7 @@ fn test_state_sync_headers() {
 
 #[test]
 // Tests StateRequestHeader and StateRequestPart.
-fn test_state_sync_headers_no_tracked_shards() {
+fn slow_test_state_sync_headers_no_tracked_shards() {
     heavy_test(|| {
         init_test_logger();
 
@@ -1019,7 +884,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
-                // async is hard, will use this construct to reduce nestedness.
+                // async is hard, will use this construct to reduce nested code.
                 let epoch_id = match epoch_id {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
@@ -1047,13 +912,13 @@ fn test_state_sync_headers_no_tracked_shards() {
                     return ControlFlow::Continue(());
                 }
 
-                let sync_height = if ProtocolFeature::StateSyncHashUpdate.enabled(PROTOCOL_VERSION)
-                {
-                    // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
-                    epoch_start_height + 2
-                } else {
-                    epoch_start_height
-                };
+                let sync_height =
+                    if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+                        // here since there's only one block/chunk producer, we assume that no blocks will be missing chunks.
+                        epoch_start_height + 3
+                    } else {
+                        epoch_start_height
+                    };
                 let block_id = BlockReference::BlockId(BlockId::Height(sync_height));
                 let block_view = view_client2.send(GetBlock(block_id).with_span_context()).await;
                 let Ok(Ok(block_view)) = block_view else {

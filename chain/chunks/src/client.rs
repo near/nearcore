@@ -5,7 +5,7 @@ use itertools::Itertools;
 
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
-use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -122,7 +122,7 @@ impl ShardedTransactionPool {
     /// the new shard layout.
     /// It works by emptying the pools for old shard uids and re-inserting the
     /// transactions back to the pool with the new shard uids.
-    /// TODO check if this logic works in resharding V3
+    /// TODO(resharding) check if this logic works in resharding V3
     pub fn reshard(&mut self, old_shard_layout: &ShardLayout, new_shard_layout: &ShardLayout) {
         tracing::debug!(
             target: "resharding",
@@ -146,7 +146,7 @@ impl ShardedTransactionPool {
 
         for tx in transactions {
             let signer_id = tx.transaction.signer_id();
-            let new_shard_uid = account_id_to_shard_uid(&signer_id, new_shard_layout);
+            let new_shard_uid = new_shard_layout.account_id_to_shard_uid(&signer_id);
             self.insert_transaction(new_shard_uid, tx);
         }
     }
@@ -161,7 +161,7 @@ mod tests {
     use near_primitives::{
         epoch_info::RngSeed,
         hash::CryptoHash,
-        shard_layout::{account_id_to_shard_uid, ShardLayout},
+        shard_layout::ShardLayout,
         transaction::SignedTransaction,
         types::{AccountId, ShardId},
     };
@@ -232,7 +232,7 @@ mod tests {
                 nonce,
                 signer_id.clone(),
                 receiver_id.clone(),
-                &signer.into(),
+                &signer,
                 deposit,
                 CryptoHash::default(),
             );
@@ -267,7 +267,7 @@ mod tests {
                     while let Some(tx) = group.next() {
                         total += 1;
                         let account_id = tx.transaction.signer_id();
-                        let tx_shard_uid = account_id_to_shard_uid(account_id, &new_shard_layout);
+                        let tx_shard_uid = new_shard_layout.account_id_to_shard_uid(account_id);
                         tracing::debug!("checking {account_id:?}:{tx_shard_uid} in {shard_uid}");
                         assert_eq!(shard_uid, tx_shard_uid);
                     }

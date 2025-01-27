@@ -16,6 +16,7 @@ use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
 use super::types::FlatStorageError;
+use super::FlatStorageReshardingStatus;
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -42,10 +43,7 @@ pub(crate) struct FlatStorageInner {
     flat_head: BlockInfo,
     /// Cached deltas for all blocks supported by this flat storage.
     deltas: HashMap<CryptoHash, CachedFlatStateDelta>,
-    /// This flag enables skipping flat head moves, needed temporarily for FlatState
-    /// values inlining migration.
-    /// The flag has a numerical value and not a bool, to let us detect attempts
-    /// to disable move head multiple times.
+    /// Defines whether flat head can be moved forward or not.
     move_head_enabled: bool,
     metrics: FlatStorageMetrics,
 }
@@ -238,6 +236,9 @@ impl FlatStorage {
         let shard_id = shard_uid.shard_id();
         let flat_head = match store.get_flat_storage_status(shard_uid) {
             Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+            Ok(FlatStorageStatus::Resharding(FlatStorageReshardingStatus::SplittingParent(
+                split_parent_status,
+            ))) => split_parent_status.flat_head,
             status => {
                 return Err(StorageError::StorageInconsistentState(format!(
                     "Cannot create flat storage for shard {shard_id} with status {status:?}"
@@ -495,14 +496,9 @@ impl FlatStorage {
     }
 
     /// Updates `move_head_enabled` and returns whether the change was done.
-    pub(crate) fn set_flat_head_update_mode(&self, enabled: bool) -> bool {
+    pub fn set_flat_head_update_mode(&self, enabled: bool) {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
-        if enabled != guard.move_head_enabled {
-            guard.move_head_enabled = enabled;
-            true
-        } else {
-            false
-        }
+        guard.move_head_enabled = enabled;
     }
 }
 

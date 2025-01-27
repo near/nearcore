@@ -63,7 +63,7 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
@@ -164,11 +164,12 @@ pub fn setup(
         epoch_manager.clone(),
         runtime.clone(),
         Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     ));
     let partial_witness_adapter = partial_witness_addr.with_auto_span_context();
 
     let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(store.clone(), chain_genesis.height));
+        spawn_actix_actor(ReshardingActor::new(store.clone(), &chain_genesis));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
@@ -848,7 +849,7 @@ fn process_peer_manager_message_default(
 ///
 /// `tamper_with_fg` - if set to true, will split the heights into groups of 100. For some groups
 ///                 all the approvals will be dropped (thus completely disabling the finality gadget
-///                 and introducing severe forkfulness if `block_prod_time` is sufficiently small),
+///                 and introducing large number of forks if `block_prod_time` is sufficiently small),
 ///                 for some groups will keep all the approvals (and test the fg invariants), and
 ///                 for some will drop 50% of the approvals.
 ///                 This was designed to tamper with the finality gadget when we
@@ -859,9 +860,9 @@ fn process_peer_manager_message_default(
 ///                 by the block heights difference of it's last and first block.
 ///
 /// `enable_doomslug` - If false, blocks will be created when at least one approval is present, without
-///                   waiting for 2/3. This allows for more forkfulness. `cross_shard_tx` has modes
+///                   waiting for 2/3. This allows for more forks. `cross_shard_tx` has modes
 ///                   both with enabled doomslug (to test "production" setting) and with disabled
-///                   doomslug (to test higher forkfullness)
+///                   doomslug (to test higher fork fullness)
 ///
 /// `peer_manager_mock` - the callback that is called for each message sent. Called before
 ///                 the default processing. `mock` returns `(response, perform_default)`. If
@@ -895,8 +896,6 @@ pub fn setup_mock_all_validators(
 ) -> (Vec<ActorHandlesForTesting>, Arc<RwLock<BlockStats>>) {
     let peer_manager_mock = Arc::new(RwLock::new(peer_manager_mock));
     let validators = vs.all_validators().cloned().collect::<Vec<_>>();
-    let key_pairs = key_pairs;
-
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
     let genesis_time = clock.now_utc();
     let mut ret = vec![];
@@ -1087,6 +1086,7 @@ pub fn setup_client_with_runtime(
         resharding_sender,
         Arc::new(ActixFutureSpawner),
         noop().into_multi_sender(), // state sync ignored for these tests
+        PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;

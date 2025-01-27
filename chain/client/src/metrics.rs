@@ -14,6 +14,14 @@ pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub(crate) static OPTIMISTIC_BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_optimistic_block_produced_total",
+        "Total number of optimistic blocks produced since starting this node",
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_chunk_produced_total",
@@ -22,10 +30,10 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
-pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT: LazyLock<IntCounterVec> =
+pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
-        "near_produced_chunks_some_pool_transactions_didnt_fit",
+        "near_produced_chunks_some_pool_transactions_did_not_fit",
         "Total number of produced chunks where some transactions from the pool didn't fit in the chunk \
         (since starting this node). The limited_by label specifies which limit was hit.",
         &["shard_id", "limited_by"],
@@ -412,6 +420,14 @@ pub(crate) static VIEW_CLIENT_MESSAGE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_REQUESTS_THROTTLED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_state_sync_requests_throttled_total",
+        "Total number of state sync requests which were received and ignored",
+    )
+    .unwrap()
+});
+
 pub(crate) static PRODUCE_AND_DISTRIBUTE_CHUNK_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_produce_and_distribute_chunk_time",
@@ -465,7 +481,7 @@ pub(crate) static STATE_SYNC_STAGE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub(crate) static STATE_SYNC_DOWNLOAD_RESULT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "near_state_sync_header_download_result",
+        "near_state_sync_download_result",
         "Count of number of state sync downloads by type (header, part),
                source (network, external), and result (timeout, error, success)",
         &["shard_id", "type", "source", "result"],
@@ -590,6 +606,16 @@ pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_MEMORY_USED: LazyLock<IntGauge
             "near_orphan_chunk_state_witness_pool_memory_used",
             "Memory in bytes consumed by the OrphanStateWitnessPool (by shard_id)",
             &["shard_id"],
+        )
+        .unwrap()
+    });
+
+pub(crate) static BLOCK_PRODUCER_EXCLUDED_CHUNKS_COUNT: LazyLock<CounterVec> =
+    LazyLock::new(|| {
+        try_create_counter_vec(
+            "near_block_producer_excluded_chunks_count",
+            "Number of chunks excluded from the block due to insufficient chunk endorsements",
+            &["shard_id", "reason"],
         )
         .unwrap()
     });

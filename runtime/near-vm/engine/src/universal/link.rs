@@ -9,8 +9,8 @@ use near_vm_vm::{SectionBodyPtr, VMLocalFunction};
 use std::collections::HashMap;
 use std::ptr::{read_unaligned, write_unaligned};
 
-/// Add a new trampoline address, given the base adress of the Section. Return the address of the jump
-/// The trampoline itself still have to be writen
+/// Add a new trampoline address, given the base address of the Section. Return the address of the jump
+/// The trampoline itself still have to be written
 fn trampolines_add(
     map: &mut HashMap<usize, usize>,
     trampoline: &TrampolinesSection,

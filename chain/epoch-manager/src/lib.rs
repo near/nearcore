@@ -1,13 +1,14 @@
 #![cfg_attr(enable_const_type_id, feature(const_type_id))]
 
 use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
+use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, ShardConfig, AGGREGATOR_KEY,
+    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -29,7 +30,6 @@ use near_primitives::views::{
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;
-use rand::Rng;
 use reward_calculator::ValidatorOnlineThresholds;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -41,11 +41,11 @@ use validator_stats::{
 };
 
 pub use crate::adapter::EpochManagerAdapter;
-pub use crate::adapter::ShardUIdAndIndex;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::{EpochInfoAggregator, RngSeed};
+pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
 mod metrics;
@@ -60,8 +60,8 @@ pub mod types;
 mod validator_selection;
 mod validator_stats;
 
-const EPOCH_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 50 };
-const BLOCK_CACHE_SIZE: usize = if cfg!(feature = "no_cache") { 1 } else { 1000 };
+const EPOCH_CACHE_SIZE: usize = 50;
+const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
 
 /// In the current architecture, various components have access to the same
@@ -126,12 +126,9 @@ impl EpochInfoProvider for EpochManagerHandle {
         epoch_manager.config.chain_id().into()
     }
 
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        EpochManagerAdapter::account_id_to_shard_id(self, account_id, epoch_id)
+    fn shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_shard_layout(epoch_id)
     }
 }
 
@@ -307,10 +304,8 @@ impl EpochManager {
     ) -> Result<Self, EpochError> {
         let validator_reward =
             HashMap::from([(reward_calculator.protocol_treasury_account.clone(), 0u128)]);
-        let epoch_info_aggregator = store
-            .get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)
-            .map_err(EpochError::from)?
-            .unwrap_or_default();
+        let epoch_info_aggregator =
+            store.get_ser(DBCol::EpochInfo, AGGREGATOR_KEY)?.unwrap_or_default();
         let genesis_num_block_producer_seats =
             config.for_protocol_version(genesis_protocol_version).num_block_producer_seats;
         let mut epoch_manager = EpochManager {
@@ -837,7 +832,7 @@ impl EpochManager {
                     validator_block_chunk_stats.remove(account_id);
                 }
             }
-            let epoch_config = self.get_epoch_config(block_info.epoch_id())?;
+            let epoch_config = self.get_epoch_config(epoch_protocol_version);
             // If ChunkEndorsementsInBlockHeader feature is enabled, we use the chunk validator kickout threshold
             // as the cutoff threshold for the endorsement ratio to remap the ratio to 0 or 1.
             let online_thresholds = ValidatorOnlineThresholds {
@@ -1108,22 +1103,6 @@ impl EpochManager {
             .collect())
     }
 
-    pub fn get_random_chunk_producer_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<AccountId, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_producers = epoch_info
-            .chunk_producers_settlement()
-            .get(shard_index)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        let random_index = rand::thread_rng().gen_range(0..chunk_producers.len());
-        Ok(epoch_info.validator_account_id(chunk_producers[random_index]).clone())
-    }
-
     /// Returns the list of chunk_validators for the given shard_id and height and set of account ids.
     /// Generation of chunk_validators and their order is deterministic for given shard_id and height.
     /// We cache the generated chunk_validators.
@@ -1160,27 +1139,6 @@ impl EpochManager {
                 shard_id, height, epoch_id,
             ))
         })
-    }
-
-    /// get_heuristic_block_approvers_ordered: block producers for epoch
-    /// get_all_block_producers_ordered: block producers for epoch, slashing info
-    /// get_all_block_approvers_ordered: block producers for epoch, slashing info, sometimes block producers for next epoch
-    pub fn get_heuristic_block_approvers_ordered(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<Vec<ApprovalStake>, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let mut result = vec![];
-        let mut validators: HashSet<AccountId> = HashSet::new();
-        for validator_id in epoch_info.block_producers_settlement().into_iter() {
-            let validator_stake = epoch_info.get_validator(*validator_id);
-            let account_id = validator_stake.account_id();
-            if validators.insert(account_id.clone()) {
-                result.push(validator_stake.get_approval_stake(false));
-            }
-        }
-
-        Ok(result)
     }
 
     pub fn get_all_block_approvers_ordered(
@@ -1277,9 +1235,9 @@ impl EpochManager {
     }
 
     pub fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
-        let prev_epoch_last_hash = *self.get_block_info(&epoch_first_block)?.prev_hash();
-        self.get_epoch_id(&prev_epoch_last_hash)
+        let block_info = self.get_block_info(block_hash)?;
+        let epoch_first_block_info = self.get_block_info(block_info.epoch_first_block())?;
+        self.get_epoch_id(epoch_first_block_info.prev_hash())
     }
 
     pub fn get_epoch_info_from_hash(
@@ -1292,13 +1250,13 @@ impl EpochManager {
 
     pub fn cares_about_shard_in_epoch(
         &self,
-        epoch_id: EpochId,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
-        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let epoch_info = self.get_epoch_info(epoch_id)?;
 
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
 
         let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
@@ -1320,7 +1278,7 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
+        self.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
     }
 
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
@@ -1335,17 +1293,24 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
         if self.will_shard_layout_change(parent_hash)? {
             let shard_layout = self.get_shard_layout(&next_epoch_id)?;
+            // The expect below may be triggered when the protocol version
+            // changes by multiple versions at once and multiple shard layout
+            // changes are captured. In this case the shards from the original
+            // shard layout are not valid parents in the final shard layout.
+            //
+            // This typically occurs in tests that are pegged to start at a
+            // certain protocol version and then upgrade to stable.
             let split_shards = shard_layout
                 .get_children_shards_ids(shard_id)
-                .expect("all shard layouts expect the first one must have a split map");
+                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
             for next_shard_id in split_shards {
-                if self.cares_about_shard_in_epoch(next_epoch_id, account_id, next_shard_id)? {
+                if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
                     return Ok(true);
                 }
             }
             Ok(false)
         } else {
-            self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
+            self.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
         }
     }
 
@@ -1520,26 +1485,26 @@ impl EpochManager {
             ValidatorInfoIdentifier::BlockHash(ref b) => self.get_epoch_id(b)?,
         };
         let cur_epoch_info = self.get_epoch_info(&epoch_id)?;
-        let cur_shard_layout = self.get_shard_layout(&epoch_id)?;
         let epoch_height = cur_epoch_info.epoch_height();
         let epoch_start_height = self.get_epoch_start_from_epoch_id(&epoch_id)?;
-        let mut validator_to_shard = (0..cur_epoch_info.validators_len())
-            .map(|_| HashSet::default())
-            .collect::<Vec<HashSet<ShardId>>>();
-        for (shard_index, validators) in
-            cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
-        {
-            let shard_id = cur_shard_layout.get_shard_id(shard_index)?;
-            for validator_id in validators {
-                validator_to_shard[*validator_id as usize].insert(shard_id);
-            }
-        }
 
         // This ugly code arises because of the incompatible types between `block_tracker` in `EpochInfoAggregator`
         // and `validator_block_chunk_stats` in `EpochSummary`. Rust currently has no support for Either type
         // in std.
         let (current_validators, next_epoch_id, all_proposals) = match &epoch_identifier {
             ValidatorInfoIdentifier::EpochId(id) => {
+                let cur_shard_layout = self.get_shard_layout(&epoch_id)?;
+                let mut validator_to_shard = (0..cur_epoch_info.validators_len())
+                    .map(|_| HashSet::default())
+                    .collect::<Vec<HashSet<ShardId>>>();
+                for (shard_index, validators) in
+                    cur_epoch_info.chunk_producers_settlement().into_iter().enumerate()
+                {
+                    let shard_id = cur_shard_layout.get_shard_id(shard_index)?;
+                    for validator_id in validators {
+                        validator_to_shard[*validator_id as usize].insert(shard_id);
+                    }
+                }
                 let epoch_summary = self.get_epoch_validator_info(id)?;
                 let cur_validators = cur_epoch_info
                     .validators_iter()
@@ -1555,11 +1520,13 @@ impl EpochManager {
                                     endorsement: ValidatorStats { produced: 0, expected: 0 },
                                 },
                             });
-                        let mut shards = validator_to_shard[validator_id]
+                        let mut shards_produced = validator_to_shard[validator_id]
                             .iter()
                             .cloned()
                             .collect::<Vec<ShardId>>();
-                        shards.sort();
+                        shards_produced.sort();
+                        // TODO: Compute the set of shards validated.
+                        let shards_endorsed = vec![];
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
                             is_slashed: false, // currently there is no slashing
@@ -1567,9 +1534,8 @@ impl EpochManager {
                             public_key,
                             stake,
                             // TODO: Maybe fill in the per shard info about the chunk produced for requests coming from RPC.
-                            num_produced_chunks_per_shard: vec![0; shards.len()],
-                            num_expected_chunks_per_shard: vec![0; shards.len()],
-                            shards,
+                            num_produced_chunks_per_shard: vec![0; shards_produced.len()],
+                            num_expected_chunks_per_shard: vec![0; shards_produced.len()],
                             num_produced_blocks: validator_stats.block_stats.produced,
                             num_expected_blocks: validator_stats.block_stats.expected,
                             num_produced_chunks: validator_stats.chunk_stats.produced(),
@@ -1583,8 +1549,10 @@ impl EpochManager {
                                 .endorsement_stats()
                                 .expected,
                             // Same TODO as above for `num_produced_chunks_per_shard`
-                            num_produced_endorsements_per_shard: Vec::new(),
-                            num_expected_endorsements_per_shard: Vec::new(),
+                            num_produced_endorsements_per_shard: vec![0; shards_endorsed.len()],
+                            num_expected_endorsements_per_shard: vec![0; shards_endorsed.len()],
+                            shards_produced,
+                            shards_endorsed,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1633,23 +1601,31 @@ impl EpochManager {
                                     endorsement_stats.expected;
                             }
                         }
-                        let mut shards = validator_to_shard[validator_id]
-                            .clone()
-                            .into_iter()
-                            .collect::<Vec<ShardId>>();
-                        shards.sort();
+                        // Collect the shards for which the validator was *expected* to produce at least one chunk.
+                        let mut shards_produced = chunks_stats_by_shard
+                            .iter()
+                            .filter_map(|(shard, stats)| (stats.expected() > 0).then_some(*shard))
+                            .collect_vec();
+                        shards_produced.sort();
+                        // Collect the shards for which the validator was *expected* to validate at least one chunk.
+                        let mut shards_endorsed = chunks_stats_by_shard
+                            .iter()
+                            .filter_map(|(shard, stats)| {
+                                (stats.endorsement_stats().expected > 0).then_some(*shard)
+                            })
+                            .collect_vec();
+                        shards_endorsed.sort();
                         let (account_id, public_key, stake) = info.destructure();
                         Ok(CurrentEpochValidatorInfo {
                             is_slashed: false, // currently there is no slashing
                             account_id,
                             public_key,
                             stake,
-                            shards: shards.clone(),
                             num_produced_blocks: block_stats.produced,
                             num_expected_blocks: block_stats.expected,
                             num_produced_chunks: chunk_stats.produced(),
                             num_expected_chunks: chunk_stats.expected(),
-                            num_produced_chunks_per_shard: shards
+                            num_produced_chunks_per_shard: shards_produced
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1657,7 +1633,7 @@ impl EpochManager {
                                         .map_or(0, |stats| stats.produced())
                                 })
                                 .collect(),
-                            num_expected_chunks_per_shard: shards
+                            num_expected_chunks_per_shard: shards_produced
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1667,7 +1643,7 @@ impl EpochManager {
                                 .collect(),
                             num_produced_endorsements: chunk_stats.endorsement_stats().produced,
                             num_expected_endorsements: chunk_stats.endorsement_stats().expected,
-                            num_produced_endorsements_per_shard: shards
+                            num_produced_endorsements_per_shard: shards_endorsed
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1675,7 +1651,7 @@ impl EpochManager {
                                         .map_or(0, |stats| stats.endorsement_stats().produced)
                                 })
                                 .collect(),
-                            num_expected_endorsements_per_shard: shards
+                            num_expected_endorsements_per_shard: shards_endorsed
                                 .iter()
                                 .map(|shard| {
                                     chunks_stats_by_shard
@@ -1683,6 +1659,8 @@ impl EpochManager {
                                         .map_or(0, |stats| stats.endorsement_stats().expected)
                                 })
                                 .collect(),
+                            shards_produced,
+                            shards_endorsed,
                         })
                     })
                     .collect::<Result<Vec<CurrentEpochValidatorInfo>, EpochError>>()?;
@@ -1865,22 +1843,8 @@ impl EpochManager {
         Ok(EpochId(*first_block_info.prev_hash()))
     }
 
-    pub fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let epoch_config = self.config.for_protocol_version(protocol_version);
-        Ok(ShardConfig::new(epoch_config))
-    }
-
-    pub fn get_config_for_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> Result<EpochConfig, EpochError> {
-        Ok(self.config.for_protocol_version(protocol_version))
-    }
-
-    pub fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        self.get_config_for_protocol_version(protocol_version)
+    pub fn get_epoch_config(&self, protocol_version: ProtocolVersion) -> EpochConfig {
+        self.config.for_protocol_version(protocol_version)
     }
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
@@ -1901,7 +1865,7 @@ impl EpochManager {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -1928,7 +1892,7 @@ impl EpochManager {
         // We don't use cache here since this query happens rarely and only for rpc.
         self.store
             .get_ser(DBCol::EpochValidatorInfo, epoch_id.as_ref())?
-            .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+            .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
     }
 
     // Note(#6572): beware, after calling `save_epoch_validator_info`,
@@ -1960,8 +1924,7 @@ impl EpochManager {
         self.blocks_info.get_or_try_put(*hash, |hash| {
             self.store
                 .get_ser(DBCol::BlockInfo, hash.as_ref())?
-                .ok_or_else(|| EpochError::MissingBlock(*hash))
-                .map(Arc::new)
+                .ok_or(EpochError::MissingBlock(*hash))
         })
     }
 
@@ -1970,11 +1933,9 @@ impl EpochManager {
         store_update: &mut StoreUpdate,
         block_info: Arc<BlockInfo>,
     ) -> Result<(), EpochError> {
-        let block_hash = *block_info.hash();
-        store_update
-            .insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)
-            .map_err(EpochError::from)?;
-        self.blocks_info.put(block_hash, block_info);
+        let block_hash = block_info.hash();
+        store_update.insert_ser(DBCol::BlockInfo, block_hash.as_ref(), &block_info)?;
+        self.blocks_info.put(*block_hash, block_info);
         Ok(())
     }
 
@@ -1984,9 +1945,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_start: BlockHeight,
     ) -> Result<(), EpochError> {
-        store_update
-            .set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)
-            .map_err(EpochError::from)?;
+        store_update.set_ser(DBCol::EpochStart, epoch_id.as_ref(), &epoch_start)?;
         self.epoch_id_to_start.put(*epoch_id, epoch_start);
         Ok(())
     }
@@ -1995,7 +1954,7 @@ impl EpochManager {
         self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
             self.store
                 .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
-                .ok_or_else(|| EpochError::EpochOutOfBounds(*epoch_id))
+                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
         })
     }
 
@@ -2004,7 +1963,7 @@ impl EpochManager {
     ///
     /// The block hash passed as argument should be a final block so that the
     /// method can perform efficient incremental updates.  Calling this method
-    /// on a block which has not been finalised yet is likely to result in
+    /// on a block which has not been finalized yet is likely to result in
     /// performance issues since handling forks will force it to traverse the
     /// entire epoch from scratch.
     ///
@@ -2218,7 +2177,9 @@ impl EpochManager {
             self.get_block_info(&current_epoch_first_block_hash)?;
 
         let current_epoch_start = current_epoch_first_block_info.height();
-        let current_epoch_length = self.get_epoch_config(&tip.epoch_id)?.epoch_length;
+        let current_epoch_length = self
+            .get_epoch_config(self.get_epoch_info(&tip.epoch_id)?.protocol_version())
+            .epoch_length;
         let current_epoch_estimated_end = current_epoch_start.saturating_add(current_epoch_length);
 
         // All blocks with height lower than the estimated end are guaranteed to reside in the current epoch.

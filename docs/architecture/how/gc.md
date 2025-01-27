@@ -12,7 +12,7 @@ at most 2 blocks from the chain.
 
 For more details look at function `clear_data()` in file `chain/chain/src/chain.rs`
 
-## How it works:
+## How it works
 
 Imagine the following chain (with 2 forks)
 

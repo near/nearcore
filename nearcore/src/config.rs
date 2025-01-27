@@ -14,22 +14,23 @@ use near_chain_configs::{
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
     default_log_summary_period, default_orphan_state_witness_max_size,
     default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
-    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
-    ClientConfig, EpochSyncConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, MutableValidatorSigner, ReshardingConfig, StateSyncConfig,
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FAST_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT,
-    MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
-    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-    TRANSACTION_VALIDITY_PERIOD,
+    default_state_sync_enabled, default_state_sync_external_backoff,
+    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
+    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
+    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
+    ChunkDistributionNetworkConfig, ClientConfig, EpochSyncConfig, GCConfig, Genesis,
+    GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue,
+    MutableValidatorSigner, ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
+    EXPECTED_EPOCH_LENGTH, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
+    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY,
+    MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
-use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey};
+use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
 use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
@@ -48,7 +49,9 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
-use near_store::config::StateSnapshotType;
+use near_store::config::{
+    ArchivalConfig, ArchivalStoreConfig, SplitStorageConfig, StateSnapshotType,
+};
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -153,9 +156,18 @@ pub struct Consensus {
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub header_sync_stall_ban_timeout: Duration,
     /// How much to wait for a state sync response before re-requesting
-    #[serde(default = "default_state_sync_timeout")]
+    #[serde(default = "default_state_sync_external_timeout")]
     #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub state_sync_timeout: Duration,
+    pub state_sync_external_timeout: Duration,
+    #[serde(default = "default_state_sync_p2p_timeout")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub state_sync_p2p_timeout: Duration,
+    #[serde(default = "default_state_sync_retry_backoff")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub state_sync_retry_backoff: Duration,
+    #[serde(default = "default_state_sync_external_backoff")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
+    pub state_sync_external_backoff: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
@@ -196,7 +208,10 @@ impl Default for Consensus {
             header_sync_initial_timeout: default_header_sync_initial_timeout(),
             header_sync_progress_timeout: default_header_sync_progress_timeout(),
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
-            state_sync_timeout: default_state_sync_timeout(),
+            state_sync_external_timeout: default_state_sync_external_timeout(),
+            state_sync_p2p_timeout: default_state_sync_p2p_timeout(),
+            state_sync_retry_backoff: default_state_sync_retry_backoff(),
+            state_sync_external_backoff: default_state_sync_external_backoff(),
             header_sync_expected_height_per_second: default_header_sync_expected_height_per_second(
             ),
             sync_check_period: default_sync_check_period(),
@@ -263,6 +278,8 @@ pub struct Config {
     /// Configuration for the split storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archival_storage: Option<ArchivalStoreConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,7 +297,7 @@ pub struct Config {
     /// New transactions that bring the size of the pool over this limit will be rejected. This
     /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
-    /// chunks and underutilizing the capacity of the network.
+    /// chunks and underutilized the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
     // Configuration for resharding.
     pub resharding_config: ReshardingConfig,
@@ -303,7 +320,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
     /// OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed
-    /// because the previous block isn't available. The witnesses wait in the pool untl the
+    /// because the previous block isn't available. The witnesses wait in the pool until the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
     /// Maximum size (number of bytes) of state witnesses in the OrphanStateWitnessPool.
@@ -357,6 +374,7 @@ impl Default for Config {
             store: near_store::StoreConfig::default(),
             cold_store: None,
             split_storage: None,
+            archival_storage: None,
             expected_shutdown: None,
             state_sync: None,
             epoch_sync: default_epoch_sync(),
@@ -372,59 +390,6 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
-        }
-    }
-}
-
-fn default_enable_split_storage_view_client() -> bool {
-    false
-}
-
-fn default_cold_store_initial_migration_batch_size() -> usize {
-    500_000_000
-}
-
-fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::seconds(30)
-}
-
-fn default_num_cold_store_read_threads() -> usize {
-    4
-}
-
-fn default_cold_store_loop_sleep_duration() -> Duration {
-    Duration::seconds(1)
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct SplitStorageConfig {
-    #[serde(default = "default_enable_split_storage_view_client")]
-    pub enable_split_storage_view_client: bool,
-
-    #[serde(default = "default_cold_store_initial_migration_batch_size")]
-    pub cold_store_initial_migration_batch_size: usize,
-    #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_initial_migration_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_cold_store_loop_sleep_duration")]
-    #[serde(with = "near_async::time::serde_duration_as_std")]
-    pub cold_store_loop_sleep_duration: Duration,
-
-    #[serde(default = "default_num_cold_store_read_threads")]
-    pub num_cold_store_read_threads: usize,
-}
-
-impl Default for SplitStorageConfig {
-    fn default() -> Self {
-        SplitStorageConfig {
-            enable_split_storage_view_client: default_enable_split_storage_view_client(),
-            cold_store_initial_migration_batch_size:
-                default_cold_store_initial_migration_batch_size(),
-            cold_store_initial_migration_loop_sleep_duration:
-                default_cold_store_initial_migration_loop_sleep_duration(),
-            cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
-            num_cold_store_read_threads: default_num_cold_store_read_threads(),
         }
     }
 }
@@ -448,25 +413,25 @@ impl Config {
             std::fs::read_to_string(path).map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to read config from {}", path.display()),
             })?;
-        let mut unrecognised_fields = Vec::new();
+        let mut unrecognized_fields = Vec::new();
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
             .map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to strip comments from {}", path.display()),
             })?;
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
-            |field| unrecognised_fields.push(field.to_string()),
+            |field| unrecognized_fields.push(field.to_string()),
         )
         .map_err(|e| ValidationError::ConfigFileError {
             error_message: format!("Failed to deserialize config from {}: {:?}", path.display(), e),
         })?;
 
-        if !unrecognised_fields.is_empty() {
-            let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
-            let fields = unrecognised_fields.join(", ");
+        if !unrecognized_fields.is_empty() {
+            let s = if unrecognized_fields.len() > 1 { "s" } else { "" };
+            let fields = unrecognized_fields.join(", ");
             warn!(
                 target: "neard",
-                "{}: encountered unrecognised field{s}: {fields}",
+                "{}: encountered unrecognized field{s}: {fields}",
                 path.display(),
             );
         }
@@ -497,6 +462,16 @@ impl Config {
         {
             self.rpc.get_or_insert(Default::default()).addr = addr;
         }
+    }
+
+    /// Returns `ArchivalConfig` which contains references to the archival-related configs if the config is for an archival node; otherwise returns `None`.
+    pub fn archival_config(&self) -> Option<ArchivalConfig> {
+        ArchivalConfig::new(
+            self.archive,
+            self.archival_storage.as_ref(),
+            self.cold_store.as_ref(),
+            self.split_storage.as_ref(),
+        )
     }
 }
 
@@ -549,7 +524,10 @@ impl NearConfig {
                 header_sync_expected_height_per_second: config
                     .consensus
                     .header_sync_expected_height_per_second,
-                state_sync_timeout: config.consensus.state_sync_timeout,
+                state_sync_external_timeout: config.consensus.state_sync_external_timeout,
+                state_sync_p2p_timeout: config.consensus.state_sync_p2p_timeout,
+                state_sync_retry_backoff: config.consensus.state_sync_retry_backoff,
+                state_sync_external_backoff: config.consensus.state_sync_external_backoff,
                 min_num_peers: config.consensus.min_num_peers,
                 log_summary_period: config.log_summary_period,
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -561,7 +539,7 @@ impl NearConfig {
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
-                doosmslug_step_period: config.consensus.doomslug_step_period,
+                doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 tracked_shadow_validator: config.tracked_shadow_validator,
@@ -576,8 +554,6 @@ impl NearConfig {
                 max_gas_burnt_view: config.max_gas_burnt_view,
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
-                flat_storage_creation_enabled: false,
-                flat_storage_creation_period: Duration::seconds(1),
                 state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
                 epoch_sync: config.epoch_sync.unwrap_or_default(),
@@ -711,30 +687,30 @@ fn generate_or_load_key(
     filename: &str,
     account_id: Option<AccountId>,
     test_seed: Option<&str>,
-) -> anyhow::Result<Option<InMemorySigner>> {
+) -> anyhow::Result<Option<Signer>> {
     let path = home_dir.join(filename);
     if path.exists() {
         let signer = InMemorySigner::from_file(&path)
             .with_context(|| format!("Failed initializing signer from {}", path.display()))?;
         if let Some(account_id) = account_id {
-            if account_id != signer.account_id {
+            if account_id != signer.get_account_id() {
                 return Err(anyhow!(
                     "‘{}’ contains key for {} but expecting key for {}",
                     path.display(),
-                    signer.account_id,
+                    signer.get_account_id(),
                     account_id
                 ));
             }
         }
-        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.account_id);
+        info!(target: "near", "Reusing key {} for {}", signer.public_key(), signer.get_account_id());
         Ok(Some(signer))
     } else if let Some(account_id) = account_id {
         let signer = if let Some(seed) = test_seed {
             InMemorySigner::from_seed(account_id, KeyType::ED25519, seed)
         } else {
-            InMemorySigner::from_random(account_id, KeyType::ED25519)
+            InMemorySigner::from_random(account_id, KeyType::ED25519).into()
         };
-        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.account_id);
+        info!(target: "near", "Using key {} for {}", signer.public_key(), signer.get_account_id());
         signer
             .write_to_file(&path)
             .with_context(|| anyhow!("Failed saving key to ‘{}’", path.display()))?;
@@ -956,7 +932,7 @@ pub fn init_configs(
             let mut records = vec![];
             add_account_with_key(
                 &mut records,
-                signer.account_id.clone(),
+                signer.get_account_id(),
                 &signer.public_key(),
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
@@ -987,7 +963,7 @@ pub fn init_configs(
                 online_max_threshold: Rational32::new(99, 100),
                 online_min_threshold: Rational32::new(BLOCK_PRODUCER_KICKOUT_THRESHOLD as i32, 100),
                 validators: vec![AccountInfo {
-                    account_id: signer.account_id.clone(),
+                    account_id: signer.get_account_id(),
                     public_key: signer.public_key(),
                     amount: TESTING_INIT_STAKE,
                 }],
@@ -996,7 +972,7 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: signer.account_id,
+                protocol_treasury_account: signer.get_account_id(),
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 shard_layout: shards,
                 min_gas_price: MIN_GAS_PRICE,
@@ -1007,6 +983,7 @@ pub fn init_configs(
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.display());
         }
     }
+
     Ok(())
 }
 
@@ -1052,7 +1029,6 @@ impl LocalnetNodeParams {
 /// * `num_non_validators_rpc` - Number of non-validator nodes to create and configure as an RPC node (eg. for sending transactions)
 /// * `num_non_validators` - Number of additional non-validator nodes to create
 /// * `tracked_shards` - Shards to track by all nodes, except for archival and RPC nodes which track all shards
-
 pub fn create_localnet_configs_from_seeds(
     seeds: Vec<String>,
     num_shards: NumShards,
@@ -1061,7 +1037,7 @@ pub fn create_localnet_configs_from_seeds(
     num_non_validators_rpc: NumSeats,
     num_non_validators: NumSeats,
     tracked_shards: Vec<ShardId>,
-) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis) {
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<Signer>, Genesis) {
     assert_eq!(
         seeds.len() as u64,
         num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators,
@@ -1151,7 +1127,7 @@ fn create_localnet_config(
     num_shards: NumShards,
     num_validators: NumSeats,
     tracked_shards: &Vec<ShardId>,
-    network_signers: &Vec<InMemorySigner>,
+    network_signers: &Vec<Signer>,
     boot_node_addr: &tcp::ListenerAddr,
     params: LocalnetNodeParams,
 ) -> Config {
@@ -1174,7 +1150,7 @@ fn create_localnet_config(
     config.network.boot_nodes = if params.is_boot {
         "".to_string()
     } else {
-        format!("{}@{}", network_signers[0].public_key, boot_node_addr)
+        format!("{}@{}", network_signers[0].public_key(), boot_node_addr)
     };
     config.network.skip_sync_wait = num_validators == 1;
 
@@ -1220,7 +1196,7 @@ pub fn create_localnet_configs(
     num_non_validators: NumSeats,
     prefix: &str,
     tracked_shards: Vec<ShardId>,
-) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<InMemorySigner>, Genesis, Vec<InMemorySigner>) {
+) -> (Vec<Config>, Vec<ValidatorSigner>, Vec<Signer>, Genesis, Vec<Signer>) {
     let num_all_nodes =
         num_validators + num_non_validators_archival + num_non_validators_rpc + num_non_validators;
     let seeds = (0..num_all_nodes).map(|i| format!("{}{}", prefix, i)).collect::<Vec<_>>();
@@ -1288,7 +1264,7 @@ pub fn init_localnet_configs(
             .write_to_file(&node_dir.join(&config.node_key_file))
             .expect("Error writing key file");
         for key in &shard_keys {
-            key.write_to_file(&node_dir.join(format!("{}_key.json", key.account_id)))
+            key.write_to_file(&node_dir.join(format!("{}_key.json", key.get_account_id())))
                 .expect("Error writing shard file");
         }
 
@@ -1390,7 +1366,7 @@ pub fn load_validator_key(validator_file: &Path) -> anyhow::Result<Option<Arc<Va
         return Ok(None);
     }
     match InMemoryValidatorSigner::from_file(&validator_file) {
-        Ok(signer) => Ok(Some(Arc::new(signer.into()))),
+        Ok(signer) => Ok(Some(Arc::new(signer))),
         Err(_) => {
             let error_message =
                 format!("Failed initializing validator signer from {}", validator_file.display());
@@ -1481,12 +1457,10 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     config.consensus.max_block_production_delay =
         Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let (signer, validator_signer) = if seed.is_empty() {
-        let signer =
-            Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));
+        let signer = InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519).into();
         (signer, None)
     } else {
-        let signer =
-            Arc::new(InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed));
+        let signer = InMemorySigner::from_seed(seed.parse().unwrap(), KeyType::ED25519, seed);
         let validator_signer = Arc::new(create_test_signer(seed)) as Arc<ValidatorSigner>;
         (signer, Some(validator_signer))
     };
@@ -1505,10 +1479,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
+    use itertools::Itertools;
     use near_async::time::Duration;
     use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
     use near_crypto::InMemorySigner;
-    use near_primitives::shard_layout::account_id_to_shard_id;
     use near_primitives::types::{AccountId, NumShards, ShardId};
     use tempfile::tempdir;
 
@@ -1543,34 +1517,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(genesis.config.chain_id, "localnet");
-        assert_eq!(genesis.config.shard_layout.shard_ids().count(), 3);
+        let shard_layout = &genesis.config.shard_layout;
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+        let [s0, s1, s2] = shard_ids[..] else {
+            panic!("Expected 3 shards, got {:?}", shard_ids);
+        };
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("foobar.near").unwrap(),
-                &genesis.config.shard_layout,
-            ),
-            ShardId::new(0)
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("foobar.near").unwrap()),
+            s0
         );
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("shard0.test.near").unwrap(),
-                &genesis.config.shard_layout,
-            ),
-            ShardId::new(1)
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test0.near").unwrap()),
+            s0
         );
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("shard1.test.near").unwrap(),
-                &genesis.config.shard_layout,
-            ),
-            ShardId::new(2)
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test1.near").unwrap()),
+            s1
         );
         assert_eq!(
-            account_id_to_shard_id(
-                &AccountId::from_str("shard2.test.near").unwrap(),
-                &genesis.config.shard_layout,
-            ),
-            ShardId::new(2)
+            shard_layout.account_id_to_shard_id(&AccountId::from_str("test2.near").unwrap()),
+            s2
         );
     }
 
@@ -1873,7 +1839,7 @@ mod tests {
             let key = result.unwrap().unwrap();
             assert!(home_dir.join("key").exists());
             if !account.is_empty() {
-                assert_eq!(account, key.account_id.as_str());
+                assert_eq!(account, key.get_account_id().as_str());
             }
             key
         };
@@ -1895,12 +1861,13 @@ mod tests {
         assert!(key == test_ok("key", "fred", ""));
         test_err("key", "barney", "");
 
-        // test_seed == Some → the same key is generated
+        // test_seed == Some → the same key is generated (same signature is produced)
         let k1 = test_ok("k1", "fred", "foo");
         let k2 = test_ok("k2", "barney", "foo");
         let k3 = test_ok("k3", "fred", "bar");
 
-        assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
+        let data: &[u8] = b"Example data for signature test";
+        assert!(k1.public_key() == k2.public_key() && k1.sign(&data) == k2.sign(&data));
         assert!(k1 != k3);
 
         // file contains invalid JSON -> should return an error

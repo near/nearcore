@@ -1,7 +1,10 @@
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
-use near_chain_configs::test_genesis::TestGenesisBuilder;
+use near_chain_configs::test_genesis::{
+    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, TestGenesisBuilder,
+    ValidatorsSpec,
+};
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
@@ -10,10 +13,12 @@ use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
 
+use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::AccountId;
 
 use near_store::test_utils::create_test_store;
@@ -26,48 +31,28 @@ use std::collections::{HashMap, HashSet};
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 #[test]
-fn test_in_memory_trie_node_consistency() {
+fn slow_test_in_memory_trie_node_consistency() {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 10000 * ONE_NEAR;
+    let initial_balance = 1000000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&clock.clock())
-        // Use the latest protocol version. Otherwise, the version may be too
-        // old that e.g. blocks don't even store previous heights.
-        .protocol_version_latest()
-        // We'll test with 4 shards. This can be any number, but we want to test
-        // the case when some shards are loaded into memory and others are not.
-        // We pick the boundaries so that each shard would get some transactions.
-        .shard_layout_simple_v1(&["account3", "account5", "account7"])
-        // We're going to send NEAR between accounts and then assert at the end
-        // that these transactions have been processed correctly, so here we set
-        // the gas price to 0 so that we don't have to calculate gas cost.
-        .gas_prices_free()
-        // Set the block gas limit high enough so we don't have to worry about
-        // transactions being throttled.
-        .gas_limit_one_petagas()
-        // Set the validity period high enough so even if a transaction gets
-        // included a few blocks later it won't be rejected.
-        .transaction_validity_period(100)
-        // Make two validators. In this test we don't care about validators but
-        // the TestEnv framework works best if all clients are validators. So
-        // since we are using two clients, make two validators.
-        .validators_desired_roles(&["account0", "account1"], &[])
-        // We don't care about epoch transitions in this test, and epoch
-        // transitions means validator selection, which can kick out validators
-        // (due to our test purposefully skipping blocks to create forks), and
-        // that's annoying to deal with. So set this to a high value to stay
-        // within a single epoch.
-        .epoch_length(10000);
 
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, _) = genesis_builder.build();
+    let epoch_length = 10000;
+    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let validators_spec = ValidatorsSpec::desired_roles(&["account0", "account1"], &[]);
+
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&clock.clock())
+        .protocol_version(PROTOCOL_VERSION)
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .gas_limit_one_petagas()
+        .transaction_validity_period(100)
+        .build();
 
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
@@ -83,7 +68,7 @@ fn test_in_memory_trie_node_consistency() {
                 TrieConfig::default(), // client 0 does not load in-memory tries
                 TrieConfig {
                     // client 1 loads two of four shards into in-memory tries
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 2 },
                     ],
@@ -148,7 +133,7 @@ fn test_in_memory_trie_node_consistency() {
             vec![
                 TrieConfig::default(),
                 TrieConfig {
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 1 }, // shard 2 changed to shard 1.
                     ],
@@ -186,7 +171,7 @@ fn test_in_memory_trie_node_consistency() {
             vec![
                 // client 0 now loads in-memory tries
                 TrieConfig {
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 1 },
                         ShardUId { version: 1, shard_id: 3 },
                     ],
@@ -415,7 +400,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
         env.clients[client_id]
             .runtime_adapter
             .get_tries()
-            .get_mem_tries(shard)?
+            .get_memtries(shard)?
             .read()
             .unwrap()
             .num_roots(),
@@ -429,7 +414,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
 fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: bool) {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
-    let initial_balance = 10000 * ONE_NEAR;
+    let initial_balance = 1000000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     // We'll test with 4 shards. This can be any number, but we want to test
@@ -439,42 +424,33 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
     const NUM_VALIDATORS: usize = NUM_VALIDATORS_PER_SHARD * 4;
 
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
-    let mut genesis_builder = TestGenesisBuilder::new();
-    genesis_builder
-        .genesis_time_from_clock(&clock.clock())
-        .genesis_height(10000)
-        // Use the latest protocol version. Otherwise, the version may be too
-        // old that e.g. blocks don't even store previous heights.
-        .protocol_version_latest()
-        // We'll test with 4 shards. This can be any number, but we want to test
-        // the case when some shards are loaded into memory and others are not.
-        // We pick the boundaries so that each shard would get some transactions.
-        .shard_layout_simple_v1(&["account3", "account5", "account7"])
-        // We're going to send NEAR between accounts and then assert at the end
-        // that these transactions have been processed correctly, so here we set
-        // the gas price to 0 so that we don't have to calculate gas cost.
-        .gas_prices_free()
-        // Set the block gas limit high enough so we don't have to worry about
-        // transactions being throttled.
-        .gas_limit_one_petagas()
-        // Set the validity period high enough so even if a transaction gets
-        // included a few blocks later it won't be rejected.
-        .transaction_validity_period(1000)
-        // Make NUM_VALIDATORS validators.
-        .validators_desired_roles(
-            &accounts[0..NUM_VALIDATORS].iter().map(|a| a.as_str()).collect::<Vec<_>>(),
-            &[],
-        )
-        .minimum_validators_per_shard(NUM_VALIDATORS_PER_SHARD as u64)
-        // Disable kickouts or else the short epoch length will kick out some validators.
-        .kickouts_disabled()
-        // Test epoch transitions.
-        .epoch_length(10);
 
-    for account in &accounts {
-        genesis_builder.add_user_account_simple(account.clone(), initial_balance);
-    }
-    let (genesis, epoch_config_store) = genesis_builder.build();
+    let epoch_length = 10;
+    let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
+    let validators_spec = ValidatorsSpec::desired_roles(
+        &accounts[0..NUM_VALIDATORS].iter().map(|a| a.as_str()).collect::<Vec<_>>(),
+        &[],
+    );
+
+    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
+        GenesisAndEpochConfigParams {
+            epoch_length,
+            protocol_version: PROTOCOL_VERSION,
+            shard_layout,
+            validators_spec,
+            accounts: &accounts,
+        },
+        |genesis_builder| {
+            genesis_builder
+                .genesis_time_from_clock(&clock.clock())
+                .genesis_height(10000)
+                .transaction_validity_period(1000)
+        },
+        |epoch_config_builder| {
+            epoch_config_builder.minimum_validators_per_shard(NUM_VALIDATORS_PER_SHARD as u64)
+        },
+    );
+
     let stores = (0..NUM_VALIDATORS).map(|_| create_test_store()).collect::<Vec<_>>();
     let mut env = TestEnv::builder(&genesis.config)
         .clock(clock.clock())
@@ -527,11 +503,11 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
 }
 
 #[test]
-fn test_in_memory_trie_consistency_with_state_sync_base_case_track_single_shard() {
+fn slow_test_in_memory_trie_consistency_with_state_sync_base_case_track_single_shard() {
     test_in_memory_trie_consistency_with_state_sync_base_case(false);
 }
 
 #[test]
-fn test_in_memory_trie_consistency_with_state_sync_base_case_track_all_shards() {
+fn slow_test_in_memory_trie_consistency_with_state_sync_base_case_track_all_shards() {
     test_in_memory_trie_consistency_with_state_sync_base_case(true);
 }

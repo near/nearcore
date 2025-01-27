@@ -36,6 +36,11 @@ fn try_main() -> Result<(), Error> {
         &["--features", &test_contract_features_string],
         "test_contract_rs",
     )?;
+    build_contract(
+        "./congestion-control-test-contract",
+        &["--features", &test_contract_features_string],
+        "congestion_control_test_contract",
+    )?;
 
     test_contract_features.push("nightly");
     let test_contract_features_string = test_contract_features.join(",");
@@ -111,16 +116,17 @@ fn cargo_build_cmd(target_dir: &Path) -> Command {
 
 fn check_status(mut cmd: Command) -> Result<(), Error> {
     println!("debug: running command: {cmd:?}");
-    cmd.status()
-        .map_err(|err| format!("command `{cmd:?}` failed to run: {err}"))
-        .and_then(|status| {
+    match cmd.status() {
+        Ok(status) => {
             if status.success() {
                 Ok(())
             } else {
                 Err(format!("command `{cmd:?}` exited with non-zero status: {status:?}"))
             }
-        })
-        .map_err(Error::from)
+        }
+        Err(err) => Err(format!("command `{cmd:?}` failed to run: {err}")),
+    }
+    .map_err(Error::from)
 }
 
 fn out_dir() -> std::path::PathBuf {

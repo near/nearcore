@@ -110,6 +110,7 @@ impl TrieIterationBenchmarkCmd {
             store.clone(),
             genesis_config.genesis_height,
             near_config.client_config.save_trie_changes,
+            genesis_config.transaction_validity_period,
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
@@ -242,7 +243,7 @@ impl TrieIterationBenchmarkCmd {
             col::DELAYED_RECEIPT_OR_INDICES => false,
 
             // Most columns use the ACCOUNT_DATA_SEPARATOR to indicate the end
-            // of the accound id in the trie key. For those columns the
+            // of the account id in the trie key. For those columns the
             // partial_parse_account_id method should be used.
             // The only exception is the ACCESS_KEY and dedicated method
             // partial_parse_account_id_from_access_key should be used.

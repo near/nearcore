@@ -156,7 +156,7 @@ mod tests {
 
     /// A serialized `Action::Delegate(SignedDelegateAction)` for testing.
     ///
-    /// We want this to be parseable and accepted by protocol versions with meta
+    /// We want this to be parsable and accepted by protocol versions with meta
     /// transactions enabled. But it should fail either in parsing or in
     /// validation when this is included in a receipt for a block of an earlier
     /// version. For now, it just fails to parse, as a test below checks.

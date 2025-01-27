@@ -9,6 +9,7 @@ use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+use near_primitives::action::{DeployGlobalContractAction, UseGlobalContractAction};
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
@@ -30,9 +31,8 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices,
-    remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices,
-    StorageError, TrieUpdate,
+    enqueue_promise_yield_timeout, get_access_key, get_promise_yield_indices, remove_access_key,
+    remove_account, set_access_key, set_promise_yield_indices, StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -138,7 +138,7 @@ pub(crate) fn execute_function_call(
             return Err(StorageError::StorageInconsistentState(err.to_string()).into());
         }
         Err(VMRunnerError::LoadingError(msg)) => {
-            panic!("Contract runtime failed to load a contrct: {msg}")
+            panic!("Contract runtime failed to load a contract: {msg}")
         }
         Err(VMRunnerError::Nondeterministic(msg)) => {
             panic!("Contract runner returned non-deterministic error '{}', aborting", msg)
@@ -172,7 +172,7 @@ pub(crate) fn action_function_call(
     code_hash: CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-    epoch_info_provider: &(dyn EpochInfoProvider),
+    epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
@@ -202,6 +202,7 @@ pub(crate) fn action_function_call(
         apply_state.epoch_id,
         apply_state.prev_block_hash,
         apply_state.block_hash,
+        apply_state.block_height,
         epoch_info_provider,
         apply_state.current_protocol_version,
     );
@@ -584,7 +585,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     storage_usage,
                     current_protocol_version,
                 ));
-                set_code(state_update, account_id.clone(), &magic_bytes);
+                state_update.set_code(account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
@@ -615,12 +616,18 @@ pub(crate) fn action_deploy_contract(
     deploy_contract: &DeployContractAction,
     config: Arc<near_parameters::vm::Config>,
     cache: Option<&dyn ContractRuntimeCache>,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
+    let prev_code_len = get_code_len_or_default(
+        state_update,
+        account_id.clone(),
+        account.code_hash(),
+        current_protocol_version,
+    )?;
+    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+
     let code = ContractCode::new(deploy_contract.code.clone(), None);
-    let prev_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-    let prev_code_length = prev_code.map(|code| code.code().len() as u64).unwrap_or_default();
-    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_length));
     account.set_storage_usage(
         account.storage_usage().checked_add(code.code().len() as u64).ok_or_else(|| {
             StorageError::StorageInconsistentState(format!(
@@ -634,7 +641,7 @@ pub(crate) fn action_deploy_contract(
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
     // that the contracts are written to The State.
-    set_code(state_update, account_id.clone(), &code);
+    state_update.set_code(account_id.clone(), &code);
     // Precompile the contract and store result (compiled code or error) in the contract runtime
     // cache.
     // Note, that contract compilation costs are already accounted in deploy cost using special
@@ -643,7 +650,27 @@ pub(crate) fn action_deploy_contract(
     // Inform the `store::contract::Storage` about the new deploy (so that the `get` method can
     // return the contract before the contract is written out to the underlying storage as part of
     // the `TrieUpdate` commit.)
-    state_update.contract_storage.record_deploy(code);
+    state_update.record_contract_deploy(code);
+    Ok(())
+}
+
+pub(crate) fn action_deploy_global_contract(
+    _account_id: &AccountId,
+    _deploy_contract: &DeployGlobalContractAction,
+    _result: &mut ActionResult,
+) -> Result<(), StorageError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
+    // TODO(#12715): implement global contract distribution
+    Ok(())
+}
+
+pub(crate) fn action_use_global_contract(
+    _state_update: &mut TrieUpdate,
+    _account: &mut Account,
+    _action: &UseGlobalContractAction,
+) -> Result<(), RuntimeError> {
+    let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
+    // TODO(#12716): implement global contract usage
     Ok(())
 }
 
@@ -660,13 +687,16 @@ pub(crate) fn action_delete_account(
     if current_protocol_version >= ProtocolFeature::DeleteActionRestriction.protocol_version() {
         let account = account.as_ref().unwrap();
         let mut account_storage_usage = account.storage_usage();
-        let contract_code = get_code(state_update, account_id, Some(account.code_hash()))?;
-        if let Some(code) = contract_code {
-            // account storage usage should be larger than code size
-            let code_len = code.code().len() as u64;
-            debug_assert!(account_storage_usage > code_len);
-            account_storage_usage = account_storage_usage.saturating_sub(code_len);
-        }
+        let code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            account.code_hash(),
+            current_protocol_version,
+        )?;
+        debug_assert!(code_len == 0 || account_storage_usage > code_len,
+            "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
+            account_storage_usage, code_len);
+        account_storage_usage = account_storage_usage.saturating_sub(code_len);
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
                 account_id: account_id.clone(),
@@ -688,6 +718,32 @@ pub(crate) fn action_delete_account(
     *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
+}
+
+/// Returns the storage usage for the contract code with the given `code_hash` and deployed to the given `account_id`.
+/// If no contract was deployed to the account, returns `0`.
+///
+/// This implements different behaviors based on the protocol version:
+/// If `ExcludeExistingCodeFromWitnessForCodeLen` is enabled then the code-length is obtained without reading
+/// the code but from the value-ref in the trie leaf node, otherwise it reads the code and returns its size.
+fn get_code_len_or_default(
+    state_update: &TrieUpdate,
+    account_id: AccountId,
+    code_hash: CryptoHash,
+    protocol_version: ProtocolVersion,
+) -> Result<StorageUsage, StorageError> {
+    let code_len =
+        if ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen.enabled(protocol_version) {
+            state_update.get_code_len(account_id, code_hash)?
+        } else {
+            state_update.get_code(account_id, code_hash)?.map(|contract| contract.code().len())
+        };
+    debug_assert!(
+        code_len.is_some() || code_hash == CryptoHash::default(),
+        "Non-default code hash for account with no contract deployed: {:?}",
+        code_hash
+    );
+    Ok(code_len.unwrap_or_default().try_into().unwrap())
 }
 
 pub(crate) fn action_delete_key(
@@ -990,7 +1046,12 @@ pub(crate) fn check_actor_permissions(
     account_id: &AccountId,
 ) -> Result<(), ActionError> {
     match action {
-        Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
+        Action::DeployContract(_)
+        | Action::Stake(_)
+        | Action::AddKey(_)
+        | Action::DeleteKey(_)
+        | Action::DeployGlobalContract(_)
+        | Action::UseGlobalContract(_) => {
             if actor_id != account_id {
                 return Err(ActionErrorKind::ActorNoPermission {
                     account_id: account_id.clone(),
@@ -1102,7 +1163,9 @@ pub(crate) fn check_account_existence(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_)
-        | Action::Delegate(_) => {
+        | Action::Delegate(_)
+        | Action::DeployGlobalContract(_)
+        | Action::UseGlobalContract(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -1339,6 +1402,7 @@ mod tests {
             &deploy_action,
             Arc::clone(&apply_state.config.wasm_config),
             None,
+            apply_state.current_protocol_version,
         );
         assert!(res.is_ok());
         test_delete_large_account(

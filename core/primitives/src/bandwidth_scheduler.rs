@@ -5,6 +5,7 @@ use bitvec::order::Lsb0;
 use bitvec::slice::BitSlice;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::RuntimeConfig;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
@@ -78,7 +79,7 @@ pub struct BandwidthRequestsV1 {
 )]
 pub struct BandwidthRequest {
     /// Requesting bandwidth to this shard.
-    pub to_shard: u8,
+    pub to_shard: u16,
     /// Bitmap which describes what values of bandwidth are requested.
     pub requested_values_bitmap: BandwidthRequestBitmap,
 }
@@ -86,11 +87,11 @@ pub struct BandwidthRequest {
 impl BandwidthRequest {
     /// Creates a bandwidth request based on the sizes of receipts in the outgoing buffer.
     /// Returns None when a request is not needed (receipt size below base bandwidth).
-    pub fn make_from_receipt_sizes(
-        to_shard: u8,
-        receipt_sizes: impl Iterator<Item = u64>,
+    pub fn make_from_receipt_sizes<E>(
+        to_shard: ShardId,
+        receipt_sizes: impl Iterator<Item = Result<u64, E>>,
         params: &BandwidthSchedulerParams,
-    ) -> Option<BandwidthRequest> {
+    ) -> Result<Option<BandwidthRequest>, E> {
         let values = BandwidthRequestValues::new(params).values;
         let mut bitmap = BandwidthRequestBitmap::new();
 
@@ -99,7 +100,8 @@ impl BandwidthRequest {
         // large as the required bandwidth and request it in the request bitmap.
         let mut total_size: u64 = 0;
         let mut cur_value_idx: usize = 0;
-        for receipt_size in receipt_sizes {
+        for receipt_size_res in receipt_sizes {
+            let receipt_size = receipt_size_res?;
             total_size = total_size.checked_add(receipt_size).expect(
                 "Total size of receipts doesn't fit in u64, are there exabytes of receipts?",
             );
@@ -124,10 +126,10 @@ impl BandwidthRequest {
 
         if bitmap.is_all_zeros() {
             // No point in making a bandwidth request that doesn't request anything
-            return None;
+            return Ok(None);
         }
 
-        Some(BandwidthRequest { to_shard, requested_values_bitmap: bitmap })
+        Ok(Some(BandwidthRequest { to_shard: to_shard.into(), requested_values_bitmap: bitmap }))
     }
 }
 
@@ -153,7 +155,7 @@ fn interpolate(min: u64, max: u64, i: u64, n: u64) -> u64 {
 impl BandwidthRequestValues {
     pub fn new(params: &BandwidthSchedulerParams) -> BandwidthRequestValues {
         // values[-1] = base_bandwidth
-        // values[values.len() - 1] = max_shard_bandwidth
+        // values[values.len() - 1] = max_single_grant
         // values[i] = linear interpolation between values[-1] and values[values.len() - 1]
         // TODO(bandwidth_scheduler) - consider using exponential interpolation.
         let mut values = [0; BANDWIDTH_REQUEST_VALUES_NUM];
@@ -163,32 +165,8 @@ impl BandwidthRequestValues {
         for i in 0..values.len() {
             let i_u64: u64 = i.try_into().expect("Converting usize to u64 shouldn't fail");
 
-            values[i] = interpolate(
-                params.base_bandwidth,
-                params.max_shard_bandwidth,
-                i_u64 + 1,
-                values_len,
-            );
-        }
-
-        // The value that is closest to max_receipt_size is set to max_receipt_size.
-        // Without this we could end up in a situation where one shard wants to send
-        // a maximum size receipt to another and requests the corresponding value from the list,
-        // but the sum of this value and base bandwidth exceeds max_shard_bandwidth.
-        // There's a guarantee that num_shards*base_bandwidth + max_receipt_size <= max_shard_bandwidth,
-        // but there's no guarantee that num_shards*base_bandwidth + request_value <= max_shard_banwdidth.
-        let mut closest_to_max: Bandwidth = 0;
-        for value in &values {
-            if value.abs_diff(params.max_receipt_size)
-                < closest_to_max.abs_diff(params.max_receipt_size)
-            {
-                closest_to_max = *value;
-            }
-        }
-        for value in values.iter_mut() {
-            if *value == closest_to_max {
-                *value = params.max_receipt_size;
-            }
+            values[i] =
+                interpolate(params.base_bandwidth, params.max_single_grant, i_u64 + 1, values_len);
         }
 
         BandwidthRequestValues { values }
@@ -278,29 +256,46 @@ impl BlockBandwidthRequests {
 /// The state should be the same on all shards. All shards start with the same state
 /// and apply the same bandwidth scheduler algorithm at the same heights, so the resulting
 /// scheduler state stays the same.
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    ProtocolSchema,
-)]
-pub struct BandwidthSchedulerState {
-    /// Random data for now
-    pub mock_data: [u8; 32],
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+pub enum BandwidthSchedulerState {
+    V1(BandwidthSchedulerStateV1),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+pub struct BandwidthSchedulerStateV1 {
+    /// Allowance for every pair of (sender, receiver). Used in the scheduler algorithm.
+    /// Bandwidth scheduler updates the allowances on every run.
+    pub link_allowances: Vec<LinkAllowance>,
+    /// Sanity check hash to assert that all shards run bandwidth scheduler in the exact same way.
+    /// Hash of previous scheduler state and (some) scheduler inputs.
+    pub sanity_check_hash: CryptoHash,
+}
+
+/// Allowance for a (sender, receiver) pair of shards.
+/// Used in bandwidth scheduler.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, ProtocolSchema)]
+pub struct LinkAllowance {
+    /// Sender shard
+    pub sender: ShardId,
+    /// Receiver shard
+    pub receiver: ShardId,
+    /// Link allowance, determines priority for granting bandwidth.
+    /// See the bandwidth scheduler module-level comment for a more
+    /// detailed description.
+    pub allowance: Bandwidth,
 }
 
 /// Parameters used in the bandwidth scheduler algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BandwidthSchedulerParams {
     /// This much bandwidth is granted by default.
+    /// base_bandwidth = (max_shard_bandwidth - max_single_grant) / (num_shards - 1)
     pub base_bandwidth: Bandwidth,
     /// The maximum amount of data that a shard can send or receive at a single height.
     pub max_shard_bandwidth: Bandwidth,
+    /// The maximum amount of bandwidth that can be granted on a single link.
+    /// Should be at least as big as `max_receipt_size`.
+    pub max_single_grant: Bandwidth,
     /// Maximum size of a single receipt.
     pub max_receipt_size: Bandwidth,
     /// Maximum bandwidth allowance that a link can accumulate.
@@ -310,26 +305,42 @@ pub struct BandwidthSchedulerParams {
 impl BandwidthSchedulerParams {
     /// Calculate values of scheduler params based on the current configuration
     pub fn new(num_shards: NonZeroU64, runtime_config: &RuntimeConfig) -> BandwidthSchedulerParams {
-        // TODO(bandwidth_scheduler) - put these parameters in RuntimeConfig.
-        let max_shard_bandwidth: Bandwidth = 4_500_000;
-        let max_allowance = max_shard_bandwidth;
-        let max_base_bandwidth = 100_000;
+        let scheduler_config = runtime_config.bandwidth_scheduler_config;
 
-        let max_receipt_size = runtime_config.wasm_config.limit_config.max_receipt_size;
+        Self::calculate(
+            scheduler_config.max_shard_bandwidth,
+            scheduler_config.max_single_grant,
+            scheduler_config.max_allowance,
+            scheduler_config.max_base_bandwidth,
+            runtime_config.wasm_config.limit_config.max_receipt_size,
+            num_shards.get(),
+        )
+    }
 
-        if max_shard_bandwidth < max_receipt_size {
-            panic!(
-                "max_shard_bandwidth is smaller than max_receipt_size! ({} < {}).
-                Invalid configuration - it'll be impossible to send a maximum size receipt.",
-                max_shard_bandwidth, max_receipt_size
-            );
-        }
+    fn calculate(
+        max_shard_bandwidth: Bandwidth,
+        max_single_grant: Bandwidth,
+        max_allowance: Bandwidth,
+        max_base_bandwidth: Bandwidth,
+        max_receipt_size: Bandwidth,
+        num_shards: u64,
+    ) -> BandwidthSchedulerParams {
+        assert!(
+            max_single_grant >= max_receipt_size,
+            "A max_single_grant can't be lower than max_receipt_size - it'll be impossible to send a max size receipt"
+        );
+        assert!(
+            max_single_grant <= max_shard_bandwidth,
+            "A single grant must not be greater than max_shard_bandwidth"
+        );
 
-        // A receipt with maximum size must still be able to get through
-        // after base bandwidth is granted to everyone. We have to ensure that:
-        // base_bandwidth * num_shards + max_receipt_size <= max_shard_bandwidth
-        let available_bandwidth = max_shard_bandwidth - max_receipt_size;
-        let mut base_bandwidth = available_bandwidth / num_shards;
+        // Granting `max_single_grant` on one link and `base_bandwidth` on all other links can't
+        // exceed `max_shard_bandwidth`, we have to ensure that:
+        // base_bandwidth * (num_shards - 1) + max_single_grant <= max_shard_bandwidth
+        // Base bandwidth is calculated by taking the bandwidth that would remain available after
+        // granting `max_single_grant` on one link and dividing it equally between the other links.
+        let available_bandwidth = max_shard_bandwidth - max_single_grant;
+        let mut base_bandwidth = available_bandwidth / std::cmp::max(1, num_shards - 1);
         if base_bandwidth > max_base_bandwidth {
             base_bandwidth = max_base_bandwidth;
         }
@@ -337,9 +348,28 @@ impl BandwidthSchedulerParams {
         BandwidthSchedulerParams {
             base_bandwidth,
             max_shard_bandwidth,
+            max_single_grant,
             max_receipt_size,
             max_allowance,
         }
+    }
+
+    /// Example params, used only in tests
+    pub fn for_test(num_shards: u64) -> BandwidthSchedulerParams {
+        let max_shard_bandwidth = 4_500_000;
+        let max_single_grant = 4 * 1024 * 1024;
+        let max_allowance = max_shard_bandwidth;
+        let max_base_bandwidth = 100_000;
+        let max_receipt_size = 4 * 1024 * 1024;
+
+        Self::calculate(
+            max_shard_bandwidth,
+            max_single_grant,
+            max_allowance,
+            max_base_bandwidth,
+            max_receipt_size,
+            num_shards,
+        )
     }
 }
 
@@ -353,6 +383,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
 
     use crate::bandwidth_scheduler::{interpolate, BANDWIDTH_REQUEST_VALUES_NUM};
+    use crate::shard_layout::ShardUId;
 
     use super::{
         BandwidthRequest, BandwidthRequestBitmap, BandwidthRequestValues, BandwidthSchedulerParams,
@@ -374,7 +405,7 @@ mod tests {
     /// base bandwidth without going over the max_shard_bandwidth limit.
     fn assert_max_size_can_get_through(params: &BandwidthSchedulerParams, num_shards: u64) {
         assert!(
-            num_shards * params.base_bandwidth + params.max_receipt_size
+            (num_shards - 1) * params.base_bandwidth + params.max_receipt_size
                 <= params.max_shard_bandwidth
         )
     }
@@ -390,6 +421,7 @@ mod tests {
         let expected = BandwidthSchedulerParams {
             base_bandwidth: 100_000,
             max_shard_bandwidth: 4_500_000,
+            max_single_grant: 4 * 1024 * 1024,
             max_receipt_size,
             max_allowance: 4_500_000,
         };
@@ -406,8 +438,9 @@ mod tests {
         let scheduler_params =
             BandwidthSchedulerParams::new(NonZeroU64::new(num_shards).unwrap(), &runtime_config);
         let expected = BandwidthSchedulerParams {
-            base_bandwidth: (4_500_000 - max_receipt_size) / 6,
+            base_bandwidth: (4_500_000 - max_receipt_size) / 5,
             max_shard_bandwidth: 4_500_000,
+            max_single_grant: 4 * 1024 * 1024,
             max_receipt_size,
             max_allowance: 4_500_000,
         };
@@ -457,18 +490,17 @@ mod tests {
         let values = BandwidthRequestValues::new(&params);
 
         assert!(values.values[0] > params.base_bandwidth);
-        assert_eq!(values.values[BANDWIDTH_REQUEST_VALUES_NUM - 1], params.max_shard_bandwidth);
-        assert!(values.values.contains(&max_receipt_size));
+        assert_eq!(values.values[BANDWIDTH_REQUEST_VALUES_NUM - 1], params.max_single_grant);
 
-        assert_eq!(params.base_bandwidth, 50949);
+        assert_eq!(params.base_bandwidth, 61139);
         assert_eq!(
             values.values,
             [
-                162175, 273401, 384627, 495854, 607080, 718306, 829532, 940759, 1051985, 1163211,
-                1274438, 1385664, 1496890, 1608116, 1719343, 1830569, 1941795, 2053021, 2164248,
-                2275474, 2386700, 2497927, 2609153, 2720379, 2831605, 2942832, 3054058, 3165284,
-                3276510, 3387737, 3498963, 3610189, 3721416, 3832642, 3943868, 4055094, 4194304,
-                4277547, 4388773, 4500000
+                164468, 267797, 371126, 474455, 577784, 681113, 784442, 887772, 991101, 1094430,
+                1197759, 1301088, 1404417, 1507746, 1611075, 1714405, 1817734, 1921063, 2024392,
+                2127721, 2231050, 2334379, 2437708, 2541038, 2644367, 2747696, 2851025, 2954354,
+                3057683, 3161012, 3264341, 3367671, 3471000, 3574329, 3677658, 3780987, 3884316,
+                3987645, 4090974, 4194304
             ]
         );
     }
@@ -476,13 +508,19 @@ mod tests {
     // Make a bandwidth request to shard 0 with a bitmap which has ones at the specified indices.
     fn make_request_with_ones(ones_indexes: &[usize]) -> BandwidthRequest {
         let mut req = BandwidthRequest {
-            to_shard: 0,
+            to_shard: ShardUId::single_shard().shard_id().into(),
             requested_values_bitmap: BandwidthRequestBitmap::new(),
         };
         for i in ones_indexes {
             req.requested_values_bitmap.set_bit(*i, true);
         }
         req
+    }
+
+    fn make_sizes_iter<'a>(
+        sizes: &'a [u64],
+    ) -> impl Iterator<Item = Result<u64, std::convert::Infallible>> + 'a {
+        sizes.iter().map(|&size| Ok(size))
     }
 
     #[test]
@@ -494,8 +532,13 @@ mod tests {
         );
         let values = BandwidthRequestValues::new(&params).values;
 
-        let get_request = |receipt_sizes: &[u64]| {
-            BandwidthRequest::make_from_receipt_sizes(0, receipt_sizes.iter().copied(), &params)
+        let get_request = |receipt_sizes: &[u64]| -> Option<BandwidthRequest> {
+            BandwidthRequest::make_from_receipt_sizes(
+                ShardUId::single_shard().shard_id(),
+                make_sizes_iter(receipt_sizes),
+                &params,
+            )
+            .unwrap()
         };
 
         // No receipts - no bandwidth request.
@@ -526,11 +569,11 @@ mod tests {
 
         // When requesting bandwidth that is between two values on the list, the request
         // should ask for the first value that is bigger than the needed bandwidth.
-        let inbetween_value = (values[values.len() / 2] + values[values.len() / 2 + 1]) / 2;
-        assert!(!values.contains(&inbetween_value));
-        let inbetween_size_receipt = [inbetween_value];
+        let in_between_value = (values[values.len() / 2] + values[values.len() / 2 + 1]) / 2;
+        assert!(!values.contains(&in_between_value));
+        let in_between_size_receipt = [in_between_value];
         assert_eq!(
-            get_request(&inbetween_size_receipt),
+            get_request(&in_between_size_receipt),
             Some(make_request_with_ones(&[values.len() / 2 + 1]))
         );
 
@@ -584,10 +627,11 @@ mod tests {
                 .collect();
 
             let request = BandwidthRequest::make_from_receipt_sizes(
-                0,
-                receipt_sizes.iter().copied(),
+                ShardUId::single_shard().shard_id(),
+                make_sizes_iter(&receipt_sizes),
                 &params,
-            );
+            )
+            .unwrap();
 
             let expected_request =
                 make_bandwidth_request_slow(receipt_sizes.iter().copied(), &params);
@@ -602,7 +646,7 @@ mod tests {
         params: &BandwidthSchedulerParams,
     ) -> Option<BandwidthRequest> {
         let mut request = BandwidthRequest {
-            to_shard: 0,
+            to_shard: ShardUId::single_shard().shard_id().into(),
             requested_values_bitmap: BandwidthRequestBitmap::new(),
         };
         let values = BandwidthRequestValues::new(params).values;

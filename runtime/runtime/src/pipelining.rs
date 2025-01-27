@@ -111,7 +111,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn submit(
         &mut self,
         receipt: &Receipt,
-        account: &Account,
+        account: &std::cell::LazyCell<Option<Account>, impl FnOnce() -> Option<Account>>,
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();
@@ -126,13 +126,15 @@ impl ReceiptPreparationPipeline {
         for (action_index, action) in actions.iter().enumerate() {
             let account_id = account_id.clone();
             match action {
-                Action::DeployContract(_) => {
+                Action::DeployContract(_) | Action::UseGlobalContract(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
                     // established.
                     return self.block_accounts.insert(account_id);
                 }
                 Action::FunctionCall(function_call) => {
+                    let Some(account) = &**account else { continue };
+                    let code_hash = account.code_hash();
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
                     let entry = match self.map.entry(key) {
@@ -145,7 +147,6 @@ impl ReceiptPreparationPipeline {
                     let cache = self.contract_cache.as_ref().map(|c| c.handle());
                     let storage = self.storage.clone();
                     let protocol_version = self.protocol_version;
-                    let code_hash = account.code_hash();
                     let created = Instant::now();
                     let method_name = function_call.method_name.clone();
                     let status = Mutex::new(PrepareTaskStatus::Pending);
@@ -188,7 +189,8 @@ impl ReceiptPreparationPipeline {
                 | Action::Stake(_)
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
-                | Action::DeleteAccount(_) => {}
+                | Action::DeleteAccount(_)
+                | Action::DeployGlobalContract(_) => {}
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 Action::NonrefundableStorageTransfer(_) => {}
             }

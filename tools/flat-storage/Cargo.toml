@@ -25,3 +25,4 @@ near-epoch-manager.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
+near-async.workspace = true

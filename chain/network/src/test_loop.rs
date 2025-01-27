@@ -15,7 +15,7 @@ use crate::state_witness::{
 };
 use crate::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent,
+    SetChainInfo, StateSyncEvent, Tier3Request,
 };
 use near_async::actix::ActixResult;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
@@ -194,6 +194,10 @@ impl Handler<StateSyncEvent> for TestLoopPeerManagerActor {
     fn handle(&mut self, _msg: StateSyncEvent) {}
 }
 
+impl Handler<Tier3Request> for TestLoopPeerManagerActor {
+    fn handle(&mut self, _msg: Tier3Request) {}
+}
+
 impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
     fn handle(&mut self, msg: PeerManagerMessageRequest) -> PeerManagerMessageResponse {
         let PeerManagerMessageRequest::NetworkRequests(request) = msg else {
@@ -284,7 +288,7 @@ fn network_message_to_client_handler(
             None
         }
         NetworkRequests::StateRequestPart { .. } => None,
-
+        NetworkRequests::Challenge(_) => None,
         _ => Some(request),
     })
 }

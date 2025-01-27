@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use super::{ChunkProductionKey, SignatureDifferentiator};
+use super::ChunkProductionKey;
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
@@ -9,7 +9,7 @@ use crate::congestion_info::CongestionInfo;
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
-use crate::types::EpochId;
+use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;
 use crate::validator_signer::EmptyValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -89,19 +89,16 @@ impl ChunkStateWitnessAck {
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct ChunkStateWitness {
-    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
+    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     pub chunk_producer: AccountId,
     /// EpochId corresponds to the next block after chunk's previous block.
     /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
     /// with chunk_header.prev_block_hash().
-    /// This is needed to validate signature when the previous block is not yet
-    /// available on the validator side (aka orphan state witness).
-    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
     pub epoch_id: EpochId,
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
     /// produce a chunk endorsement while knowing what they are endorsing.
-    /// TODO(stateless_validation): Deprecate once we send state witness in parts.
+    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     pub chunk_header: ShardChunkHeader,
     /// The base state and post-state-root of the main transition where we
     /// apply transactions and receipts. Corresponds to the state transition
@@ -161,7 +158,7 @@ pub struct ChunkStateWitness {
     /// accounts have appropriate balances, access keys, nonces, etc.
     pub new_transactions: Vec<SignedTransaction>,
     pub new_transactions_validation_state: PartialState,
-    // TODO(stateless_validation): Deprecate once we send state witness in parts.
+    // TODO(stateless_validation): Deprecate this field in the next version of the state witness.
     signature_differentiator: SignatureDifferentiator,
 }
 

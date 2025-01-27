@@ -43,7 +43,7 @@ pub enum DBCol {
     BlockHeight,
     /// Column that stores the Trie state.
     /// - *Rows*: trie_node_or_value_hash (CryptoHash)
-    /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
+    /// - *Content type*: Serialized RawTrieNodeWithSize or value ()
     State,
     /// Mapping from BlockChunk to ChunkExtra
     /// - *Rows*: BlockChunk (block_hash, shard_uid)
@@ -162,7 +162,7 @@ pub enum DBCol {
     ///     - PeerComponent: keep information on mapping from the peer to the last component that it belonged to (so that if a new peer shows
     ///         up we know which 'component' to load)
     ///     - ComponentEdges: keep the info about the edges that were connecting these peers that were removed.
-
+    ///
     /// Map each saved peer on disk with its component id (a.k.a. nonce).
     /// - *Rows*: peer_id
     /// - *Column type*:  (nonce) u64
@@ -357,7 +357,7 @@ pub enum DBKeyType {
 impl DBCol {
     /// Whether data in this column is effectively immutable.
     ///
-    /// Data in such columns is never overwriten, though it can be deleted by gc
+    /// Data in such columns is never overwritten, though it can be deleted by gc
     /// eventually. Specifically, for a given key:
     ///
     /// * It's OK to insert a new value.
@@ -462,7 +462,6 @@ impl DBCol {
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions
-            // TODO(reshardingV3) How the mapping will work with split storage?
             | DBCol::StateShardUIdMapping => true,
 
             // TODO

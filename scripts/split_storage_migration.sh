@@ -3,13 +3,13 @@ set -euo pipefail
 
 # Should be started in detached mode
 # to ensure an ssh disconnect will not interrupt the process:
-# /split_storage_migration.sh (testnet|mainnnet)  >> ./split_storage_migration.log &
+# /split_storage_migration.sh (testnet|mainnet)  >> ./split_storage_migration.log &
 # Takes one argument -- chain_id (mainnet or testnet)
 # Prerequisites:
 # - systemd neard service
 # - neard home is in /home/ubuntu/.near
 # - neard binary is in /home/ubuntu/neard
-# - /home/ubuntu/.near/config.json is initialised
+# - /home/ubuntu/.near/config.json is initialized
 # - metrics are exported to 3030 port
 # - aws s3 client
 # First, prepares config files using jq.
@@ -75,6 +75,7 @@ function check_jq() {
   fi
 }
 
+# cspell:words awscli
 function check_aws() {
   if ! command -v aws &>/dev/null; then
     echo "'aws' command not found. Installing 'awscli' package using 'apt'..."
@@ -108,6 +109,7 @@ function run_with_trie_changes {
 
 # Initialize cold storage
 function init_cold_storage {
+  # cspell:words lcho
   # Switch to migration mode
   lcho "Starting initial migration run"
   echo "Expect the migration to take a long time (>1 hour)."
@@ -126,7 +128,7 @@ function init_cold_storage {
     if [[ -n "$cold_head" ]]; then
       break
     else
-      echo "Cold storage isn't initialised yet. Will check again in 2 minutes. Please don't interrupt."
+      echo "Cold storage isn't initialized yet. Will check again in 2 minutes. Please don't interrupt."
       # Wait for 2 minutes before trying again
       sleep 120
     fi

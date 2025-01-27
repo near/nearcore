@@ -17,12 +17,12 @@ const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";
 
 fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransaction> {
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = SignedTransaction::send_money(
         height + 10000,
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
-        &signer.into(),
+        &signer,
         10,
         *last_block.hash(),
     );
@@ -83,10 +83,11 @@ fn change_shard_id_to_invalid() {
     // 2. Rehash and resign
     let body_hash = block.compute_block_body_hash().unwrap();
     block.mut_header().set_block_body_hash(body_hash);
-    block.mut_header().resign(
-        &InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
-            .into(),
-    );
+    block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+        "test0".parse().unwrap(),
+        KeyType::ED25519,
+        "test0",
+    ));
 
     // Try to process corrupt block and expect code to notice invalid shard_id
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
@@ -128,14 +129,11 @@ fn check_corrupt_block(
     if let Ok(mut corrupt_block) = Block::try_from_slice(corrupt_block_vec.as_slice()) {
         let body_hash = corrupt_block.compute_block_body_hash().unwrap();
         corrupt_block.mut_header().set_block_body_hash(body_hash);
-        corrupt_block.mut_header().resign(
-            &InMemoryValidatorSigner::from_seed(
-                "test0".parse().unwrap(),
-                KeyType::ED25519,
-                "test0",
-            )
-            .into(),
-        );
+        corrupt_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            "test0".parse().unwrap(),
+            KeyType::ED25519,
+            "test0",
+        ));
 
         if !is_breaking_block_change(&correct_block, &corrupt_block) {
             return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
@@ -240,8 +238,7 @@ fn check_process_flipped_block_fails_on_bit(
 /// `oks` are printed to check the sanity of the test.
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn check_process_flipped_block_fails() {
+fn ultra_slow_test_check_process_flipped_block_fails() {
     init_test_logger();
     let mut corrupted_bit_idx = 0;
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.

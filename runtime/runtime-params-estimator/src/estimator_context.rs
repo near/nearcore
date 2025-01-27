@@ -26,7 +26,7 @@ use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
 use near_vm_runner::FilesystemContractRuntimeCache;
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 use std::iter;
 use std::sync::Arc;
@@ -70,7 +70,6 @@ impl<'c> EstimatorContext<'c> {
             &self.config.state_dump_path,
             workdir.path(),
             self.config.in_memory_db,
-            false,
         );
         // Ensure decent RocksDB SST file layout.
         store.compact().expect("compaction failed");
@@ -99,7 +98,7 @@ impl<'c> EstimatorContext<'c> {
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
         if self.config.memtrie {
-            trie_config.load_mem_tries_for_shards = vec![shard_uid];
+            trie_config.load_memtries_for_shards = vec![shard_uid];
         }
         let tries = ShardTries::new(
             store.trie_store(),
@@ -112,7 +111,7 @@ impl<'c> EstimatorContext<'c> {
             // NOTE: Since the store loaded from the state dump only contains the state, we directly provide the state root
             // instead of  letting the loader code to locate it from the ChunkExtra (which is missing from the store).
             tries
-                .load_mem_trie(&shard_uid, Some(root), true)
+                .load_memtrie(&shard_uid, Some(root), true)
                 .context("Failed load memtries for single shard")
                 .unwrap();
         }
@@ -356,7 +355,7 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                transactions,
+                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
                 &self.epoch_info_provider,
                 Default::default(),
             )
@@ -388,6 +387,13 @@ impl Testbed<'_> {
                 .congestion_info
                 .insert(shard_uid.shard_id(), ExtendedCongestionInfo::new(congestion_info, 0));
         }
+        if let Some(bandwidth_requests) = apply_result.bandwidth_requests {
+            self.apply_state.bandwidth_requests = BlockBandwidthRequests {
+                shards_bandwidth_requests: [(shard_uid.shard_id(), bandwidth_requests)]
+                    .into_iter()
+                    .collect(),
+            };
+        }
 
         let mut total_burnt_gas = 0;
         if !allow_failures {
@@ -406,11 +412,26 @@ impl Testbed<'_> {
     /// Returns the number of blocks required to reach quiescence
     fn process_blocks_until_no_receipts(&mut self, allow_failures: bool) -> usize {
         let mut n = 0;
-        while !self.prev_receipts.is_empty() {
+        while self.has_unprocessed_receipts() {
             self.process_block_impl(&[], allow_failures);
             n += 1;
         }
         n
+    }
+
+    fn has_unprocessed_receipts(&self) -> bool {
+        if !self.prev_receipts.is_empty() {
+            return true;
+        }
+
+        // Check congestion info to see if there are any queued receipts.
+        for (_, extended_congestion_info) in self.apply_state.congestion_info.iter() {
+            if extended_congestion_info.congestion_info.receipt_bytes() > 0 {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Process just the verification of a transaction, without action execution.
@@ -432,12 +453,19 @@ impl Testbed<'_> {
         let verify_signature = true;
 
         let clock = GasCost::measure(metric);
-        node_runtime::verify_and_charge_transaction(
+        let cost = node_runtime::validate_transaction(
             &self.apply_state.config,
-            &mut state_update,
             gas_price,
             tx,
             verify_signature,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected no validation error");
+        node_runtime::verify_and_charge_transaction(
+            &self.apply_state.config,
+            &mut state_update,
+            tx,
+            &cost,
             block_height,
             PROTOCOL_VERSION,
         )
@@ -454,7 +482,7 @@ impl Testbed<'_> {
         let mut validator_proposals = vec![];
         let mut stats = node_runtime::ApplyStats::default();
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
-        let epoch_info_provider = MockEpochInfoProvider::new([].into_iter());
+        let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);
         let exec_result = node_runtime::estimator::apply_action_receipt(
             &mut state_update,

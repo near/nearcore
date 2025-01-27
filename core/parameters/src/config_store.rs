@@ -1,8 +1,8 @@
-use crate::config::{CongestionControlConfig, RuntimeConfig};
+use crate::config::{CongestionControlConfig, RuntimeConfig, WitnessConfig};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
-use near_primitives_core::version::PROTOCOL_VERSION;
+use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -51,6 +51,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (72, include_config!("72.yaml")),
     // Fix wasm_yield_resume_byte and relax congestion control.
     (73, include_config!("73.yaml")),
+    (74, include_config!("74.yaml")),
     (129, include_config!("129.yaml")),
 ];
 
@@ -94,7 +95,7 @@ impl RuntimeConfigStore {
         }
 
         for (protocol_version, diff_bytes) in CONFIG_DIFFS {
-            let diff :ParameterTableDiff= diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            let diff :ParameterTableDiff = diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
             params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
             #[cfg(not(feature = "calimero_zero_storage"))]
             store.insert(
@@ -121,6 +122,7 @@ impl RuntimeConfigStore {
                     account_creation_config: runtime_config.account_creation_config.clone(),
                     congestion_control_config: runtime_config.congestion_control_config,
                     witness_config: runtime_config.witness_config,
+                    bandwidth_scheduler_config: runtime_config.bandwidth_scheduler_config,
                     use_state_stored_receipt: runtime_config.use_state_stored_receipt,
                 }),
             );
@@ -147,14 +149,25 @@ impl RuntimeConfigStore {
             near_primitives_core::chains::BENCHMARKNET => {
                 let mut config_store = Self::new(None);
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
-                config.congestion_control_config.max_tx_gas = 10u64.pow(16);
-                config.congestion_control_config.min_tx_gas = 10u64.pow(16);
-                config.witness_config.main_storage_proof_size_soft_limit = 999_999_999_999_999;
-                config.witness_config.new_transactions_validation_state_size_soft_limit =
-                    999_999_999_999_999;
+                config.congestion_control_config = CongestionControlConfig::test_disabled();
+                config.witness_config = WitnessConfig::test_disabled();
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
                 wasm_config.limit_config.per_receipt_storage_proof_size_limit = 999_999_999_999_999;
                 config.wasm_config = Arc::new(wasm_config);
+                config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
+                config_store
+            }
+            near_primitives_core::chains::CONGESTION_CONTROL_TEST => {
+                let mut config_store = Self::new(None);
+
+                // Get the original congestion control config. The nayduck tests
+                // are tuned to this config.
+                let source_protocol_version = ProtocolFeature::CongestionControl.protocol_version();
+                let source_runtime_config = config_store.get_config(source_protocol_version);
+
+                let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
+                config.congestion_control_config = source_runtime_config.congestion_control_config;
+
                 config_store.store.insert(PROTOCOL_VERSION, Arc::new(config));
                 config_store
             }
@@ -223,10 +236,10 @@ mod tests {
         let mut files = file_versions
             .into_iter()
             .map(|de| {
-                de.expect("direntry should read successfully")
+                de.expect("dir entry should read successfully")
                     .path()
                     .file_name()
-                    .expect("direntry should have a filename")
+                    .expect("dir entry should have a filename")
                     .to_string_lossy()
                     .into_owned()
             })
@@ -446,6 +459,6 @@ mod tests {
     fn test_benchmarknet_config() {
         let store = RuntimeConfigStore::for_chain_id(near_primitives_core::chains::BENCHMARKNET);
         let config = store.get_config(PROTOCOL_VERSION);
-        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, 999_999_999_999_999);
+        assert_eq!(config.witness_config.main_storage_proof_size_soft_limit, usize::MAX);
     }
 }

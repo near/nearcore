@@ -1,7 +1,7 @@
 use crate::network_protocol::PeerInfo;
 use crate::types::{
     NetworkInfo, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
-    SetChainInfo, StateSyncEvent,
+    SetChainInfo, StateSyncEvent, Tier3Request,
 };
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};
@@ -264,6 +264,10 @@ impl CanSend<SetChainInfo> for MockPeerManagerAdapter {
 
 impl CanSend<StateSyncEvent> for MockPeerManagerAdapter {
     fn send(&self, _msg: StateSyncEvent) {}
+}
+
+impl CanSend<Tier3Request> for MockPeerManagerAdapter {
+    fn send(&self, _msg: Tier3Request) {}
 }
 
 impl MockPeerManagerAdapter {
