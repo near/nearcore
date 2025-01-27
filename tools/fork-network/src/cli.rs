@@ -682,8 +682,11 @@ impl ForkNetworkCommand {
                     }
                     StateRecord::DelayedReceipt(mut receipt) => {
                         storage_mutator.remove(key)?;
-                        near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
-                        storage_mutator.set_delayed_receipt(index_delayed_receipt, &receipt)?;
+                        near_mirror::genesis::map_receipt(&mut receipt.receipt, None, &default_key);
+                        // The index is guaranteed to be set when iterating over the trie rather than reading
+                        // serialized StateRecords
+                        let index = receipt.index.unwrap();
+                        storage_mutator.set_delayed_receipt(index, &receipt.receipt)?;
                         index_delayed_receipt += 1;
                     }
                 }
@@ -784,6 +787,7 @@ impl ForkNetworkCommand {
         }
         tracing::info!(?shard_uid, num_accounts, num_added, "Pass 2 done");
 
+        storage_mutator.set_delayed_receipt_indices()?;
         let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
 
         tracing::info!(?shard_uid, "Commit done");

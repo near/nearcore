@@ -556,6 +556,17 @@ pub mod trie_key_parsers {
         }
     }
 
+    pub fn parse_index_from_delayed_receipt_key(raw_key: &[u8]) -> Result<u64, std::io::Error> {
+        if raw_key.len() != 9 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unexpected raw key len of {} for delayed receipt index", raw_key.len()),
+            ));
+        }
+        let index = raw_key[1..9].try_into().unwrap();
+        Ok(u64::from_le_bytes(index))
+    }
+
     pub fn parse_account_id_from_contract_code_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {

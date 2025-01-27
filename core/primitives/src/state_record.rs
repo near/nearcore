@@ -5,7 +5,8 @@ use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
     parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
-    parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
+    parse_data_key_from_contract_data_key, parse_index_from_delayed_receipt_key,
+    parse_public_key_from_access_key_key,
 };
 use crate::trie_key::{col, TrieKey};
 use crate::types::{AccountId, StoreKey, StoreValue};
@@ -14,6 +15,14 @@ use near_crypto::PublicKey;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt::{Display, Formatter};
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct DelayedReceipt {
+    pub index: Option<u64>,
+
+    #[serde(flatten)]
+    pub receipt: Box<Receipt>,
+}
 
 /// Record in the state storage.
 #[serde_as]
@@ -42,7 +51,7 @@ pub enum StateRecord {
     },
     /// Delayed Receipt.
     /// The receipt was delayed because the shard was overwhelmed.
-    DelayedReceipt(Box<Receipt>),
+    DelayedReceipt(DelayedReceipt),
 }
 
 impl StateRecord {
@@ -101,7 +110,11 @@ impl StateRecord {
             }
             col::DELAYED_RECEIPT_OR_INDICES => {
                 let receipt = ReceiptOrStateStoredReceipt::try_from_slice(&value)?.into_receipt();
-                Some(StateRecord::DelayedReceipt(Box::new(receipt)))
+                let index = Some(parse_index_from_delayed_receipt_key(key)?);
+                Some(StateRecord::DelayedReceipt(DelayedReceipt {
+                    index,
+                    receipt: Box::new(receipt),
+                }))
             }
             _ => {
                 println!("key[0]: {} is unreachable", key[0]);
@@ -178,9 +191,8 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
         | StateRecord::Data { account_id, .. } => account_id,
-        StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
-            receipt.receiver_id()
-        }
+        StateRecord::PostponedReceipt(receipt) => receipt.receiver_id(),
+        StateRecord::DelayedReceipt(receipt) => receipt.receipt.receiver_id(),
     }
 }
 
