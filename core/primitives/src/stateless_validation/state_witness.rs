@@ -256,3 +256,65 @@ pub struct ChunkStateTransition {
     /// this makes it easier to debug why a state witness may fail to validate.
     pub post_state_root: CryptoHash,
 }
+
+pub mod test_field_offsets {
+    use super::*;
+    pub fn witness_field_offsets(witness: &ChunkStateWitness) -> Vec<(&'static str, usize, usize)> {
+        let mut offset = 0_usize;
+        let mut fields = Vec::new();
+
+        let mut record_field = |field_name: &'static str, data: &[u8]| {
+            let len = data.len();
+            fields.push((field_name, offset, offset + len));
+            offset += len;
+        };
+
+        let tmp = borsh::to_vec(&witness.chunk_producer).unwrap();
+        record_field("chunk_producer", &tmp);
+
+        let tmp = borsh::to_vec(&witness.epoch_id).unwrap();
+        record_field("epoch_id", &tmp);
+
+        let tmp = borsh::to_vec(&witness.chunk_header).unwrap();
+        record_field("chunk_header", &tmp);
+
+        let tmp = borsh::to_vec(&witness.main_state_transition).unwrap();
+        record_field("main_state_transition", &tmp);
+
+        let tmp = borsh::to_vec(&witness.source_receipt_proofs).unwrap();
+        record_field("source_receipt_proofs", &tmp);
+
+        let tmp = borsh::to_vec(&witness.applied_receipts_hash).unwrap();
+        record_field("applied_receipts_hash", &tmp);
+
+        let tmp = borsh::to_vec(&witness.transactions).unwrap();
+        record_field("transactions", &tmp);
+
+        let tmp = borsh::to_vec(&witness.implicit_transitions).unwrap();
+        record_field("implicit_transitions", &tmp);
+
+        let tmp = borsh::to_vec(&witness.new_transactions).unwrap();
+        record_field("new_transactions", &tmp);
+
+        let tmp = borsh::to_vec(&witness.new_transactions_validation_state).unwrap();
+        record_field("new_transactions_validation_state", &tmp);
+
+        let tmp = borsh::to_vec(&witness.signature_differentiator).unwrap();
+        record_field("signature_differentiator", &tmp);
+
+        fields
+    }
+
+    pub fn find_field_for_bit(
+        corrupted_bit_idx: usize,
+        fields: &Vec<(&str, usize, usize)>,
+    ) -> Option<String> {
+        let byte_idx = corrupted_bit_idx / 8;
+        for (field_name, start, end) in fields {
+            if (byte_idx >= *start) && (byte_idx < *end) {
+                return Some(field_name.to_string());
+            }
+        }
+        None
+    }
+}
