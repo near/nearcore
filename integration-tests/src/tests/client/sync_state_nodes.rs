@@ -702,7 +702,7 @@ fn slow_test_state_sync_headers() {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
-                // async is hard, will use this construct to reduce nestedness.
+                // async is hard, will use this construct to reduce nested code.
                 let epoch_id = match epoch_id {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),
@@ -884,7 +884,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
                     Ok(Ok(b)) => Some(b.header.epoch_id),
                     _ => None,
                 };
-                // async is hard, will use this construct to reduce nestedness.
+                // async is hard, will use this construct to reduce nested code.
                 let epoch_id = match epoch_id {
                     Some(x) => x,
                     None => return ControlFlow::Continue(()),

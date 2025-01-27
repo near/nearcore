@@ -1,3 +1,4 @@
+<!-- cspell:ignore nearinc pkill rgba xdwp -->
 # Working with OpenTelemetry Traces
 
 `neard` is instrumented in a few different ways. From the code perspective we have two major ways
@@ -45,9 +46,7 @@ exclusively on logs only increases noise for the other developers and makes it e
 harder to extract signal in the future. Keep this trade off in mind.
 
 [Tempo]: https://grafana.com/oss/tempo/
-[Loki]: https://grafana.com/oss/loki/
 [Jaeger]: https://www.jaegertracing.io/
-
 
 ### Spans
 
@@ -77,8 +76,8 @@ only info-level spans doesn’t give any useful tracing information in Grafana.
 lets us easily annotate every implementation of `actix::Actor::handle()`. This macro sets the
 following span attributes:
 
-   * `actor` to the name of the struct that implements actix::Actor
-   * `handler` to the name of the message struct
+  * `actor` to the name of the struct that implements actix::Actor
+  * `handler` to the name of the message struct
 
    And it lets you provide more span attributes. In the example, ClientActor specifies `msg_type`,
    which in all cases is identical to `handler`.

@@ -3,7 +3,7 @@
 # Kills one of the block+chunk producers and one of the chunk validators and
 # then checks that these validators are kicked out and removed from
 # the current validators after 2 epochs. We set the balance of the first 4 validators
-# more than the last 4 validators to ensure that the former 4 befome block+chunk producers
+# more than the last 4 validators to ensure that the former 4 become block+chunk producers
 # and the latter 4 become chunk validator only.
 
 import sys

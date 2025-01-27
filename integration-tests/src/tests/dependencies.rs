@@ -4,7 +4,7 @@
  * The output of the `cargo build` shows compilation units. Compilation unit is a either a external dependency or a file from the source
  *
  * The `LIBS_THRESHOLDS` constant defines a list of libraries along with their respective maximum allowed unique dependency counts.
- * The `THRESHOLD_IS_TOO_GENEROUS` constant is used to determine if the threshold for any library is too lenient, suggesting it might need to be restricted even futher.
+ * The `THRESHOLD_IS_TOO_GENEROUS` constant is used to determine if the threshold for any library is too lenient, suggesting it might need to be restricted even further.
  *
  * The `get_and_assert_crate_dependencies` function takes a library name and a threshold, runs the `cargo tree` command to get the dependency tree for the library,
  * extracts unique dependencies using a regex, and checks if the count of unique dependencies is below the threshold.

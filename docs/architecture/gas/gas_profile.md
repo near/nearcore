@@ -21,6 +21,7 @@ NEAR_ENV=mainnet near tx-status 8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw  \
   --nodeUrl https://archival-rpc.mainnet.near.org  # Allows to retrieve older transactions.
 ```
 
+<!-- cspell:ignore evgeniya -->
 ```
 Transaction app.nearcrowd.near:8vYxsqYp5Kkfe8j9LsTqZRsEupNkAs1WvgcGcUE4MUUw
 {

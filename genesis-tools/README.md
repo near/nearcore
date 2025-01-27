@@ -13,11 +13,13 @@ We also make sure the trie does not compress the subtrees due to similar account
 benchmarking, loadtesting, and estimating system parameters.
 
 To start node with 20k accounts first create configs:
+
 ```bash
 cargo run --package neard --bin neard -- init --test-seed=alice.near --account-id=test.near --fast
 ```
 
 Then create state dump with how many accounts you want:
+
 ```bash
 cargo run --package genesis-populate --bin genesis-populate -- --additional-accounts-num=20000
 ```
@@ -26,6 +28,7 @@ This will produce `state_dump` and `genesis_roots` files in home directory of th
 use `--home` on all commands here to specify an absolute path to a home directory to use.
 
 Then start a single local node:
+
 ```bash
 cargo run --package neard --bin neard -- run --boot-nodes=
 ```

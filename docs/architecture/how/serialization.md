@@ -41,8 +41,8 @@ pub struct BlockHeader {
 
 ```
 
-This is done to protect structures from accidental changes that could corrupt the 
-database or disrupt the protocol. Dedicated CI check is responsible to check the 
+This is done to protect structures from accidental changes that could corrupt the
+database or disrupt the protocol. Dedicated CI check is responsible to check the
 consistency of the schema. See [README](../../../tools/protocol-schema-check/README.md) for more details.
 
 All these structures are likely to implement BorshSerialize and BorshDeserialize (see below).
@@ -59,7 +59,7 @@ You can read more on how Borsh serializes the data, by looking at the Specificat
 tab on [borsh.io](https://borsh.io).
 
 The biggest pitfall/risk of Borsh, is that any change to the structure, might
-cause previous data to no longer be parseable.
+cause previous data to no longer be parsable.
 
 For example, inserting a new enum ‘in the middle’:
 
@@ -90,7 +90,7 @@ pub enum MyCar {
 ```
 
 Is such a scenario - some of the objects created by binaries with this feature
-enabled, will not be parseable by binaries without this feature.
+enabled, will not be parsable by binaries without this feature.
 
 Removing and adding fields to structures is also dangerous.
 
@@ -122,6 +122,7 @@ message HandshakeFailure {
 }
 ```
 
+<!-- cspell:words protoc -->
 Afterwards, such a proto file is fed to protoc ‘compiler’ that returns
 auto-generated code (in our case Rust code) - that can be directly imported into
 your library.

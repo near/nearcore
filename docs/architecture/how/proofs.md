@@ -19,7 +19,7 @@ But there is actually a better solution - that doesn’t require you to trust th
 single (or many) RPC nodes, and to verify, by yourself, that your transaction was
 actually executed.
 
-## Let’s talk about proofs (merkelization):
+## Let’s talk about proofs (merkelization)
 
 Imagine you have 4 values that you’d like to store, in such a way, that you can
 easily prove that a given value is present.
@@ -133,7 +133,6 @@ tree the sibling is), on the path to the root.
 **Note:** proof section doesn’t contain the root itself and also doesn’t include
 the hash of the receipt.
 
-
 ## [Advanced section]: Let’s look at a concrete example
 
 Imagine that we have the following receipt:
@@ -182,7 +181,7 @@ I know that the receipt should belong to Shard 3 <!-- TODO: how? :) --> so let�
 the chunk header:
 
 ```console
-$ neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
+neard view-state chunks --chunk-hash 5ub8CZMQmzmZYQcJU76hDC3BsajJfryjyShxGF9rzpck
 ```
 
 ```

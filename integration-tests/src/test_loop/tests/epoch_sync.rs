@@ -400,7 +400,7 @@ fn slow_test_initial_epoch_sync_proof_sanity() {
     let final_head_height = setup.chain_final_head_height(0);
     sanity_check_epoch_sync_proof(&proof, final_head_height, &setup.genesis.config, 2);
     // Requesting the proof should not have persisted the proof on disk. This is intentional;
-    // it is to reduce the statefulness of the system so that we may modify the way the proof
+    // it is to reduce the stateful-ness of the system so that we may modify the way the proof
     // is presented in the future (for e.g. bug fixes) without a DB migration.
     setup.assert_epoch_sync_proof_existence_on_disk(0, false);
 }

@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_pubkeys_with_whitespace() {
+    fn test_deserialize_pub_keys_with_whitespace() {
         let test_str = r#"{"keys":  "ed25519:EsjyvmBb2ESGiyjPHMBUnTGCe1P6hPjmxxY2b2hrTBAv,  ed25519:2djz3u3CjV4dpDZryudwA4JNDcGnVwNtphjZQbUzrhLE, ed25519:2f9Zv5kuyuPM5DCyEP5pSqg58NQ8Ct9uSRerZXnCS9fK,ed25519:3xCFas58RKvD5UpF9GqvEb6q9rvgfbEJPhLf85zc4HpC,  ed25519:4588iQsoG9mWjDPLbipQvaGNqo9UCphGsgon8u2yXArE,ed25519:5Me9NjXh3br1Rp2zvqaTUo8qvXcDPZ3YxafewzUKW7zc,\ned25519:93A8upKEMoZG9bBFyXJjQhzcMJBvSHHtPjZP3173FARk"}"#;
         serde_json::from_str::<Test>(test_str).unwrap();
     }

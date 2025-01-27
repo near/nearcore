@@ -15,6 +15,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::AccountInfo;
+use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives_core::num_rational::Rational32;
 use near_primitives_core::version::ProtocolFeature;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,12 +41,20 @@ fn create_tx(latest_block: &Block, origin: &AccountId, receiver: &AccountId) -> 
     )
 }
 
+// TODO(resharding) - Implement this test for the stable protocol version. The
+// original implementation was not compatible with the two shard layout changes
+// in between the RejectBlocksWithOutdatedProtocolVersions and stable.
 #[test]
-fn slow_test_reject_blocks_with_outdated_protocol_version() {
+fn slow_test_reject_blocks_with_outdated_protocol_version_protocol_upgrade() {
     init_test_logger();
 
     let mut protocol_version =
         ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version() - 1;
+    let target_protocol_version =
+        ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions.protocol_version();
+    let protocol_upgrade_schedule =
+        ProtocolUpgradeVotingSchedule::new_immediate(target_protocol_version);
+
     let test_loop_builder = TestLoopBuilder::new();
     let epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
     let epoch_length = 10;
@@ -72,6 +81,7 @@ fn slow_test_reject_blocks_with_outdated_protocol_version() {
 
     let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = test_loop_builder
         .genesis(genesis)
+        .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build();

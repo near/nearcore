@@ -6,10 +6,15 @@
 * Add cross-shard bandwidth scheduler which manages transferring receipts between shards,
   enabling higher throughput of cross-shard receipts and better horizontal scalability.
   NEP-584 (https://github.com/near/NEPs/pull/584)
+* Resharding V3 - a new implementation for resharding and two new shard layouts
+  for the production networks.
+  NEP-568 (https://github.com/near/NEPs/pull/568)
 
 ### Non-protocol Changes
 * Parallelize transaction validation (including signature checks) before `verify_and_charge_transaction`,
   significantly improving throughput for transaction processing on the nodes. [#12654](https://github.com/near/nearcore/pull/12654)
+* Current Epoch State Sync - Moves the sync point from the previous epoch to the
+  current epoch. [#12102](https://github.com/near/nearcore/pull/12102)
 
 ## 2.4.0
 
@@ -225,7 +230,7 @@ to pay for the storage of their accounts.
 * `/debug` page now has client_config linked.
   You can also check your client_config directly at /debug/client_config
   [#8400](https://github.com/near/nearcore/pull/8400)
-* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoing - split_storage_info - that
+* Added cold store loop - a background thread that copies data from hot to cold storage and a new json rpc endpoint - split_storage_info - that
   exposes debug info about the split storage.
   [#8432](https://github.com/near/nearcore/pull/8432)
 * `ClientConfig` can be updated while the node is running.
@@ -443,7 +448,7 @@ to pay for the storage of their accounts.
 ### Protocol Changes
 
 * Enable access key nonce range for implicit accounts to prevent tx hash collisions.
-* Upgraded our version of pwasm-utils to 0.18 -- the old one severely undercounted stack usage in some cases.
+* Upgraded our version of pwasm-utils to 0.18 -- the old one severely under-counted stack usage in some cases.
 
 ### Non-protocol Changes
 

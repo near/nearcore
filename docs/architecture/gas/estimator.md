@@ -66,6 +66,7 @@ But when you run estimations and especially when you want to interpret the
 results, you want to understand the metric used. Available metrics are `time`
 and `icount`.
 
+<!-- cspell:words DVFS -->
 Starting with `time`, this is a simple wall-clock time measurement. At the end
 of the day, this is what counts in a validator setup. But unfortunately, this
 metric is very dependent on the specific hardware and what else is running on

@@ -47,7 +47,7 @@ nodes[0].send_tx(tx)
 logger.info("Initial stakes: %s" % get_stakes())
 for height, _ in utils.poll_blocks(nodes[0], timeout=TIMEOUT):
     if 'test2' in get_validators():
-        logger.info("Normalin, normalin")
+        logger.info("Normal in, normal in")
         assert 20 <= height <= 25, height
         break
 
