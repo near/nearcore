@@ -44,8 +44,13 @@ impl ChainAccess {
             store.clone(),
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
+            config.genesis.config.transaction_validity_period,
         );
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &config.genesis.config,
+            Some(home.as_ref()),
+        );
         let runtime =
             NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
                 .context("could not create the transaction runtime")?;
@@ -118,7 +123,7 @@ impl crate::ChainAccess for ChainAccess {
             .with_context(|| format!("Can't get block {} at height {}", &block_hash, height))?;
 
         let mut chunks = Vec::new();
-        for chunk in block.chunks().iter() {
+        for chunk in block.chunks().iter_deprecated() {
             let chunk = match self.chain.get_chunk(&chunk.chunk_hash()) {
                 Ok(c) => c,
                 Err(e) => {

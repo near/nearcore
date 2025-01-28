@@ -40,18 +40,10 @@ macro_rules! io_trace {
     ($($fields:tt)*) => {};
 }
 
-/// Prints backtrace to stderr.
-///
-/// This is intended as a printf-debugging aid.
-pub fn print_backtrace() {
-    let bt = std::backtrace::Backtrace::force_capture();
-    eprintln!("{bt:?}")
-}
-
 /// Asserts that the condition is true, logging an error otherwise.
 ///
 /// This macro complements `assert!` and `debug_assert`. All three macros should
-/// only be used for conditions, whose violation signifise a programming error.
+/// only be used for conditions, whose violation signifies a programming error.
 /// All three macros are no-ops if the condition is true.
 ///
 /// The behavior when the condition is false (i.e. when the assert fails) is
@@ -72,12 +64,12 @@ pub fn print_backtrace() {
 /// invariants, whose violation signals a bug in the code, where we'd rather
 /// avoid shutting the whole node down.
 ///
-/// For example, `log_assert` is a great choice to use in some auxilary code
+/// For example, `log_assert` is a great choice to use in some auxiliary code
 /// paths -- would be a shame if a bug in, eg, metrics collection code brought
 /// the whole network down.
 ///
 /// Another use case is adding new asserts to the old code -- if you are only
-/// 99% sure that the assert is correct, and there's evidance that the old code
+/// 99% sure that the assert is correct, and there's evidence that the old code
 /// is working fine in practice, `log_assert!` is the right choice!
 ///
 /// References:

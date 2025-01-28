@@ -8,7 +8,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_store::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
+use near_store::archive::cold_storage::{copy_all_data_to_cold, update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::{DBCol, NodeStorage, Store, StoreOpener};
 use near_store::{COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY, TAIL_KEY};
@@ -75,8 +75,11 @@ impl ColdStoreCommand {
         let storage =
             opener.open_in_mode(mode).unwrap_or_else(|e| panic!("Error opening storage: {:#}", e));
 
-        let epoch_manager =
-            EpochManager::new_arc_handle(storage.get_hot_store(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            storage.get_hot_store(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         match self.subcmd {
             SubCommand::Open => check_open(&storage),
             SubCommand::Head => print_heads(&storage),
@@ -111,9 +114,8 @@ impl ColdStoreCommand {
 
         let opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_config(),
         );
 
         match self.subcmd {
@@ -134,9 +136,8 @@ impl ColdStoreCommand {
 
         NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            near_config.config.cold_store.as_ref(),
+            near_config.config.archival_config(),
         )
     }
 }
@@ -214,24 +215,26 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
 
     // Here it should be sufficient to just read from hot storage.
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
-    let cold_head_hash = get_ser_from_store::<CryptoHash>(
+    let next_height_block_hash = get_ser_from_store::<CryptoHash>(
         &store.get_hot_store(),
         DBCol::BlockHeight,
-        &cold_head_height.to_le_bytes(),
+        &next_height.to_le_bytes(),
     )
-    .unwrap_or_else(|| panic!("No block hash in hot storage for height {}", cold_head_height));
+    .unwrap_or_else(|| panic!("No block hash in hot storage for height {}", next_height));
 
     // For copying block we need to have shard_layout.
     // For that we need epoch_id.
-    // For that we might use prev_block_hash, and because next_hight = cold_head_height + 1,
-    // we use cold_head_hash.
+    // For that we might use the hash of the block.
+    let epoch_id = &epoch_manager.get_epoch_id(&next_height_block_hash).unwrap();
+    let shard_layout = &epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let is_last_block_in_epoch =
+        epoch_manager.is_next_block_epoch_start(&next_height_block_hash).unwrap();
     update_cold_db(
         &*store.cold_db().unwrap(),
         &store.get_hot_store(),
-        &epoch_manager
-            .get_shard_layout(&epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
-            .unwrap(),
+        shard_layout,
         &next_height,
+        is_last_block_in_epoch,
         1,
     )
     .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
@@ -346,7 +349,7 @@ impl PrepareHotCmd {
         // Open the rpc_storage using the near_config with the path swapped.
         let mut rpc_store_config = near_config.config.store.clone();
         rpc_store_config.path = Some(path.to_path_buf());
-        let rpc_opener = NodeStorage::opener(home_dir, false, &rpc_store_config, None);
+        let rpc_opener = NodeStorage::opener(home_dir, &rpc_store_config, None);
         let rpc_storage = rpc_opener.open()?;
         let rpc_store = rpc_storage.get_hot_store();
 
@@ -494,7 +497,7 @@ impl StateRootSelector {
                     .get_ser::<near_primitives::block::Block>(DBCol::Block, &hash_key)?
                     .ok_or_else(|| anyhow::anyhow!("Failed to find Block: {:?}", hash_key))?;
                 let mut hashes = vec![];
-                for chunk in block.chunks().iter() {
+                for chunk in block.chunks().iter_deprecated() {
                     hashes.push(
                         cold_store
                             .get_ser::<near_primitives::sharding::ShardChunk>(

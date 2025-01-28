@@ -20,6 +20,7 @@ from common.linkdrop import LinkdropContract, AddKey, ClaimDrop
 logger = new_logger(level=logging.WARN)
 
 
+# cspell:words Linkdrop funder keypom
 class LinkdropUser(NearUser):
     """
     Funder creates a drop on Keypom contract. Add keys to the drop.
@@ -49,7 +50,7 @@ class LinkdropUser(NearUser):
     def on_start(self):
         super().on_start()
         self.linkdrop = random.choice(self.environment.linkdrop_contracts)
-        # Keypom contract does not need registration and distibution funds like FT.
+        # Keypom contract does not need registration and distribution funds like FT.
         # Just create a drop.
         self.drop_id = self.linkdrop.create_drop(self)
         logger.debug(

@@ -4,6 +4,10 @@
 //! contains `RuntimeConfig`, but we keep it here for now until we figure
 //! out the better place.
 use crate::genesis_validate::validate_genesis;
+use crate::{
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, FISHERMEN_THRESHOLD, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
@@ -61,7 +65,7 @@ fn default_protocol_upgrade_stake_threshold() -> Rational32 {
 }
 
 fn default_shard_layout() -> ShardLayout {
-    ShardLayout::v0_single_shard()
+    ShardLayout::single_shard()
 }
 
 fn default_minimum_stake_ratio() -> Rational32 {
@@ -190,7 +194,7 @@ pub struct GenesisConfig {
     pub minimum_stake_divisor: u64,
     /// Layout information regarding how to split accounts to shards
     #[serde(default = "default_shard_layout")]
-    #[default(ShardLayout::v0_single_shard())]
+    #[default(default_shard_layout())]
     pub shard_layout: ShardLayout,
     #[serde(default = "default_num_chunk_only_producer_seats")]
     #[default(300)]
@@ -265,17 +269,14 @@ impl From<&GenesisConfig> for EpochConfig {
             protocol_upgrade_stake_threshold: config.protocol_upgrade_stake_threshold,
             minimum_stake_divisor: config.minimum_stake_divisor,
             shard_layout: config.shard_layout.clone(),
-            validator_selection_config: near_primitives::epoch_manager::ValidatorSelectionConfig {
-                num_chunk_producer_seats: config.num_chunk_producer_seats,
-                num_chunk_validator_seats: config.num_chunk_validator_seats,
-                num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
-                minimum_validators_per_shard: config.minimum_validators_per_shard,
-                minimum_stake_ratio: config.minimum_stake_ratio,
-                chunk_producer_assignment_changes_limit: config
-                    .chunk_producer_assignment_changes_limit,
-                shuffle_shard_assignment_for_chunk_producers: config
-                    .shuffle_shard_assignment_for_chunk_producers,
-            },
+            num_chunk_producer_seats: config.num_chunk_producer_seats,
+            num_chunk_validator_seats: config.num_chunk_validator_seats,
+            num_chunk_only_producer_seats: config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: config.minimum_validators_per_shard,
+            minimum_stake_ratio: config.minimum_stake_ratio,
+            chunk_producer_assignment_changes_limit: config.chunk_producer_assignment_changes_limit,
+            shuffle_shard_assignment_for_chunk_producers: config
+                .shuffle_shard_assignment_for_chunk_producers,
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
     }
@@ -747,6 +748,27 @@ impl Genesis {
                 unreachable!("Records should have been set previously");
             }
         }
+    }
+
+    // Create test-only epoch config.
+    // Not depends on genesis!
+    // TODO(#11265): move to crate with `EpochConfig`.
+    // Cannot move the configs consts to `primitives`.
+    pub fn test_epoch_config(
+        num_block_producer_seats: NumSeats,
+        shard_layout: ShardLayout,
+        epoch_length: BlockHeightDelta,
+    ) -> EpochConfig {
+        EpochConfig::genesis_test(
+            num_block_producer_seats,
+            shard_layout,
+            epoch_length,
+            BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+            CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+            CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
+            PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+            FISHERMEN_THRESHOLD,
+        )
     }
 }
 

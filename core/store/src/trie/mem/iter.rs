@@ -1,7 +1,7 @@
 //! Iterator that traverses a memtrie in key order.
 //!
 //! This is essentially a copy of the `DiskTrieIterator`, with the following notable differences:
-//!  - It doesn't support extra options like remembering nodes or puning;
+//!  - It doesn't support extra options like remembering nodes or pruning;
 //!  - It uses None to represent an "empty" placeholder node rather than `TrieNode::Empty`;
 //!  - MemTrieNodeView splits Branch and BranchWithValue into separate variants, whereas TrieNode
 //!    handles them in a single variant with an optional value field, but the iteration logic
@@ -64,14 +64,16 @@ impl<'a, M: ArenaMemory> Crumb<'a, M> {
 }
 
 /// Trie iteration is done using a stack based approach.
+///
 /// There are two stacks that we track while iterating: the trail and the key_nibbles.
 /// The trail is a vector of trie nodes on the path from root node to the node that is
 /// currently being processed together with processing status - the Crumb.
+///
 /// The key_nibbles is a vector of nibbles from the state root node to the node that is
 /// currently being processed.
+///
 /// The trail and the key_nibbles may have different lengths e.g. an extension trie node
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
-
 pub type STMemTrieIterator<'a> = MemTrieIterator<'a, HybridArenaMemory>;
 
 pub struct MemTrieIterator<'a, M: ArenaMemory> {

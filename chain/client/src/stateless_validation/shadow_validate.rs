@@ -1,3 +1,4 @@
+use crate::stateless_validation::state_witness_producer::CreateWitnessResult;
 use near_chain::stateless_validation::chunk_validation::validate_prepared_transactions;
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
@@ -17,11 +18,15 @@ impl Client {
         tracing::debug!(target: "client", ?block_hash, "shadow validation for block chunks");
         let prev_block = self.chain.get_block(block.header().prev_hash())?;
         let prev_block_chunks = prev_block.chunks();
-        for chunk in
-            block.chunks().iter().filter(|chunk| chunk.is_new_chunk(block.header().height()))
+        for (shard_index, chunk) in block
+            .chunks()
+            .iter_deprecated()
+            .enumerate()
+            .filter(|(_, chunk)| chunk.is_new_chunk(block.header().height()))
         {
             let chunk = self.chain.get_chunk_clone_from_header(chunk)?;
-            let prev_chunk_header = prev_block_chunks.get(chunk.shard_id() as usize).unwrap();
+            // TODO(resharding) This doesn't work if shard layout changes.
+            let prev_chunk_header = prev_block_chunks.get(shard_index).unwrap();
             if let Err(err) =
                 self.shadow_validate_chunk(prev_block.header(), prev_chunk_header, &chunk)
             {
@@ -30,7 +35,7 @@ impl Client {
                 tracing::error!(
                     target: "client",
                     ?err,
-                    shard_id = chunk.shard_id(),
+                    shard_id = ?chunk.shard_id(),
                     ?block_hash,
                     "shadow chunk validation failed"
                 );
@@ -70,7 +75,7 @@ impl Client {
             ));
         };
 
-        let witness = self.create_state_witness(
+        let CreateWitnessResult { state_witness, .. } = self.create_state_witness(
             // Setting arbitrary chunk producer is OK for shadow validation
             "alice.near".parse().unwrap(),
             prev_block_header,
@@ -79,10 +84,10 @@ impl Client {
             validated_transactions.storage_proof,
         )?;
         if self.config.save_latest_witnesses {
-            self.chain.chain_store.save_latest_chunk_state_witness(&witness)?;
+            self.chain.chain_store.save_latest_chunk_state_witness(&state_witness)?;
         }
         self.chain.shadow_validate_state_witness(
-            witness,
+            state_witness,
             self.epoch_manager.as_ref(),
             self.runtime_adapter.as_ref(),
             None,

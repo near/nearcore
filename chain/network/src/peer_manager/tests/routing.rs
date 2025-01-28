@@ -637,8 +637,8 @@ fn make_configs(
     num_boot_nodes: usize,
     enable_outbound: bool,
 ) -> Vec<NetworkConfig> {
-    let mut cfgs: Vec<_> = (0..num_nodes).map(|_i| chain.make_config(rng)).collect();
-    let boot_nodes: Vec<_> = cfgs[0..num_boot_nodes]
+    let mut configs: Vec<_> = (0..num_nodes).map(|_i| chain.make_config(rng)).collect();
+    let boot_nodes: Vec<_> = configs[0..num_boot_nodes]
         .iter()
         .map(|c| PeerInfo {
             id: c.node_id(),
@@ -646,11 +646,11 @@ fn make_configs(
             account_id: None,
         })
         .collect();
-    for config in cfgs.iter_mut() {
+    for config in configs.iter_mut() {
         config.outbound_disabled = !enable_outbound;
         config.peer_store.boot_nodes.clone_from(&boot_nodes);
     }
-    cfgs
+    configs
 }
 
 // test bootstrapping a two-node network with one boot node
@@ -663,9 +663,9 @@ async fn from_boot_nodes() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes");
-    let cfgs = make_configs(&chain, rng, 2, 1, true);
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+    let configs = make_configs(&chain, rng, 2, 1, true);
+    let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
@@ -686,12 +686,14 @@ async fn blacklist_01() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes with 0 blacklisting 1");
-    let mut cfgs = make_configs(&chain, rng, 2, 2, true);
-    cfgs[0].peer_store.blacklist =
-        [blacklist::Entry::from_addr(**cfgs[1].node_addr.as_ref().unwrap())].into_iter().collect();
+    let mut configs = make_configs(&chain, rng, 2, 2, true);
+    configs[0].peer_store.blacklist =
+        [blacklist::Entry::from_addr(**configs[1].node_addr.as_ref().unwrap())]
+            .into_iter()
+            .collect();
 
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+    let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
@@ -719,12 +721,14 @@ async fn blacklist_10() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes with 1 blacklisting 0");
-    let mut cfgs = make_configs(&chain, rng, 2, 2, true);
-    cfgs[1].peer_store.blacklist =
-        [blacklist::Entry::from_addr(**cfgs[0].node_addr.as_ref().unwrap())].into_iter().collect();
+    let mut configs = make_configs(&chain, rng, 2, 2, true);
+    configs[1].peer_store.blacklist =
+        [blacklist::Entry::from_addr(**configs[0].node_addr.as_ref().unwrap())]
+            .into_iter()
+            .collect();
 
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+    let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
@@ -752,12 +756,12 @@ async fn blacklist_all() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start two nodes with 0 blacklisting everything");
-    let mut cfgs = make_configs(&chain, rng, 2, 2, true);
-    cfgs[0].peer_store.blacklist =
+    let mut configs = make_configs(&chain, rng, 2, 2, true);
+    configs[0].peer_store.blacklist =
         [blacklist::Entry::from_ip(Ipv6Addr::LOCALHOST.into())].into_iter().collect();
 
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
+    let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
@@ -786,16 +790,16 @@ async fn max_num_peers_limit() {
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
     tracing::info!(target:"test", "start three nodes with max_num_peers=2");
-    let mut cfgs = make_configs(&chain, rng, 4, 4, false);
-    for config in cfgs.iter_mut() {
+    let mut configs = make_configs(&chain, rng, 4, 4, false);
+    for config in configs.iter_mut() {
         config.max_num_peers = 2;
         config.ideal_connections_lo = 2;
         config.ideal_connections_hi = 2;
     }
 
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
-    let pm2 = start_pm(clock.clock(), TestDB::new(), cfgs[2].clone(), chain.clone()).await;
+    let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), configs[2].clone(), chain.clone()).await;
 
     let id0 = pm0.cfg.node_id();
     let id1 = pm1.cfg.node_id();
@@ -829,7 +833,7 @@ async fn max_num_peers_limit() {
     let mut pm2_ev = pm2.events.from_now();
 
     tracing::info!(target:"test", "start a fourth node");
-    let pm3 = start_pm(clock.clock(), TestDB::new(), cfgs[3].clone(), chain.clone()).await;
+    let pm3 = start_pm(clock.clock(), TestDB::new(), configs[3].clone(), chain.clone()).await;
 
     let id3 = pm3.cfg.node_id();
 
@@ -869,19 +873,19 @@ async fn max_num_peers_limit() {
     // I just don't understand how NLL works.
     //
     // The proper solution would be to:
-    // 1. Make nearcore presubmit run tests with "[panic=abort]" (which is not supported with
+    // 1. Make nearcore pre submit run tests with "[panic=abort]" (which is not supported with
     //    "cargo test"), so that the test actually stop if some thread panic.
-    // 2. Set some timeout on the test execution (with an enormous heardoom), so that we actually get some logs
-    //    if the presubmit times out (also not supported by "cargo test").
+    // 2. Set some timeout on the test execution (with an enormous headroom), so that we actually get some logs
+    //    if the pre submit times out (also not supported by "cargo test").
     drop(pm0);
     drop(pm1);
     drop(pm2);
     drop(pm3);
 }
 
-/// Test that TTL is handled properly.
+/// Test that TTL and number of hops are handled properly.
 #[tokio::test]
-async fn ttl() {
+async fn ttl_and_num_hops() {
     abort_on_panic();
     let mut rng = make_rng(921853233);
     let rng = &mut rng;
@@ -931,6 +935,7 @@ async fn ttl() {
                 .await;
             assert_eq!(msg.body, got.body);
             assert_eq!(msg.ttl - 1, got.ttl);
+            assert_eq!(msg.num_hops + 1, got.num_hops);
         }
     }
 }
@@ -1087,7 +1092,7 @@ async fn fix_local_edges() {
         .await
         .handshake(&clock.clock())
         .await;
-    // TODO(gprusak): the case when the edge is updated via UpdateNondeRequest is not covered yet,
+    // TODO(gprusak): the case when the edge is updated via UpdateNodeRequest is not covered yet,
     // as it requires awaiting for the RPC roundtrip which is not implemented yet.
     let edge1 = data::make_edge(
         &pm.cfg.node_key,
@@ -1177,23 +1182,23 @@ async fn archival_node() {
     let mut clock = time::FakeClock::default();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
 
-    let mut cfgs = make_configs(&chain, rng, 5, 5, false);
-    for config in cfgs.iter_mut() {
+    let mut configs = make_configs(&chain, rng, 5, 5, false);
+    for config in configs.iter_mut() {
         config.max_num_peers = 3;
         config.ideal_connections_lo = 2;
         config.ideal_connections_hi = 2;
         config.safe_set_size = 1;
         config.minimum_outbound_peers = 0;
     }
-    cfgs[0].archive = true;
-    cfgs[1].archive = true;
+    configs[0].archive = true;
+    configs[1].archive = true;
 
     tracing::info!(target:"test", "start five nodes, the first two of which are archival nodes");
-    let pm0 = start_pm(clock.clock(), TestDB::new(), cfgs[0].clone(), chain.clone()).await;
-    let pm1 = start_pm(clock.clock(), TestDB::new(), cfgs[1].clone(), chain.clone()).await;
-    let pm2 = start_pm(clock.clock(), TestDB::new(), cfgs[2].clone(), chain.clone()).await;
-    let pm3 = start_pm(clock.clock(), TestDB::new(), cfgs[3].clone(), chain.clone()).await;
-    let pm4 = start_pm(clock.clock(), TestDB::new(), cfgs[4].clone(), chain.clone()).await;
+    let pm0 = start_pm(clock.clock(), TestDB::new(), configs[0].clone(), chain.clone()).await;
+    let pm1 = start_pm(clock.clock(), TestDB::new(), configs[1].clone(), chain.clone()).await;
+    let pm2 = start_pm(clock.clock(), TestDB::new(), configs[2].clone(), chain.clone()).await;
+    let pm3 = start_pm(clock.clock(), TestDB::new(), configs[3].clone(), chain.clone()).await;
+    let pm4 = start_pm(clock.clock(), TestDB::new(), configs[4].clone(), chain.clone()).await;
 
     let id1 = pm1.cfg.node_id();
 
@@ -1295,6 +1300,7 @@ async fn connect_to_unbanned_peer() {
         .await;
     assert_eq!(ClosingReason::RejectedByPeerManager(RegisterPeerError::Banned), got_reason);
 
+    // cspell:words unbans
     tracing::info!(target:"test", "pm1 unbans pm0");
     clock.advance(pm1.cfg.peer_store.ban_window);
     pm1.peer_store_update(&clock.clock()).await;
@@ -1307,6 +1313,7 @@ async fn connect_to_unbanned_peer() {
 }
 
 /// Awaits a DistanceVector message from a given `peer_id`
+#[cfg(feature = "distance_vector_routing")]
 async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_id: PeerId) {
     events
         .recv_until(|ev| match ev {
@@ -1321,6 +1328,7 @@ async fn wait_for_distance_vector(events: &mut broadcast::Receiver<Event>, peer_
 
 /// Check that connecting to a peer triggers exchange of DistanceVectors
 #[tokio::test]
+#[cfg(feature = "distance_vector_routing")]
 async fn peer_connect_send_distance_vector() {
     abort_on_panic();
     let mut rng = make_rng(921853233);

@@ -196,9 +196,11 @@ extern "C" {
     fn burn_gas(gas: u64);
 }
 
+const TGAS: u64 = 1_000_000_000_000;
+
 macro_rules! ext_test {
     ($export_func:ident, $call_ext:expr) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe fn $export_func() {
             $call_ext(0);
             let result = vec![0; register_len(0) as usize];
@@ -210,7 +212,7 @@ macro_rules! ext_test {
 
 macro_rules! ext_test_u64 {
     ($export_func:ident, $call_ext:expr) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe fn $export_func() {
             let mut result = [0u8; size_of::<u64>()];
             result.copy_from_slice(&$call_ext().to_le_bytes());
@@ -221,7 +223,7 @@ macro_rules! ext_test_u64 {
 
 macro_rules! ext_test_u128 {
     ($export_func:ident, $call_ext:expr) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub unsafe fn $export_func() {
             let result = &[0u8; size_of::<u128>()];
             $call_ext(result.as_ptr() as *const u64 as u64);
@@ -246,7 +248,7 @@ ext_test_u128!(ext_attached_deposit, attached_deposit);
 
 ext_test_u128!(ext_validator_total_stake, validator_total_stake);
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ext_sha256() {
     input(0);
     let bytes = vec![0; register_len(0) as usize];
@@ -257,7 +259,7 @@ pub unsafe fn ext_sha256() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ext_used_gas() {
     let initial_used_gas = used_gas();
     let mut a = 1;
@@ -273,7 +275,7 @@ pub unsafe fn ext_used_gas() {
     value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn ext_validator_stake() {
     input(0);
     let account_id = vec![0; register_len(0) as usize];
@@ -290,7 +292,7 @@ pub unsafe fn ext_validator_stake() {
 /// Write key-value pair into storage.
 /// Input is the byte array where the value is `u64` represented by last 8 bytes and key is represented by the first
 /// `register_len(0) - 8` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_key_value() {
     input(0);
     let data_len = register_len(0) as usize;
@@ -310,7 +312,7 @@ pub unsafe fn write_key_value() {
     value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_block_height() {
     let block_height = block_index();
     let mut key = [0u8; size_of::<u64>()];
@@ -319,7 +321,7 @@ pub unsafe fn write_block_height() {
     storage_write(key.len() as _, key.as_ptr() as _, value.len() as _, value.as_ptr() as _, 0);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_random_value() {
     random_seed(0);
     let data = [0u8; 32];
@@ -330,7 +332,7 @@ pub unsafe fn write_random_value() {
 
 /// Write a 1MB value under the given key.
 /// Key is of type u8. Value is made up of the key repeated a million times.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn write_one_megabyte() {
     input(0);
     if register_len(0) != size_of::<u8>() as u64 {
@@ -352,7 +354,7 @@ pub unsafe fn write_one_megabyte() {
 /// Read n megabytes of data between from..to
 /// Reads values that were written using `write_one_megabyte`.
 /// The input is a pair of u8 values `from` and `to.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn read_n_megabytes() {
     input(0);
     assert_eq!(register_len(0), 2 * size_of::<u8>() as u64);
@@ -369,7 +371,7 @@ pub unsafe fn read_n_megabytes() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn read_value() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {
@@ -385,19 +387,19 @@ pub unsafe fn read_value() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn log_something() {
     let data = b"hello";
     log_utf8(data.len() as u64, data.as_ptr() as _);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn loop_forever() {
     loop {}
 }
 
 #[cfg(feature = "test_features")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sleep() {
     const U64_SIZE: usize = size_of::<u64>();
     let data = [0u8; U64_SIZE];
@@ -414,7 +416,7 @@ pub unsafe fn sleep() {
 }
 
 #[cfg(feature = "test_features")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn burn_gas_raw() {
     const U64_SIZE: usize = size_of::<u64>();
     let data = [0u8; U64_SIZE];
@@ -427,19 +429,19 @@ pub unsafe fn burn_gas_raw() {
     burn_gas(amount);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn abort_with_zero() {
     // Tries to abort with 0 ptr to check underflow handling.
     abort(0, 0, 0, 0);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn panic_with_message() {
     let data = b"WAT?";
     panic_utf8(data.len() as u64, data.as_ptr() as _);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn panic_after_logging() {
     let data = b"hello";
     log_utf8(data.len() as u64, data.as_ptr() as _);
@@ -447,20 +449,20 @@ pub unsafe fn panic_after_logging() {
     panic_utf8(data.len() as u64, data.as_ptr() as _);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn run_test() {
     let value: [u8; 4] = 10i32.to_le_bytes();
     value_return(value.len() as u64, value.as_ptr() as _);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn run_test_with_storage_change() {
     let key = b"hello";
     let value = b"world";
     storage_write(key.len() as _, key.as_ptr() as _, value.len() as _, value.as_ptr() as _, 0);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sum_with_input() {
     input(0);
     if register_len(0) != 2 * size_of::<u64>() as u64 {
@@ -480,7 +482,7 @@ pub unsafe fn sum_with_input() {
 }
 
 /// Writes and reads some data into/from storage. Uses 8-bit key/values.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn benchmark_storage_8b() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {
@@ -514,7 +516,7 @@ fn generate_data(data: &mut [u8]) {
 }
 
 /// Writes and reads some data into/from storage. Uses 10KiB key/values.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn benchmark_storage_10kib() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {
@@ -546,7 +548,7 @@ pub unsafe fn benchmark_storage_10kib() {
 }
 
 /// Passes through input into output.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn pass_through() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {
@@ -558,7 +560,7 @@ pub unsafe fn pass_through() {
 }
 
 /// Sums numbers.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sum_n() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {
@@ -584,7 +586,7 @@ pub unsafe fn sum_n() {
 /// sanity/max_gas_burnt_view.py test.  The implementation has exponential
 /// complexity (1.62^n to be exact) so even small increase in argument result in
 /// large increase in gas use.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn fibonacci() {
     input(0);
     if register_len(0) != 1 {
@@ -604,7 +606,7 @@ fn fib(n: u8) -> u64 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn insert_strings() {
     input(0);
     if register_len(0) != 2 * size_of::<u64>() as u64 {
@@ -634,7 +636,7 @@ pub unsafe fn insert_strings() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn delete_strings() {
     input(0);
     if register_len(0) != 2 * size_of::<u64>() as u64 {
@@ -657,7 +659,7 @@ pub unsafe fn delete_strings() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn recurse() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {
@@ -673,7 +675,7 @@ pub unsafe fn recurse() {
 
 /// Rust compiler is getting smarter and starts to optimize my deep recursion.
 /// We're going to fight it with a more obscure implementations.
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[inline(never)]
 fn internal_recurse(n: u64) -> u64 {
     if n <= 1 {
@@ -688,7 +690,7 @@ fn internal_recurse(n: u64) -> u64 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn out_of_memory() {
     let mut vec = Vec::new();
     loop {
@@ -697,7 +699,7 @@ pub fn out_of_memory() {
 }
 
 // Can be used for debugging
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn log_u64(msg: u64) {
     unsafe {
         log_utf8(8, &msg as *const u64 as u64);
@@ -715,7 +717,7 @@ pub fn from_base64(s: &str) -> Vec<u8> {
 /// most likely is no longer sufficient for another cross-contract call.
 ///
 /// This is a stable alternative to yield/resume proposal at the time of writing.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn max_self_recursion_delay() {
     input(0);
     let bytes = [0u8; 4];
@@ -745,7 +747,7 @@ pub unsafe fn max_self_recursion_delay() {
     promise_return(promise_idx);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn call_promise() {
     unsafe {
         input(0);
@@ -919,7 +921,7 @@ fn call_promise() {
 /// The function takes an argument indicating the expected yield payload (promise input).
 /// It panics if executed with the wrong payload.
 /// Returns the payload length.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe fn check_promise_result_return_value() {
     input(0);
     let expected_result_len = register_len(0) as usize;
@@ -953,7 +955,7 @@ unsafe fn check_promise_result_return_value() {
 ///
 /// Used as the yield callback in tests of yield create / yield resume.
 /// Writes the status of the promise result to storage.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe fn check_promise_result_write_status() {
     input(0);
     let expected_result_len = register_len(0) as usize;
@@ -990,7 +992,7 @@ unsafe fn check_promise_result_write_status() {
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
 /// Sets the yield callback's output as the return value.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_return_promise() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
@@ -1030,7 +1032,7 @@ pub unsafe fn call_yield_create_return_promise() {
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
 /// Returns the data id produced by promise_yield_create.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_return_data_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
@@ -1061,7 +1063,7 @@ pub unsafe fn call_yield_create_return_data_id() {
 /// Call promise_yield_resume.
 /// Input is the byte array with `data_id` represented by last 32 bytes and `payload`
 /// represented by the first `register_len(0) - 32` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn call_yield_resume() {
     input(0);
     let data_len = register_len(0) as usize;
@@ -1085,7 +1087,7 @@ pub unsafe fn call_yield_resume() {
 /// Call promise_yield_resume.
 /// Input is the payload to be passed to `promise_yield_resume`.
 /// The data_id is read from storage.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn call_yield_resume_read_data_id_from_storage() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
@@ -1108,7 +1110,7 @@ pub unsafe fn call_yield_resume_read_data_id_from_storage() {
 }
 
 /// Call promise_yield_create and promise_yield_resume within the same function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn call_yield_create_and_resume() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
@@ -1148,7 +1150,7 @@ pub unsafe fn call_yield_create_and_resume() {
 }
 
 #[cfg(feature = "latest_protocol")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn attach_unspent_gas_but_burn_all_gas() {
     unsafe {
         let account_id = "alice.near";
@@ -1177,7 +1179,7 @@ fn attach_unspent_gas_but_burn_all_gas() {
 }
 
 #[cfg(feature = "latest_protocol")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn attach_unspent_gas_but_use_all_gas() {
     unsafe {
         let account_id = "alice.near";
@@ -1218,7 +1220,7 @@ fn attach_unspent_gas_but_use_all_gas() {
 }
 
 #[cfg(feature = "latest_protocol")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn do_ripemd() {
     let data = b"tesdsst";
     unsafe {
@@ -1226,7 +1228,7 @@ fn do_ripemd() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn noop() {}
 
 fn insert_account_id_prefix(
@@ -1239,7 +1241,7 @@ fn insert_account_id_prefix(
 }
 
 /// Calls all host functions, either directly or via callback.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sanity_check() {
     // #############
     // # Registers #
@@ -1592,18 +1594,18 @@ pub unsafe fn sanity_check() {
 
 /// Callback for a promise created in `sanity_check`. It calls host functions
 /// which use the results of earlier promises.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sanity_check_promise_results() {
     assert_eq!(promise_results_count(), 1);
     promise_result(0, 0);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sanity_check_panic() {
     panic();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn sanity_check_panic_utf8() {
     let data = b"xyz";
     panic_utf8(data.len() as u64, data.as_ptr() as u64);
@@ -1614,7 +1616,7 @@ pub unsafe fn sanity_check_panic_utf8() {
 /// account_id - the account id to send the FunctionCall actions to.
 /// method_name - the method name to call in FunctionCalls.
 /// total_args_size - the total size of the arguments to send in the FunctionCalls.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe fn generate_large_receipt() {
     input(0);
     let data = vec![0u8; register_len(0) as usize];
@@ -1646,4 +1648,246 @@ pub unsafe fn generate_large_receipt() {
         );
         total_size_to_send = total_size_to_send.checked_sub(args_size).unwrap();
     }
+}
+
+/// Produces a function_call receipt to another account with the given method
+/// and arguments of the given size. Used to send large receipts between shards.
+/// Attaches only 1 Gas to the receipt to minimize congestion.
+#[unsafe(no_mangle)]
+pub unsafe fn do_function_call_with_args_of_size() {
+    input(0);
+    let data = vec![0u8; register_len(0) as usize];
+    read_register(0, data.as_ptr() as u64);
+    let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+    let account_id = input_args["account_id"].as_str().unwrap().as_bytes();
+    let method_name = input_args["method_name"].as_str().unwrap().as_bytes();
+    let args_size = input_args["args_size"].as_u64().unwrap();
+    let args = vec![0u8; args_size as usize];
+    let amount = 0u128;
+    let gas_fixed = 1; // Attach only 1 Gas to the receipt to keep congestion low
+    let gas_weight = 0;
+    let promise_idx = promise_batch_create(account_id.len() as u64, account_id.as_ptr() as u64);
+    promise_batch_action_function_call_weight(
+        promise_idx,
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        args_size,
+        args.as_ptr() as u64,
+        &amount as *const u128 as u64,
+        gas_fixed,
+        gas_weight,
+    );
+}
+
+/// Used by the `max_receipt_size_promise_return` test.
+/// Create promise DAG:
+/// A[self.max_receipt_size_promise_return_method2()] -then-> B[self.mark_test_completed()]
+#[no_mangle]
+pub unsafe fn max_receipt_size_promise_return_method1() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+
+    current_account_id(0);
+    let current_account = vec![0u8; register_len(0) as usize];
+    read_register(0, current_account.as_ptr() as _);
+
+    let method2 = b"max_receipt_size_promise_return_method2";
+    let promise_a = promise_create(
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        method2.len() as u64,
+        method2.as_ptr() as u64,
+        args.len() as u64, // Forward the args
+        args.as_ptr() as u64,
+        0,
+        200 * TGAS,
+    );
+
+    let empty_args: &[u8] = &[];
+    let test_completed_method = b"mark_test_completed";
+    let _promise_b = promise_then(
+        promise_a,
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        test_completed_method.len() as u64,
+        test_completed_method.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        0,
+        20 * TGAS,
+    );
+}
+
+/// Do a promise_return with a large receipt.
+/// The receipt has a single FunctionCall action with large args.
+/// Creates DAG:
+/// C[self.noop(large_args)] -then-> B[self.mark_test_completed()]
+#[no_mangle]
+pub unsafe fn max_receipt_size_promise_return_method2() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["args_size"].as_u64().unwrap();
+
+    current_account_id(0);
+    let current_account = vec![0u8; register_len(0) as usize];
+    read_register(0, current_account.as_ptr() as _);
+
+    let large_args = vec![0u8; args_size as usize];
+    let noop_method = b"noop";
+    let promise_c = promise_create(
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        noop_method.len() as u64,
+        noop_method.as_ptr() as u64,
+        large_args.len() as u64,
+        large_args.as_ptr() as u64,
+        0,
+        20 * TGAS,
+    );
+
+    promise_return(promise_c);
+}
+
+/// Mark a test as completed
+#[no_mangle]
+pub unsafe fn mark_test_completed() {
+    let key = b"test_completed";
+    let value = b"true";
+    storage_write(
+        key.len() as u64,
+        key.as_ptr() as u64,
+        value.len() as u64,
+        value.as_ptr() as u64,
+        0,
+    );
+}
+
+// Assert that the test has been marked as completed.
+// (Make sure that the method mark_test_completed was executed)
+#[no_mangle]
+pub unsafe fn assert_test_completed() {
+    let key = b"test_completed";
+    let read_res = storage_read(key.len() as u64, key.as_ptr() as u64, 0);
+    if read_res != 1 {
+        let panic_msg = b"assert_test_completed failed - can't read test_completed marker";
+        panic_utf8(panic_msg.len() as u64, panic_msg.as_ptr() as u64);
+    }
+
+    let value = vec![0u8; register_len(0) as usize];
+    read_register(0, value.as_ptr() as u64);
+    if value != b"true" {
+        let panic_msg = b"assert_test_completed failed - test_completed value is not true";
+        panic_utf8(panic_msg.len() as u64, panic_msg.as_ptr() as u64);
+    }
+}
+
+/// Returns a value of size "value_size".
+/// Accepts json args, e.g {"value_size": 1000}
+#[no_mangle]
+pub unsafe fn return_large_value() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["value_size"].as_u64().unwrap();
+
+    let large_value = vec![0u8; args_size as usize];
+    value_return(large_value.len() as u64, large_value.as_ptr() as u64);
+}
+
+/// Used in the `max_receipt_size_value_return` test.
+#[no_mangle]
+pub unsafe fn max_receipt_size_value_return_method() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+
+    current_account_id(0);
+    let current_account = vec![0u8; register_len(0) as usize];
+    read_register(0, current_account.as_ptr() as _);
+
+    let large_value_method = b"return_large_value";
+    let promise_a = promise_create(
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        large_value_method.len() as u64,
+        large_value_method.as_ptr() as u64,
+        args.len() as u64,
+        args.as_ptr() as u64,
+        0,
+        250 * TGAS,
+    );
+
+    let test_completed_method = b"mark_test_completed";
+    let empty_args: &[u8] = &[];
+    let _promise_b = promise_then(
+        promise_a,
+        current_account.len() as u64,
+        current_account.as_ptr() as u64,
+        test_completed_method.len() as u64,
+        test_completed_method.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        0,
+        20 * TGAS,
+    );
+}
+
+#[no_mangle]
+pub unsafe fn yield_with_large_args() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let args_size = input_args_json["args_size"].as_u64().unwrap();
+
+    let large_args = vec![0u8; args_size as usize];
+    let method_name = b"noop";
+    let data_id_register = 0;
+    promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        large_args.len() as u64,
+        large_args.as_ptr() as u64,
+        0,
+        1,
+        data_id_register,
+    );
+}
+
+#[no_mangle]
+pub unsafe fn resume_with_large_payload() {
+    input(0);
+    let args = vec![0u8; register_len(0) as usize];
+    read_register(0, args.as_ptr() as u64);
+    let input_args_json: serde_json::Value = serde_json::from_slice(&args).unwrap();
+    let payload_size = input_args_json["payload_size"].as_u64().unwrap();
+
+    let empty_args: &[u8] = &[];
+    let method_name = b"noop";
+    let data_id_register = 0;
+    promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        empty_args.len() as u64,
+        empty_args.as_ptr() as u64,
+        20 * TGAS,
+        0,
+        data_id_register,
+    );
+
+    let data_id = vec![0u8; register_len(data_id_register) as usize];
+    read_register(data_id_register, data_id.as_ptr() as u64);
+
+    let resolve_data = vec![0u8; payload_size as usize];
+    let success = promise_yield_resume(
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        resolve_data.len() as u64,
+        resolve_data.as_ptr() as u64,
+    );
+    assert_eq!(success, 1);
 }

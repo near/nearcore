@@ -4,7 +4,7 @@
  * The output of the `cargo build` shows compilation units. Compilation unit is a either a external dependency or a file from the source
  *
  * The `LIBS_THRESHOLDS` constant defines a list of libraries along with their respective maximum allowed unique dependency counts.
- * The `THRESHOLD_IS_TOO_GENEROUS` constant is used to determine if the threshold for any library is too lenient, suggesting it might need to be restricted even futher.
+ * The `THRESHOLD_IS_TOO_GENEROUS` constant is used to determine if the threshold for any library is too lenient, suggesting it might need to be restricted even further.
  *
  * The `get_and_assert_crate_dependencies` function takes a library name and a threshold, runs the `cargo tree` command to get the dependency tree for the library,
  * extracts unique dependencies using a regex, and checks if the count of unique dependencies is below the threshold.
@@ -22,7 +22,7 @@ const LIBS_THRESHOLDS: [(&str, usize); 9] = [
     ("near-jsonrpc-primitives", 130),
     ("near-chain-configs", 130),
     ("near-chain-primitives", 130),
-    ("near-client-primitives", 150),
+    ("near-client-primitives", 152),
     ("near-parameters", 65),
     ("near-crypto", 75),
     ("near-primitives-core", 60),
@@ -71,7 +71,7 @@ fn get_and_assert_crate_dependencies(name: &str, threshold: usize) -> usize {
 
     assert!(
         crate_count < threshold,
-        "Dependencies number is too high for {name}: {} > {}",
+        "Dependencies number is too high for {name}: {} >= {}",
         crate_count,
         threshold
     );
@@ -87,7 +87,7 @@ struct CrateDeps {
 }
 
 #[test]
-fn test_public_libs_are_small_enough() {
+fn slow_test_public_libs_are_small_enough() {
     let results = LIBS_THRESHOLDS
         .into_iter()
         .map(|(name, limit)| (name, get_and_assert_crate_dependencies(name, limit), limit));

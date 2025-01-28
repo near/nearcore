@@ -10,9 +10,10 @@ use near_primitives::borsh;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::epoch_sync::EpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
-use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -75,6 +76,9 @@ pub struct StoreValidator {
     timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
+    // If present, the node was bootstrapped with epoch sync, and this block height
+    // represents the first block of the target epoch that we epoch synced to.
+    epoch_sync_boundary: Option<BlockHeight>,
 
     pub errors: Vec<ErrorMessage>,
     tests: u64,
@@ -90,6 +94,12 @@ impl StoreValidator {
         store: Store,
         is_archival: bool,
     ) -> Self {
+        let epoch_sync_boundary = store
+            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
+            .expect("Store IO error when getting EpochSyncProof")
+            .map(|epoch_sync_proof| {
+                epoch_sync_proof.into_v1().current_epoch.first_block_header_in_epoch.height()
+            });
         StoreValidator {
             me,
             config,
@@ -101,6 +111,7 @@ impl StoreValidator {
             timeout: None,
             start_time: Clock::real().now(),
             is_archival,
+            epoch_sync_boundary,
             errors: vec![],
             tests: 0,
         }
@@ -234,6 +245,17 @@ impl StoreValidator {
                     );
                     // Block which can be indexed by Outcome block_hash exists
                     self.check(&validate::outcome_id_block_exists, &block_hash, &outcome_ids, col);
+                }
+                DBCol::PartialChunks => {
+                    let chunk_hash = ChunkHash::try_from_slice(key_ref)?;
+                    let shard_chunk = PartialEncodedChunk::try_from_slice(value_ref)?;
+                    // Receipts column contain exactly the receipts from PartialEncodedChunk.
+                    self.check(
+                        &validate::partial_chunk_receipts_exist_in_receipts,
+                        &chunk_hash,
+                        &shard_chunk,
+                        col,
+                    );
                 }
                 DBCol::TransactionResultForBlock => {
                     let (outcome_id, block_hash) = get_outcome_id_block_hash_rev(key_ref)?;
@@ -393,13 +415,14 @@ mod tests {
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
     use super::*;
+    use near_async::messaging::{noop, IntoMultiSender};
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
         let genesis = Genesis::test(vec!["test".parse().unwrap()], 1);
         let tempdir = tempfile::tempdir().unwrap();
         initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime = NightshadeRuntime::test(
             tempdir.path(),
@@ -419,6 +442,7 @@ mod tests {
             None,
             Arc::new(RayonAsyncComputationSpawner),
             MutableConfigValue::new(None, "validator_signer"),
+            noop().into_multi_sender(),
         )
         .unwrap();
         (

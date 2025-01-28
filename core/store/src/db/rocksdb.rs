@@ -16,7 +16,7 @@ use tracing::warn;
 mod instance_tracker;
 pub(crate) mod snapshot;
 
-/// List of integer RocskDB properties we’re reading when collecting statistics.
+/// List of integer RocksDB properties we’re reading when collecting statistics.
 ///
 /// In the end, they are exported as Prometheus metrics.
 static CF_PROPERTY_NAMES: LazyLock<Vec<std::ffi::CString>> = LazyLock::new(|| {
@@ -184,7 +184,7 @@ impl RocksDB {
     ///
     /// This function is safe so long as `db` field has not been modified since
     /// `cf_handles` mapping has been constructed.  We technically should mark
-    /// this function unsafe but to improve ergonomy we didn’t.  This is an
+    /// this function unsafe but to improve ergonomics we didn’t.  This is an
     /// internal method so hopefully the implementation knows what it’s doing.
     fn cf_handle(&self, col: DBCol) -> io::Result<&ColumnFamily> {
         if let Some(ptr) = self.cf_handles[col] {
@@ -207,7 +207,7 @@ impl RocksDB {
     ///
     /// This function is safe so long as `db` field has not been modified since
     /// `cf_handles` mapping has been constructed.  We technically should mark
-    /// this function unsafe but to improve ergonomy we didn’t.  This is an
+    /// this function unsafe but to improve ergonomics we didn’t.  This is an
     /// internal method so hopefully the implementation knows what it’s doing.
     fn cf_handles(&self) -> impl Iterator<Item = (DBCol, &ColumnFamily)> {
         self.cf_handles.iter().filter_map(|(col, ptr)| {
@@ -432,7 +432,7 @@ impl Database for RocksDB {
 
     /// Trying to get
     /// 1. RocksDB statistics
-    /// 2. Selected RockdDB properties for column families
+    /// 2. Selected RocksDB properties for column families
     fn get_store_statistics(&self) -> Option<StoreStatistics> {
         let mut result = StoreStatistics { data: vec![] };
         if let Some(stats_str) = self.db_opt.get_statistics() {
@@ -598,7 +598,7 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
     opts.set_level_compaction_dynamic_level_bytes(true);
     opts.set_block_based_table_factory(&rocksdb_block_based_options(store_config, col));
 
-    // Note that this function changes a lot of rustdb parameters including:
+    // Note that this function changes a lot of RocksDB parameters including:
     //      write_buffer_size = memtable_memory_budget / 4
     //      min_write_buffer_number_to_merge = 2
     //      max_write_buffer_number = 6
@@ -624,8 +624,8 @@ fn rocksdb_column_options(col: DBCol, store_config: &StoreConfig, temp: Temperat
 fn set_compression_options(opts: &mut Options) {
     opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
     opts.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
-    // RocksDB documenation says that 16KB is a typical dictionary size.
-    // We've empirically tuned the dicionary size to twice of that 'typical' size.
+    // RocksDB documentation says that 16KB is a typical dictionary size.
+    // We've empirically tuned the dictionary size to twice of that 'typical' size.
     // Having train data size x100 from dictionary size is a recommendation from RocksDB.
     // See: https://rocksdb.org/blog/2021/05/31/dictionary-compression.html?utm_source=dbplatz
     let dict_size = 2 * 16384;
@@ -811,41 +811,41 @@ mod tests {
         let store = opener.open().unwrap().get_hot_store();
         let ptr = (&*store.storage) as *const (dyn Database + 'static);
         let rocksdb = unsafe { &*(ptr as *const RocksDB) };
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
             store_update.commit().unwrap();
         }
         {
             let mut store_update = store.store_update();
-            store_update.increment_refcount(DBCol::State, &[1], &[1]);
+            store_update.increment_refcount(DBCol::State, &[1; 8], &[1]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
             Some(&[1, 2, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
+            store_update.decrement_refcount(DBCol::State, &[1; 8]);
             store_update.commit().unwrap();
         }
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap().as_deref(), Some(&[1][..]));
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[1][..]));
         assert_eq!(
-            rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+            rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
             Some(&[1, 1, 0, 0, 0, 0, 0, 0, 0][..])
         );
         {
             let mut store_update = store.store_update();
-            store_update.decrement_refcount(DBCol::State, &[1]);
+            store_update.decrement_refcount(DBCol::State, &[1; 8]);
             store_update.commit().unwrap();
         }
         // Refcount goes to 0 -> get() returns None
-        assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+        assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         // Internally there is an empty value
-        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(), Some(&[][..]));
+        assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(), Some(&[][..]));
 
         // single_thread_rocksdb makes compact hang forever
         if !cfg!(feature = "single_thread_rocksdb") {
@@ -858,14 +858,14 @@ mod tests {
             // empty values.
             rocksdb.db.compact_range_cf(cf, none, none);
             assert_eq!(
-                rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap().as_deref(),
+                rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap().as_deref(),
                 Some(&[][..])
             );
-            assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+            assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
 
             rocksdb.db.compact_range_cf(cf, none, none);
-            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1]).unwrap(), None);
-            assert_eq!(store.get(DBCol::State, &[1]).unwrap(), None);
+            assert_eq!(rocksdb.get_raw_bytes(DBCol::State, &[1; 8]).unwrap(), None);
+            assert_eq!(store.get(DBCol::State, &[1; 8]).unwrap(), None);
         }
     }
 

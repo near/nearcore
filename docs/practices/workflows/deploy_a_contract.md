@@ -1,3 +1,4 @@
+<!-- cspell:ignore EPGUSUV Vaddhcdr cdylib matklad rodata rwxr syscalls -->
 # Deploy a Contract
 
 In this chapter, we'll learn how to build, deploy, and call a minimal smart
@@ -10,9 +11,9 @@ deploy a contract. You might want to re-read [how to run a node](./run_a_node.md
 to understand what's going on here:
 
 ```console
-$ cargo run --profile dev-release -p neard -- init
-$ cargo run --profile dev-release -p neard -- run
-$ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
+cargo run --profile dev-release -p neard -- init
+cargo run --profile dev-release -p neard -- run
+NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
 ```
 
 As a sanity check, querying the state of `alice.test.near` account should work:
@@ -80,13 +81,13 @@ Before we start doing that, some amount of setup code is required.
 Let's start with creating a new crate:
 
 ```console
-$ cargo new hello-near --lib
+cargo new hello-near --lib
 ```
 
 To compile to wasm, we also need to add a relevant rustup toolchain:
 
 ```console
-$ rustup toolchain add wasm32-unknown-unknown
+rustup toolchain add wasm32-unknown-unknown
 ```
 
 Then, we need to tell Cargo that the final artifact we want to get is a
@@ -167,7 +168,7 @@ $ cargo install wasm-tools
 ## Rust Contract
 
 Finally, let's implement an actual contract. We'll need an `extern "C"` block to
-declare the `value_return` import, and a `#[no_mangle] extern "C"` function to
+declare the `value_return` import, and a `#[unsafe(no_mangle)] extern "C"` function to
 declare the `hello` export:
 
 ```rust
@@ -179,7 +180,7 @@ extern "C" {
     fn value_return(len: u64, ptr: u64);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hello() {
     let msg = "hello world";
     unsafe { value_return(msg.len() as u64, msg.as_ptr() as u64) }
@@ -239,7 +240,6 @@ Done deploying to alice.test.near
 
 And, finally, let's call our contract:
 
-
 ```console
 $ NEAR_ENV=local $near call alice.test.near hello --accountId alice.test.near
 Scheduling a call: alice.test.near.hello()
@@ -255,7 +255,6 @@ Note that we pass `alice.test.near` twice: the first time to specify which contr
 we are calling, the second time to determine who calls the contract. That is,
 the second account is the one that spends tokens. In the following example `bob`
 spends NEAR to call the contact deployed to the `alice` account:
-
 
 ```console
 $ NEAR_ENV=local $near call alice.test.near hello --accountId bob.test.near

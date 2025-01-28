@@ -4,7 +4,7 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::{IntoMultiSender, IntoSender};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -17,14 +17,14 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_info::RngSeed;
-use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
+use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, EpochConfig, EpochConfigStore};
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, NumShards};
+use near_primitives::types::{AccountId, NumShards, ShardIndex};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -47,6 +47,7 @@ impl EpochManagerKind {
 pub struct TestEnvBuilder {
     clock: Option<Clock>,
     genesis_config: GenesisConfig,
+    epoch_config_store: Option<EpochConfigStore>,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
@@ -78,6 +79,7 @@ impl TestEnvBuilder {
         Self {
             clock: None,
             genesis_config,
+            epoch_config_store: None,
             clients,
             validators,
             home_dirs: None,
@@ -111,6 +113,12 @@ impl TestEnvBuilder {
         assert!(self.runtimes.is_none(), "Cannot set clients after runtimes");
         assert!(self.network_adapters.is_none(), "Cannot set clients after network_adapters");
         self.clients = clients;
+        self
+    }
+
+    pub fn epoch_config_store(mut self, epoch_config_store: EpochConfigStore) -> Self {
+        assert!(self.epoch_config_store.is_none(), "Cannot set epoch_config_store twice");
+        self.epoch_config_store = Some(epoch_config_store);
         self
     }
 
@@ -191,12 +199,12 @@ impl TestEnvBuilder {
             .iter()
             .map(|home_dir| {
                 // The max number of open files across all RocksDB instances is INT_MAX i.e. 65,535
-                // The default value of max_open_files is 10,000 which only allows upto 6 RocksDB
+                // The default value of max_open_files is 10,000 which only allows up to 6 RocksDB
                 // instance to open at a time. This is problematic in testing resharding. To overcome
                 // this limit, we set the max_open_files config to 1000.
                 let mut store_config = StoreConfig::default();
                 store_config.max_open_files = 1000;
-                NodeStorage::opener(home_dir.as_path(), false, &store_config, None)
+                NodeStorage::opener(home_dir.as_path(), &store_config, None)
                     .open()
                     .unwrap()
                     .get_hot_store()
@@ -256,12 +264,32 @@ impl TestEnvBuilder {
             "Cannot set both num_shards and epoch_managers at the same time"
         );
         let ret = self.ensure_stores();
+
+        // TODO(#11265): consider initializing epoch config separately as it
+        // should be decoupled from the genesis config.
+        // However, there are a lot of tests which only initialize genesis.
+        let mut base_epoch_config: EpochConfig = (&ret.genesis_config).into();
+        if let Some(block_producer_kickout_threshold) =
+            test_overrides.block_producer_kickout_threshold
+        {
+            base_epoch_config.block_producer_kickout_threshold = block_producer_kickout_threshold;
+        }
+        if let Some(chunk_producer_kickout_threshold) =
+            test_overrides.chunk_producer_kickout_threshold
+        {
+            base_epoch_config.chunk_producer_kickout_threshold = chunk_producer_kickout_threshold;
+        }
+        let epoch_config_store = EpochConfigStore::test(BTreeMap::from_iter(vec![(
+            ret.genesis_config.protocol_version,
+            Arc::new(base_epoch_config),
+        )]));
+
         let epoch_managers = (0..ret.clients.len())
             .map(|i| {
-                EpochManager::new_arc_handle_with_test_overrides(
+                EpochManager::new_arc_handle_from_epoch_config_store(
                     ret.stores.as_ref().unwrap()[i].clone(),
                     &ret.genesis_config,
-                    Some(test_overrides.clone()),
+                    epoch_config_store.clone(),
                 )
             })
             .collect();
@@ -273,6 +301,18 @@ impl TestEnvBuilder {
         let ret = self.ensure_stores();
         if ret.epoch_managers.is_some() {
             return ret;
+        }
+        if let Some(epoch_config_store) = &ret.epoch_config_store {
+            let epoch_managers = (0..ret.clients.len())
+                .map(|i| {
+                    EpochManager::new_arc_handle_from_epoch_config_store(
+                        ret.stores.as_ref().unwrap()[i].clone(),
+                        &ret.genesis_config,
+                        epoch_config_store.clone(),
+                    )
+                })
+                .collect();
+            return ret.epoch_managers(epoch_managers);
         }
         ret.epoch_managers_with_test_overrides(AllEpochConfigTestOverrides::default())
     }
@@ -548,7 +588,7 @@ impl TestEnvBuilder {
                         None => TEST_SEED,
                     };
                     let tries = runtime.get_tries();
-                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _epoch_height, shard_uids: Vec<ShardUId>, block| {
+                    let make_snapshot_callback = Arc::new(move |prev_block_hash, _min_chunk_prev_height, _epoch_height, shard_uids: Vec<(ShardIndex, ShardUId)>, block| {
                         tracing::info!(target: "state_snapshot", ?prev_block_hash, "make_snapshot_callback");
                         tries.delete_state_snapshot();
                         tries.create_state_snapshot(prev_block_hash, &shard_uids, &block).unwrap();
@@ -579,6 +619,7 @@ impl TestEnvBuilder {
                         Some(snapshot_callbacks),
                         partial_witness_adapter.into_multi_sender(),
                         validator_signer,
+                        noop().into_multi_sender(),
                     )
                 })
                 .collect();
@@ -606,7 +647,7 @@ impl TestEnvBuilder {
         }
     }
 
-    fn make_accounts(count: usize) -> Vec<AccountId> {
+    pub fn make_accounts(count: usize) -> Vec<AccountId> {
         (0..count).map(|i| format!("test{}", i).parse().unwrap()).collect()
     }
 

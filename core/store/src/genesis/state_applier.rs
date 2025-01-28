@@ -1,9 +1,9 @@
 use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
+use crate::trie::update::TrieUpdateResult;
 use crate::{
-    get_account, has_received_data, set, set_access_key, set_account, set_code,
-    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
-    ShardTries, TrieUpdate,
+    get_account, has_received_data, set, set_access_key, set_account, set_delayed_receipt,
+    set_postponed_receipt, set_promise_yield_receipt, set_received_data, ShardTries, TrieUpdate,
 };
 
 use near_chain_configs::Genesis;
@@ -139,7 +139,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
         );
         let mut old_state_update = state_update.take().expect("state update should be set");
         old_state_update.commit(StateChangeCause::InitialState);
-        let (_, trie_changes, state_changes) =
+        let TrieUpdateResult { trie_changes, state_changes, .. } =
             old_state_update.finalize().expect("Genesis state update failed");
         let mut store_update = self.tries.store_update();
         *state_root = self.tries.apply_all(&trie_changes, self.shard_uid, &mut store_update);
@@ -205,7 +205,7 @@ impl GenesisStateApplier {
                         if let Some(acc) =
                             get_account(state_update, account_id).expect("Failed to read state")
                         {
-                            set_code(state_update, account_id.clone(), &code);
+                            state_update.set_code(account_id.clone(), &code);
                             assert_eq!(*code.hash(), acc.code_hash());
                         } else {
                             tracing::error!(

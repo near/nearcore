@@ -40,6 +40,7 @@ def save_genesis_with_new_key_pair(genesis_path, key_pair, output_path):
     with open(os.path.join(node0_dir, 'genesis.json'), 'w') as fout:
         json.dump(genesis, fout, indent=2)
 
+    # cspell:ignore fout
     key_pair.account_id = genesis['validators'][0]['account_id']
     key_json = dict()
     key_json['account_id'] = genesis['validators'][0]['account_id']
@@ -210,4 +211,4 @@ if __name__ == '__main__':
     else:
         parser.error(
             'Unsupported positional argument: replay [operation] where operation = %s'
-            % args.opeartion)
+            % args.operation)

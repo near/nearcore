@@ -7,7 +7,7 @@ use num_rational::Ratio;
 
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
@@ -34,7 +34,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
     init_integration_logger();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), &genesis, None);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
     let runtime = NightshadeRuntime::test(
         Path::new("."),
         store.clone(),
@@ -70,7 +70,7 @@ fn test_burn_mint() {
         .unwrap()
         .runtime_config;
     let fee_helper = FeeHelper::new(config, genesis.config.min_gas_price);
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let initial_total_supply = env.chain_genesis.total_supply;
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     assert_eq!(
@@ -79,7 +79,7 @@ fn test_burn_mint() {
                 1,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
-                &signer.into(),
+                &signer,
                 1000,
                 genesis_hash,
             ),

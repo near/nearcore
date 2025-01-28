@@ -651,7 +651,7 @@ mod test {
     /// the peer doesn't get banned. (specifically, that the expected height downloaded gets properly
     /// adjusted for time passed)
     #[test]
-    fn test_slow_header_sync() {
+    fn slow_test_slow_header_sync() {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let highest_height = 1000;
 
@@ -751,7 +751,7 @@ mod test {
     }
 
     #[test]
-    fn test_sync_from_very_behind() {
+    fn slow_test_sync_from_very_behind() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             Clock::real(),
@@ -781,10 +781,11 @@ mod test {
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
+                PROTOCOL_VERSION,
                 last_block.header(),
                 this_height,
                 last_block.header().block_ordinal() + 1,
-                last_block.chunks().iter().cloned().collect(),
+                last_block.chunks().iter_deprecated().cloned().collect(),
                 vec![vec![]; last_block.chunks().len()],
                 epoch_id,
                 next_epoch_id,
@@ -813,6 +814,7 @@ mod test {
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
                 clock.clock(),
+                None,
                 None,
             );
             block_merkle_tree.insert(*block.hash());

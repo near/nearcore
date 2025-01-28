@@ -89,6 +89,7 @@ impl<'a, M: ArenaMemory> ChildrenView<'a, M> {
             return Children(nodes);
         };
 
+        // cspell:words ptrs
         let mut node_ptrs = [None; 16];
         let mut j = size_of::<usize>() * self.mask.count_ones() as usize;
         // Execute all `read_ptr_at` in reverse to avoid repeat bound checks.

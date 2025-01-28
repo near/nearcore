@@ -5,14 +5,14 @@ use near_chain::Provenance;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::account_id_to_shard_uid;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -229,9 +229,11 @@ impl TestReshardingEnv {
         // Mapping from the chunk producer account id to the list of chunks that
         // it should produce. When processing block at height `next_height` the
         // chunk producers will produce chunks at height `next_height + 1`.
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let mut chunk_producer_to_shard_id: HashMap<AccountId, Vec<ShardId>> = HashMap::new();
-        for shard_id in 0..block.chunks().len() {
-            let shard_id = shard_id as ShardId;
+        for shard_index in 0..block.chunks().len() {
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             let validator_id = get_chunk_producer(env, &block, shard_id);
             chunk_producer_to_shard_id.entry(validator_id).or_default().push(shard_id);
         }
@@ -267,7 +269,8 @@ impl TestReshardingEnv {
             }
             // manually invoke gc
             let gc_config = client.config.gc.clone();
-            client.chain.clear_data(&gc_config).unwrap();
+            let me = signer.as_ref().map(|signer| signer.validator_id());
+            client.chain.clear_data(&gc_config, me).unwrap();
             if should_catchup {
                 run_catchup(&mut env.clients[j], &[])?;
             }
@@ -295,7 +298,7 @@ impl TestReshardingEnv {
 
         // Don't do catchup in the very first block of the epoch. This is
         // primarily for the error handling test where we want to corrupt the
-        // databse before catchup happens.
+        // database before catchup happens.
         if next_height % epoch_length == 1 {
             return false;
         }
@@ -305,7 +308,7 @@ impl TestReshardingEnv {
 
     // Submit the tx to all clients for processing and checks:
     // Clients that track the relevant shard should return ValidTx
-    // Clients that do not track the relevenat shard should return RequestRouted
+    // Clients that do not track the relevant shard should return RequestRouted
     // At least one client should process it and return ValidTx.
     fn process_tx(env: &mut TestEnv, tx: &SignedTransaction) {
         let mut response_valid_count = 0;
@@ -353,27 +356,28 @@ impl TestReshardingEnv {
         let block = client.chain.get_block_by_height(height).unwrap();
         let block_hash = block.hash();
         let num_shards = block.chunks().len();
-        for shard_id in 0..num_shards {
+        let epoch_id = block.header().epoch_id();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        for shard_id in shard_layout.shard_ids() {
             // get hash of the last block that we need to check that it has empty chunks for the shard
-            // if `get_next_block_hash_with_new_chunk` returns None, that would be the lastest block
+            // if `get_next_block_hash_with_new_chunk` returns None, that would be the latest block
             // on chain, otherwise, that would be the block before the `block_hash` that the function
             // call returns
-            let next_block_hash_with_new_chunk = client
-                .chain
-                .get_next_block_hash_with_new_chunk(block_hash, shard_id as ShardId)
-                .unwrap();
+            let next_block_hash_with_new_chunk =
+                client.chain.get_next_block_hash_with_new_chunk(block_hash, shard_id).unwrap();
 
             let mut last_block_hash_with_empty_chunk = match next_block_hash_with_new_chunk {
                 Some((new_block_hash, target_shard_id)) => {
                     let new_block = client.chain.get_block(&new_block_hash).unwrap().clone();
                     let chunks = new_block.chunks();
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id).unwrap();
                     // check that the target chunk in the new block is new
                     assert_eq!(
-                        chunks.get(target_shard_id as usize).unwrap().height_included(),
+                        chunks.get(target_shard_index).unwrap().height_included(),
                         new_block.header().height(),
                     );
                     if chunks.len() == num_shards {
-                        assert_eq!(target_shard_id, shard_id as ShardId);
+                        assert_eq!(target_shard_id, shard_id);
                     }
                     *new_block.header().prev_hash()
                 }
@@ -390,7 +394,7 @@ impl TestReshardingEnv {
 
                 let target_shard_ids = if chunks.len() == num_shards {
                     // same shard layout between block and last_block
-                    vec![shard_id as ShardId]
+                    vec![shard_id]
                 } else {
                     // different shard layout between block and last_block
                     let shard_layout = client
@@ -398,11 +402,12 @@ impl TestReshardingEnv {
                         .get_shard_layout_from_prev_block(&last_block_hash)
                         .unwrap();
 
-                    shard_layout.get_children_shards_ids(shard_id as ShardId).unwrap()
+                    shard_layout.get_children_shards_ids(shard_id).unwrap()
                 };
 
                 for target_shard_id in target_shard_ids {
-                    let chunk = chunks.get(target_shard_id as usize).unwrap();
+                    let target_shard_index = shard_layout.get_shard_index(target_shard_id).unwrap();
+                    let chunk = chunks.get(target_shard_index).unwrap();
                     assert_ne!(chunk.height_included(), last_block.header().height());
                 }
 
@@ -439,7 +444,7 @@ impl TestReshardingEnv {
             let id = &tx.get_hash();
 
             let signer_account_id = tx.transaction.signer_id();
-            let shard_uid = account_id_to_shard_uid(signer_account_id, &shard_layout);
+            let shard_uid = shard_layout.account_id_to_shard_uid(signer_account_id);
 
             tracing::trace!(target: "test", tx=?id, ?signer_account_id, ?shard_uid, "checking tx");
 
@@ -502,7 +507,10 @@ fn get_chunk_producer(env: &TestEnv, block: &Block, shard_id: ShardId) -> Accoun
     let parent_hash = block.header().prev_hash();
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
     let height = block.header().height() + 1;
-    let chunk_producer = epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap();
+    let chunk_producer = epoch_manager
+        .get_chunk_producer_info(&ChunkProductionKey { epoch_id, height_created: height, shard_id })
+        .unwrap()
+        .take_account_id();
     chunk_producer
 }
 
@@ -514,8 +522,9 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     let prev_hash = block.header().prev_hash();
     let shard_layout =
         env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
-    let shard_uid = account_id_to_shard_uid(account_id, &shard_layout);
+    let shard_uid = shard_layout.account_id_to_shard_uid(account_id);
     let shard_id = shard_uid.shard_id();
+    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     for (i, me) in env.validators.iter().enumerate() {
         let client = &env.clients[i];
         let care_about_shard =
@@ -539,7 +548,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
             )
             .unwrap();
 
-        let chunk = &block.chunks()[shard_id as usize];
+        let chunk = &block.chunks()[shard_index];
         if chunk.height_included() == block.header().height() {
             client
                 .runtime_adapter
@@ -634,8 +643,7 @@ fn setup_test_env_with_cross_contract_txs(
 
     let mut init_txs = vec![];
     for account_id in &contract_accounts {
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let actions = vec![Action::DeployContract(DeployContractAction {
             code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
         })];
@@ -643,7 +651,7 @@ fn setup_test_env_with_cross_contract_txs(
             1,
             account_id.clone(),
             account_id.clone(),
-            &signer.into(),
+            &signer,
             actions,
             genesis_hash,
             0,
@@ -773,9 +781,8 @@ fn gen_cross_contract_tx_impl(
     nonce: u64,
     block_hash: &CryptoHash,
 ) -> SignedTransaction {
-    let signer0 = InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, account0.as_ref());
-    let signer_new_account =
-        InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
+    let signer0 = InMemorySigner::test_signer(&account0);
+    let signer_new_account = InMemorySigner::test_signer(&new_account);
     let data = serde_json::json!([
         {"create": {
         "account_id": account2.to_string(),
@@ -799,7 +806,7 @@ fn gen_cross_contract_tx_impl(
                 }, "id": 0 },
                 {"action_add_key_with_full_access": {
                     "promise_index": 0,
-                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
+                    "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key()).unwrap()),
                     "nonce": 0,
                 }, "id": 0 }
             ],
@@ -812,7 +819,7 @@ fn gen_cross_contract_tx_impl(
         nonce,
         account0.clone(),
         account1.clone(),
-        &signer0.into(),
+        &signer0,
         vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "call_promise".to_string(),
             args: serde_json::to_vec(&data).unwrap(),
@@ -884,16 +891,16 @@ fn test_latest_protocol_missing_chunks(p_missing: f64, rng_seed: u64) {
 // latest protocol
 
 #[test]
-fn test_latest_protocol_missing_chunks_low_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_low_missing_prob() {
     test_latest_protocol_missing_chunks(0.1, 25);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_mid_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_mid_missing_prob() {
     test_latest_protocol_missing_chunks(0.5, 26);
 }
 
 #[test]
-fn test_latest_protocol_missing_chunks_high_missing_prob() {
+fn slow_test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);
 }

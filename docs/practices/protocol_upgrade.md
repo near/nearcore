@@ -25,29 +25,29 @@ and that it doesn't break other parts of the system.
 
 ### Protocol version voting and upgrade
 
-When a new neard version, containing a new protocol version, is released, all node maintainers need 
+When a new neard version, containing a new protocol version, is released, all node maintainers need
 to upgrade their binary. That typically means stopping neard, downloading or compiling the new neard
-binary and restarting neard. However the protocol version of the whole network is not immediately 
-bumped to the new protocol version. Instead a process called voting takes place and determines if and 
-when the protocol version upgrade will take place. 
+binary and restarting neard. However the protocol version of the whole network is not immediately
+bumped to the new protocol version. Instead a process called voting takes place and determines if and
+when the protocol version upgrade will take place.
 
-Voting is a fully automated process in which all block producers across the network vote in support 
+Voting is a fully automated process in which all block producers across the network vote in support
 or against upgrading the protocol version. The voting happens in the last block every epoch. Upgraded
-nodes will begin voting in favour of the new protocol version after a predetermined date. The voting 
-date is configured by the release owner [like this](https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa). 
-Once at least 80% of the stake votes in favour of the protocol change in the last block of epoch X, the 
-protocol version will be upgraded in the first block of epoch X+2. 
+nodes will begin voting in favour of the new protocol version after a predetermined date. The voting
+date is configured by the release owner [like this](https://github.com/near/nearcore/commit/9b0275de057a01f87c259580f93e58f746da75aa).
+Once at least 80% of the stake votes in favour of the protocol change in the last block of epoch X, the
+protocol version will be upgraded in the first block of epoch X+2.
 
-For mainnet releases, the release on github typically happens on a Monday or Tuesday, the voting 
-typically happens a week later and the protocol version upgrade happens 1-2 epochs after the voting. This 
+For mainnet releases, the release on github typically happens on a Monday or Tuesday, the voting
+typically happens a week later and the protocol version upgrade happens 1-2 epochs after the voting. This
 gives the node maintainers enough time to upgrade their neard nodes. The node maintainers can upgrade
 their nodes at any time between the release and the voting but it is recommended to upgrade soon after the
-release. This is to accommodate for any database migrations or miscellaneous delays. 
+release. This is to accommodate for any database migrations or miscellaneous delays.
 
-Starting a neard node with protocol version voting in the future in a network that is already operating 
-at that protocol version is supported as well. This is useful in the scenario where there is a mainnet 
+Starting a neard node with protocol version voting in the future in a network that is already operating
+at that protocol version is supported as well. This is useful in the scenario where there is a mainnet
 security release where mainnet has not yet voted or upgraded to the new version. That same binary with
-protocol voting date in the future can be released in testnet even though it has already upgraded to 
+protocol voting date in the future can be released in testnet even though it has already upgraded to
 the new protocol version.
 
 ### Nightly Protocol features
@@ -56,8 +56,8 @@ To make protocol upgrades more robust, we introduce the concept of a nightly
 protocol version together with the protocol feature flags to allow easy testing
 of the cutting-edge protocol changes without jeopardizing the stability of the
 codebase overall. The use of the nightly and nightly_protocol for new features
-is mandatory while the use of dedicated rust features for new protocol features 
-is optional and only recommended when necessary. Adding rust features leads to 
+is mandatory while the use of dedicated rust features for new protocol features
+is optional and only recommended when necessary. Adding rust features leads to
 conditional compilation which is generally not developer friendly. In `Cargo.toml`
 file of the crates we have in nearcore, we introduce rust compile-time features
 `nightly_protocol` and `nightly`:
@@ -72,16 +72,15 @@ nightly = [
 
 where `nightly_protocol` is a marker feature that indicates that we are on
 nightly protocol whereas `nightly` is a collection of new protocol features
-which also implies `nightly_protocol`. 
+which also implies `nightly_protocol`.
 
-When it is not necessary to use a rust feature for the new protocol feature 
+When it is not necessary to use a rust feature for the new protocol feature
 the Cargo.toml file will remain unchanged.
 
-When it is necessary to use a rust feature for the new protocol feature, it 
+When it is necessary to use a rust feature for the new protocol feature, it
 can be added to the Cargo.toml, to the nightly features. For example, when
 we introduce EVM as a new protocol change, suppose the current protocol
 version is 40, then we would do the following change in Cargo.toml:
-
 
 ```toml
 nightly_protocol = []
@@ -132,7 +131,6 @@ It is worth mentioning that there are two types of checks related to protocol fe
   protocol feature is enabled. This check is optional and can only be used for
   nightly features.  
 
-
 ### Testing
 
 Nightly protocol features allow us to enable the most bleeding-edge code in some
@@ -167,4 +165,3 @@ A feature stabilization request must be approved by at least **two**
 Unless it is a security-related fix, a protocol feature cannot be included in
 any release until at least **one** week after its stabilization. This is to ensure
 that feature implementation and stabilization are not rushed.
-

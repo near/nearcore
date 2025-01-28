@@ -50,6 +50,7 @@ impl AnalyzeDelayedReceiptCommand {
             store.clone(),
             near_config.genesis.config.genesis_height,
             false,
+            near_config.genesis.config.transaction_validity_period,
         ));
         let epoch_manager =
             EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)
@@ -96,7 +97,7 @@ impl AnalyzeDelayedReceiptCommand {
             last_analysed_block = Some((block.header().height(), *block.hash()));
             let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-            for chunk_header in block.chunks().iter() {
+            for chunk_header in block.chunks().iter_deprecated() {
                 let state_root = chunk_header.prev_state_root();
                 let trie_update = shard_tries.get_trie_for_shard(
                     ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &shard_layout),

@@ -8,6 +8,7 @@ use crate::types::{
 
 #[derive(Message, Debug, strum::IntoStaticStr, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
+#[allow(clippy::large_enum_variant)]
 pub enum ShardsManagerRequestFromNetwork {
     ProcessPartialEncodedChunk(PartialEncodedChunk),
     ProcessPartialEncodedChunkForward(PartialEncodedChunkForwardMsg),

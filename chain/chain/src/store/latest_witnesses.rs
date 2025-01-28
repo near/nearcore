@@ -113,7 +113,7 @@ impl ChainStore {
             target: "client",
             "save_latest_chunk_state_witness",
             witness_height = witness.chunk_header.height_created(),
-            witness_shard = witness.chunk_header.shard_id(),
+            witness_shard = ?witness.chunk_header.shard_id(),
         )
         .entered();
 
@@ -159,6 +159,7 @@ impl ChainStore {
                         ),
                     )
                 })?;
+            // cspell:words deser
             let key_deser = LatestWitnessesKey::deserialize(&key_to_delete)?;
 
             store_update.delete(DBCol::LatestChunkStateWitnesses, &key_to_delete);
@@ -173,7 +174,7 @@ impl ChainStore {
         OsRng.fill_bytes(&mut random_uuid);
         let key = LatestWitnessesKey {
             height: witness.chunk_header.height_created(),
-            shard_id: witness.chunk_header.shard_id(),
+            shard_id: witness.chunk_header.shard_id().into(),
             epoch_id: witness.epoch_id,
             witness_size: serialized_witness_size,
             random_uuid,

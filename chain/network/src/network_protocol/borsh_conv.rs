@@ -171,7 +171,7 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
             net::PeerMessage::Routed(r) => mem::PeerMessage::Routed(Box::new(RoutedMessageV2 {
                 msg: *r,
                 created_at: None,
-                num_hops: Some(0),
+                num_hops: 0,
             })),
             net::PeerMessage::Disconnect => mem::PeerMessage::Disconnect(mem::Disconnect {
                 // This flag is used by the disconnecting peer to advise the other peer that there
@@ -203,6 +203,10 @@ impl TryFrom<&net::PeerMessage> for mem::PeerMessage {
                 mem::PeerMessage::VersionedStateResponse(sri)
             }
             net::PeerMessage::SyncSnapshotHosts(ssh) => mem::PeerMessage::SyncSnapshotHosts(ssh),
+            net::PeerMessage::EpochSyncRequest => mem::PeerMessage::EpochSyncRequest,
+            net::PeerMessage::EpochSyncResponse(proof) => {
+                mem::PeerMessage::EpochSyncResponse(proof)
+            }
         })
     }
 }
@@ -256,6 +260,10 @@ impl From<&mem::PeerMessage> for net::PeerMessage {
                 net::PeerMessage::VersionedStateResponse(sri)
             }
             mem::PeerMessage::SyncSnapshotHosts(ssh) => net::PeerMessage::SyncSnapshotHosts(ssh),
+            mem::PeerMessage::EpochSyncRequest => net::PeerMessage::EpochSyncRequest,
+            mem::PeerMessage::EpochSyncResponse(proof) => {
+                net::PeerMessage::EpochSyncResponse(proof)
+            }
         }
     }
 }

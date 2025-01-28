@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Formatter};
 
-use super::{ChunkProductionKey, SignatureDifferentiator};
+use super::ChunkProductionKey;
 use crate::sharding::ShardChunkHeader;
-use crate::types::EpochId;
+use crate::types::{EpochId, SignatureDifferentiator};
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
@@ -13,7 +13,7 @@ use near_schema_checker_lib::ProtocolSchema;
 /// Represents max allowed size of the compressed state witness,
 /// corresponds to EncodedChunkStateWitness struct size.
 /// The value is set to max network message size when `test_features`
-/// is enabled to make it possible to test blockchain behaviour with
+/// is enabled to make it possible to test blockchain behavior with
 /// arbitrary large witness (see #11703).
 pub const MAX_COMPRESSED_STATE_WITNESS_SIZE: ByteSize =
     ByteSize::mib(if cfg!(feature = "test_features") { 512 } else { 48 });
@@ -55,7 +55,7 @@ impl PartialEncodedStateWitness {
             part,
             encoded_length,
         );
-        let signature = signer.sign_partial_encoded_state_witness(&inner);
+        let signature = signer.sign_bytes(&borsh::to_vec(&inner).unwrap());
         Self { inner, signature }
     }
 
@@ -80,9 +80,12 @@ impl PartialEncodedStateWitness {
         self.inner.part.len()
     }
 
-    /// Decomposes the partial witness to return (part_ord, part, encoded_length)
-    pub fn decompose(self) -> (usize, Box<[u8]>, usize) {
-        (self.inner.part_ord, self.inner.part, self.inner.encoded_length)
+    pub fn encoded_length(&self) -> usize {
+        self.inner.encoded_length
+    }
+
+    pub fn into_part(self) -> Box<[u8]> {
+        self.inner.part
     }
 }
 

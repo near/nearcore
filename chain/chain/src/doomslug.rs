@@ -33,7 +33,7 @@ const MAX_HISTORY_SIZE: usize = 1000;
 /// `TwoThirds` means the block can only be produced if at least 2/3 of the stake is approving it,
 ///             and is what should be used in production (and what guarantees finality)
 /// `NoApprovals` means the block production is not blocked on approvals. This is used
-///             in many tests (e.g. `cross_shard_tx`) to create lots of forkfulness.
+///             in many tests (e.g. `cross_shard_tx`) to create lots of forks.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum DoomslugThresholdMode {
     NoApprovals,
@@ -138,7 +138,7 @@ pub struct Doomslug {
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
-    ///    but for many tests we use `NoApprovals` to invoke more forkfulness
+    ///    but for many tests we use `NoApprovals` to invoke more forks
     threshold_mode: DoomslugThresholdMode,
 
     /// Approvals that were created by this doomslug instance (for debugging only).
@@ -405,7 +405,7 @@ impl Doomslug {
     }
 
     /// Returns the largest height for which we have enough approvals to be theoretically able to
-    ///     produce a block (in practice a blocks might not be produceable yet if not enough time
+    ///     produce a block (in practice a blocks might not be producible yet if not enough time
     ///     passed since it accumulated enough approvals)
     pub fn get_largest_height_crossing_threshold(&self) -> BlockHeight {
         self.largest_threshold_height.get()
@@ -824,7 +824,7 @@ mod tests {
             }
         }
 
-        // Not processing a block at height 2 should not produce an appoval
+        // Not processing a block at height 2 should not produce an approval
         ds.set_tip(hash(&[2]), 2, 0);
         clock.advance(Duration::milliseconds(400));
         assert_eq!(ds.process_timer(&signer), vec![]);

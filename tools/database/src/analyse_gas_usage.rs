@@ -9,7 +9,7 @@ use near_epoch_manager::EpochManager;
 use nearcore::config::load_config;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{AccountId, BlockHeight};
 
 use nearcore::open_storage;
@@ -60,6 +60,7 @@ impl AnalyseGasUsageCommand {
             store.clone(),
             near_config.genesis.config.genesis_height,
             false,
+            near_config.genesis.config.transaction_validity_period,
         ));
         let epoch_manager =
             EpochManager::new_from_genesis_config(store, &near_config.genesis.config).unwrap();
@@ -225,7 +226,7 @@ fn get_gas_usage_in_block(
     let mut result = GasUsageStats::new();
 
     // Go over every chunk in this block and gather data
-    for chunk_header in block.chunks().iter() {
+    for chunk_header in block.chunks().iter_deprecated() {
         let shard_id = chunk_header.shard_id();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 
@@ -243,7 +244,7 @@ fn get_gas_usage_in_block(
                 .outcome;
 
             // Sanity check - make sure that the executor of this outcome belongs to this shard
-            let account_shard_id = account_id_to_shard_id(&outcome.executor_id, &shard_layout);
+            let account_shard_id = shard_layout.account_id_to_shard_id(&outcome.executor_id);
             assert_eq!(account_shard_id, shard_id);
 
             gas_usage_in_shard.add_used_gas(outcome.executor_id, outcome.gas_burnt.into());

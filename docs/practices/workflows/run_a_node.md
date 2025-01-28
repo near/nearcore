@@ -9,7 +9,7 @@ relatively little attention to the various shortcuts we have.
 Start with the following command:
 
 ```console
-$ cargo run --profile dev-release -p neard -- --help
+cargo run --profile dev-release -p neard -- --help
 ```
 
 This command builds `neard` and asks it to show `--help`. Building `neard` takes
@@ -142,7 +142,7 @@ $ cat ~/.near/genesis.json | jq '.validators'
 Now, if we
 
 ```console
-$ cat ~/.near/validator_key.json
+cat ~/.near/validator_key.json
 ```
 
 we'll see
@@ -191,7 +191,7 @@ is rejected.
 ## Running the Network
 
 Finally,
-
+<!-- cspell:ignore matklad -->
 ```console
 $ cargo run --profile dev-release -p neard -- run
 INFO neard: version="trunk" build="1.1.0-3091-ga8964d200-modified" latest_protocol=57
@@ -428,7 +428,7 @@ http://localhost:9001/transactions/BBPndo6gR4X8pzoDK7UQfoUXp5J8WDxkf8Sq75tK5FFT
 to do multiple commands to avoid repetition:
 
 ```console
-$ export NEAR_ENV=local
+export NEAR_ENV=local
 ```
 
 NEAR CLI printouts are not always the most useful or accurate, but this seems to

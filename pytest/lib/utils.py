@@ -78,7 +78,7 @@ class LogTracker:
     """
 
     def __init__(self, node: cluster.BaseNode) -> None:
-        """Initialises the tracker for given local node.
+        """Initializes the tracker for given local node.
 
         Args:
             node: Node to create tracker for.
@@ -237,6 +237,7 @@ def get_near_tempdir(subdir=None, *, clean=False):
 
 
 def load_binary_file(filepath):
+    # cspell:ignore binaryfile
     with open(filepath, "rb") as binaryfile:
         return bytearray(binaryfile.read())
 
@@ -255,6 +256,7 @@ def load_test_contract(
 
 
 def user_name():
+    # cspell:ignore getlogin
     username = os.getlogin()
     if username == 'root':  # digitalocean
         username = gcloud.list()[0].username.replace('_nearprotocol_com', '')

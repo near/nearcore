@@ -2,7 +2,7 @@
 //! without backwards compatibility of JSON encoding.
 use crate::types::StatusError;
 use near_primitives::congestion_info::CongestionInfo;
-use near_primitives::types::EpochId;
+use near_primitives::types::{EpochId, ShardId};
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
     SyncStatusView,
@@ -143,7 +143,7 @@ pub struct ProductionAtHeight {
     // None if we are not responsible for producing this block.
     pub block_production: Option<BlockProduction>,
     // Map from shard_id to chunk that we are responsible to produce at this height
-    pub chunk_production: HashMap<u64, ChunkProduction>,
+    pub chunk_production: HashMap<ShardId, ChunkProduction>,
 }
 
 // Information about the approvals that we received.
@@ -162,7 +162,7 @@ pub struct ValidatorStatus {
     pub shards: u64,
     // Current height.
     pub head_height: u64,
-    // Current validators with their stake (stake is in NEAR - not yoctonear).
+    // Current validators with their stake (stake is in NEAR - not yocto near).
     pub validators: Option<Vec<(AccountId, u64)>>,
     // All approvals that we've sent.
     pub approval_history: Vec<ApprovalHistoryEntry>,

@@ -208,7 +208,7 @@ vm_kind                                 NearVm
 eth_implicit_accounts                   true
 yield_resume                            true
 discard_custom_sections                 true
-max_congestion_incoming_gas             20_000_000_000_000_000
+max_congestion_incoming_gas             400_000_000_000_000_000
 max_congestion_outgoing_gas             10_000_000_000_000_000
 max_congestion_memory_consumption              1_000_000_000
 max_congestion_missed_chunks                               5
@@ -217,5 +217,9 @@ min_outgoing_gas                        1_000_000_000_000_000
 allowed_shard_outgoing_gas              1_000_000_000_000_000
 max_tx_gas                               500_000_000_000_000
 min_tx_gas                                20_000_000_000_000
-reject_tx_congestion_threshold          50 / 100
+reject_tx_congestion_threshold          80 / 100
 use_state_stored_receipt                true
+max_shard_bandwidth                                4_500_000
+max_single_grant                                   4_194_304
+max_allowance                                      4_500_000
+max_base_bandwidth                                   100_000

@@ -19,7 +19,7 @@ curve25519-dalek = { workspace = true, features = [
     "precomputed-tables",
     "alloc",
 ] }
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "from", "into"] }
 ed25519-dalek = { workspace = true, features = ["hazmat"] }
 hex.workspace = true
 near-account-id.workspace = true
@@ -44,7 +44,7 @@ curve25519-dalek = { workspace = true, features = ["rand_core"] }
 [features]
 default = ["rand"]
 rand = ["secp256k1/rand", "rand/getrandom", "ed25519-dalek/rand_core"]
-
+rand-std = ["secp256k1/rand-std"]
 protocol_schema = [
     "near-schema-checker-lib/protocol_schema",
 ]

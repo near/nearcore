@@ -9,6 +9,8 @@ pub use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::apply::ApplyChunkReason;
+use near_primitives::bandwidth_scheduler::BandwidthRequests;
+use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
@@ -22,6 +24,7 @@ use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
+use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
@@ -37,6 +40,9 @@ use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
+use near_vm_runner::ContractCode;
+use near_vm_runner::ContractRuntimeCache;
+use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Rational32;
 use tracing::instrument;
 
@@ -101,6 +107,13 @@ pub struct ApplyChunkResult {
     /// should be set to None for chunks before the CongestionControl protocol
     /// version and Some otherwise.
     pub congestion_info: Option<CongestionInfo>,
+    /// Requests for bandwidth to send receipts to other shards.
+    /// Will be None for protocol versions that don't have the BandwidthScheduler feature enabled.
+    pub bandwidth_requests: Option<BandwidthRequests>,
+    /// Used only for a sanity check.
+    pub bandwidth_scheduler_state_hash: CryptoHash,
+    /// Contracts accessed and deployed while applying the chunk.
+    pub contract_updates: ContractUpdates,
 }
 
 impl ApplyChunkResult {
@@ -295,6 +308,7 @@ pub struct ApplyChunkBlockContext {
     pub challenges_result: ChallengesResult,
     pub random_seed: CryptoHash,
     pub congestion_info: BlockCongestionInfo,
+    pub bandwidth_requests: BlockBandwidthRequests,
 }
 
 impl ApplyChunkBlockContext {
@@ -302,6 +316,7 @@ impl ApplyChunkBlockContext {
         header: &BlockHeader,
         gas_price: Balance,
         congestion_info: BlockCongestionInfo,
+        bandwidth_requests: BlockBandwidthRequests,
     ) -> Self {
         Self {
             height: header.height(),
@@ -312,6 +327,7 @@ impl ApplyChunkBlockContext {
             challenges_result: header.challenges_result().clone(),
             random_seed: *header.random_value(),
             congestion_info,
+            bandwidth_requests,
         }
     }
 }
@@ -457,7 +473,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -520,6 +536,15 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_runtime_config(&self, protocol_version: ProtocolVersion)
         -> Result<RuntimeConfig, Error>;
+
+    fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
+
+    /// Precompiles the contracts and stores them in the compiled contract cache.
+    fn precompile_contracts(
+        &self,
+        epoch_id: &EpochId,
+        contract_codes: Vec<ContractCode>,
+    ) -> Result<(), Error>;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -547,10 +572,10 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let shard_ids: Vec<_> = (0..32).collect();
+        let shard_ids: Vec<_> = (0..32).map(ShardId::new).collect();
         let genesis_chunks = genesis_chunks(
             vec![Trie::EMPTY_ROOT],
-            vec![Default::default(); shard_ids.len()],
+            vec![Some(Default::default()); shard_ids.len()],
             &shard_ids,
             1_000_000,
             0,
@@ -578,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_outcome_merklization() {
+    fn test_execution_outcome_merkelization() {
         let outcome1 = ExecutionOutcomeWithId {
             id: Default::default(),
             outcome: ExecutionOutcome {

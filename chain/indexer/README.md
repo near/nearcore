@@ -15,6 +15,7 @@ See the [example](https://github.com/nearprotocol/nearcore/tree/master/tools/ind
 ## How to set up and test NEAR Indexer
 
 Before you proceed, make sure you have the following software installed:
+
 * [rustup](https://rustup.rs/) or Rust version that is mentioned in `rust-toolchain` file in the root of nearcore project.
 
 ### localnet
@@ -24,15 +25,15 @@ Clone [nearcore](https://github.com/nearprotocol/nearcore)
 To run the NEAR Indexer connected to a network we need to have configs and keys prepopulated. To generate configs for localnet do the following
 
 ```bash
-$ git clone git@github.com:nearprotocol/nearcore.git
-$ cd nearcore/tools/indexer/example
-$ cargo run --release -- --home-dir ~/.near/localnet init
+git clone git@github.com:nearprotocol/nearcore.git
+cd nearcore/tools/indexer/example
+cargo run --release -- --home-dir ~/.near/localnet init
 ```
 
 The above commands should initialize necessary configs and keys to run localnet in `~/.near/localnet`.
 
 ```bash
-$ cargo run --release -- --home-dir ~/.near/localnet/ run
+cargo run --release -- --home-dir ~/.near/localnet/ run
 ```
 
 After the node is started, you should see logs of every block produced in your localnet. Get back to the code to implement any custom handling of the data flowing into the indexer.
@@ -44,21 +45,21 @@ $ NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json \
        create_account new-account.test.near --masterAccount test.near
 ```
 
-
 ### testnet / betanet
 
 To run the NEAR Indexer connected to testnet or betanet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
 
 ```bash
-$ cargo run --release -- --home-dir ~/.near/testnet init --chain-id testnet --download
+cargo run --release -- --home-dir ~/.near/testnet init --chain-id testnet --download
 ```
 
 The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID `betanet`.
 
 **NB!** According to changes in `nearcore` config generation we don't fill all the necessary fields in the config file. While this issue is open <https://github.com/nearprotocol/nearcore/issues/3156> you need to download config you want and replace the generated one manually.
- - [testnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/testnet/config.json)
- - [betanet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/betanet/config.json)
- - [mainnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/config.json)
+
+* [testnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/testnet/config.json)
+* [betanet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/betanet/config.json)
+* [mainnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/config.json)
 
 Replace `config.json` in your `--home-dir` (e.g. `~/.near/testnet/config.json`) with downloaded one.
 
@@ -74,9 +75,8 @@ Hint: See the Tweaks section below to learn more about further configuration opt
 
 After that we can run NEAR Indexer.
 
-
 ```bash
-$ cargo run --release -- --home-dir ~/.near/testnet run
+cargo run --release -- --home-dir ~/.near/testnet run
 ```
 
 After the network is synced, you should see logs of every block produced in Testnet. Get back to the code to implement any custom handling of the data flowing into the indexer.
@@ -93,11 +93,11 @@ As already has been mentioned above, the most common tweak you need to apply is 
 ...
 ```
 
-
 You can choose Indexer Framework sync mode by setting what to stream:
- - `LatestSynced` - Real-time syncing, always taking the latest finalized block to stream
- - `FromInterruption` - Starts syncing from the block NEAR Indexer was interrupted last time
- - `BlockHeight(u64)` - Specific block height to start syncing from
+
+* `LatestSynced` - Real-time syncing, always taking the latest finalized block to stream
+* `FromInterruption` - Starts syncing from the block NEAR Indexer was interrupted last time
+* `BlockHeight(u64)` - Specific block height to start syncing from
 
  Refer to `main()` function in [Indexer Example](https://github.com/nearprotocol/nearcore/blob/master/tools/indexer/example/src/main.rs)
 
@@ -108,7 +108,6 @@ Indexer Framework also exposes access to the internal APIs (see `Indexer::client
 "archive": true,
 ...
 ```
-
 
 ## Who is using NEAR Indexer?
 

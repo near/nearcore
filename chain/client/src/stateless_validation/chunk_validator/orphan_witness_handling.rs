@@ -35,7 +35,7 @@ impl Client {
         let _span = tracing::debug_span!(target: "client",
             "handle_orphan_state_witness",
             witness_height,
-            witness_shard,
+            ?witness_shard,
             witness_chunk = ?chunk_header.chunk_hash(),
             witness_prev_block = ?chunk_header.prev_block_hash(),
         )
@@ -63,7 +63,7 @@ impl Client {
             tracing::warn!(
                 target: "client",
                 witness_height,
-                witness_shard,
+                ?witness_shard,
                 witness_chunk = ?chunk_header.chunk_hash(),
                 witness_prev_block = ?chunk_header.prev_block_hash(),
                 witness_size,
@@ -87,7 +87,7 @@ impl Client {
             tracing::debug!(
                 target: "client",
                 witness_height = header.height_created(),
-                witness_shard = header.shard_id(),
+                witness_shard = ?header.shard_id(),
                 witness_chunk = ?header.chunk_hash(),
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
@@ -101,7 +101,7 @@ impl Client {
     }
 
     /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
-    /// for this block. This function takes the ready witnesses out of the orhan pool and process them.
+    /// for this block. This function takes the ready witnesses out of the orphan pool and process them.
     /// It also removes old witnesses (below final height) from the orphan pool to save memory.
     pub fn process_ready_orphan_witnesses_and_clean_old(
         &mut self,

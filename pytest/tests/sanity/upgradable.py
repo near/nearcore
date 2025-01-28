@@ -67,10 +67,37 @@ def test_protocol_versions() -> None:
               test_proto in (main_proto, main_proto + 1, main_proto + 2))
     elif head_proto == 70:
         # Before stateless validation launch (protocol version 69) on mainnet,
-        # we have protocol version 70 stabilized in master, while mainnet protocol version is still 67.
-        ok = (head_proto in (test_proto, test_proto + 1, test_proto + 2,
-                             test_proto + 3) and test_proto
-              in (main_proto, main_proto + 1, main_proto + 2, main_proto + 3))
+        # we have protocol version 70 stabilized in master, while mainnet
+        # protocol version is still 67.
+        allowed_head_proto = (
+            test_proto,
+            test_proto + 1,
+            test_proto + 2,
+            test_proto + 3,
+        )
+        allowed_main_proto = (
+            main_proto,
+            main_proto + 1,
+            main_proto + 2,
+            main_proto + 3,
+        )
+        ok = (head_proto in allowed_head_proto and
+              test_proto in allowed_main_proto)
+    elif head_proto == 76:
+        allowed_head_proto = (
+            test_proto,
+            test_proto + 1,
+            test_proto + 2,
+            test_proto + 3,
+        )
+        allowed_main_proto = (
+            main_proto,
+            main_proto + 1,
+            main_proto + 2,
+            main_proto + 3,
+        )
+        ok = (head_proto in allowed_head_proto and
+              test_proto in allowed_main_proto)
     else:
         # Otherwise only allow increasing the protocol version by 1.
         ok = (head_proto in (test_proto, test_proto + 1) and

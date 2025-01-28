@@ -3,6 +3,7 @@ pub use futures::future::BoxFuture; // pub for macros
 use futures::FutureExt;
 use near_time::Duration;
 use std::ops::DerefMut;
+use std::sync::Arc;
 
 /// Abstraction for something that can drive futures.
 ///
@@ -13,7 +14,7 @@ use std::ops::DerefMut;
 /// The reason why we need an abstraction is (1) we can intercept the future
 /// spawning to add additional instrumentation (2) we can support driving the
 /// future with TestLoop for testing.
-pub trait FutureSpawner {
+pub trait FutureSpawner: Send + Sync {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>);
 }
 
@@ -41,12 +42,40 @@ impl FutureSpawnerExt for dyn FutureSpawner + '_ {
     }
 }
 
+/// Given a future, respawn it as an equivalent future but which does not block the
+/// driver of the future. For example, if the given future directly performs
+/// computation, normally the whoever drives the future (such as a buffered_unordered)
+/// would be blocked by the computation, thereby not allowing computation of other
+/// futures driven by the same driver to proceed. This function respawns the future
+/// onto the FutureSpawner, so the driver of the returned future would not be blocked.
+pub fn respawn_for_parallelism<T: Send + 'static>(
+    future_spawner: &dyn FutureSpawner,
+    name: &'static str,
+    f: impl std::future::Future<Output = T> + Send + 'static,
+) -> impl std::future::Future<Output = T> + Send + 'static {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    future_spawner.spawn(name, async move {
+        sender.send(f.await).ok();
+    });
+    async move { receiver.await.unwrap() }
+}
+
 /// A FutureSpawner that hands over the future to Actix.
 pub struct ActixFutureSpawner;
 
 impl FutureSpawner for ActixFutureSpawner {
     fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
         near_performance_metrics::actix::spawn(description, f);
+    }
+}
+
+/// A FutureSpawner that gives futures to a tokio Runtime, possibly supporting
+/// multiple threads.
+pub struct TokioRuntimeFutureSpawner(pub Arc<tokio::runtime::Runtime>);
+
+impl FutureSpawner for TokioRuntimeFutureSpawner {
+    fn spawn_boxed(&self, _description: &'static str, f: BoxFuture<'static, ()>) {
+        self.0.spawn(f);
     }
 }
 

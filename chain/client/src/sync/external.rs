@@ -106,6 +106,9 @@ impl ExternalConnection {
                     Ok(r) => {
                         let bytes = r.bytes().await?.to_vec();
                         tracing::debug!(target: "sync", %shard_id, location, num_bytes = bytes.len(), "GCS state_part request finished");
+                        metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
+                            .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
+                            .inc_by(bytes.len() as u64);
                         Ok(bytes)
                     }
                 }
@@ -143,7 +146,7 @@ impl ExternalConnection {
         match self {
             ExternalConnection::S3 { bucket } => {
                 bucket.put_object(&location, data).await?;
-                tracing::debug!(target: "state_sync_dump", shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to S3");
+                tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to S3");
                 Ok(())
             }
             ExternalConnection::Filesystem { root_dir } => {
@@ -157,7 +160,7 @@ impl ExternalConnection {
                     .truncate(true)
                     .open(&path)?;
                 file.write_all(data)?;
-                tracing::debug!(target: "state_sync_dump", shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to a file");
+                tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to a file");
                 Ok(())
             }
             ExternalConnection::GCS { gcs_client, bucket, .. } => {
@@ -165,7 +168,7 @@ impl ExternalConnection {
                     .object()
                     .create(bucket, data.to_vec(), location, "application/octet-stream")
                     .await?;
-                tracing::debug!(target: "state_sync_dump", shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to GCS");
+                tracing::debug!(target: "state_sync_dump", ?shard_id, part_length = data.len(), ?location, ?file_type, "Wrote a state part to GCS");
                 Ok(())
             }
         }
@@ -194,7 +197,7 @@ impl ExternalConnection {
             ExternalConnection::S3 { bucket } => {
                 let prefix = format!("{}/", directory_path);
                 let list_results = bucket.list(prefix.clone(), Some("/".to_string())).await?;
-                tracing::debug!(target: "state_sync_dump", shard_id, ?directory_path, "List state parts in s3");
+                tracing::debug!(target: "state_sync_dump", ?shard_id, ?directory_path, "List state parts in s3");
                 let mut file_names = vec![];
                 for res in list_results {
                     for obj in res.contents {
@@ -205,7 +208,7 @@ impl ExternalConnection {
             }
             ExternalConnection::Filesystem { root_dir } => {
                 let path = root_dir.join(directory_path);
-                tracing::debug!(target: "state_sync_dump", shard_id, ?path, "List state parts in local directory");
+                tracing::debug!(target: "state_sync_dump", ?shard_id, ?path, "List state parts in local directory");
                 std::fs::create_dir_all(&path)?;
                 let mut file_names = vec![];
                 let files = std::fs::read_dir(&path)?;
@@ -217,7 +220,7 @@ impl ExternalConnection {
             }
             ExternalConnection::GCS { gcs_client, bucket, .. } => {
                 let prefix = format!("{}/", directory_path);
-                tracing::debug!(target: "state_sync_dump", shard_id, ?directory_path, "List state parts in GCS");
+                tracing::debug!(target: "state_sync_dump", ?shard_id, ?directory_path, "List state parts in GCS");
                 Ok(gcs_client
                     .object()
                     .list(
@@ -277,7 +280,7 @@ pub fn external_storage_location(
     chain_id: &str,
     epoch_id: &EpochId,
     epoch_height: u64,
-    shard_id: u64,
+    shard_id: ShardId,
     file_type: &StateFileType,
 ) -> String {
     format!(
@@ -291,7 +294,7 @@ pub fn external_storage_location_directory(
     chain_id: &str,
     epoch_id: &EpochId,
     epoch_height: u64,
-    shard_id: u64,
+    shard_id: ShardId,
     obj_type: &StateFileType,
 ) -> String {
     location_prefix(chain_id, epoch_height, epoch_id, shard_id, obj_type)
@@ -301,7 +304,7 @@ pub fn location_prefix(
     chain_id: &str,
     epoch_height: u64,
     epoch_id: &EpochId,
-    shard_id: u64,
+    shard_id: ShardId,
     obj_type: &StateFileType,
 ) -> String {
     match obj_type {
@@ -366,7 +369,7 @@ struct S3CredentialsConfig {
     secret_key: String,
 }
 
-pub fn create_bucket_readwrite(
+pub fn create_bucket_read_write(
     bucket: &str,
     region: &str,
     timeout: Duration,
@@ -410,6 +413,7 @@ mod test {
         ExternalConnection, StateFileType,
     };
     use near_o11y::testonly::init_test_logger;
+    use near_primitives::types::ShardId;
     use rand::distributions::{Alphanumeric, DistString};
 
     fn random_string(rand_len: usize) -> String {
@@ -454,37 +458,44 @@ mod test {
         let data: Vec<u8> = data.into();
         tracing::debug!("Data: {:?}", data);
 
-        // Directory resembles real usecase.
+        // Directory resembles real use case.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
         let full_filename = format!("{}/{}", dir, filename);
         let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
 
         // Before uploading we shouldn't see filename in the list of files.
-        let files = rt.block_on(async { connection.list_objects(0, &dir).await.unwrap() });
+        let files =
+            rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
         tracing::debug!("Files before upload: {:?}", files);
         assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 0);
 
         // Uploading the file.
         rt.block_on(async {
-            connection.put_file(file_type.clone(), &data, 0, &full_filename).await.unwrap()
+            connection
+                .put_file(file_type.clone(), &data, ShardId::new(0), &full_filename)
+                .await
+                .unwrap()
         });
 
         // After uploading we should see filename in the list of files.
-        let files = rt.block_on(async { connection.list_objects(0, &dir).await.unwrap() });
+        let files =
+            rt.block_on(async { connection.list_objects(ShardId::new(0), &dir).await.unwrap() });
         tracing::debug!("Files after upload: {:?}", files);
         assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 1);
 
         // And the data should match generates data.
-        let download_data = rt
-            .block_on(async { connection.get_file(0, &full_filename, &file_type).await.unwrap() });
+        let download_data = rt.block_on(async {
+            connection.get_file(ShardId::new(0), &full_filename, &file_type).await.unwrap()
+        });
         assert_eq!(download_data, data);
 
         // Also try to download some data at nonexistent location and expect to fail.
         let filename = random_string(8);
         let full_filename = format!("{}/{}", dir, filename);
 
-        let download_data =
-            rt.block_on(async { connection.get_file(0, &full_filename, &file_type).await });
+        let download_data = rt.block_on(async {
+            connection.get_file(ShardId::new(0), &full_filename, &file_type).await
+        });
         assert!(download_data.is_err(), "{:?}", download_data);
     }
 }

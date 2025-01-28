@@ -837,22 +837,14 @@ impl<T: ChainAccess> TxMirror<T> {
         let target_config =
             nearcore::config::load_config(target_home, GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading target config from {:?}", target_home))?;
-        if !target_config.client_config.archive {
-            // this is probably not going to come up, but we want to avoid a situation where
-            // we go offline for a long time and then come back online, and we state sync to
-            // the head of the target chain without looking for our outcomes that made it on
-            // chain right before we went offline
-            anyhow::bail!("config file in {} has archive: false, but archive must be set to true for the target chain", target_home.display());
-        }
         let db = match mirror_db_path {
             Some(mirror_db_path) => open_db(mirror_db_path),
             None => {
                 // keep backward compatibility
                 let mirror_db_path = near_store::NodeStorage::opener(
                     target_home,
-                    target_config.config.archive,
                     &target_config.config.store,
-                    None,
+                    target_config.config.archival_config(),
                 )
                 .path()
                 .join("mirror");
@@ -1771,6 +1763,7 @@ impl<T: ChainAccess> TxMirror<T> {
             home_dir,
             sync_mode: near_indexer::SyncModeEnum::FromInterruption,
             await_for_node_synced: near_indexer::AwaitForNodeSyncedEnum::StreamWhileSyncing,
+            finality: Finality::Final,
             validate_genesis: false,
         })
         .context("failed to start target chain indexer")?;
@@ -1989,6 +1982,9 @@ impl<T: ChainAccess> TxMirror<T> {
         let tracker2 = tracker.clone();
         let index_target_thread = actix::Arbiter::new();
 
+        // TODO: Consider moving this back to the TxTracker struct. Separating these made certain things easier, but now it
+        // means we need to be careful about the lock order to avoid deadlocks. We keep the convention that the TxTracker is
+        // always locked first.
         let tx_block_queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let tx_block_queue2 = tx_block_queue.clone();
@@ -2027,7 +2023,7 @@ impl<T: ChainAccess> TxMirror<T> {
             let mut block = MappedBlock {
                 source_hash: CryptoHash::default(),
                 source_height: last_height,
-                chunks: vec![MappedChunk { shard_id: 0, txs: Vec::new() }],
+                chunks: vec![MappedChunk { shard_id: ShardId::new(0), txs: Vec::new() }],
             };
 
             for h in next_heights {

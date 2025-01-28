@@ -18,7 +18,7 @@ anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 crossbeam.workspace = true
-derive_more.workspace = true
+derive_more = { workspace = true, features = ["as_ref", "into"] }
 derive-where.workspace = true
 smallvec.workspace = true
 enum-map.workspace = true
@@ -60,6 +60,8 @@ near-chain.workspace = true
 near-chunks.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+rand_chacha.workspace = true
+testlib.workspace = true
 
 [[bench]]
 name = "trie_bench"
@@ -76,7 +78,6 @@ harness = false
 [features]
 default = []
 io_trace = []
-no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = ["near-vm-runner/test_features"]
 
@@ -90,6 +91,7 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-vm-runner/nightly_protocol",
+  "testlib/nightly_protocol",
 ]
 nightly = [
   "near-chain-configs/nightly",
@@ -101,6 +103,7 @@ nightly = [
   "near-primitives/nightly",
   "near-vm-runner/nightly",
   "nightly_protocol",
+  "testlib/nightly",
 ]
 protocol_schema = [
   "near-crypto/protocol_schema",

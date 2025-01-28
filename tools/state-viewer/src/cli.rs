@@ -8,6 +8,9 @@ use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 use crate::latest_witnesses::StateWitnessCmd;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
+use near_epoch_manager::EpochManager;
+use near_jsonrpc::start_http_for_readonly_debug_querying;
+use near_network::tcp::ListenerAddr;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
@@ -16,9 +19,12 @@ use near_primitives::types::{BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::EpochHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::{Mode, NodeStorage, Store, Temperature};
-use nearcore::{load_config, NearConfig};
+use nearcore::entity_debug::EntityDebugHandlerImpl;
+use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(clap::Subcommand)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
@@ -52,6 +58,9 @@ pub enum StateViewerSubCommand {
     /// List account names with contracts deployed.
     #[clap(alias = "contract_accounts")]
     ContractAccounts(ContractAccountsCmd),
+    /// Run a readonly Debug UI API server so the Debug UI can be used to query this node.
+    #[clap(alias = "debug_ui")]
+    DebugUI(DebugUICmd),
     /// Dump contract data in storage of given account to binary file.
     #[clap(alias = "dump_account_storage")]
     DumpAccountStorage(DumpAccountStorageCmd),
@@ -135,12 +144,10 @@ impl StateViewerSubCommand {
         let near_config = load_config(home_dir, genesis_validation)
             .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
 
-        let cold_config: Option<&near_store::StoreConfig> = near_config.config.cold_store.as_ref();
         let store_opener = NodeStorage::opener(
             home_dir,
-            near_config.config.archive,
             &near_config.config.store,
-            cold_config,
+            near_config.config.archival_config(),
         );
 
         let storage = store_opener.open_in_mode(mode).unwrap();
@@ -158,11 +165,14 @@ impl StateViewerSubCommand {
             }
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Chain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ClearCache => clear_cache(store),
             StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::DebugUI(cmd) => {
+                cmd.run(home_dir, near_config, storage.get_hot_store(), storage.get_cold_store())
+            }
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
@@ -179,7 +189,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewChain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
@@ -196,7 +206,10 @@ pub enum StorageSource {
     /// Use the data stored in trie, but without paying extra gas costs.
     /// This could be used to simulate flat storage when the latter is not present.
     TrieFree,
+    #[value(alias("flat"))]
     FlatStorage,
+    /// Implies flat storage and loads the memtries as well.
+    Memtrie,
 }
 
 impl StorageSource {
@@ -205,6 +218,9 @@ impl StorageSource {
             StorageSource::Trie => RuntimeStorageConfig::new(state_root, false),
             StorageSource::TrieFree => RuntimeStorageConfig::new_with_db_trie_only(state_root),
             StorageSource::FlatStorage => RuntimeStorageConfig::new(state_root, true),
+            // This is the same as FlatStorage handling. That's because memtrie initialization
+            // happens as part of `ShardTries::load_memtrie` function call.
+            StorageSource::Memtrie => RuntimeStorageConfig::new(state_root, true),
         }
     }
 }
@@ -271,16 +287,16 @@ impl ApplyChunkCmd {
 #[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ApplyRangeMode {
     /// Applies chunks one after another in order of increasing heights.
+    ///
+    /// Great for profiling.
     Sequential,
     /// Applies chunks in parallel.
+    ///
     /// Useful for quick correctness check of applying chunks by comparing
     /// results with `ChunkExtra`s.
     Parallel,
-    /// Sequentially applies chunks from flat storage head until chain
-    /// final head, moving flat head forward. Use in combination with
-    /// `MoveFlatHeadCmd` and `MoveFlatHeadMode::Back`.
-    /// Useful for benchmarking.
-    Benchmarking,
+    /// Applies a single block repeatedly without committing any state changes.
+    Benchmark,
 }
 
 #[derive(clap::Parser)]
@@ -314,7 +330,7 @@ impl ApplyRangeCmd {
         store: Store,
         node_storage: NodeStorage,
     ) {
-        if matches!(self.mode, ApplyRangeMode::Benchmarking) && self.save_state.is_some() {
+        if matches!(self.mode, ApplyRangeMode::Benchmark) && self.save_state.is_some() {
             panic!("Persisting trie nodes in storage is not compatible with benchmark mode!");
         }
         apply_range(
@@ -377,8 +393,15 @@ pub struct ChainCmd {
 }
 
 impl ChainCmd {
-    pub fn run(self, near_config: NearConfig, store: Store) {
-        print_chain(self.start_index, self.end_index, near_config, store, self.show_full_hashes);
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        print_chain(
+            self.start_index,
+            self.end_index,
+            home_dir,
+            near_config,
+            store,
+            self.show_full_hashes,
+        );
     }
 }
 
@@ -404,6 +427,45 @@ pub struct ContractAccountsCmd {
 impl ContractAccountsCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         contract_accounts(home_dir, store, near_config, self.filter).unwrap();
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct DebugUICmd {
+    #[clap(long)]
+    port: Option<u16>,
+}
+
+impl DebugUICmd {
+    pub fn run(
+        self,
+        home_dir: &Path,
+        near_config: NearConfig,
+        store: Store,
+        cold_store: Option<Store>,
+    ) {
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
+        let debug_handler = EntityDebugHandlerImpl {
+            hot_store: store.clone(),
+            cold_store,
+            epoch_manager: epoch_manager.clone(),
+            runtime: NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager)
+                .unwrap(),
+        };
+        let mut rpc_config = near_config.rpc_config.unwrap_or_default();
+        if let Some(port) = self.port {
+            rpc_config.addr = ListenerAddr::new(SocketAddr::new(rpc_config.addr.ip(), port));
+        }
+        actix::System::new()
+            .block_on(start_http_for_readonly_debug_querying(
+                rpc_config.addr,
+                Arc::new(debug_handler),
+            ))
+            .unwrap();
     }
 }
 
@@ -771,8 +833,8 @@ pub struct ViewChainCmd {
 }
 
 impl ViewChainCmd {
-    pub fn run(self, near_config: NearConfig, store: Store) {
-        view_chain(self.height, self.block, self.chunk, near_config, store);
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_chain(self.height, self.block, self.chunk, home_dir, near_config, store);
     }
 }
 

@@ -1,17 +1,24 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
+use anyhow::{anyhow, Context};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{ChunkHash, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
+use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
+use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
+    StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
+};
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
     ValidatorKickoutReason, ValidatorStats,
 };
 use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
-use near_primitives::utils::get_outcome_id_block_hash;
+use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash};
 use near_primitives::version::ProtocolVersion;
 use std::collections::{BTreeMap, HashMap};
 use tracing::info;
@@ -114,12 +121,10 @@ impl<'a> BatchedStoreUpdate<'a> {
 /// new blocks.
 pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
     let mut update = BatchedStoreUpdate::new(&store, 10_000_000);
-    for row in
-        store.iter_prefix_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult, &[])
-    {
+    for row in store.iter_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult) {
         let (_, mut outcomes) = row?;
         // It appears that it was possible that the same entry in the original column contained
-        // duplicate outcomes. We remove them here to avoid panicing due to issuing a
+        // duplicate outcomes. We remove them here to avoid panicking due to issuing a
         // self-overwriting transaction.
         outcomes.sort_by_key(|outcome| (*outcome.id(), outcome.block_hash));
         outcomes.dedup_by_key(|outcome| (*outcome.id(), outcome.block_hash));
@@ -355,6 +360,159 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
         tracing::info_span!(target: "migrations", "Deleting contents of deprecated _ReceiptIdToShardId column").entered();
     let mut update = store.store_update();
     update.delete_all(DBCol::_ReceiptIdToShardId);
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 40 to 41.
+///
+/// The migration replaces non-enum StoredChunkStateTransitionData struct with its enum version V1.
+/// NOTE: The data written by this migration is overridden by migrate_42_to_43 to a different format.
+pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshDeserialize)]
+    pub struct DeprecatedStoredChunkStateTransitionData {
+        pub base_state: PartialState,
+        pub receipts_hash: CryptoHash,
+    }
+
+    let _span =
+        tracing::info_span!(target: "migrations", "Replacing StoredChunkStateTransitionData with its enum version V1").entered();
+    let mut update = store.store_update();
+    for result in store.iter(DBCol::StateTransitionData) {
+        let (key, old_value) = result?;
+        let DeprecatedStoredChunkStateTransitionData { base_state, receipts_hash } =
+            DeprecatedStoredChunkStateTransitionData::try_from_slice(&old_value)?;
+        let new_value = borsh::to_vec(&DeprecatedStoredChunkStateTransitionDataEnum::V1(
+            DeprecatedStoredChunkStateTransitionDataV1 {
+                base_state,
+                receipts_hash,
+                contract_accesses: Default::default(),
+            },
+        ))?;
+        update.set(DBCol::StateTransitionData, &key, &new_value);
+    }
+    update.commit()?;
+    Ok(())
+}
+
+/// Migrates the database from version 41 to 42.
+///
+/// This rewrites the contents of the StateDlInfos column
+pub fn migrate_41_to_42(store: &Store) -> anyhow::Result<()> {
+    #[derive(BorshSerialize, BorshDeserialize)]
+    struct LegacyShardInfo(ShardId, ChunkHash);
+
+    #[derive(BorshSerialize, BorshDeserialize)]
+    struct LegacyStateSyncInfo {
+        sync_hash: CryptoHash,
+        shards: Vec<LegacyShardInfo>,
+    }
+
+    let mut update = store.store_update();
+
+    for row in store.iter_ser::<LegacyStateSyncInfo>(DBCol::StateDlInfos) {
+        let (key, LegacyStateSyncInfo { sync_hash, shards }) =
+            row.context("failed deserializing legacy StateSyncInfo in StateDlInfos")?;
+
+        let epoch_first_block = CryptoHash::try_from_slice(&key)
+            .context("failed deserializing CryptoHash key in StateDlInfos")?;
+
+        if epoch_first_block != sync_hash {
+            tracing::warn!(key = %epoch_first_block, %sync_hash, "sync_hash field of legacy StateSyncInfo not equal to the key. Something is wrong with this node's catchup info");
+        }
+        let shards =
+            shards.into_iter().map(|LegacyShardInfo(shard_id, _chunk_hash)| shard_id).collect();
+        let new_info = StateSyncInfo::V0(StateSyncInfoV0 { sync_hash, shards });
+        update
+            .set_ser(DBCol::StateDlInfos, &key, &new_info)
+            .context("failed writing to StateDlInfos")?;
+    }
+    update.commit()?;
+    Ok(())
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+enum DeprecatedStoredChunkStateTransitionDataEnum {
+    V1(DeprecatedStoredChunkStateTransitionDataV1),
+    V2(DeprecatedStoredChunkStateTransitionDataV2),
+    V3(DeprecatedStoredChunkStateTransitionDataV3),
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct DeprecatedStoredChunkStateTransitionDataV1 {
+    base_state: PartialState,
+    receipts_hash: CryptoHash,
+    contract_accesses: Vec<CodeHash>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct DeprecatedStoredChunkStateTransitionDataV2 {
+    base_state: PartialState,
+    receipts_hash: CryptoHash,
+    contract_accesses: Vec<CodeHash>,
+    // This field is ignored since it only contains code hashes.
+    _contract_deploys: Vec<CodeHash>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct DeprecatedStoredChunkStateTransitionDataV3 {
+    base_state: PartialState,
+    receipts_hash: CryptoHash,
+    contract_accesses: Vec<CodeHash>,
+    contract_deploys: Vec<CodeBytes>,
+}
+
+/// Migrates the database from version 42 to 43.
+///
+/// Merges versions V1-V3 of StoredChunkStateTransitionData into a single version.
+pub fn migrate_42_to_43(store: &Store) -> anyhow::Result<()> {
+    let _span =
+        tracing::info_span!(target: "migrations", "Merging versions V1-V3 of StoredChunkStateTransitionData into single version").entered();
+    let mut update = store.store_update();
+    for result in store.iter(DBCol::StateTransitionData) {
+        let (key, old_value) = result?;
+
+        let old_data = DeprecatedStoredChunkStateTransitionDataEnum::try_from_slice(&old_value).map_err(|err| {
+            if let Ok((block_hash, shard_id)) = get_block_shard_id_rev(&key) {
+                anyhow!("Failed to parse StoredChunkStateTransitionData in DB. Block: {:?}, Shard: {:?}, Error: {:?}", block_hash, shard_id, err)
+            } else {
+                anyhow!("Failed to parse StoredChunkStateTransitionData in DB. Key: {:?}, Error: {:?}", key, err)
+            }
+        })?;
+        let (base_state, receipts_hash, contract_accesses, contract_deploys) = match old_data {
+            DeprecatedStoredChunkStateTransitionDataEnum::V1(
+                DeprecatedStoredChunkStateTransitionDataV1 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                },
+            )
+            | DeprecatedStoredChunkStateTransitionDataEnum::V2(
+                DeprecatedStoredChunkStateTransitionDataV2 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                    ..
+                },
+            ) => (base_state, receipts_hash, contract_accesses, vec![]),
+            DeprecatedStoredChunkStateTransitionDataEnum::V3(
+                DeprecatedStoredChunkStateTransitionDataV3 {
+                    base_state,
+                    receipts_hash,
+                    contract_accesses,
+                    contract_deploys,
+                },
+            ) => (base_state, receipts_hash, contract_accesses, contract_deploys),
+        };
+        let new_value =
+            borsh::to_vec(&StoredChunkStateTransitionData::V1(StoredChunkStateTransitionDataV1 {
+                base_state,
+                receipts_hash,
+                contract_accesses,
+                contract_deploys,
+            }))?;
+        update.set(DBCol::StateTransitionData, &key, &new_value);
+    }
     update.commit()?;
     Ok(())
 }

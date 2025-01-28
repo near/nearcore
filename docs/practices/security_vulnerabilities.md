@@ -1,5 +1,6 @@
 ## Security Vulnerabilities
 
+<!-- cspell:ignore rgba -->
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
 
 The intended audience of the information presented here is developers working
@@ -26,11 +27,12 @@ security-sensitive issues.
    using the following commands:
 
     ```console
-    $ git remote add nearcore-public git@github.com:near/nearcore
-    $ git remote add nearcore-private git@github.com:near/nearcore-private
-    $ git fetch nearcore-public
-    $ git push nearcore-private nearcore-public/master:master
+    git remote add nearcore-public git@github.com:near/nearcore
+    git remote add nearcore-private git@github.com:near/nearcore-private
+    git fetch nearcore-public
+    git push nearcore-private nearcore-public/master:master
     ```
+
 2. All security-sensitive issues must be created on the private nearcore
    repository. You must also assign one of the `[P-S0, P-S1]` labels to the
    issue to indicate the severity of the issue. The two criteria to use to help

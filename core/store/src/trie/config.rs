@@ -9,12 +9,11 @@ use tracing::error;
 /// It is chosen to correspond roughly to the old limit, which was
 /// 50k entries * TRIE_LIMIT_CACHED_VALUE_SIZE.
 pub(crate) const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: bytesize::ByteSize =
-    if cfg!(feature = "no_cache") { bytesize::ByteSize(1) } else { bytesize::ByteSize::mb(50) };
+    bytesize::ByteSize::mb(50);
 
 /// Capacity for the deletions queue.
 /// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
-pub(crate) const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize =
-    if cfg!(feature = "no_cache") { 1 } else { 100_000 };
+pub(crate) const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize = 100_000;
 
 /// Values above this size (in bytes) are never cached.
 /// Note that most of Trie inner nodes are smaller than this - e.g. branches use around 32 * 16 = 512 bytes.
@@ -35,9 +34,9 @@ pub struct TrieConfig {
     pub kaiching_prefetch_config: Vec<PrefetchConfig>,
 
     /// List of shards we will load into memory.
-    pub load_mem_tries_for_shards: Vec<ShardUId>,
+    pub load_memtries_for_shards: Vec<ShardUId>,
     /// Whether mem-trie should be loaded for each tracked shard.
-    pub load_mem_tries_for_tracked_shards: bool,
+    pub load_memtries_for_tracked_shards: bool,
 }
 
 impl TrieConfig {
@@ -63,8 +62,8 @@ impl TrieConfig {
         }
         this.claim_sweat_prefetch_config.clone_from(&config.claim_sweat_prefetch_config);
         this.kaiching_prefetch_config.clone_from(&config.kaiching_prefetch_config);
-        this.load_mem_tries_for_shards.clone_from(&config.load_mem_tries_for_shards);
-        this.load_mem_tries_for_tracked_shards = config.load_mem_tries_for_tracked_shards;
+        this.load_memtries_for_shards.clone_from(&config.load_memtries_for_shards);
+        this.load_memtries_for_tracked_shards = config.load_memtries_for_tracked_shards;
 
         this
     }

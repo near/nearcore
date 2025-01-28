@@ -1,15 +1,15 @@
 use near_primitives::hash::CryptoHash;
 
 use crate::trie::nibble_slice::NibbleSlice;
-use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
-use crate::{MissingTrieValueContext, StorageError, Trie};
+use crate::{StorageError, Trie};
 
 use super::mem::iter::STMemTrieIterator;
+use super::{RawTrieNode, RawTrieNodeWithSize};
 
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
 struct Crumb {
-    node: TrieNodeWithSize,
+    node: Option<RawTrieNodeWithSize>,
     status: CrumbStatus,
     prefix_boundary: bool,
 }
@@ -31,11 +31,20 @@ impl Crumb {
             self.status = CrumbStatus::Exiting;
             return;
         }
-        self.status = match (&self.status, &self.node.node) {
-            (_, &TrieNode::Empty) => CrumbStatus::Exiting,
+
+        let Some(node) = &self.node else {
+            self.status = CrumbStatus::Exiting;
+            return;
+        };
+
+        self.status = match (&self.status, &node.node) {
             (&CrumbStatus::Entering, _) => CrumbStatus::At,
-            (&CrumbStatus::At, &TrieNode::Branch(_, _)) => CrumbStatus::AtChild(0),
-            (&CrumbStatus::AtChild(x), &TrieNode::Branch(_, _)) if x < 15 => {
+            (&CrumbStatus::At, RawTrieNode::BranchNoValue(_)) => CrumbStatus::AtChild(0),
+            (&CrumbStatus::At, RawTrieNode::BranchWithValue(_, _)) => CrumbStatus::AtChild(0),
+            (&CrumbStatus::AtChild(x), RawTrieNode::BranchNoValue(_))
+            | (&CrumbStatus::AtChild(x), RawTrieNode::BranchWithValue(_, _))
+                if x < 15 =>
+            {
                 CrumbStatus::AtChild(x + 1)
             }
             _ => CrumbStatus::Exiting,
@@ -72,7 +81,7 @@ pub struct DiskTrieIterator<'a> {
     prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
 }
 
-/// The TrieTiem is a tuple of (key, value) of the node.
+/// The TrieItem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
@@ -154,9 +163,12 @@ impl<'a> DiskTrieIterator<'a> {
             self.descend_into_node(&hash)?;
             let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
             prev_prefix_boundary = prefix_boundary;
+
+            let Some(node) = node else {
+                break;
+            };
             match &node.node {
-                TrieNode::Empty => break,
-                TrieNode::Leaf(leaf_key, _) => {
+                RawTrieNode::Leaf(leaf_key, _) => {
                     let existing_key = NibbleSlice::from_encoded(leaf_key).0;
                     if !check_ext_key(&key, &existing_key) {
                         self.key_nibbles.extend(existing_key.iter());
@@ -164,7 +176,8 @@ impl<'a> DiskTrieIterator<'a> {
                     }
                     break;
                 }
-                TrieNode::Branch(children, _) => {
+                RawTrieNode::BranchNoValue(children)
+                | RawTrieNode::BranchWithValue(_, children) => {
                     if key.is_empty() {
                         break;
                     }
@@ -172,18 +185,18 @@ impl<'a> DiskTrieIterator<'a> {
                     self.key_nibbles.push(idx);
                     *status = CrumbStatus::AtChild(idx);
                     if let Some(ref child) = children[idx] {
-                        hash = *child.unwrap_hash();
+                        hash = *child;
                         key = key.mid(1);
                     } else {
                         *prefix_boundary = is_prefix_seek;
                         break;
                     }
                 }
-                TrieNode::Extension(ext_key, child) => {
+                RawTrieNode::Extension(ext_key, child) => {
                     let existing_key = NibbleSlice::from_encoded(ext_key).0;
                     if key.starts_with(&existing_key) {
                         key = key.mid(existing_key.len());
-                        hash = *child.unwrap_hash();
+                        hash = *child;
                         *status = CrumbStatus::At;
                         self.key_nibbles.extend(existing_key.iter());
                     } else {
@@ -206,12 +219,13 @@ impl<'a> DiskTrieIterator<'a> {
     /// with [`Self::remember_visited_nodes`]), the node will be added to the
     /// list.
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
-        let (bytes, node) = self.trie.retrieve_node(hash)?;
-        if let Some(ref mut visited) = self.visited_nodes {
-            visited.push(bytes.ok_or({
-                StorageError::MissingTrieValue(MissingTrieValueContext::TrieIterator, *hash)
-            })?);
-        }
+        let node = self.trie.retrieve_raw_node(hash, true, true)?.map(|(bytes, node)| {
+            if let Some(ref mut visited) = self.visited_nodes {
+                visited.push(bytes);
+            }
+            node
+        });
+
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())
     }
@@ -227,7 +241,9 @@ impl<'a> DiskTrieIterator<'a> {
     fn has_value(&self) -> bool {
         match self.trail.last() {
             Some(b) => match &b.status {
-                CrumbStatus::At => b.node.node.has_value(),
+                CrumbStatus::At => {
+                    b.node.as_ref().map(|node| node.node.has_value()).unwrap_or_default()
+                }
                 _ => false,
             },
             None => false, // Trail finished
@@ -237,45 +253,40 @@ impl<'a> DiskTrieIterator<'a> {
     fn iter_step(&mut self) -> Option<IterStep> {
         let last = self.trail.last_mut()?;
         last.increment();
-        Some(match (last.status, &last.node.node) {
+        let Some(node) = &last.node else {
+            return Some(IterStep::PopTrail);
+        };
+        Some(match (last.status, &node.node) {
             (CrumbStatus::Exiting, n) => {
                 match n {
-                    TrieNode::Leaf(ref key, _) | TrieNode::Extension(ref key, _) => {
+                    RawTrieNode::Leaf(ref key, _) | RawTrieNode::Extension(ref key, _) => {
                         let existing_key = NibbleSlice::from_encoded(key).0;
                         let l = self.key_nibbles.len();
                         self.key_nibbles.truncate(l - existing_key.len());
                     }
-                    TrieNode::Branch(_, _) => {
+                    RawTrieNode::BranchNoValue(_) | RawTrieNode::BranchWithValue(_, _) => {
                         self.key_nibbles.pop();
                     }
-                    _ => {}
                 }
                 IterStep::PopTrail
             }
-            (CrumbStatus::At, TrieNode::Branch(_, Some(value))) => {
-                let hash = match value {
-                    ValueHandle::HashAndSize(value) => value.hash,
-                    ValueHandle::InMemory(_node) => unreachable!(),
-                };
-                IterStep::Value(hash)
+            (CrumbStatus::At, RawTrieNode::BranchWithValue(value, _)) => {
+                IterStep::Value(value.hash)
             }
-            (CrumbStatus::At, TrieNode::Branch(_, None)) => IterStep::Continue,
-            (CrumbStatus::At, TrieNode::Leaf(key, value)) => {
-                let hash = match value {
-                    ValueHandle::HashAndSize(value) => value.hash,
-                    ValueHandle::InMemory(_node) => unreachable!(),
-                };
+            (CrumbStatus::At, RawTrieNode::BranchNoValue(_)) => IterStep::Continue,
+            (CrumbStatus::At, RawTrieNode::Leaf(key, value)) => {
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
-                IterStep::Value(hash)
+                IterStep::Value(value.hash)
             }
-            (CrumbStatus::At, TrieNode::Extension(key, child)) => {
-                let hash = *child.unwrap_hash();
+            (CrumbStatus::At, RawTrieNode::Extension(key, child)) => {
+                let hash = *child;
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
                 IterStep::Descend(hash)
             }
-            (CrumbStatus::AtChild(i), TrieNode::Branch(children, _)) => {
+            (CrumbStatus::AtChild(i), RawTrieNode::BranchNoValue(children))
+            | (CrumbStatus::AtChild(i), RawTrieNode::BranchWithValue(_, children)) => {
                 if i == 0 {
                     self.key_nibbles.push(0);
                 }
@@ -283,7 +294,7 @@ impl<'a> DiskTrieIterator<'a> {
                     if i != 0 {
                         *self.key_nibbles.last_mut().expect("Pushed child value before") = i;
                     }
-                    IterStep::Descend(*child.unwrap_hash())
+                    IterStep::Descend(*child)
                 } else {
                     IterStep::Continue
                 }
@@ -458,7 +469,7 @@ mod tests {
     use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
     use itertools::Itertools;
-    use near_primitives::shard_layout::ShardUId;
+    use near_primitives::shard_layout::{ShardLayout, ShardUId};
     use rand::seq::SliceRandom;
     use rand::Rng;
     use std::collections::BTreeMap;
@@ -653,12 +664,13 @@ mod tests {
         rng: &mut rand::rngs::ThreadRng,
         use_memtries: bool,
     ) -> (Vec<(Vec<u8>, Option<Vec<u8>>)>, BTreeMap<Vec<u8>, Vec<u8>>, Trie) {
+        let shard_layout = ShardLayout::multi_shard(2, 1);
+        let shard_uid = shard_layout.shard_uids().next().unwrap();
         let tries = TestTriesBuilder::new()
-            .with_shard_layout(1, 2)
+            .with_shard_layout(shard_layout)
             .with_flat_storage(use_memtries)
             .with_in_memory_tries(use_memtries)
             .build();
-        let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = gen_changes(rng, 10);
         let trie_changes = simplify_changes(&trie_changes);
 

@@ -8,10 +8,12 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::ShardId;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::ShardUId;
@@ -63,7 +65,7 @@ fn test_bad_shard_id() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap(); // modify the block and resign it
     let validator_signer = create_test_signer("test0");
-    let mut chunks: Vec<_> = block.chunks().iter().cloned().collect();
+    let mut chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
     // modify chunk 0 to have shard_id 1
     let chunk = chunks.get(0).unwrap();
     let outgoing_receipts_root = chunks.get(1).unwrap().prev_outgoing_receipts_root();
@@ -78,7 +80,7 @@ fn test_bad_shard_id() {
         chunk.encoded_merkle_root(),
         chunk.encoded_length(),
         2,
-        1,
+        ShardId::new(1),
         chunk.prev_gas_used(),
         chunk.gas_limit(),
         chunk.prev_balance_burnt(),
@@ -86,6 +88,7 @@ fn test_bad_shard_id() {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         congestion_info,
+        chunk.bandwidth_requests().cloned(),
         &validator_signer,
     );
     modified_chunk.height_included = 2;
@@ -102,7 +105,11 @@ fn test_bad_shard_id() {
     let err = env.clients[0]
         .process_block_test(MaybeValidated::from(block), Provenance::NONE)
         .unwrap_err();
-    assert_matches!(err, near_chain::Error::InvalidShardId(1));
+    if let near_chain::Error::InvalidShardId(shard_id) = err {
+        assert!(shard_id == ShardId::new(1));
+    } else {
+        panic!("Expected InvalidShardId error, got {:?}", err);
+    }
 }
 
 /// Test that if a block's content (vrf_value) is corrupted, the invalid block will not affect the node's block processing
@@ -207,7 +214,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
 
     let validator_signer = create_test_signer("test0");
 
-    let chunks: Vec<_> = block.chunks().iter().cloned().collect();
+    let chunks: Vec<_> = block.chunks().iter_deprecated().cloned().collect();
     let chunk = chunks.get(0).unwrap();
 
     let mut congestion_info = chunk.congestion_info().unwrap_or_default();
@@ -229,6 +236,7 @@ fn test_bad_congestion_info_impl(mode: BadCongestionInfoMode) {
         chunk.tx_root(),
         chunk.prev_validator_proposals().collect(),
         Some(congestion_info),
+        chunk.bandwidth_requests().cloned(),
         &validator_signer,
     );
     modified_chunk_header.height_included = 2;
@@ -279,4 +287,34 @@ fn test_bad_congestion_info_corrupt_allowed_shard() {
 #[test]
 fn test_bad_congestion_info_none() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::None);
+}
+
+// Helper function to check that a block was produced from an optimistic block
+fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &OptimisticBlock) {
+    assert_eq!(block.header().height(), optimistic_block.inner.block_height, "height");
+    assert_eq!(
+        block.header().prev_hash(),
+        &optimistic_block.inner.prev_block_hash,
+        "previous hash"
+    );
+    assert_eq!(block.header().raw_timestamp(), optimistic_block.inner.block_timestamp, "timestamp");
+    assert_eq!(block.header().random_value(), &optimistic_block.inner.random_value, "random value");
+}
+
+// Testing the production and application of optimistic blocks
+#[test]
+fn test_process_optimistic_block() {
+    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
+    let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
+    env.process_block(0, prev_block, Provenance::PRODUCED);
+    assert!(!env.clients[0].is_optimistic_block_done(2), "Optimistic block should not be ready");
+    let optimistic_block = env.clients[0].produce_optimistic_block_on_head(2).unwrap().unwrap();
+    // Store optimistic block to be used at block production.
+    env.clients[0].save_optimistic_block(&optimistic_block);
+    assert!(env.clients[0].is_optimistic_block_done(2), "Optimistic block should be ready");
+
+    // TODO(#10584): Process chunks with optimistic block
+
+    let block = env.clients[0].produce_block(2).unwrap().unwrap();
+    check_block_produced_from_optimistic_block(&block, &optimistic_block);
 }

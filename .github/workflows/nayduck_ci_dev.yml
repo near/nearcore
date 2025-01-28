@@ -1,0 +1,62 @@
+name: CI Nayduck DEV tests
+on:
+  merge_group:
+  workflow_dispatch:
+
+jobs:
+  nayduck_dev_tests:
+    name: "Run Nayduck CI DEV tests"
+    runs-on: ubuntu-latest
+    environment: development
+    timeout-minutes: 120
+
+    steps:
+      - name: Install JQ json processor
+        run: sudo apt install jq
+
+      - name: Checkout nearcore repository
+        uses: actions/checkout@v4
+
+      - name: Install required python modules
+        run: |
+          pip3 install -r ./pytest/requirements.txt
+
+      - name: Create nayduck-code file
+        run: |
+          echo ${{ secrets.NAYDUCK_CODE }} > ~/.config/nayduck-code
+
+      - name: Run Nayduck tests and wait for results
+        id: nayduck_run
+        run: |
+          # Wait 1 min to ensure Nayduck workers pool is not
+          # blocked while running merge-blocking tests from ci.txt
+          sleep 60
+          NEW_TEST=$(python3 ./scripts/nayduck.py --test-file nightly/ci_dev.txt)
+          RUN_ID="$(echo $NEW_TEST | grep https | sed -E 's|.*\/run\/([0-9]+)|\1|' | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g')"
+          echo "nayduck_run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+          sleep 10
+
+          # wait all the tests to finish
+          while true; do
+            TEST_RESULTS=$(curl -s https://nayduck.nearone.org/api/run/$RUN_ID)
+            TESTS_NOT_READY=$(jq '.tests | .[] | select(.status == "RUNNING" or .status == "PENDING") ' <<< ${TEST_RESULTS} )
+            if [ -z "$TESTS_NOT_READY" ]; then break; fi
+            echo "Tests are not ready yet. Sleeping 1 minute..."
+            sleep 60
+          done
+
+          UNSUCCESSFUL_TESTS=$(jq '.tests | .[] | select(.status != "PASSED" and .status != "IGNORED") ' <<< ${TEST_RESULTS} )
+          if [ -z "$UNSUCCESSFUL_TESTS" ]; then
+            echo "Nayduck CI tests passed."
+            echo "Results available at https://nayduck.nearone.org/#/run/$RUN_ID"
+          else
+            echo "CI Nayduck tests are failing https://nayduck.nearone.org/#/run/$RUN_ID."
+            echo "Fix them before merging"
+            exit 1
+          fi
+
+      - name: Cleanup Nayduck tests on cancel
+        if: cancelled()
+        run: |
+          python3 ./scripts/nayduck.py -c ${{ steps.nayduck_run.outputs.nayduck_run_id }}

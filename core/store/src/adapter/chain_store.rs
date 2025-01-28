@@ -25,6 +25,7 @@ use crate::{
 
 use super::StoreAdapter;
 
+/// TODO: having genesis_height and save_trie_changes don't make sense here
 #[derive(Clone)]
 pub struct ChainStoreAdapter {
     store: Store,
@@ -38,8 +39,8 @@ pub struct ChainStoreAdapter {
 }
 
 impl StoreAdapter for ChainStoreAdapter {
-    fn store(&self) -> Store {
-        self.store.clone()
+    fn store_ref(&self) -> &Store {
+        &self.store
     }
 }
 
@@ -377,6 +378,13 @@ impl ChainStoreAdapter {
             Ok(Some(header)) => Ok(header),
             _ => Err(Error::Other("Cannot get shard_state_header".into())),
         }
+    }
+
+    pub fn get_current_epoch_sync_hash(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<Option<CryptoHash>, Error> {
+        Ok(self.store.get_ser(DBCol::StateSyncHashes, epoch_id.as_ref())?)
     }
 
     /// Get height of genesis

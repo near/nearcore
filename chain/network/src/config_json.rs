@@ -190,7 +190,7 @@ pub struct Config {
     ///
     /// Discouraged setup (might be removed in the future)
     /// If the list is empty and STUN servers' response is ambiguous, the peers which connect to
-    /// this validator node will natually observe the address of the validator and broadcast it.
+    /// this validator node will naturally observe the address of the validator and broadcast it.
     /// This setup is not reliable in presence of byzantine peers.
     #[serde(default)]
     pub public_addrs: Vec<PeerAddr>,
@@ -204,7 +204,7 @@ pub struct Config {
     /// description of public_addrs field).  Format `<domain/ip>:<port>`, for
     /// example `stun.l.google.com:19302`. The STUN servers are queried periodically in parallel.
     /// We do not expect all the servers listed to be up all the time, but all the
-    /// responses are expected to be consistent - if different servers return differn IPs, then
+    /// responses are expected to be consistent - if different servers return different IPs, then
     /// the response set would be considered ambiguous and the node won't advertise any proxy in
     /// such a case.
     #[serde(default = "default_trusted_stun_servers")]

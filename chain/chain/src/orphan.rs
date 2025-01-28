@@ -66,7 +66,7 @@ impl Orphan {
 /// 2) size of the pool exceeds MAX_ORPHAN_SIZE and the orphan was added a long time ago
 ///    or the height is high
 pub struct OrphanBlockPool {
-    /// A map from block hash to a orphan block
+    /// A map from block hash to an orphan block
     orphans: HashMap<CryptoHash, Orphan>,
     /// A set that contains all orphans for which we have requested missing chunks for them
     /// An orphan can be added to this set when it was first added to the pool, or later
@@ -373,7 +373,7 @@ impl Chain {
             num_orphans = self.orphans.len())
         .entered();
         // Check if there are orphans we can process.
-        // check within the descendents of `prev_hash` to see if there are orphans there that
+        // check within the descendants of `prev_hash` to see if there are orphans there that
         // are ready to request missing chunks for
         let orphans_to_check =
             self.orphans.get_orphans_within_depth(prev_hash, NUM_ORPHAN_ANCESTORS_CHECK);
@@ -413,12 +413,6 @@ impl Chain {
     #[inline]
     pub fn orphans_len(&self) -> usize {
         self.orphans.len()
-    }
-
-    /// Returns number of evicted orphans.
-    #[inline]
-    pub fn orphans_evicted_len(&self) -> usize {
-        self.orphans.len_evicted()
     }
 
     /// Check if hash is for a known orphan.

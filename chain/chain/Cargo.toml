@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-assert_matches.workspace = true
+anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
 chrono.workspace = true
@@ -20,6 +20,7 @@ enum-map.workspace = true
 itertools.workspace = true
 itoa.workspace = true
 lru.workspace = true
+more-asserts.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 rand_chacha.workspace = true
@@ -30,8 +31,8 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tokio.workspace = true
 tracing.workspace = true
-yansi.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true
@@ -58,6 +59,7 @@ near-schema-checker-lib.workspace = true
 
 [dev-dependencies]
 near-primitives = { workspace = true, features = ["clock"] }
+near-test-contracts.workspace = true
 serde_json.workspace = true
 primitive-types.workspace = true
 insta.workspace = true
@@ -74,11 +76,6 @@ test_features = [
   "node-runtime/test_features",
 ]
 shadow_chunk_validation = []
-no_cache = ["near-store/no_cache"]
-
-protocol_feature_reject_blocks_with_outdated_protocol_version = [
-  "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
-]
 
 nightly = [
   "near-async/nightly",
@@ -95,7 +92,6 @@ nightly = [
   "near-vm-runner/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
 nightly_protocol = [
   "near-async/nightly_protocol",
@@ -113,7 +109,6 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
 ]
 sandbox = ["near-o11y/sandbox", "near-primitives/sandbox"]
-testloop = []
 protocol_schema = [
   "near-schema-checker-lib/protocol_schema",
   "near-crypto/protocol_schema",

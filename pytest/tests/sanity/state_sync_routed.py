@@ -5,6 +5,7 @@
 #
 # Make sure the new observer sync via routing through other observers.
 #
+# cspell:words notx manytx onetx
 # Three modes:
 #   - notx: no transactions are sent, just checks that
 #     the second node starts and catches up
@@ -127,9 +128,15 @@ assert catch_up_height in boot_heights, "%s not in %s" % (catch_up_height,
 while True:
     assert time.time(
     ) - started < TIMEOUT, "Waiting for node 4 to connect to two peers"
-    if metrics4.get_int_metric_value("near_peer_connections_total") == 2:
+    num_connections = 0
+    for (conn_type,
+         count) in metrics4.get_metric_all_values("near_peer_connections"):
+        if conn_type['tier'] == 'T2':
+            num_connections += count
+    if num_connections == 2:
         break
     time.sleep(0.1)
+logger.info("New node connected to observers")
 
 if mode == 'manytx':
     while ctx.get_balances() != ctx.expected_balances:
@@ -138,8 +145,10 @@ if mode == 'manytx':
             "Waiting for the old node to catch up. Current balances: %s; Expected balances: %s"
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
+    logger.info("Old node caught up to expected balances: %s" %
+                ctx.expected_balances)
 
-    # requery the balances from the newly started node
+    # again query the balances from the newly started node
     ctx.nodes.append(node4)
     ctx.act_to_val = [2, 2, 2]
 
@@ -149,3 +158,5 @@ if mode == 'manytx':
             "Waiting for the new node to catch up. Current balances: %s; Expected balances: %s"
             % (ctx.get_balances(), ctx.expected_balances))
         time.sleep(1)
+    logger.info("New node caught up to expected balances: %s" %
+                ctx.expected_balances)

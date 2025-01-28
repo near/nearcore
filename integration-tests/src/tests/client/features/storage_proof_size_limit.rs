@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
 use near_primitives::errors::FunctionCallError;
@@ -40,12 +40,8 @@ fn test_storage_proof_size_limit() {
         let code = near_test_contracts::rs_contract().to_vec();
         let actions = vec![Action::DeployContract(DeployContractAction { code })];
 
-        let signer = InMemorySigner::from_seed(
-            contract_account.clone(),
-            KeyType::ED25519,
-            contract_account.as_ref(),
-        );
-        let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
+        let signer = InMemorySigner::test_signer(&contract_account);
+        let tx = env.tx_from_actions(actions, &signer, signer.get_account_id());
         env.execute_tx(tx).unwrap().assert_success();
     }
 
@@ -53,9 +49,7 @@ fn test_storage_proof_size_limit() {
     // query the access key of the user. It's easier to keep a shared counter
     // that starts at 1 and increases monotonically.
     let mut nonce = 1;
-    let signer: Signer =
-        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref())
-            .into();
+    let signer: Signer = InMemorySigner::test_signer(&user_account);
 
     // Write 1MB values under keys 0, 1, 2, 3, ..., 23.
     // 24MB of data in total
@@ -155,13 +149,13 @@ fn test_storage_proof_size_limit() {
     assert_eq!(chunk.transactions().len(), 3);
     assert_eq!(chunk.prev_outgoing_receipts().len(), 0);
 
-    // Chunk B - 3 FuntionCall receipts (converted from transactions)
+    // Chunk B - 3 FunctionCall receipts (converted from transactions)
     let chunk = next_chunk();
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 3);
     assert_eq!(count_transfer_receipts(chunk.prev_outgoing_receipts()), 0);
 
-    // Chunk C - 2 transfer receipts from two executed FunctionCals, third FunctionCall moved to delayed receipt queue
+    // Chunk C - 2 transfer receipts from two executed FunctionCalls, third FunctionCall moved to delayed receipt queue
     let chunk = next_chunk();
     assert_eq!(chunk.transactions().len(), 0);
     assert_eq!(count_function_call_receipts(chunk.prev_outgoing_receipts()), 0);

@@ -110,6 +110,7 @@ impl TrieIterationBenchmarkCmd {
             store.clone(),
             genesis_config.genesis_height,
             near_config.client_config.save_trie_changes,
+            genesis_config.transaction_validity_period,
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
@@ -117,14 +118,15 @@ impl TrieIterationBenchmarkCmd {
             EpochManager::new_from_genesis_config(store.clone(), &genesis_config).unwrap();
         let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             if chunk_header.height_included() != block.header().height() {
                 println!("chunk for shard {shard_id} is missing and will be skipped");
             }
         }
 
-        for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
-            let shard_id = shard_id as ShardId;
+        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             if chunk_header.height_included() != block.header().height() {
                 println!("chunk for shard {shard_id} is missing, skipping it");
                 continue;
@@ -241,7 +243,7 @@ impl TrieIterationBenchmarkCmd {
             col::DELAYED_RECEIPT_OR_INDICES => false,
 
             // Most columns use the ACCOUNT_DATA_SEPARATOR to indicate the end
-            // of the accound id in the trie key. For those columns the
+            // of the account id in the trie key. For those columns the
             // partial_parse_account_id method should be used.
             // The only exception is the ACCESS_KEY and dedicated method
             // partial_parse_account_id_from_access_key should be used.

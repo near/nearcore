@@ -165,7 +165,7 @@ async fn gradual_epoch_change() {
 // - 3rd 5 and 4th 5 ...
 // All of them are validators.
 #[tokio::test(flavor = "multi_thread")]
-async fn rate_limiting() {
+async fn slow_test_rate_limiting() {
     init_test_logger();
     // Adjust the file descriptors limit, so that we can create many connection in the test.
     const MAX_CONNECTIONS: usize = 300;

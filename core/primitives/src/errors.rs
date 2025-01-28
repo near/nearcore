@@ -1,5 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
+use crate::shard_layout::ShardLayoutError;
 use crate::sharding::ChunkHash;
 use crate::types::{AccountId, Balance, EpochId, Gas, Nonce};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -55,15 +56,14 @@ impl From<InvalidTxError> for TxExecutionError {
 pub enum RuntimeError {
     /// An unexpected integer overflow occurred. The likely issue is an invalid state or the transition.
     UnexpectedIntegerOverflow(String),
-    /// An error happened during TX verification and account charging. It's likely the chunk is invalid.
-    /// and should be challenged.
+    /// An error happened during TX verification and account charging.
     InvalidTxError(InvalidTxError),
     /// Unexpected error which is typically related to the node storage corruption.
     /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
     BalanceMismatchError(Box<BalanceMismatchError>),
-    /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
+    /// The incoming receipt didn't pass the validation, it's likely a malicious behavior.
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
@@ -100,6 +100,17 @@ pub enum MissingTrieValueContext {
     TrieStorage,
 }
 
+impl MissingTrieValueContext {
+    pub fn metrics_label(&self) -> &str {
+        match self {
+            Self::TrieIterator => "trie_iterator",
+            Self::TriePrefetchingStorage => "trie_prefetching_storage",
+            Self::TrieMemoryPartialStorage => "trie_memory_partial_storage",
+            Self::TrieStorage => "trie_storage",
+        }
+    }
+}
+
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
 #[derive(
@@ -134,6 +145,9 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String),
     /// In-memory trie could not be loaded for some reason.
     MemTrieLoadingError(String),
+    /// Indicates that a resharding operation on flat storage is already in progress,
+    /// when it wasn't expected to be so.
+    FlatStorageReshardingAlreadyInProgress,
 }
 
 impl std::fmt::Display for StorageError {
@@ -288,7 +302,7 @@ pub enum InvalidAccessKeyError {
     ProtocolSchema,
 )]
 pub enum ActionsValidationError {
-    /// The delete action must be a final aciton in transaction
+    /// The delete action must be a final action in transaction
     DeleteActionMustBeFinal,
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
@@ -1018,6 +1032,12 @@ impl From<std::io::Error> for EpochError {
     }
 }
 
+impl From<ShardLayoutError> for EpochError {
+    fn from(error: ShardLayoutError) -> Self {
+        EpochError::ShardingError(error.to_string())
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -1048,7 +1068,7 @@ pub enum PrepareError {
     /// Error happened during instantiation.
     ///
     /// This might indicate that `start` function trapped, or module isn't
-    /// instantiable and/or unlinkable.
+    /// instantiable and/or un-linkable.
     Instantiate,
     /// Error creating memory.
     Memory,
@@ -1167,7 +1187,7 @@ pub enum HostError {
     Deprecated { method_name: String },
     /// General errors for ECDSA recover.
     ECRecoverError { msg: String },
-    /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
+    /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be

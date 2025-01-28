@@ -37,7 +37,7 @@ impl<'a> DBSlice<'a> {
         Self(Inner::Vec(vec))
     }
 
-    /// Constructs the object from RocskDB pinnable slice representation.
+    /// Constructs the object from RocksDB pinnable slice representation.
     ///
     /// This is internal API for the [`crate::db::rocksdb::RocksDB`]
     /// implementation of the database interface.

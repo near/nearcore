@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
+    hash::CryptoHash,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
@@ -116,6 +117,93 @@ impl fmt::Debug for DeployContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    Debug,
+)]
+#[repr(u8)]
+pub enum GlobalContractDeployMode {
+    /// Contract is deployed under its code hash.
+    /// Users will be able reference it by that hash.
+    /// This effectively makes the contract immutable.
+    CodeHash,
+    /// Contract is deployed under the owner account id.
+    /// Users will be able reference it by that account id.
+    /// This allows the owner to update the contract for all its users.
+    AccountId,
+}
+
+/// Deploy global contract action
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+)]
+pub struct DeployGlobalContractAction {
+    /// WebAssembly binary
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+
+    pub deploy_mode: GlobalContractDeployMode,
+}
+
+impl fmt::Debug for DeployGlobalContractAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeployGlobalContractAction")
+            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("deploy_mode", &format_args!("{:?}", &self.deploy_mode))
+            .finish()
+    }
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+pub enum GlobalContractIdentifier {
+    CodeHash(CryptoHash),
+    AccountId(AccountId),
+}
+
+/// Use global contract action
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
+    Debug,
+)]
+pub struct UseGlobalContractAction {
+    pub contract_identifier: GlobalContractIdentifier,
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    Clone,
+    ProtocolSchema,
 )]
 pub struct FunctionCallAction {
     pub method_name: String,
@@ -216,6 +304,8 @@ pub enum Action {
     DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
+    DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(Box<UseGlobalContractAction>),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     /// Makes a non-refundable transfer for storage allowance.
     /// Only possible during new account creation.
@@ -226,7 +316,7 @@ pub enum Action {
 const _: () = assert!(
     // 1 word for tag plus the largest variant `DeployContractAction` which is a 3-word `Vec`.
     // The `<=` check covers platforms that have pointers smaller than 8 bytes as well as random
-    // freak nightlies that somehow find a way to pack everything into one less word.
+    // freak night lies that somehow find a way to pack everything into one less word.
     std::mem::size_of::<Action>() <= 32,
     "Action <= 32 bytes for performance reasons, see #9451"
 );
@@ -258,6 +348,12 @@ impl From<CreateAccountAction> for Action {
 impl From<DeployContractAction> for Action {
     fn from(deploy_contract_action: DeployContractAction) -> Self {
         Self::DeployContract(deploy_contract_action)
+    }
+}
+
+impl From<DeployGlobalContractAction> for Action {
+    fn from(deploy_global_contract_action: DeployGlobalContractAction) -> Self {
+        Self::DeployGlobalContract(deploy_global_contract_action)
     }
 }
 

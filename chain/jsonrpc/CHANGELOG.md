@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.4.0
+
+* Introduced a new status code for a missing block - 422 Unprocessable Content
+> Block is considered as missing if rpc returned `UNKNOWN_BLOCK` error while requested block height is less than the latest block height
+
+## 2.3.0
+
+* Starting from this version we decided to use nearcore's version system
+
+### Breaking changes
+
+* Updated `rpc_handler` function ([#11806](https://github.com/near/nearcore/pull/11806) and [#11822](https://github.com/nearprotocol/nearcore/pull/11822)). The `jsonrpc` will start returning other HTTP codes than 200 OK for some errors:
+  * On internal server error it will return 500
+  * On timeout error it will return 408
+  * On request validation error will return 400
+
 ## 0.2.3
 
 * Added `send_tx` method which gives configurable execution guarantees options and potentially replaces existing `broadcast_tx_async`, `broadcast_tx_commit`

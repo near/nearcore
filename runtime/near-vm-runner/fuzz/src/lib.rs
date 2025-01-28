@@ -1,4 +1,3 @@
-use core::fmt;
 use near_vm_runner::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::ContractCode;
@@ -49,44 +48,5 @@ pub fn create_context(input: Vec<u8>) -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
-    }
-}
-
-/// Define a configuration for which [`available_imports`] is implemented. This
-/// allows to specify the imports available in a [`ConfiguredModule`].
-///
-/// [`available_imports`]: wasm_smith::Config::available_imports
-/// [`ConfiguredModule`]: wasm_smith::ConfiguredModule
-#[derive(arbitrary::Arbitrary, Debug)]
-pub struct ModuleConfig {}
-
-impl wasm_smith::Config for ModuleConfig {
-    /// Returns a WebAssembly module which imports all near host functions. The
-    /// imports are grabbed from a compiled [test contract] which calls every
-    /// host function in its method `sanity_check`.
-    ///
-    /// [test contract]: near_test_contracts::rs_contract
-    fn available_imports(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
-        Some(near_test_contracts::rs_contract().into())
-    }
-}
-
-/// Wrapper to get more useful Debug.
-pub struct ArbitraryModule(pub wasm_smith::ConfiguredModule<ModuleConfig>);
-
-impl<'a> arbitrary::Arbitrary<'a> for ArbitraryModule {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        wasm_smith::ConfiguredModule::<ModuleConfig>::arbitrary(u).map(ArbitraryModule)
-    }
-}
-
-impl fmt::Debug for ArbitraryModule {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let bytes = self.0.module.to_bytes();
-        write!(f, "{:?}", bytes)?;
-        if let Ok(wat) = wasmprinter::print_bytes(&bytes) {
-            write!(f, "\n{}", wat)?;
-        }
-        Ok(())
     }
 }

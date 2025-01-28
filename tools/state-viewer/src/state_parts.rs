@@ -2,11 +2,10 @@ use crate::epoch_info::iterate_and_filter;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
-    create_bucket_readonly, create_bucket_readwrite, external_storage_location,
+    create_bucket_read_write, create_bucket_readonly, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename, ExternalConnection,
     StateFileType,
 };
-use near_client::sync::state::StateSync;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_primitives::challenge::PartialState;
@@ -101,8 +100,11 @@ impl StatePartsSubCommand {
         near_config: NearConfig,
         store: Store,
     ) {
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         let shard_tracker = ShardTracker::new(
             TrackedConfig::from_config(&near_config.client_config),
             epoch_manager.clone(),
@@ -142,7 +144,7 @@ impl StatePartsSubCommand {
                         s3_region,
                         gcs_bucket,
                         None,
-                        Mode::Readonly,
+                        Mode::ReadOnly,
                     );
                     load_state_parts(
                         action,
@@ -171,7 +173,7 @@ impl StatePartsSubCommand {
                         s3_region,
                         gcs_bucket,
                         credentials_file,
-                        Mode::Readwrite,
+                        Mode::ReadWrite,
                     );
                     dump_state_parts(
                         epoch_selection,
@@ -200,8 +202,8 @@ impl StatePartsSubCommand {
 }
 
 enum Mode {
-    Readonly,
-    Readwrite,
+    ReadOnly,
+    ReadWrite,
 }
 
 fn create_external_connection(
@@ -216,9 +218,9 @@ fn create_external_connection(
         ExternalConnection::Filesystem { root_dir }
     } else if let (Some(bucket), Some(region)) = (bucket, region) {
         let bucket = match mode {
-            Mode::Readonly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
-            Mode::Readwrite => {
-                create_bucket_readwrite(&bucket, &region, Duration::from_secs(5), credentials_file)
+            Mode::ReadOnly => create_bucket_readonly(&bucket, &region, Duration::from_secs(5)),
+            Mode::ReadWrite => {
+                create_bucket_read_write(&bucket, &region, Duration::from_secs(5), credentials_file)
             }
         }
         .expect("Failed to create an S3 bucket");
@@ -339,7 +341,13 @@ async fn load_state_parts(
             let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
             let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-            let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
+            let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
+                Some(h) => h,
+                None => {
+                    tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+                    return;
+                }
+            };
 
             let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
             let state_root = state_header.chunk_prev_state_root();
@@ -362,7 +370,7 @@ async fn load_state_parts(
     tracing::info!(
         target: "state-parts",
         epoch_height,
-        shard_id,
+        ?shard_id,
         num_parts,
         ?sync_hash,
         ?part_ids,
@@ -440,7 +448,13 @@ async fn dump_state_parts(
     let epoch_id = epoch_selection.to_epoch_id(store, chain);
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
+    let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
+        Some(h) => h,
+        None => {
+            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+            return;
+        }
+    };
     let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
     let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
@@ -455,7 +469,7 @@ async fn dump_state_parts(
         target: "state-parts",
         epoch_height,
         epoch_id = ?epoch_id.0,
-        shard_id,
+        ?shard_id,
         num_parts,
         ?sync_hash,
         ?part_ids,
@@ -542,7 +556,13 @@ fn read_state_header(
     let epoch = chain.epoch_manager.get_epoch_info(&epoch_id).unwrap();
 
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
-    let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
+    let sync_hash = match chain.get_sync_hash(&sync_hash).unwrap() {
+        Some(h) => h,
+        None => {
+            tracing::warn!(target: "state-parts", ?epoch_id, "sync hash not yet known");
+            return;
+        }
+    };
 
     let state_header = chain.chain_store().get_state_header(shard_id, sync_hash);
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);

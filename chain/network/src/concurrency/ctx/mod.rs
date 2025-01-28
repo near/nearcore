@@ -48,7 +48,7 @@ impl Drop for Inner {
     fn drop(&mut self) {
         // This will wake the task propagating cancellation to children (see `Ctx::with_deadline`).
         // Note that since children keep a reference to the parent, at this point nobody awaits
-        // the cancelation of any child.
+        // the cancellation of any child.
         self.canceled.send();
     }
 }
@@ -62,8 +62,8 @@ pub struct ErrCanceled;
 pub type OrCanceled<T> = Result<T, ErrCanceled>;
 
 /// Ctx is an implementation of https://pkg.go.dev/context.
-/// Ctxs are a mechanism of broadcasting cancelation to concurrent routines (aka tokio tasks).
-/// The routines are expected to react to context cancelation on their own (they are not preempted)
+/// Ctxs are a mechanism of broadcasting cancellation to concurrent routines (aka tokio tasks).
+/// The routines are expected to react to context cancellation on their own (they are not preempted)
 /// and perform a graceful shutdown. A tokio task is expected to return immediately once the context
 /// is cancelled (i.e. a task with canceled context, when polled in a loop should complete
 /// eventually without requiring any wake()).

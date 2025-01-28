@@ -1,12 +1,12 @@
 use crate::cli::{ApplyRangeMode, StorageSource};
 use crate::commands::{maybe_print_db_stats, maybe_save_trie_changes};
-use crate::progress_reporter::{timestamp_ms, ProgressReporter};
+use crate::progress_reporter::ProgressReporter;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
@@ -19,6 +19,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
+use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
@@ -72,18 +73,24 @@ fn apply_block_from_range(
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the read store anyway
-    let mut read_chain_store =
-        ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
+    let mut read_chain_store = ChainStore::new(
+        read_store.clone(),
+        genesis.config.genesis_height,
+        false,
+        genesis.config.transaction_validity_period,
+    );
     let block_hash = match read_chain_store.get_block_hash_by_height(height) {
         Ok(block_hash) => block_hash,
         Err(_) => {
             // Skipping block because it's not available in ChainStore.
-            progress_reporter.inc_and_report_progress(0);
+            progress_reporter.inc_and_report_progress(height, 0);
             return;
         }
     };
     let block = read_chain_store.get_block(&block_hash).unwrap();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let epoch_id = block.header().epoch_id();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+    let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
     assert!(block.chunks().len() > 0);
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;
@@ -95,13 +102,15 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
         }
-        progress_reporter.inc_and_report_progress(0);
+        progress_reporter.inc_and_report_progress(height, 0);
         return;
-    } else if block.chunks()[shard_id as usize].height_included() == height {
+    } else if block.chunks()[shard_index].height_included() == height {
         chunk_present = true;
         let res_existing_chunk_extra = read_chain_store.get_chunk_extra(&block_hash, &shard_uid);
         assert!(
@@ -110,7 +119,7 @@ fn apply_block_from_range(
             height
         );
         existing_chunk_extra = Some(res_existing_chunk_extra.unwrap());
-        let chunk_hash = block.chunks()[shard_id as usize].chunk_hash();
+        let chunk_hash = block.chunks()[shard_index].chunk_hash();
         let chunk = read_chain_store.get_chunk(&chunk_hash).unwrap_or_else(|error| {
             panic!(
                 "Can't get chunk on height: {} chunk_hash: {:?} error: {}",
@@ -135,18 +144,27 @@ fn apply_block_from_range(
                         chunk_present
                     ),
                 );
-                progress_reporter.inc_and_report_progress(0);
+                progress_reporter.inc_and_report_progress(height, 0);
                 return;
             }
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
+        let transactions = chunk.transactions();
+        let valid_txs = chain_store_update
+            .chain_store()
+            .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
+            .expect("valid transaction calculation");
+        let shard_layout =
+            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 epoch_manager,
                 shard_id,
+                &shard_layout,
                 block_hash,
-                prev_block.chunks()[shard_id as usize].height_included(),
+                prev_block.chunks()[shard_index].height_included(),
+                ReceiptFilter::TargetShard,
             )
             .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
@@ -162,6 +180,7 @@ fn apply_block_from_range(
 
         num_receipt = receipts.len();
         num_tx = chunk.transactions().len();
+
         if only_contracts {
             let mut has_contracts = false;
             for tx in chunk.transactions() {
@@ -191,9 +210,10 @@ fn apply_block_from_range(
                     block.header(),
                     prev_block.header().next_gas_price(),
                     block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                chunk.transactions(),
+                SignedValidPeriodTransactions::new(&transactions, &valid_txs),
             )
             .unwrap()
     } else {
@@ -217,15 +237,14 @@ fn apply_block_from_range(
                     block.header(),
                     block.header().next_gas_price(),
                     block.block_congestion_info(),
+                    block.block_bandwidth_requests(),
                 ),
                 &[],
-                &[],
+                SignedValidPeriodTransactions::empty(),
             )
             .unwrap()
     };
 
-    let protocol_version =
-        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         protocol_version,
@@ -236,6 +255,7 @@ fn apply_block_from_range(
         genesis.config.gas_limit,
         apply_result.total_balance_burnt,
         apply_result.congestion_info,
+        apply_result.bandwidth_requests.clone(),
     );
 
     let state_update =
@@ -278,43 +298,60 @@ fn apply_block_from_range(
             apply_result.trie_changes.state_changes().len(),
         ),
     );
-    progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
+    progress_reporter.inc_and_report_progress(height, apply_result.total_gas_burnt);
 
-    if mode == ApplyRangeMode::Benchmarking {
-        // Compute delta and immediately apply to flat storage.
-        let changes =
-            FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
-        let delta = near_store::flat::FlatStateDelta {
-            metadata: near_store::flat::FlatStateDeltaMetadata {
-                block: BlockInfo {
-                    hash: block_hash,
-                    height: block.header().height(),
-                    prev_hash: *block.header().prev_hash(),
+    // See documentation for `ApplyRangeMode` variants.
+    //
+    // Ultimately, this has to handle requirements on storage effects from multiple sources --
+    // `Benchmark` for example repeatedly applies a single block, so no storage effects are
+    // desired, meanwhile other modes can be set to operate on various storage sources, all of
+    // which have their unique propoerties (e.g. flat storage operates on flat_head...)
+    match (mode, storage) {
+        (ApplyRangeMode::Benchmark, _) => {}
+        (_, StorageSource::Trie | StorageSource::TrieFree) => {}
+        (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+            // Compute delta and immediately apply to flat storage.
+            let changes =
+                FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
+            let delta = near_store::flat::FlatStateDelta {
+                metadata: near_store::flat::FlatStateDeltaMetadata {
+                    block: BlockInfo {
+                        hash: block_hash,
+                        height: block.header().height(),
+                        prev_hash: *block.header().prev_hash(),
+                    },
+                    prev_block_with_changes: None,
                 },
-                prev_block_with_changes: None,
-            },
-            changes,
-        };
+                changes,
+            };
 
-        let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
-        let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-        let store_update = flat_storage.add_delta(delta).unwrap();
-        store_update.commit().unwrap();
-        flat_storage.update_flat_head(&block_hash).unwrap();
-
-        // Apply trie changes to trie node caches.
-        let mut fake_store_update = read_store.trie_store().store_update();
-        apply_result.trie_changes.insertions_into(&mut fake_store_update);
-        apply_result.trie_changes.deletions_into(&mut fake_store_update);
-    } else {
-        if let Err(err) = maybe_save_trie_changes(
-            write_store,
-            genesis.config.genesis_height,
-            apply_result,
-            height,
-            shard_id,
-        ) {
-            panic!("Error while saving trie changes at height {height}, shard {shard_id} ({err})");
+            let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+            let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+            let store_update = flat_storage.add_delta(delta).unwrap();
+            store_update.commit().unwrap();
+            flat_storage.update_flat_head(&block_hash).unwrap();
+        }
+    }
+    match (mode, storage) {
+        (ApplyRangeMode::Benchmark, _) => {}
+        (_, StorageSource::FlatStorage) => {
+            // Apply trie changes to trie node caches.
+            let mut fake_store_update = read_store.trie_store().store_update();
+            apply_result.trie_changes.insertions_into(&mut fake_store_update);
+            apply_result.trie_changes.deletions_into(&mut fake_store_update);
+        }
+        (_, StorageSource::Trie | StorageSource::TrieFree | StorageSource::Memtrie) => {
+            if let Err(err) = maybe_save_trie_changes(
+                write_store,
+                &genesis.config,
+                apply_result,
+                height,
+                shard_id,
+            ) {
+                panic!(
+                    "Error while saving trie changes at height {height}, shard {shard_id} ({err})"
+                );
+            }
         }
     }
 }
@@ -344,60 +381,87 @@ pub fn apply_chain_range(
         only_contracts,
         ?storage)
     .entered();
-    let chain_store = ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
-    let (start_height, end_height) = match mode {
-        ApplyRangeMode::Benchmarking => {
-            // Benchmarking mode requires flat storage and retrieves start and
-            // end heights from flat storage and chain.
-            assert!(matches!(storage, StorageSource::FlatStorage));
-            assert!(start_height.is_none());
-            assert!(end_height.is_none());
+    let chain_store = ChainStore::new(
+        read_store.clone(),
+        genesis.config.genesis_height,
+        false,
+        genesis.config.transaction_validity_period,
+    );
+    let final_head = chain_store.final_head().unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
+    let shard_uid =
+        near_primitives::shard_layout::ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 
-            let chain_store =
-                ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
-            let final_head = chain_store.final_head().unwrap();
-            let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
-            let shard_uid = near_primitives::shard_layout::ShardUId::from_shard_id_and_layout(
-                shard_id,
-                &shard_layout,
-            );
-            let flat_head = match read_store.flat_store().get_flat_storage_status(shard_uid) {
-                Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
-                status => {
-                    panic!("cannot create flat storage for shard {shard_id} with status {status:?}")
-                }
-            };
+    // Load the requested type of storage for transactions and actions to act upon. This may allow
+    // configurations that aren't used in production anymore, in case anybody really wants that
+    // behaviour.
+    match storage {
+        StorageSource::Trie | StorageSource::TrieFree => {}
+        StorageSource::FlatStorage => {
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
-
-            // Note that first height to apply is the first one after flat
-            // head.
-            (flat_head.height + 1, final_head.height)
         }
-        _ => (
+        StorageSource::Memtrie => {
+            // Memtries require flat storage to load.
+            let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            runtime_adapter
+                .get_tries()
+                .load_memtrie(&shard_uid, None, true)
+                .expect("load mem trie");
+        }
+    }
+
+    let (start_height, end_height) = match (mode, storage) {
+        (ApplyRangeMode::Benchmark, StorageSource::Trie | StorageSource::TrieFree) => {
+            panic!("benchmark with --storage trie|trie-free is not supported")
+        }
+        (ApplyRangeMode::Benchmark, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+            // Benchmarking mode requires flat storage and retrieves the block height from flat
+            // storage.
+            assert!(start_height.is_none());
+            assert!(end_height.is_none());
+            let flat_status = read_store.flat_store().get_flat_storage_status(shard_uid);
+            let Ok(FlatStorageStatus::Ready(ready)) = flat_status else {
+                panic!("cannot create flat storage for shard {shard_uid} due to {flat_status:?}")
+            };
+            // We apply the block at flat_head. Users can set the block they want to benchmark by
+            // moving the flat head using the `flat-storage move-flat-head` command. End point of
+            // `0` helps indicatif to display more reasonable output.
+            (ready.flat_head.height + 1, 0)
+        }
+        (_, StorageSource::Trie | StorageSource::TrieFree) => (
             start_height.unwrap_or_else(|| chain_store.tail().unwrap()),
             end_height.unwrap_or_else(|| chain_store.head().unwrap().height),
         ),
+        (_, StorageSource::FlatStorage | StorageSource::Memtrie) => {
+            let start_height = start_height.unwrap_or_else(|| {
+                let status = read_store.flat_store().get_flat_storage_status(shard_uid);
+                let Ok(FlatStorageStatus::Ready(ready)) = status else {
+                    panic!("cannot create flat storage for shard {shard_uid} due to {status:?}")
+                };
+                ready.flat_head.height + 1
+            });
+            (start_height, end_height.unwrap_or_else(|| chain_store.head().unwrap().height))
+        }
     };
 
-    println!(
-        "Applying chunks in the range {}..={} for shard_id {}",
-        start_height, end_height, shard_id
-    );
-
-    println!("Printing results including outcomes of applying receipts");
+    let range = start_height..=end_height;
+    println!("Applying chunks in the range {range:?} for {shard_uid}…");
+    if csv_file.is_some() {
+        println!("Writing results of applying receipts to the CSV file");
+    }
     let csv_file_mutex = Mutex::new(csv_file);
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
-
-    let range = start_height..=end_height;
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
-        ts: AtomicU64::new(timestamp_ms()),
-        all: (end_height + 1).saturating_sub(start_height),
         skipped: AtomicU64::new(0),
         empty_blocks: AtomicU64::new(0),
         non_empty_blocks: AtomicU64::new(0),
         tgas_burned: AtomicU64::new(0),
+        indicatif: crate::progress_reporter::default_indicatif(
+            (end_height + 1).checked_sub(start_height),
+        ),
     };
     let process_height = |height| {
         apply_block_from_range(
@@ -417,34 +481,45 @@ pub fn apply_chain_range(
         );
     };
 
+    let start_time = near_time::Instant::now();
     match mode {
-        ApplyRangeMode::Sequential | ApplyRangeMode::Benchmarking => {
-            range.into_iter().for_each(|height| {
+        ApplyRangeMode::Sequential => {
+            range.clone().into_iter().for_each(|height| {
                 let _span = tracing::debug_span!(
                     target: "state_viewer",
                     parent: &parent_span,
-                    "process_block_in_order",
+                    "process_block",
                     height)
                 .entered();
                 process_height(height)
             });
         }
         ApplyRangeMode::Parallel => {
-            range.into_par_iter().for_each(|height| {
+            range.clone().into_par_iter().for_each(|height| {
                 let _span = tracing::debug_span!(
                 target: "mock_node",
                 parent: &parent_span,
-                "process_block_in_parallel",
+                "process_block",
                 height)
                 .entered();
                 process_height(height)
             });
         }
+        ApplyRangeMode::Benchmark => loop {
+            let height = range.start();
+            let _span = tracing::debug_span!(
+                    target: "state_viewer",
+                    parent: &parent_span,
+                    "process_block",
+                    height)
+            .entered();
+            process_height(*height)
+        },
     }
 
     println!(
-        "No differences found after applying chunks in the range {}..={} for shard_id {}",
-        start_height, end_height, shard_id
+        "Applied range {range:?} for shard {shard_uid} in {elapsed:?}",
+        elapsed = start_time.elapsed()
     );
 }
 
@@ -488,10 +563,10 @@ mod test {
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::InMemorySigner;
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
+    use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
@@ -508,7 +583,7 @@ mod test {
         genesis.config.epoch_length = epoch_length;
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let nightshade_runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -563,8 +638,7 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer =
-            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),
@@ -578,7 +652,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -592,7 +666,7 @@ mod test {
             &genesis,
             None,
             None,
-            0,
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,
@@ -607,8 +681,7 @@ mod test {
         let epoch_length = 4;
         let (store, genesis, mut env) = setup(epoch_length);
         let genesis_hash = *env.clients[0].chain.genesis().hash();
-        let signer =
-            InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1").into();
+        let signer = InMemorySigner::test_signer(&"test1".parse().unwrap());
         let tx = SignedTransaction::stake(
             1,
             "test1".parse().unwrap(),
@@ -622,7 +695,7 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
         initialize_genesis_state(store.clone(), &genesis, None);
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
             store.clone(),
@@ -637,7 +710,7 @@ mod test {
             &genesis,
             None,
             None,
-            0,
+            ShardId::new(0),
             epoch_manager.as_ref(),
             runtime,
             true,

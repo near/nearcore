@@ -22,7 +22,7 @@ fn make_block_approval(rng: &mut Rng, signer: &ValidatorSigner) -> Approval {
     let inner = ApprovalInner::Endorsement(data::make_hash(rng));
     let target_height = rng.gen_range(0..100000);
     Approval {
-        signature: signer.sign_approval(&inner, target_height),
+        signature: signer.sign_bytes(&Approval::get_data_for_sig(&inner, target_height)),
         account_id: signer.validator_id().clone(),
         target_height,
         inner,

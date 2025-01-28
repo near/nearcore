@@ -19,9 +19,13 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
 use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
+use near_primitives::errors::EpochError;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::types::{
+    AccountId, BlockHeight, NumShards, ShardId, ShardIndex, ValidatorInfoIdentifier,
+};
 use near_primitives::{
     hash::CryptoHash,
     state_sync::{ShardStateSyncResponseHeader, StateHeaderKey},
@@ -104,11 +108,11 @@ impl BlockProductionTracker {
 
     /// Record chunk collected after a block is produced if the block didn't include a chunk for the shard.
     /// If called before the block was produced, nothing happens.
-    pub(crate) fn record_chunk_collected(&mut self, height: BlockHeight, shard_id: ShardId) {
+    pub(crate) fn record_chunk_collected(&mut self, height: BlockHeight, shard_index: ShardIndex) {
         if let Some(block_production) = self.0.get_mut(&height) {
             let chunk_collections = &mut block_production.chunks_collection_time;
             // Check that chunk_collection is set and we haven't received this chunk yet.
-            if let Some(chunk_collection) = chunk_collections.get_mut(shard_id as usize) {
+            if let Some(chunk_collection) = chunk_collections.get_mut(shard_index) {
                 if chunk_collection.received_time.is_none() {
                     chunk_collection.received_time = Some(Clock::real().now_utc());
                 }
@@ -121,13 +125,17 @@ impl BlockProductionTracker {
     pub(crate) fn construct_chunk_collection_info(
         block_height: BlockHeight,
         epoch_id: &EpochId,
-        num_shards: ShardId,
+        num_shards: usize,
         new_chunks: &HashMap<ShardId, ChunkHash>,
         epoch_manager: &dyn EpochManagerAdapter,
         chunk_inclusion_tracker: &ChunkInclusionTracker,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
-        for shard_id in 0..num_shards {
+        for shard_index in 0..num_shards {
+            let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+            let shard_id = shard_layout.get_shard_id(shard_index);
+            let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
+
             if let Some(chunk_hash) = new_chunks.get(&shard_id) {
                 let (chunk_producer, received_time) =
                     chunk_inclusion_tracker.get_chunk_producer_and_received_time(chunk_hash)?;
@@ -137,8 +145,13 @@ impl BlockProductionTracker {
                     chunk_included: true,
                 });
             } else {
-                let chunk_producer =
-                    epoch_manager.get_chunk_producer(epoch_id, block_height, shard_id)?;
+                let chunk_producer = epoch_manager
+                    .get_chunk_producer_info(&ChunkProductionKey {
+                        epoch_id: *epoch_id,
+                        height_created: block_height,
+                        shard_id,
+                    })?
+                    .take_account_id();
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
                     received_time: None,
@@ -228,16 +241,24 @@ impl ClientActorInner {
 
         let block = self.client.chain.get_block_by_height(epoch_start_height)?;
         let epoch_id = block.header().epoch_id();
+        let shard_layout = self.client.epoch_manager.get_shard_layout(&epoch_id)?;
+
         let (validators, chunk_only_producers) =
             self.get_producers_for_epoch(&epoch_id, &current_block)?;
 
         let shards_size_and_parts: Vec<(u64, u64)> = block
             .chunks()
-            .iter()
+            .iter_deprecated()
             .enumerate()
-            .map(|(shard_id, chunk)| {
+            .map(|(shard_index, chunk)| {
+                let shard_id = shard_layout.get_shard_id(shard_index);
+                let Ok(shard_id) = shard_id else {
+                    tracing::error!("Failed to get shard id for shard index {}", shard_index);
+                    return (0, 0);
+                };
+
                 let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                    shard_id as u64,
+                    shard_id,
                     block.hash(),
                     &chunk.prev_state_root(),
                 );
@@ -252,9 +273,10 @@ impl ClientActorInner {
             })
             .collect();
 
-        let state_header_exists: Vec<bool> = (0..block.chunks().len())
+        let state_header_exists: Vec<bool> = shard_layout
+            .shard_ids()
             .map(|shard_id| {
-                let key = borsh::to_vec(&StateHeaderKey(shard_id as u64, *block.hash()));
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, *block.hash()));
                 match key {
                     Ok(key) => {
                         matches!(
@@ -469,7 +491,7 @@ impl ClientActorInner {
                 let chunks = match &block {
                     Some(block) => block
                         .chunks()
-                        .iter()
+                        .iter_deprecated()
                         .map(|chunk| {
                             let endorsement_ratio = chunk_endorsements
                                 .as_ref()
@@ -490,16 +512,17 @@ impl ClientActorInner {
                                 });
 
                             DebugChunkStatus {
-                                shard_id: chunk.shard_id(),
+                                shard_id: chunk.shard_id().into(),
                                 chunk_hash: chunk.chunk_hash(),
                                 chunk_producer: self
                                     .client
                                     .epoch_manager
-                                    .get_chunk_producer(
-                                        block_header.epoch_id(),
-                                        block_header.height(),
-                                        chunk.shard_id(),
-                                    )
+                                    .get_chunk_producer_info(&ChunkProductionKey {
+                                        epoch_id: *block_header.epoch_id(),
+                                        height_created: block_header.height(),
+                                        shard_id: chunk.shard_id(),
+                                    })
+                                    .map(|info| info.take_account_id())
                                     .ok(),
                                 gas_used: chunk.prev_gas_used(),
                                 processing_time_ms: CryptoHashTimer::get_timer_value(
@@ -613,8 +636,12 @@ impl ClientActorInner {
                     let chunk_producer = self
                         .client
                         .epoch_manager
-                        .get_chunk_producer(&epoch_id, height, shard_id)
-                        .map(|f| f.to_string())
+                        .get_chunk_producer_info(&ChunkProductionKey {
+                            epoch_id,
+                            height_created: height,
+                            shard_id,
+                        })
+                        .map(|info| info.take_account_id().to_string())
                         .unwrap_or_default();
                     if chunk_producer == validator_id {
                         production.chunk_production.insert(
@@ -692,7 +719,9 @@ impl ClientActorInner {
             return None;
         };
         // Iterate all shards and compute the endorsed stake from the endorsement signatures.
-        for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
+        for (chunk_header, signatures) in
+            block.chunks().iter_deprecated().zip(block.chunk_endorsements())
+        {
             // Validation checks.
             if chunk_header.height_included() != block.header().height() {
                 chunk_endorsements.insert(chunk_header.chunk_hash(), 0.0);

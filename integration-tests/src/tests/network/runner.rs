@@ -2,14 +2,16 @@ use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::futures::ActixFutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, PartialWitnessActor, SyncAdapter, ViewClientActorInner};
+use near_client::{start_client, PartialWitnessActor, ViewClientActorInner};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
@@ -35,7 +37,7 @@ use std::future::Future;
 use std::iter::Iterator;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tracing::debug;
 
 pub(crate) type ControlFlow = std::ops::ControlFlow<()>;
@@ -57,7 +59,8 @@ fn setup_network_node(
     genesis.config.epoch_length = 5;
     let tempdir = tempfile::tempdir().unwrap();
     initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
-    let epoch_manager = EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config);
+    let epoch_manager =
+        EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config, None);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = NightshadeRuntime::test(
         tempdir.path(),
@@ -93,11 +96,6 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
-        noop().into_sender(),
-        noop().into_sender(),
-        SyncAdapter::actix_actor_maker(),
-    )));
     let client_actor = start_client(
         Clock::real(),
         client_config.clone(),
@@ -106,7 +104,7 @@ fn setup_network_node(
         shard_tracker.clone(),
         runtime.clone(),
         config.node_id(),
-        state_sync_adapter,
+        Arc::new(ActixFutureSpawner),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         validator_signer.clone(),
@@ -118,6 +116,7 @@ fn setup_network_node(
         noop().into_multi_sender(),
         true,
         None,
+        noop().into_multi_sender(),
     )
     .client_actor;
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
@@ -147,7 +146,9 @@ fn setup_network_node(
         client_actor.clone().with_auto_span_context().into_multi_sender(),
         validator_signer,
         epoch_manager,
-        runtime.store().clone(),
+        runtime,
+        Arc::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(
@@ -155,6 +156,7 @@ fn setup_network_node(
         db.clone(),
         config,
         client_sender_for_network(client_actor, view_client_addr),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
         genesis_id,

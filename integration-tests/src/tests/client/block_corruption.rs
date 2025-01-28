@@ -8,6 +8,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -16,12 +17,12 @@ const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";
 
 fn create_tx_load(height: BlockHeight, last_block: &Block) -> Vec<SignedTransaction> {
-    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = SignedTransaction::send_money(
         height + 10000,
         "test0".parse().unwrap(),
         "test1".parse().unwrap(),
-        &signer.into(),
+        &signer,
         10,
         *last_block.hash(),
     );
@@ -61,16 +62,18 @@ fn change_shard_id_to_invalid() {
     let mut block = env.clients[0].produce_block(2).unwrap().unwrap();
 
     // 1. Corrupt chunks
+    let bad_shard_id = ShardId::new(100);
     let mut new_chunks = vec![];
-    for chunk in block.chunks().iter() {
+    for chunk in block.chunks().iter_deprecated() {
         let mut new_chunk = chunk.clone();
         match &mut new_chunk {
-            ShardChunkHeader::V1(new_chunk) => new_chunk.inner.shard_id = 100,
-            ShardChunkHeader::V2(new_chunk) => new_chunk.inner.shard_id = 100,
+            ShardChunkHeader::V1(new_chunk) => new_chunk.inner.shard_id = bad_shard_id,
+            ShardChunkHeader::V2(new_chunk) => new_chunk.inner.shard_id = bad_shard_id,
             ShardChunkHeader::V3(new_chunk) => match &mut new_chunk.inner {
-                ShardChunkHeaderInner::V1(inner) => inner.shard_id = 100,
-                ShardChunkHeaderInner::V2(inner) => inner.shard_id = 100,
-                ShardChunkHeaderInner::V3(inner) => inner.shard_id = 100,
+                ShardChunkHeaderInner::V1(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V2(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V3(inner) => inner.shard_id = bad_shard_id,
+                ShardChunkHeaderInner::V4(inner) => inner.shard_id = bad_shard_id,
             },
         };
         new_chunks.push(new_chunk);
@@ -80,15 +83,17 @@ fn change_shard_id_to_invalid() {
     // 2. Rehash and resign
     let body_hash = block.compute_block_body_hash().unwrap();
     block.mut_header().set_block_body_hash(body_hash);
-    block.mut_header().resign(
-        &InMemoryValidatorSigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0")
-            .into(),
-    );
+    block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+        "test0".parse().unwrap(),
+        KeyType::ED25519,
+        "test0",
+    ));
 
     // Try to process corrupt block and expect code to notice invalid shard_id
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     match res {
-        Err(Error::InvalidShardId(100)) => {
+        Err(Error::InvalidShardId(shard_id)) => {
+            assert_eq!(shard_id, bad_shard_id);
             tracing::debug!("process failed successfully");
         }
         Err(e) => {
@@ -124,14 +129,11 @@ fn check_corrupt_block(
     if let Ok(mut corrupt_block) = Block::try_from_slice(corrupt_block_vec.as_slice()) {
         let body_hash = corrupt_block.compute_block_body_hash().unwrap();
         corrupt_block.mut_header().set_block_body_hash(body_hash);
-        corrupt_block.mut_header().resign(
-            &InMemoryValidatorSigner::from_seed(
-                "test0".parse().unwrap(),
-                KeyType::ED25519,
-                "test0",
-            )
-            .into(),
-        );
+        corrupt_block.mut_header().resign(&InMemoryValidatorSigner::from_seed(
+            "test0".parse().unwrap(),
+            KeyType::ED25519,
+            "test0",
+        ));
 
         if !is_breaking_block_change(&correct_block, &corrupt_block) {
             return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
@@ -236,8 +238,7 @@ fn check_process_flipped_block_fails_on_bit(
 /// `oks` are printed to check the sanity of the test.
 /// This vector should include various validation errors that correspond to data changed with a bit flip.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
-fn check_process_flipped_block_fails() {
+fn ultra_slow_test_check_process_flipped_block_fails() {
     init_test_logger();
     let mut corrupted_bit_idx = 0;
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Err`.

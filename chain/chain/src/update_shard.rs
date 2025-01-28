@@ -13,6 +13,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::Gas;
+use node_runtime::SignedValidPeriodTransactions;
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
@@ -43,6 +44,7 @@ pub enum ShardUpdateResult {
 pub struct NewChunkData {
     pub chunk_header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
+    pub transaction_validity_check_results: Vec<bool>,
     pub receipts: Vec<Receipt>,
     pub block: ApplyChunkBlockContext,
     pub is_first_block_with_chunk_of_version: bool,
@@ -70,10 +72,6 @@ pub enum ShardUpdateReason {
 /// Information about shard to update.
 pub struct ShardContext {
     pub shard_uid: ShardUId,
-    /// Whether node cares about shard in this epoch.
-    pub cares_about_shard_this_epoch: bool,
-    /// Whether shard layout changes in the next epoch.
-    pub will_shard_layout_change: bool,
     /// Whether transactions should be applied.
     pub should_apply_chunk: bool,
 }
@@ -123,6 +121,7 @@ pub fn apply_new_chunk(
     let NewChunkData {
         chunk_header,
         transactions,
+        transaction_validity_check_results,
         block,
         receipts,
         is_first_block_with_chunk_of_version,
@@ -133,7 +132,7 @@ pub fn apply_new_chunk(
         target: "chain",
         parent: parent_span,
         "apply_new_chunk",
-        shard_id,
+        ?shard_id,
         ?apply_reason)
     .entered();
     let gas_limit = chunk_header.gas_limit();
@@ -157,7 +156,7 @@ pub fn apply_new_chunk(
         },
         block,
         &receipts,
-        &transactions,
+        SignedValidPeriodTransactions::new(&transactions, &transaction_validity_check_results),
     ) {
         Ok(apply_result) => {
             Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
@@ -182,7 +181,7 @@ pub fn apply_old_chunk(
         target: "chain",
         parent: parent_span,
         "apply_old_chunk",
-        shard_id,
+        ?shard_id,
         ?apply_reason)
     .entered();
 
@@ -204,7 +203,7 @@ pub fn apply_old_chunk(
         },
         block,
         &[],
-        &[],
+        SignedValidPeriodTransactions::new(&[], &[]),
     ) {
         Ok(apply_result) => Ok(OldChunkResult { shard_uid: shard_context.shard_uid, apply_result }),
         Err(err) => Err(err),

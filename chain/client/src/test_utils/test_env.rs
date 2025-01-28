@@ -12,7 +12,7 @@ use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemorySigner, Signer};
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -27,8 +27,8 @@ use near_primitives::epoch_info::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -97,14 +97,17 @@ impl TestEnv {
         // runs gc
         let runtime_adapter = self.clients[id].chain.runtime_adapter.clone();
         let epoch_manager = self.clients[id].chain.epoch_manager.clone();
+        let shard_tracker = self.clients[id].chain.shard_tracker.clone();
         let gc_config = self.clients[id].config.gc.clone();
+        let signer = self.clients[id].validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id());
 
         // A RPC node should do regular garbage collection.
         if !self.clients[id].config.archive {
             self.clients[id]
                 .chain
                 .mut_chain_store()
-                .clear_data(&gc_config, runtime_adapter, epoch_manager)
+                .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
                 .unwrap();
         } else {
             // An archival node with split storage should perform garbage collection
@@ -117,7 +120,7 @@ impl TestEnv {
                 self.clients[id]
                     .chain
                     .mut_chain_store()
-                    .clear_data(&gc_config, runtime_adapter, epoch_manager)
+                    .clear_data(&gc_config, runtime_adapter, epoch_manager, &shard_tracker, me)
                     .unwrap();
             } else {
                 // An archival node with legacy storage or in the midst of migration to split
@@ -137,6 +140,28 @@ impl TestEnv {
     pub fn produce_block(&mut self, id: usize, height: BlockHeight) {
         let block = self.clients[id].produce_block(height).unwrap();
         self.process_block(id, block.unwrap(), Provenance::PRODUCED);
+    }
+
+    // Produces block by the client that is the block producer for the given height.
+    pub fn produce_block_simple(&mut self, height: BlockHeight) {
+        let client = &self.clients[0];
+
+        let tip = client.chain.head().unwrap();
+        let parent_hash = tip.last_block_hash;
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&parent_hash).unwrap();
+        let block_producer = client.epoch_manager.get_block_producer(&epoch_id, height).unwrap();
+
+        for id in 0..self.clients.len() {
+            let validator_signer = self.clients[id].validator_signer.get().unwrap();
+            let validator_id = validator_signer.validator_id().clone();
+            if validator_id != block_producer {
+                continue;
+            }
+            let block = self.clients[id].produce_block(height).unwrap().unwrap();
+            self.process_block(id, block, Provenance::PRODUCED);
+            return;
+        }
+        panic!("No client found for block producer {}", block_producer);
     }
 
     /// Pause processing of the given block, which means that the background
@@ -173,6 +198,10 @@ impl TestEnv {
         let mut paused_blocks = self.paused_blocks.lock().unwrap();
         let cell = paused_blocks.remove(block).unwrap();
         let _ = cell.set(());
+    }
+
+    pub fn contains_client(&self, account_id: &AccountId) -> bool {
+        self.account_indices.contains(account_id)
     }
 
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
@@ -310,6 +339,7 @@ impl TestEnv {
                     chunk_producer,
                 } => {
                     self.clients[id]
+                        .chunk_inclusion_tracker
                         .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
@@ -359,16 +389,15 @@ impl TestEnv {
         let partial_witness_adapters = self.partial_witness_adapters.clone();
         for (client_idx, partial_witness_adapter) in partial_witness_adapters.iter().enumerate() {
             while let Some(request) = partial_witness_adapter.pop_distribution_request() {
-                let DistributeStateWitnessRequest { epoch_id, chunk_header, state_witness } =
-                    request;
-
+                let DistributeStateWitnessRequest { state_witness, .. } = request;
                 let raw_witness_size = borsh::to_vec(&state_witness).unwrap().len();
+                let key = state_witness.chunk_production_key();
                 let chunk_validators = self.clients[client_idx]
                     .epoch_manager
                     .get_chunk_validator_assignments(
-                        &epoch_id,
-                        chunk_header.shard_id(),
-                        chunk_header.height_created(),
+                        &key.epoch_id,
+                        key.shard_id,
+                        key.height_created,
                     )
                     .unwrap()
                     .ordered_chunk_validators();
@@ -377,6 +406,10 @@ impl TestEnv {
                     let processing_done_tracker = ProcessingDoneTracker::new();
                     witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
+                    if !self.contains_client(&account_id) {
+                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        continue;
+                    }
                     let client = self.client(&account_id);
                     let processing_result = client.process_chunk_state_witness(
                         state_witness.clone(),
@@ -412,8 +445,14 @@ impl TestEnv {
                     account_id,
                     endorsement,
                 )) => {
-                    let processing_result =
-                        self.client(&account_id).process_chunk_endorsement(endorsement);
+                    if !self.contains_client(&account_id) {
+                        tracing::warn!(target: "test", "Client not found for account_id {}", account_id);
+                        return None;
+                    }
+                    let processing_result = self
+                        .client(&account_id)
+                        .chunk_endorsement_tracker
+                        .process_chunk_endorsement(endorsement);
                     if !allow_errors {
                         processing_result.unwrap();
                     }
@@ -447,11 +486,7 @@ impl TestEnv {
                     PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(_, endorsement),
                     ) => {
-                        let endorsement_chunk_hash = match endorsement {
-                            ChunkEndorsement::V1(endorsement) => endorsement.chunk_hash(),
-                            ChunkEndorsement::V2(endorsement) => endorsement.chunk_hash(),
-                        };
-                        endorsement_found = endorsement_chunk_hash == chunk_hash;
+                        endorsement_found = endorsement.chunk_hash() == *chunk_hash;
                     }
                     _ => {}
                 };
@@ -473,13 +508,12 @@ impl TestEnv {
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
-        let signer =
-            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let signer = InMemorySigner::test_signer(&account_id);
         let tx = SignedTransaction::send_money(
             1,
             account_id.clone(),
             account_id,
-            &signer.into(),
+            &signer,
             100,
             self.clients[id].chain.head().unwrap().last_block_hash,
         );
@@ -524,8 +558,10 @@ impl TestEnv {
         let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
         let shard_id =
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+        let last_chunk_header = &last_block.chunks()[shard_index];
 
         for i in 0..self.clients.len() {
             let tracks_shard = self.clients[i]
@@ -582,7 +618,9 @@ impl TestEnv {
         let shard_id =
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
-        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+        let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
+        let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+        let last_chunk_header = &last_block.chunks()[shard_index];
         let response = client
             .runtime_adapter
             .query(
@@ -640,6 +678,7 @@ impl TestEnv {
             None,
             self.clients[idx].partial_witness_adapter.clone(),
             self.clients[idx].validator_signer.get().unwrap(),
+            self.clients[idx].resharding_sender.clone(),
         )
     }
 
@@ -650,7 +689,7 @@ impl TestEnv {
         validator_signer.unwrap().validator_id().clone()
     }
 
-    /// Returns the index of client with the given [`AccoountId`].
+    /// Returns the index of client with the given [`AccountId`].
     pub fn get_client_index(&self, account_id: &AccountId) -> usize {
         self.account_indices.index(account_id)
     }
@@ -683,7 +722,14 @@ impl TestEnv {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
         let height = head.height + height_offset;
 
-        epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap()
+        epoch_manager
+            .get_chunk_producer_info(&ChunkProductionKey {
+                epoch_id,
+                height_created: height,
+                shard_id,
+            })
+            .unwrap()
+            .take_account_id()
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
@@ -694,15 +740,15 @@ impl TestEnv {
     pub fn tx_from_actions(
         &mut self,
         actions: Vec<Action>,
-        signer: &InMemorySigner,
+        signer: &Signer,
         receiver: AccountId,
     ) -> SignedTransaction {
         let tip = self.clients[0].chain.head().unwrap();
         SignedTransaction::from_actions(
             tip.height + 1,
-            signer.account_id.clone(),
+            signer.get_account_id(),
             receiver,
-            &signer.clone().into(),
+            &signer,
             actions,
             tip.last_block_hash,
             0,
@@ -717,15 +763,13 @@ impl TestEnv {
         relayer: AccountId,
         receiver_id: AccountId,
     ) -> SignedTransaction {
-        let inner_signer =
-            InMemorySigner::from_seed(sender.clone(), KeyType::ED25519, sender.as_str());
-        let relayer_signer =
-            InMemorySigner::from_seed(relayer.clone(), KeyType::ED25519, relayer.as_str());
+        let inner_signer = InMemorySigner::test_signer(&sender);
+        let relayer_signer = InMemorySigner::test_signer(&relayer);
         let tip = self.clients[0].chain.head().unwrap();
         let user_nonce = tip.height + 1;
         let relayer_nonce = tip.height + 1;
         let delegate_action = DelegateAction {
-            sender_id: inner_signer.account_id.clone(),
+            sender_id: inner_signer.get_account_id(),
             receiver_id,
             actions: actions
                 .into_iter()
@@ -741,7 +785,7 @@ impl TestEnv {
             relayer_nonce,
             relayer,
             sender,
-            &relayer_signer.into(),
+            &relayer_signer,
             vec![Action::Delegate(Box::new(signed_delegate_action))],
             tip.last_block_hash,
             0,
@@ -766,8 +810,7 @@ impl TestEnv {
         let max_iters = 100;
         let tip = self.clients[0].chain.head().unwrap();
         for i in 0..max_iters {
-            let block = self.clients[0].produce_block(tip.height + i + 1).unwrap().unwrap();
-            self.process_block(0, block.clone(), Provenance::PRODUCED);
+            self.produce_block_simple(tip.height + i + 1);
             if let Ok(outcome) = self.clients[0].chain.get_final_transaction_result(&tx_hash) {
                 return Ok(outcome);
             }
@@ -781,14 +824,14 @@ impl TestEnv {
     /// `InMemorySigner::from_seed` produces a valid signer that has it's key
     /// deployed already.
     pub fn call_main(&mut self, account: &AccountId) -> FinalExecutionOutcomeView {
-        let signer = InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_str());
+        let signer = InMemorySigner::test_signer(&account);
         let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "main".to_string(),
             args: vec![],
             gas: 3 * 10u64.pow(14),
             deposit: 0,
         }))];
-        let tx = self.tx_from_actions(actions, &signer, signer.account_id.clone());
+        let tx = self.tx_from_actions(actions, &signer, signer.get_account_id());
         self.execute_tx(tx).unwrap()
     }
 
@@ -844,6 +887,10 @@ pub(crate) struct AccountIndices(pub(crate) HashMap<AccountId, usize>);
 impl AccountIndices {
     pub fn index(&self, account_id: &AccountId) -> usize {
         self.0[account_id]
+    }
+
+    pub fn contains(&self, account_id: &AccountId) -> bool {
+        self.0.contains_key(account_id)
     }
 
     pub fn lookup<'a, T>(&self, container: &'a [T], account_id: &AccountId) -> &'a T {

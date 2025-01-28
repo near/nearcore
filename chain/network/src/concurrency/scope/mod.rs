@@ -4,7 +4,7 @@
 //! You can think of the scope as a lifetime 'env within a rust future, such that:
 //! * within 'env you can spawn subtasks, which may return an error E.
 //! * subtasks can spawn more subtasks.
-//! * 'env has special semantics: at the end of 'env all spawned substasks are awaited for
+//! * 'env has special semantics: at the end of 'env all spawned subtasks are awaited for
 //!    completion.
 //! * if ANY of the subtasks returns an error, all the other subtasks are GRACEFULLY cancelled.
 //!   It means that they are not just dropped, but rather they have a handle (aka Ctx) to be able
@@ -228,27 +228,6 @@ impl<E: 'static> Drop for Service<E> {
 }
 
 impl<E: 'static + Send> Service<E> {
-    /// Checks if the referred scope has been terminated.
-    pub fn is_terminated(&self) -> bool {
-        self.0.upgrade().is_none()
-    }
-
-    /// Waits until the scope is terminated.
-    ///
-    /// Returns `ErrCanceled` iff `ctx` was canceled before that.
-    pub fn terminated<'a>(
-        &'a self,
-    ) -> impl Future<Output = ctx::OrCanceled<()>> + Send + Sync + 'a {
-        let terminated = self.0.upgrade().map(|inner| inner.terminated.clone());
-        async move {
-            if let Some(t) = terminated {
-                ctx::wait(t.recv()).await
-            } else {
-                Ok(())
-            }
-        }
-    }
-
     /// Cancels the scope's context and waits until the scope is terminated.
     ///
     /// Note that ErrCanceled is returned if the `ctx` passed as argument is canceled before that,
@@ -351,7 +330,7 @@ impl<'env, E: 'static + Send> Scope<'env, E> {
     /// It behaves just like a single-task Service, but
     /// has the same lifetime as the Scope, so it can spawn
     /// more tasks in the scope. It is not a "main" task, so
-    /// it doesn't prevent scope cancelation.
+    /// it doesn't prevent scope cancellation.
     pub fn spawn_bg<T: 'static + Send>(
         &self,
         f: impl 'env + Send + Future<Output = Result<T, E>>,

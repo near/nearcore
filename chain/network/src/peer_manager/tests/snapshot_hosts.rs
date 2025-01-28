@@ -10,6 +10,7 @@ use crate::types::NetworkRequests;
 use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
 use crate::{network_protocol::testonly as data, peer::testonly::PeerHandle};
+use itertools::Itertools;
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
@@ -32,10 +33,10 @@ fn make_snapshot_host_info(
     rng: &mut impl Rng,
 ) -> Arc<SnapshotHostInfo> {
     let epoch_height: EpochHeight = rng.gen::<EpochHeight>();
-    let max_shard_id: ShardId = 32;
+    let max_shard_id = 32;
     let shards_num: usize = rng.gen_range(1..16);
-    let mut shards: Vec<ShardId> = (0..max_shard_id).choose_multiple(rng, shards_num);
-    shards.sort();
+    let shards = (0..max_shard_id).choose_multiple(rng, shards_num);
+    let shards = shards.into_iter().sorted().map(ShardId::new).collect();
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
@@ -141,7 +142,7 @@ async fn broadcast() {
     let got1 = peer1.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(got1.hosts, vec![info2.clone()]);
 
-    tracing::info!(target:"test", "Connect another peer, check that it receieves all of the published information.");
+    tracing::info!(target:"test", "Connect another peer, check that it receives all of the published information.");
     let mut peer5 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let peer5_sync_msg = peer5.events.recv_until(take_sync_snapshot_msg).await;
@@ -197,7 +198,7 @@ async fn invalid_signature_not_broadcast() {
     });
     peer1.send(invalid_message).await;
 
-    tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
+    tracing::info!(target:"test", "Send a valid message from peer2 (as peer1 got banned), it should reach peer3.");
 
     let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
 
@@ -208,7 +209,7 @@ async fn invalid_signature_not_broadcast() {
     tracing::info!(target:"test", "Make sure that only the valid messages are broadcast.");
 
     // Wait until peer2 receives info2. Ignore ok_info_a and ok_info_b,
-    // as the PeerManager could accept and broadcast them despite the neighbouring invalid_info.
+    // as the PeerManager could accept and broadcast them despite the neighboring invalid_info.
     wait_for_host_info(&mut peer2, &info2, &[ok_info_a, ok_info_b]).await;
 }
 
@@ -251,7 +252,7 @@ async fn too_many_shards_not_broadcast() {
 
     tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from peer1. One of the host infos has more shard ids than allowed.");
     let too_many_shards: Vec<ShardId> =
-        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
+        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).map(Into::into).collect();
     let invalid_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(rng.gen::<u64>()),
@@ -268,7 +269,7 @@ async fn too_many_shards_not_broadcast() {
     });
     peer1.send(invalid_message).await;
 
-    tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
+    tracing::info!(target:"test", "Send a valid message from peer2 (as peer1 got banned), it should reach peer3.");
 
     let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
 
@@ -279,7 +280,7 @@ async fn too_many_shards_not_broadcast() {
     tracing::info!(target:"test", "Make sure that only valid messages are broadcast.");
 
     // Wait until peer2 receives info2. Ignore ok_info_a and ok_info_b,
-    // as the PeerManager could accept and broadcast them despite the neighbouring invalid_info.
+    // as the PeerManager could accept and broadcast them despite the neighboring invalid_info.
     wait_for_host_info(&mut peer2, &info2, &[ok_info_a, ok_info_b]).await;
 }
 
@@ -288,7 +289,7 @@ async fn too_many_shards_not_broadcast() {
 /// [0] - [1]
 ///  |     |
 /// [2] - [3]
-/// And then the managers propagate messages among themeselves.
+/// And then the managers propagate messages among themselves.
 #[tokio::test]
 async fn propagate() {
     init_test_logger();
@@ -369,11 +370,15 @@ async fn large_shard_id_in_cache() {
     let peer1 = pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
 
     tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids.");
+    let large_shard_id_1 = ShardId::new(u64::MAX - 1);
+    let large_shard_id_2 = ShardId::new(u64::MAX);
     let big_shard_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(1234_u64),
         1234,
-        vec![0, 1232232, ShardId::MAX - 1, ShardId::MAX],
+        vec![ShardId::new(0), ShardId::new(1232232), large_shard_id_1, large_shard_id_2]
+            .into_iter()
+            .collect(),
         &peer1_config.node_key,
     ));
 
@@ -388,7 +393,7 @@ async fn large_shard_id_in_cache() {
     pm.wait_for_snapshot_hosts(&want).await;
 }
 
-// When PeerManager receives a request to share SnaphotHostInfo with more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+// When PeerManager receives a request to share SnapshotHostInfo with more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
 // shards it should truncate the list of shards to prevent being banned for abusive behavior by other peers.
 // Truncation is done by choosing a random subset from the original list of shards.
 #[tokio::test]
@@ -419,7 +424,7 @@ async fn too_many_shards_truncate() {
     tracing::info!(target:"test", "Ask peer manager to send out an invalid SyncSnapshotHosts message. The info has more shard ids than allowed.");
     // Create a list of shards with twice as many shard ids as is allowed
     let too_many_shards: Vec<ShardId> =
-        (0..(2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64)).collect();
+        (0..(2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64)).map(Into::into).collect();
 
     let sync_hash = CryptoHash::hash_borsh(rng.gen::<u64>());
     let epoch_height: EpochHeight = rng.gen();
@@ -442,11 +447,13 @@ async fn too_many_shards_truncate() {
 
     // The list of shards should contain MAX_SHARDS_PER_SNAPSHOT_HOST_INFO randomly sampled, unique shard ids taken from too_many_shards
     assert_eq!(info.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
-    for shard_id in &info.shards {
+    for &shard_id in &info.shards {
         // Shard ids are taken from the original vector
-        assert!(*shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
+        let shard_id: usize = shard_id.into();
+        assert!(shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
     }
     // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
+    // cspell:ignore twoelems
     assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));
     // The list isn't truncated by choosing the first half of the shards vec, it should be chosen randomly.
     // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO is at least 128, so the chance of this check failing due to randomness is extremely low.

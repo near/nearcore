@@ -56,7 +56,7 @@ impl OrphanStateWitnessPool {
             tracing::debug!(
                 target: "client",
                 ejected_witness_height = header.height_created(),
-                ejected_witness_shard = header.shard_id(),
+                ejected_witness_shard = ?header.shard_id(),
                 ejected_witness_chunk = ?header.chunk_hash(),
                 ejected_witness_prev_block = ?header.prev_block_hash(),
                 "Ejecting an orphaned ChunkStateWitness from the cache due to capacity limit. It will not be processed."
@@ -101,7 +101,7 @@ impl OrphanStateWitnessPool {
                     target: "client",
                     final_height,
                     ejected_witness_height = witness_height,
-                    ejected_witness_shard = cache_key.shard_id,
+                    ejected_witness_shard = ?cache_key.shard_id,
                     ejected_witness_chunk = ?header.chunk_hash(),
                     ejected_witness_prev_block = ?header.prev_block_hash(),
                     "Ejecting an orphaned ChunkStateWitness from the cache because it's below \
@@ -195,9 +195,10 @@ mod tests {
         let mut witness = ChunkStateWitness::new_dummy(height, shard_id, prev_block_hash);
         match &mut witness.chunk_header {
             ShardChunkHeader::V3(header) => match &mut header.inner {
+                ShardChunkHeaderInner::V1(_) => unimplemented!(),
                 ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
                 ShardChunkHeaderInner::V3(inner) => inner.encoded_length = encoded_length,
-                _ => unimplemented!(),
+                ShardChunkHeaderInner::V4(inner) => inner.encoded_length = encoded_length,
             },
             _ => unimplemented!(),
         }
@@ -209,7 +210,7 @@ mod tests {
         hash(&height.to_be_bytes())
     }
 
-    /// Assert that both Vecs are equal after sorting. It's order-independent, unlike the standard assert_eq!
+    /// Assert that both vec are equal after sorting. It's order-independent, unlike the standard assert_eq!
     fn assert_contents(mut observed: Vec<ChunkStateWitness>, mut expected: Vec<ChunkStateWitness>) {
         let sort_comparator = |witness1: &ChunkStateWitness, witness2: &ChunkStateWitness| {
             let bytes1 = borsh::to_vec(witness1).unwrap();
@@ -253,10 +254,10 @@ mod tests {
     fn basic() {
         let mut pool = OrphanStateWitnessPool::new(10);
 
-        let witness1 = make_witness(100, 1, block(99), 0);
-        let witness2 = make_witness(100, 2, block(99), 0);
-        let witness3 = make_witness(101, 1, block(100), 0);
-        let witness4 = make_witness(101, 2, block(100), 0);
+        let witness1 = make_witness(100, ShardId::new(1), block(99), 0);
+        let witness2 = make_witness(100, ShardId::new(2), block(99), 0);
+        let witness3 = make_witness(101, ShardId::new(1), block(100), 0);
+        let witness4 = make_witness(101, ShardId::new(2), block(100), 0);
 
         pool.add_orphan_state_witness(witness1.clone(), 0);
         pool.add_orphan_state_witness(witness2.clone(), 0);
@@ -280,8 +281,8 @@ mod tests {
 
         // The old witness is replaced when the awaited block is the same
         {
-            let witness1 = make_witness(100, 1, block(99), 0);
-            let witness2 = make_witness(100, 1, block(99), 1);
+            let witness1 = make_witness(100, ShardId::new(1), block(99), 0);
+            let witness2 = make_witness(100, ShardId::new(1), block(99), 1);
             pool.add_orphan_state_witness(witness1, 0);
             pool.add_orphan_state_witness(witness2.clone(), 0);
 
@@ -291,8 +292,8 @@ mod tests {
 
         // The old witness is replaced when the awaited block is different, waiting_for_block is cleaned as expected
         {
-            let witness3 = make_witness(102, 1, block(100), 0);
-            let witness4 = make_witness(102, 1, block(101), 0);
+            let witness3 = make_witness(102, ShardId::new(1), block(100), 0);
+            let witness4 = make_witness(102, ShardId::new(1), block(101), 0);
             pool.add_orphan_state_witness(witness3, 0);
             pool.add_orphan_state_witness(witness4.clone(), 0);
 
@@ -311,9 +312,9 @@ mod tests {
     fn limited_capacity() {
         let mut pool = OrphanStateWitnessPool::new(2);
 
-        let witness1 = make_witness(102, 1, block(101), 0);
-        let witness2 = make_witness(101, 1, block(100), 0);
-        let witness3 = make_witness(101, 2, block(100), 0);
+        let witness1 = make_witness(102, ShardId::new(1), block(101), 0);
+        let witness2 = make_witness(101, ShardId::new(1), block(100), 0);
+        let witness3 = make_witness(101, ShardId::new(2), block(100), 0);
 
         pool.add_orphan_state_witness(witness1, 0);
         pool.add_orphan_state_witness(witness2.clone(), 0);
@@ -336,8 +337,8 @@ mod tests {
     fn large_shard_id() {
         let mut pool = OrphanStateWitnessPool::new(10);
 
-        let large_shard_id = ShardId::MAX;
-        let witness = make_witness(101, large_shard_id, block(99), 0);
+        let large_shard_id = ShardId::max();
+        let witness = make_witness(101, large_shard_id.into(), block(99), 0);
         pool.add_orphan_state_witness(witness.clone(), 0);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
@@ -351,10 +352,10 @@ mod tests {
     fn remove_below_height() {
         let mut pool = OrphanStateWitnessPool::new(10);
 
-        let witness1 = make_witness(100, 1, block(99), 0);
-        let witness2 = make_witness(101, 1, block(100), 0);
-        let witness3 = make_witness(102, 1, block(101), 0);
-        let witness4 = make_witness(103, 1, block(102), 0);
+        let witness1 = make_witness(100, ShardId::new(1), block(99), 0);
+        let witness2 = make_witness(101, ShardId::new(1), block(100), 0);
+        let witness3 = make_witness(102, ShardId::new(1), block(101), 0);
+        let witness4 = make_witness(103, ShardId::new(1), block(102), 0);
 
         pool.add_orphan_state_witness(witness1, 0);
         pool.add_orphan_state_witness(witness2.clone(), 0);
@@ -380,12 +381,12 @@ mod tests {
     /// It's hard to test it because metrics are global and it could interfere with other tests,
     /// but we can at least test that it doesn't crash. That's always something.
     #[test]
-    fn destructor_doesnt_crash() {
+    fn destructor_does_not_crash() {
         let mut pool = OrphanStateWitnessPool::new(10);
-        pool.add_orphan_state_witness(make_witness(100, 0, block(99), 0), 0);
-        pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 0);
-        pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 1);
-        pool.add_orphan_state_witness(make_witness(101, 0, block(100), 0), 0);
+        pool.add_orphan_state_witness(make_witness(100, ShardId::new(0), block(99), 0), 0);
+        pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99), 0), 0);
+        pool.add_orphan_state_witness(make_witness(100, ShardId::new(2), block(99), 0), 1);
+        pool.add_orphan_state_witness(make_witness(101, ShardId::new(0), block(100), 0), 0);
         std::mem::drop(pool);
     }
 
@@ -395,24 +396,24 @@ mod tests {
         let mut pool = OrphanStateWitnessPool::new(5);
 
         // Witnesses for shards 0, 1, 2, 3 at height 1000, looking for block 99
-        let witness0 = make_witness(100, 0, block(99), 0);
-        let witness1 = make_witness(100, 1, block(99), 0);
-        let witness2 = make_witness(100, 2, block(99), 0);
-        let witness3 = make_witness(100, 3, block(99), 0);
+        let witness0 = make_witness(100, ShardId::new(0), block(99), 0);
+        let witness1 = make_witness(100, ShardId::new(1), block(99), 0);
+        let witness2 = make_witness(100, ShardId::new(2), block(99), 0);
+        let witness3 = make_witness(100, ShardId::new(3), block(99), 0);
         pool.add_orphan_state_witness(witness0, 0);
         pool.add_orphan_state_witness(witness1, 0);
         pool.add_orphan_state_witness(witness2, 0);
         pool.add_orphan_state_witness(witness3, 0);
 
         // Another witness on shard 1, height 100. Should replace witness1
-        let witness5 = make_witness(100, 1, block(99), 1);
+        let witness5 = make_witness(100, ShardId::new(1), block(99), 1);
         pool.add_orphan_state_witness(witness5.clone(), 0);
 
         // Witnesses for shards 0, 1, 2, 3 at height 101, looking for block 100
-        let witness6 = make_witness(101, 0, block(100), 0);
-        let witness7 = make_witness(101, 1, block(100), 0);
-        let witness8 = make_witness(101, 2, block(100), 0);
-        let witness9 = make_witness(101, 3, block(100), 0);
+        let witness6 = make_witness(101, ShardId::new(0), block(100), 0);
+        let witness7 = make_witness(101, ShardId::new(1), block(100), 0);
+        let witness8 = make_witness(101, ShardId::new(2), block(100), 0);
+        let witness9 = make_witness(101, ShardId::new(3), block(100), 0);
         pool.add_orphan_state_witness(witness6, 0);
         pool.add_orphan_state_witness(witness7.clone(), 0);
         pool.add_orphan_state_witness(witness8.clone(), 0);
@@ -424,9 +425,9 @@ mod tests {
         assert_contents(looking_for_99, vec![witness5]);
 
         // Let's add a few more witnesses
-        let witness10 = make_witness(102, 1, block(101), 0);
-        let witness11 = make_witness(102, 4, block(100), 0);
-        let witness12 = make_witness(102, 1, block(77), 0);
+        let witness10 = make_witness(102, ShardId::new(1), block(101), 0);
+        let witness11 = make_witness(102, ShardId::new(4), block(100), 0);
+        let witness12 = make_witness(102, ShardId::new(1), block(77), 0);
         pool.add_orphan_state_witness(witness10, 0);
         pool.add_orphan_state_witness(witness11.clone(), 0);
         pool.add_orphan_state_witness(witness12.clone(), 0);

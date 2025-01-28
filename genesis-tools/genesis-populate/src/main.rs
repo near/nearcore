@@ -5,6 +5,7 @@ use nearcore::{get_default_home, load_config};
 use std::path::PathBuf;
 
 fn main() {
+    // cspell:ignore populator
     let matches = Command::new("Genesis populator")
         .arg(
             Arg::new("home")
@@ -36,9 +37,8 @@ fn main() {
 
     let store = near_store::NodeStorage::opener(
         home_dir,
-        near_config.config.archive,
         &near_config.config.store,
-        None,
+        near_config.config.archival_config(),
     )
     .open()
     .unwrap()

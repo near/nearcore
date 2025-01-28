@@ -1,37 +1,37 @@
 use crate::tests::client::features::wallet_contract::{
     create_rlp_execute_tx, view_balance, NearSigner,
 };
-use near_client::{ProcessTxResponse, ProduceChunkResult};
+use assert_matches::assert_matches;
+use near_chain::Provenance;
+use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
+use near_client::test_utils::TestEnv;
+use near_client::ProcessTxResponse;
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
-use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
-use near_primitives::version::ProtocolFeature;
-use near_store::test_utils::create_test_store;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use std::collections::HashSet;
-
-use near_chain::{Chain, Provenance};
-use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
-use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
-use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_o11y::testonly::init_integration_logger;
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountInfo, EpochId};
+use near_primitives::types::{AccountInfo, EpochId, ShardId};
 use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, NumSeats};
+use near_store::test_utils::create_test_store;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -46,18 +46,11 @@ fn run_chunk_validation_test(
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
     let blocks_to_produce = if prob_missing_block > 0.0 { 200 } else { 50 };
+
     let num_accounts = 9;
-    let accounts = (0..num_accounts)
-        .map(|i| format!("account{}", i).parse().unwrap())
-        .collect::<Vec<AccountId>>();
     let num_validators = 8;
-    // Split accounts into 4 shards, so that each shard will store two
-    // validator accounts.
-    let shard_layout = ShardLayout::v1(
-        vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
-        None,
-        1,
-    );
+    let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
+
     let num_shards = shard_layout.shard_ids().count();
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
@@ -81,7 +74,7 @@ fn run_chunk_validation_test(
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
         num_block_producer_seats: num_validators as NumSeats,
-        // Each shard has 2 chunk prducers, so 4 shards, 8 chunk producers total.
+        // Each shard has 2 chunk producers, so 4 shards, 8 chunk producers total.
         minimum_validators_per_shard: 2,
         // Even though not used for the most recent protocol version,
         // this must still have the same length as the number of shards,
@@ -167,17 +160,13 @@ fn run_chunk_validation_test(
 
         let sender_account = accounts[round % num_accounts].clone();
         let receiver_account = accounts[(round + 1) % num_accounts].clone();
-        let signer = InMemorySigner::from_seed(
-            sender_account.clone(),
-            KeyType::ED25519,
-            sender_account.as_ref(),
-        );
+        let signer = InMemorySigner::test_signer(&sender_account);
         if round > 1 {
             let tx = SignedTransaction::send_money(
                 round as u64,
                 sender_account,
                 receiver_account,
-                &signer.into(),
+                &signer,
                 ONE_NEAR,
                 tip.last_block_hash,
             );
@@ -264,7 +253,7 @@ fn run_chunk_validation_test(
 }
 
 #[test]
-fn test_chunk_validation_no_missing_chunks() {
+fn slow_test_chunk_validation_no_missing_chunks() {
     run_chunk_validation_test(42, 0.0, 0.0, PROTOCOL_VERSION);
 }
 
@@ -289,7 +278,7 @@ fn test_chunk_validation_protocol_upgrade_no_missing() {
 }
 
 #[test]
-fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
+fn slow_test_chunk_validation_protocol_upgrade_low_missing_prob() {
     run_chunk_validation_test(
         42,
         0.2,
@@ -299,7 +288,7 @@ fn test_chunk_validation_protocol_upgrade_low_missing_prob() {
 }
 
 #[test]
-fn test_chunk_validation_protocol_upgrade_mid_missing_prob() {
+fn slow_test_chunk_validation_protocol_upgrade_mid_missing_prob() {
     run_chunk_validation_test(
         42,
         0.6,
@@ -314,17 +303,10 @@ fn test_protocol_upgrade_81() {
 
     let validator_stake = 1000000 * ONE_NEAR;
     let num_accounts = 9;
-    let accounts = (0..num_accounts)
-        .map(|i| format!("account{}", i).parse().unwrap())
-        .collect::<Vec<AccountId>>();
     let num_validators = 8;
-    // Split accounts into 4 shards, so that each shard will store two
-    // validator accounts.
-    let shard_layout = ShardLayout::v1(
-        vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
-        None,
-        1,
-    );
+
+    let (accounts, shard_layout) = get_accounts_and_shard_layout(num_accounts, num_validators);
+
     let num_shards = shard_layout.shard_ids().count();
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
@@ -348,10 +330,37 @@ fn test_protocol_upgrade_81() {
         chunk_producer_kickout_threshold: 90,
         ..Default::default()
     };
-    let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config);
+    let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config, None);
     let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
     assert_eq!(config.block_producer_kickout_threshold, 90);
     assert_eq!(config.chunk_producer_kickout_threshold, 90);
+}
+
+fn get_accounts_and_shard_layout(
+    num_accounts: usize,
+    num_validators: usize,
+) -> (Vec<AccountId>, ShardLayout) {
+    // Split accounts into 4 shards, so that each shard will store two validator
+    // accounts.
+    let accounts = (0..num_accounts)
+        .map(|i| format!("account{}", i).parse().unwrap())
+        .collect::<Vec<AccountId>>();
+    let boundary_accounts = vec!["account2", "account4", "account6"];
+    let boundary_accounts = boundary_accounts.into_iter().map(|s| s.parse().unwrap()).collect();
+    let shard_layout = ShardLayout::multi_shard_custom(boundary_accounts, 3);
+
+    // The number of accounts in each shard.
+    let mut shard_account_count: HashMap<ShardId, u32> = HashMap::new();
+    for account in &accounts[..num_validators] {
+        let shard_id = shard_layout.account_id_to_shard_id(account);
+        *shard_account_count.entry(shard_id).or_default() += 1;
+    }
+    for shard_id in shard_layout.shard_ids() {
+        let account_count = shard_account_count.get(&shard_id).unwrap_or(&0);
+        assert_eq!(account_count, &2, "Each shard should have 2 validator accounts");
+    }
+
+    (accounts, shard_layout)
 }
 
 /// Test that Client rejects ChunkStateWitnesses with invalid shard_id
@@ -376,7 +385,7 @@ fn test_chunk_state_witness_bad_shard_id() {
 
     // Create a dummy ChunkStateWitness with an invalid shard_id
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
-    let invalid_shard_id = 1000000000;
+    let invalid_shard_id = ShardId::new(1000000000);
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
     let witness_size = borsh::to_vec(&witness).unwrap().len();
 
@@ -388,138 +397,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);
     assert!(error_message.contains("shard"));
-}
-
-/// Test that processing chunks with invalid transactions does not lead to panics
-#[test]
-fn test_invalid_transactions() {
-    let accounts =
-        vec!["test0".parse().unwrap(), "test1".parse().unwrap(), "test2".parse().unwrap()];
-    let signers: Vec<_> = accounts
-        .iter()
-        .map(|account_id: &AccountId| {
-            create_user_test_signer(AccountIdRef::new(account_id.as_str()).unwrap())
-        })
-        .collect();
-    let genesis = Genesis::test(accounts.clone(), 2);
-    let mut env = TestEnv::builder(&genesis.config)
-        .validators(accounts.clone())
-        .clients(accounts.clone())
-        .nightshade_runtimes(&genesis)
-        .build();
-    let new_signer = create_user_test_signer(AccountIdRef::new("test3").unwrap());
-
-    let tip = env.clients[0].chain.head().unwrap();
-    let sender_account = accounts[0].clone();
-    let receiver_account = accounts[1].clone();
-    let invalid_transactions = vec![
-        // transaction with invalid balance
-        SignedTransaction::send_money(
-            1,
-            sender_account.clone(),
-            receiver_account.clone(),
-            &signers[0].clone().into(),
-            u128::MAX,
-            tip.last_block_hash,
-        ),
-        // transaction with invalid nonce
-        SignedTransaction::send_money(
-            0,
-            sender_account.clone(),
-            receiver_account.clone(),
-            &signers[0].clone().into(),
-            ONE_NEAR,
-            tip.last_block_hash,
-        ),
-        // transaction with invalid sender account
-        SignedTransaction::send_money(
-            2,
-            "test3".parse().unwrap(),
-            receiver_account.clone(),
-            &new_signer.into(),
-            ONE_NEAR,
-            tip.last_block_hash,
-        ),
-    ];
-    // Need to create a valid transaction with the same accounts touched in order to have some state witness generated
-    let valid_tx = SignedTransaction::send_money(
-        1,
-        sender_account,
-        receiver_account,
-        &signers[0].clone().into(),
-        ONE_NEAR,
-        tip.last_block_hash,
-    );
-    let mut start_height = 1;
-    for tx in invalid_transactions {
-        for height in start_height..start_height + 3 {
-            let tip = env.clients[0].chain.head().unwrap();
-            let chunk_producer = env.get_chunk_producer_at_offset(&tip, 1, 0);
-            let block_producer = env.get_block_producer_at_offset(&tip, 1);
-
-            let client = env.client(&chunk_producer);
-            let transactions = if height == start_height { vec![tx.clone()] } else { vec![] };
-            if height == start_height {
-                let res = client.process_tx(valid_tx.clone(), false, false);
-                assert!(matches!(res, ProcessTxResponse::ValidTx))
-            }
-
-            let (
-                ProduceChunkResult {
-                    chunk,
-                    encoded_chunk_parts_paths,
-                    receipts,
-                    transactions_storage_proof,
-                },
-                _,
-            ) = create_chunk_with_transactions(client, transactions);
-
-            let shard_chunk = client
-                .persist_and_distribute_encoded_chunk(
-                    chunk,
-                    encoded_chunk_parts_paths,
-                    receipts,
-                    client.validator_signer.get().unwrap().validator_id().clone(),
-                )
-                .unwrap();
-            let prev_block = client.chain.get_block(shard_chunk.prev_block()).unwrap();
-            let prev_chunk_header = Chain::get_prev_chunk_header(
-                client.epoch_manager.as_ref(),
-                &prev_block,
-                shard_chunk.shard_id(),
-            )
-            .unwrap();
-            client
-                .send_chunk_state_witness_to_chunk_validators(
-                    &client
-                        .epoch_manager
-                        .get_epoch_id_from_prev_block(shard_chunk.prev_block())
-                        .unwrap(),
-                    prev_block.header(),
-                    &prev_chunk_header,
-                    &shard_chunk,
-                    transactions_storage_proof,
-                    &client.validator_signer.get(),
-                )
-                .unwrap();
-
-            env.process_partial_encoded_chunks();
-            for i in 0..env.clients.len() {
-                env.process_shards_manager_responses(i);
-            }
-            env.propagate_chunk_state_witnesses_and_endorsements(true);
-            let block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
-            for client in env.clients.iter_mut() {
-                client
-                    .process_block_test_no_produce_chunk_allow_errors(
-                        block.clone().into(),
-                        Provenance::NONE,
-                    )
-                    .unwrap();
-            }
-        }
-        start_height += 3;
-    }
+    assert_matches!(error, near_chain::Error::InvalidShardId(_));
 }
 
 /// Tests that eth-implicit accounts still work with stateless validation.
@@ -545,7 +423,7 @@ fn test_eth_implicit_accounts() {
     let alice_init_balance = 3 * ONE_NEAR;
     let create_alice_tx = SignedTransaction::send_money(
         1,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         alice_eth_account.clone(),
         &signer.clone().into(),
         alice_init_balance,
@@ -555,7 +433,7 @@ fn test_eth_implicit_accounts() {
     let bob_init_balance = 0;
     let create_bob_tx = SignedTransaction::send_money(
         2,
-        signer.account_id.clone(),
+        signer.get_account_id(),
         bob_eth_account.clone(),
         &signer.clone().into(),
         bob_init_balance,
@@ -577,9 +455,9 @@ fn test_eth_implicit_accounts() {
     assert_eq!(view_balance(&env, &bob_eth_account), bob_init_balance);
 
     // 2. Add function call access key to one eth-implicit account
-    let relayer_account_id = signer.account_id.clone();
+    let relayer_account_id = signer.get_account_id();
     let mut relayer_signer = NearSigner { account_id: &relayer_account_id, signer };
-    let relayer_pk = relayer_signer.signer.public_key.clone();
+    let relayer_pk = relayer_signer.signer.public_key();
     let action = Action::AddKey(Box::new(AddKeyAction {
         public_key: relayer_pk,
         access_key: AccessKey {

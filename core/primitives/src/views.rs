@@ -5,14 +5,14 @@
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::action::delegate::{DelegateAction, SignedDelegateAction};
-use crate::block::{Block, BlockHeader, Tip};
-use crate::block_header::{
-    BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
-    BlockHeaderInnerRestV5, BlockHeaderV1, BlockHeaderV2, BlockHeaderV3, BlockHeaderV5,
+use crate::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
 };
-use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
+use crate::bandwidth_scheduler::BandwidthRequests;
+use crate::block::{Block, BlockHeader, Tip};
+use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::checked_feature;
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
@@ -20,6 +20,7 @@ use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum, ReceiptV1};
 use crate::serialize::dec_format;
+use crate::sharding::shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
@@ -46,7 +47,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -248,6 +249,7 @@ impl FromIterator<AccessKeyInfoView> for AccessKeyList {
     }
 }
 
+// cspell:words deepsize
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct KnownPeerStateView {
@@ -428,7 +430,7 @@ pub enum SyncStatusView {
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
-    StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownloadView>),
+    StateSync(StateSyncStatusView),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
@@ -437,6 +439,14 @@ pub enum SyncStatusView {
         current_height: BlockHeight,
         highest_height: BlockHeight,
     },
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct StateSyncStatusView {
+    pub sync_hash: CryptoHash,
+    pub shard_sync_status: HashMap<ShardId, String>,
+    pub download_tasks: Vec<String>,
+    pub computation_tasks: Vec<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -474,7 +484,7 @@ pub struct LabeledEdgeView {
     pub nonce: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
 pub struct EdgeCacheView {
     pub peer_labels: HashMap<PeerId, u32>,
     pub spanning_trees: HashMap<u32, Vec<LabeledEdgeView>>,
@@ -486,7 +496,7 @@ pub struct PeerDistancesView {
     pub min_nonce: u64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Default)]
 pub struct NetworkRoutesView {
     pub edge_cache: EdgeCacheView,
     pub local_edges: HashMap<PeerId, EdgeView>,
@@ -824,186 +834,38 @@ impl From<BlockHeader> for BlockHeaderView {
 
 impl From<BlockHeaderView> for BlockHeader {
     fn from(view: BlockHeaderView) -> Self {
-        // TODO(#11900): Use BlockHeader::new to build the header.
-        let inner_lite = BlockHeaderInnerLite {
-            height: view.height,
-            epoch_id: EpochId(view.epoch_id),
-            next_epoch_id: EpochId(view.next_epoch_id),
-            prev_state_root: view.prev_state_root,
-            prev_outcome_root: view.outcome_root,
-            timestamp: view.timestamp,
-            next_bp_hash: view.next_bp_hash,
-            block_merkle_root: view.block_merkle_root,
-        };
-        const LAST_HEADER_V2_VERSION: ProtocolVersion =
-            crate::version::ProtocolFeature::BlockHeaderV3.protocol_version() - 1;
-        if view.latest_protocol_version <= 29 {
-            let validator_proposals = view
-                .validator_proposals
-                .into_iter()
-                .map(|v| v.into_validator_stake().into_v1())
-                .collect();
-            let mut header = BlockHeaderV1 {
-                prev_hash: view.prev_hash,
-                inner_lite,
-                inner_rest: BlockHeaderInnerRest {
-                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
-                    chunk_headers_root: view.chunk_headers_root,
-                    chunk_tx_root: view.chunk_tx_root,
-                    chunks_included: view.chunks_included,
-                    challenges_root: view.challenges_root,
-                    random_value: view.random_value,
-                    prev_validator_proposals: validator_proposals,
-                    chunk_mask: view.chunk_mask,
-                    next_gas_price: view.gas_price,
-                    total_supply: view.total_supply,
-                    challenges_result: view.challenges_result,
-                    last_final_block: view.last_final_block,
-                    last_ds_final_block: view.last_ds_final_block,
-                    approvals: view.approvals.clone(),
-                    latest_protocol_version: view.latest_protocol_version,
-                },
-                signature: view.signature,
-                hash: CryptoHash::default(),
-            };
-            header.init();
-            BlockHeader::BlockHeaderV1(Arc::new(header))
-        } else if view.latest_protocol_version <= LAST_HEADER_V2_VERSION {
-            let validator_proposals = view
-                .validator_proposals
-                .into_iter()
-                .map(|v| v.into_validator_stake().into_v1())
-                .collect();
-            let mut header = BlockHeaderV2 {
-                prev_hash: view.prev_hash,
-                inner_lite,
-                inner_rest: BlockHeaderInnerRestV2 {
-                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
-                    chunk_headers_root: view.chunk_headers_root,
-                    chunk_tx_root: view.chunk_tx_root,
-                    challenges_root: view.challenges_root,
-                    random_value: view.random_value,
-                    prev_validator_proposals: validator_proposals,
-                    chunk_mask: view.chunk_mask,
-                    next_gas_price: view.gas_price,
-                    total_supply: view.total_supply,
-                    challenges_result: view.challenges_result,
-                    last_final_block: view.last_final_block,
-                    last_ds_final_block: view.last_ds_final_block,
-                    approvals: view.approvals.clone(),
-                    latest_protocol_version: view.latest_protocol_version,
-                },
-                signature: view.signature,
-                hash: CryptoHash::default(),
-            };
-            header.init();
-            BlockHeader::BlockHeaderV2(Arc::new(header))
-        } else if ProtocolFeature::ChunkEndorsementsInBlockHeader
-            .enabled(view.latest_protocol_version)
-        {
-            let chunk_endorsements = view.chunk_endorsements.map_or_else(
-                || ChunkEndorsementsBitmap::new(view.chunk_mask.len()),
-                |bytes| ChunkEndorsementsBitmap::from_bytes(bytes),
-            );
-            let mut header = BlockHeaderV5 {
-                prev_hash: view.prev_hash,
-                inner_lite,
-                inner_rest: BlockHeaderInnerRestV5 {
-                    block_body_hash: view.block_body_hash.unwrap_or_default(),
-                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
-                    chunk_headers_root: view.chunk_headers_root,
-                    chunk_tx_root: view.chunk_tx_root,
-                    challenges_root: view.challenges_root,
-                    random_value: view.random_value,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    chunk_mask: view.chunk_mask,
-                    next_gas_price: view.gas_price,
-                    block_ordinal: view.block_ordinal.unwrap_or(0),
-                    total_supply: view.total_supply,
-                    challenges_result: view.challenges_result,
-                    last_final_block: view.last_final_block,
-                    last_ds_final_block: view.last_ds_final_block,
-                    prev_height: view.prev_height.unwrap_or_default(),
-                    epoch_sync_data_hash: view.epoch_sync_data_hash,
-                    approvals: view.approvals.clone(),
-                    latest_protocol_version: view.latest_protocol_version,
-                    chunk_endorsements,
-                },
-                signature: view.signature,
-                hash: CryptoHash::default(),
-            };
-            header.init();
-            BlockHeader::BlockHeaderV5(Arc::new(header))
-        } else if !checked_feature!("stable", BlockHeaderV4, view.latest_protocol_version) {
-            let mut header = BlockHeaderV3 {
-                prev_hash: view.prev_hash,
-                inner_lite,
-                inner_rest: BlockHeaderInnerRestV3 {
-                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
-                    chunk_headers_root: view.chunk_headers_root,
-                    chunk_tx_root: view.chunk_tx_root,
-                    challenges_root: view.challenges_root,
-                    random_value: view.random_value,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    chunk_mask: view.chunk_mask,
-                    next_gas_price: view.gas_price,
-                    block_ordinal: view.block_ordinal.unwrap_or(0),
-                    total_supply: view.total_supply,
-                    challenges_result: view.challenges_result,
-                    last_final_block: view.last_final_block,
-                    last_ds_final_block: view.last_ds_final_block,
-                    prev_height: view.prev_height.unwrap_or_default(),
-                    epoch_sync_data_hash: view.epoch_sync_data_hash,
-                    approvals: view.approvals.clone(),
-                    latest_protocol_version: view.latest_protocol_version,
-                },
-                signature: view.signature,
-                hash: CryptoHash::default(),
-            };
-            header.init();
-            BlockHeader::BlockHeaderV3(Arc::new(header))
-        } else {
-            let mut header = BlockHeaderV4 {
-                prev_hash: view.prev_hash,
-                inner_lite,
-                inner_rest: BlockHeaderInnerRestV4 {
-                    block_body_hash: view.block_body_hash.unwrap_or_default(),
-                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
-                    chunk_headers_root: view.chunk_headers_root,
-                    chunk_tx_root: view.chunk_tx_root,
-                    challenges_root: view.challenges_root,
-                    random_value: view.random_value,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    chunk_mask: view.chunk_mask,
-                    next_gas_price: view.gas_price,
-                    block_ordinal: view.block_ordinal.unwrap_or(0),
-                    total_supply: view.total_supply,
-                    challenges_result: view.challenges_result,
-                    last_final_block: view.last_final_block,
-                    last_ds_final_block: view.last_ds_final_block,
-                    prev_height: view.prev_height.unwrap_or_default(),
-                    epoch_sync_data_hash: view.epoch_sync_data_hash,
-                    approvals: view.approvals.clone(),
-                    latest_protocol_version: view.latest_protocol_version,
-                },
-                signature: view.signature,
-                hash: CryptoHash::default(),
-            };
-            header.init();
-            BlockHeader::BlockHeaderV4(Arc::new(header))
-        }
+        BlockHeader::from_view(
+            &view.hash,
+            view.latest_protocol_version,
+            view.height,
+            view.prev_hash,
+            view.block_body_hash.unwrap_or_default(),
+            view.prev_state_root,
+            view.chunk_receipts_root,
+            view.chunk_headers_root,
+            view.chunk_tx_root,
+            view.outcome_root,
+            view.timestamp,
+            view.challenges_root,
+            view.random_value,
+            view.validator_proposals.into_iter().map(|v| v.into_validator_stake()).collect(),
+            view.chunk_mask,
+            view.block_ordinal.unwrap_or(0),
+            EpochId(view.epoch_id),
+            EpochId(view.next_epoch_id),
+            view.gas_price,
+            view.total_supply,
+            view.challenges_result,
+            view.signature,
+            view.last_final_block,
+            view.last_ds_final_block,
+            view.epoch_sync_data_hash,
+            view.approvals,
+            view.next_bp_hash,
+            view.block_merkle_root,
+            view.prev_height.unwrap_or_default(),
+            view.chunk_endorsements.map(|bytes| ChunkEndorsementsBitmap::from_bytes(bytes)),
+        )
     }
 }
 
@@ -1088,6 +950,7 @@ pub struct ChunkHeaderView {
     pub tx_root: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub congestion_info: Option<CongestionInfoView>,
+    pub bandwidth_requests: Option<BandwidthRequests>,
     pub signature: Signature,
 }
 
@@ -1116,6 +979,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             tx_root: *inner.tx_root(),
             validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             congestion_info: inner.congestion_info().map(Into::into),
+            bandwidth_requests: inner.bandwidth_requests().cloned(),
             signature,
         }
     }
@@ -1123,61 +987,94 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
 
 impl From<ChunkHeaderView> for ShardChunkHeader {
     fn from(view: ChunkHeaderView) -> Self {
-        if let Some(congestion_info) = view.congestion_info {
-            let mut header = ShardChunkHeaderV3 {
-                inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
-                    prev_block_hash: view.prev_block_hash,
-                    prev_state_root: view.prev_state_root,
-                    prev_outcome_root: view.outcome_root,
-                    encoded_merkle_root: view.encoded_merkle_root,
-                    encoded_length: view.encoded_length,
-                    height_created: view.height_created,
-                    shard_id: view.shard_id,
-                    prev_gas_used: view.gas_used,
-                    gas_limit: view.gas_limit,
-                    prev_balance_burnt: view.balance_burnt,
-                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                    tx_root: view.tx_root,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    congestion_info: congestion_info.into(),
-                }),
-                height_included: view.height_included,
-                signature: view.signature,
-                hash: ChunkHash::default(),
-            };
-            header.init();
-            ShardChunkHeader::V3(header)
-        } else {
-            let mut header = ShardChunkHeaderV3 {
-                inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
-                    prev_block_hash: view.prev_block_hash,
-                    prev_state_root: view.prev_state_root,
-                    prev_outcome_root: view.outcome_root,
-                    encoded_merkle_root: view.encoded_merkle_root,
-                    encoded_length: view.encoded_length,
-                    height_created: view.height_created,
-                    shard_id: view.shard_id,
-                    prev_gas_used: view.gas_used,
-                    gas_limit: view.gas_limit,
-                    prev_balance_burnt: view.balance_burnt,
-                    prev_outgoing_receipts_root: view.outgoing_receipts_root,
-                    tx_root: view.tx_root,
-                    prev_validator_proposals: view
-                        .validator_proposals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                }),
-                height_included: view.height_included,
-                signature: view.signature,
-                hash: ChunkHash::default(),
-            };
-            header.init();
-            ShardChunkHeader::V3(header)
+        match (view.bandwidth_requests, view.congestion_info) {
+            (Some(bandwidth_requests), Some(congestion_info)) => {
+                let mut header = ShardChunkHeaderV3 {
+                    inner: ShardChunkHeaderInner::V4(ShardChunkHeaderInnerV4 {
+                        prev_block_hash: view.prev_block_hash,
+                        prev_state_root: view.prev_state_root,
+                        prev_outcome_root: view.outcome_root,
+                        encoded_merkle_root: view.encoded_merkle_root,
+                        encoded_length: view.encoded_length,
+                        height_created: view.height_created,
+                        shard_id: view.shard_id,
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
+                        prev_balance_burnt: view.balance_burnt,
+                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                        tx_root: view.tx_root,
+                        prev_validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        congestion_info: congestion_info.into(),
+                        bandwidth_requests,
+                    }),
+                    height_included: view.height_included,
+                    signature: view.signature,
+                    hash: ChunkHash::default(),
+                };
+                header.init();
+                ShardChunkHeader::V3(header)
+            }
+            (None, Some(congestion_info)) => {
+                let mut header = ShardChunkHeaderV3 {
+                    inner: ShardChunkHeaderInner::V3(ShardChunkHeaderInnerV3 {
+                        prev_block_hash: view.prev_block_hash,
+                        prev_state_root: view.prev_state_root,
+                        prev_outcome_root: view.outcome_root,
+                        encoded_merkle_root: view.encoded_merkle_root,
+                        encoded_length: view.encoded_length,
+                        height_created: view.height_created,
+                        shard_id: view.shard_id,
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
+                        prev_balance_burnt: view.balance_burnt,
+                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                        tx_root: view.tx_root,
+                        prev_validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        congestion_info: congestion_info.into(),
+                    }),
+                    height_included: view.height_included,
+                    signature: view.signature,
+                    hash: ChunkHash::default(),
+                };
+                header.init();
+                ShardChunkHeader::V3(header)
+            }
+            _ => {
+                let mut header = ShardChunkHeaderV3 {
+                    inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+                        prev_block_hash: view.prev_block_hash,
+                        prev_state_root: view.prev_state_root,
+                        prev_outcome_root: view.outcome_root,
+                        encoded_merkle_root: view.encoded_merkle_root,
+                        encoded_length: view.encoded_length,
+                        height_created: view.height_created,
+                        shard_id: view.shard_id,
+                        prev_gas_used: view.gas_used,
+                        gas_limit: view.gas_limit,
+                        prev_balance_burnt: view.balance_burnt,
+                        prev_outgoing_receipts_root: view.outgoing_receipts_root,
+                        tx_root: view.tx_root,
+                        prev_validator_proposals: view
+                            .validator_proposals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                    }),
+                    height_included: view.height_included,
+                    signature: view.signature,
+                    hash: ChunkHash::default(),
+                };
+                header.init();
+                ShardChunkHeader::V3(header)
+            }
         }
     }
 }
@@ -1194,7 +1091,7 @@ impl BlockView {
         BlockView {
             author,
             header: block.header().clone().into(),
-            chunks: block.chunks().iter().cloned().map(Into::into).collect(),
+            chunks: block.chunks().iter_deprecated().cloned().map(Into::into).collect(),
         }
     }
 }
@@ -1278,6 +1175,20 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     },
+    DeployGlobalContract {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+    },
+    DeployGlobalContractByAccountId {
+        #[serde_as(as = "Base64")]
+        code: Vec<u8>,
+    },
+    UseGlobalContract {
+        code_hash: CryptoHash,
+    },
+    UseGlobalContractByAccountId {
+        account_id: AccountId,
+    },
 }
 
 impl From<Action> for ActionView {
@@ -1313,6 +1224,23 @@ impl From<Action> for ActionView {
             Action::Delegate(action) => ActionView::Delegate {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
+            },
+            Action::DeployGlobalContract(action) => {
+                let code = hash(&action.code).as_ref().to_vec();
+                match action.deploy_mode {
+                    GlobalContractDeployMode::CodeHash => ActionView::DeployGlobalContract { code },
+                    GlobalContractDeployMode::AccountId => {
+                        ActionView::DeployGlobalContractByAccountId { code }
+                    }
+                }
+            }
+            Action::UseGlobalContract(action) => match action.contract_identifier {
+                GlobalContractIdentifier::CodeHash(code_hash) => {
+                    ActionView::UseGlobalContract { code_hash }
+                }
+                GlobalContractIdentifier::AccountId(account_id) => {
+                    ActionView::UseGlobalContractByAccountId { account_id }
+                }
             },
         }
     }
@@ -1354,6 +1282,28 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
+            }
+            ActionView::DeployGlobalContract { code } => {
+                Action::DeployGlobalContract(DeployGlobalContractAction {
+                    code,
+                    deploy_mode: GlobalContractDeployMode::CodeHash,
+                })
+            }
+            ActionView::DeployGlobalContractByAccountId { code } => {
+                Action::DeployGlobalContract(DeployGlobalContractAction {
+                    code,
+                    deploy_mode: GlobalContractDeployMode::AccountId,
+                })
+            }
+            ActionView::UseGlobalContract { code_hash } => {
+                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                    contract_identifier: GlobalContractIdentifier::CodeHash(code_hash),
+                }))
+            }
+            ActionView::UseGlobalContractByAccountId { account_id } => {
+                Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                    contract_identifier: GlobalContractIdentifier::AccountId(account_id),
+                }))
             }
         })
     }
@@ -1773,21 +1723,21 @@ pub struct TxStatusView {
 pub enum TxExecutionStatus {
     /// Transaction is waiting to be included into the block
     None,
-    /// Transaction is included into the block. The block may be not finalised yet
+    /// Transaction is included into the block. The block may be not finalized yet
     Included,
     /// Transaction is included into the block +
     /// All non-refund transaction receipts finished their execution.
-    /// The corresponding blocks for tx and each receipt may be not finalised yet
+    /// The corresponding blocks for tx and each receipt may be not finalized yet
     #[default]
     ExecutedOptimistic,
-    /// Transaction is included into finalised block
+    /// Transaction is included into finalized block
     IncludedFinal,
-    /// Transaction is included into finalised block +
+    /// Transaction is included into finalized block +
     /// All non-refund transaction receipts finished their execution.
-    /// The corresponding blocks for each receipt may be not finalised yet
+    /// The corresponding blocks for each receipt may be not finalized yet
     Executed,
-    /// Transaction is included into finalised block +
-    /// Execution of all transaction receipts is finalised, including refund receipts
+    /// Transaction is included into finalized block +
+    /// Execution of all transaction receipts is finalized, including refund receipts
     Final,
 }
 
@@ -1821,7 +1771,7 @@ impl TxStatusView {
 }
 
 /// Execution outcome of the transaction and all the subsequent receipts.
-/// Could be not finalised yet
+/// Could be not finalized yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
@@ -2168,7 +2118,9 @@ pub struct CurrentEpochValidatorInfo {
     pub is_slashed: bool,
     #[serde(with = "dec_format")]
     pub stake: Balance,
-    pub shards: Vec<ShardId>,
+    /// Shards this validator is assigned to as chunk producer in the current epoch.
+    #[serde(rename = "shards")]
+    pub shards_produced: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
     pub num_expected_blocks: NumBlocks,
     #[serde(default)]
@@ -2178,20 +2130,22 @@ pub struct CurrentEpochValidatorInfo {
     // The following two fields correspond to the shards in the shard array.
     #[serde(default)]
     pub num_produced_chunks_per_shard: Vec<NumBlocks>,
+    /// Number of chunks this validator was expected to produce in each shard.
+    /// Each entry in the array corresponds to the shard in the `shards_produced` array.
     #[serde(default)]
     pub num_expected_chunks_per_shard: Vec<NumBlocks>,
-    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    #[serde(default)]
     pub num_produced_endorsements: NumBlocks,
-    #[serde(default, skip_serializing_if = "num_blocks_is_zero")]
+    #[serde(default)]
     pub num_expected_endorsements: NumBlocks,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub num_produced_endorsements_per_shard: Vec<NumBlocks>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Number of chunks this validator was expected to validate and endorse in each shard.
+    /// Each entry in the array corresponds to the shard in the `shards_endorsed` array.
+    #[serde(default)]
     pub num_expected_endorsements_per_shard: Vec<NumBlocks>,
-}
-
-fn num_blocks_is_zero(n: &NumBlocks) -> bool {
-    n == &0
+    /// Shards this validator is assigned to as chunk validator in the current epoch.
+    pub shards_endorsed: Vec<ShardId>,
 }
 
 #[derive(
@@ -2360,6 +2314,7 @@ pub enum StateChangeCauseView {
     ValidatorAccountsUpdate,
     Migration,
     ReshardingV2,
+    BandwidthSchedulerStateUpdate,
 }
 
 impl From<StateChangeCause> for StateChangeCauseView {
@@ -2386,6 +2341,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
             StateChangeCause::ValidatorAccountsUpdate => Self::ValidatorAccountsUpdate,
             StateChangeCause::Migration => Self::Migration,
             StateChangeCause::ReshardingV2 => Self::ReshardingV2,
+            StateChangeCause::BandwidthSchedulerStateUpdate => Self::BandwidthSchedulerStateUpdate,
         }
     }
 }
@@ -2527,8 +2483,13 @@ impl From<CongestionInfoV1> for CongestionInfoView {
 }
 
 impl From<CongestionInfoView> for CongestionInfo {
-    fn from(_: CongestionInfoView) -> Self {
-        CongestionInfo::default()
+    fn from(congestion_info: CongestionInfoView) -> Self {
+        CongestionInfo::V1(CongestionInfoV1 {
+            delayed_receipts_gas: congestion_info.delayed_receipts_gas,
+            buffered_receipts_gas: congestion_info.buffered_receipts_gas,
+            receipt_bytes: congestion_info.receipt_bytes,
+            allowed_shard: congestion_info.allowed_shard,
+        })
     }
 }
 
@@ -2595,6 +2556,7 @@ mod tests {
     #[test]
     fn test_deserialize_execution_outcome_with_receipt() {
         // Real JSON-RPC response for 'EXPERIMENTAL_tx_status' method
+        // cspell:ignore mainchain
         let json = r#"{"final_execution_status":"FINAL","receipts":[{"predecessor_id":"system","priority":0,"receipt":{"Action":{"actions":[{"Transfer":{"deposit":"17930928991009412192152"}}],"gas_price":"0","input_data_ids":[],"is_promise_yield":false,"output_data_receivers":[],"signer_id":"btc-client.testnet","signer_public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA"}},"receipt_id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","receiver_id":"btc-client.testnet"}],"receipts_outcome":[{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB","outcome":{"executor_id":"btc-client.testnet","gas_burnt":2906160054161,"logs":["Block hash: 0000000000000000ee617846a3e081ae2f30091451442e1b5fb027d8eba09b3a","Saving to mainchain"],"metadata":{"gas_profile":[{"cost":"BASE","cost_category":"WASM_HOST_COST","gas_used":"8472579552"},{"cost":"CONTRACT_LOADING_BASE","cost_category":"WASM_HOST_COST","gas_used":"35445963"},{"cost":"CONTRACT_LOADING_BYTES","cost_category":"WASM_HOST_COST","gas_used":"413841688515"},{"cost":"LOG_BASE","cost_category":"WASM_HOST_COST","gas_used":"7086626100"},{"cost":"LOG_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1253885145"},{"cost":"READ_CACHED_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"102600000000"},{"cost":"READ_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"54807127200"},{"cost":"READ_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2873807748"},{"cost":"READ_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"22654486674"},{"cost":"READ_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"51252240"},{"cost":"SHA256_BASE","cost_category":"WASM_HOST_COST","gas_used":"13622910750"},{"cost":"SHA256_BYTE","cost_category":"WASM_HOST_COST","gas_used":"3400546491"},{"cost":"STORAGE_READ_BASE","cost_category":"WASM_HOST_COST","gas_used":"450854766000"},{"cost":"STORAGE_READ_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"4952405280"},{"cost":"STORAGE_READ_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1806743610"},{"cost":"STORAGE_WRITE_BASE","cost_category":"WASM_HOST_COST","gas_used":"256786944000"},{"cost":"STORAGE_WRITE_EVICTED_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2826323016"},{"cost":"STORAGE_WRITE_KEY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"5638629360"},{"cost":"STORAGE_WRITE_VALUE_BYTE","cost_category":"WASM_HOST_COST","gas_used":"8685190920"},{"cost":"TOUCHING_TRIE_NODE","cost_category":"WASM_HOST_COST","gas_used":"434752810002"},{"cost":"UTF8_DECODING_BASE","cost_category":"WASM_HOST_COST","gas_used":"6223558122"},{"cost":"UTF8_DECODING_BYTE","cost_category":"WASM_HOST_COST","gas_used":"27700145505"},{"cost":"WASM_INSTRUCTION","cost_category":"WASM_HOST_COST","gas_used":"126491330196"},{"cost":"WRITE_MEMORY_BASE","cost_category":"WASM_HOST_COST","gas_used":"28037948610"},{"cost":"WRITE_MEMORY_BYTE","cost_category":"WASM_HOST_COST","gas_used":"1459941792"},{"cost":"WRITE_REGISTER_BASE","cost_category":"WASM_HOST_COST","gas_used":"28655224860"},{"cost":"WRITE_REGISTER_BYTE","cost_category":"WASM_HOST_COST","gas_used":"2311350912"}],"version":3},"receipt_ids":["8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6"],"status":{"SuccessValue":""},"tokens_burnt":"290616005416100000000"},"proof":[{"direction":"Left","hash":"BoQHueiPH9e4C7fkxouV4tFpGZ4hK5fJhKQnPBWwPazS"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]},{"block_hash":"3rEx3xmgLCRgUfSgueD71YNrJYQYNvhtkXaqVQxdmj4U","id":"8ZD92cLpoCEU46hPGFfk3VqZpU8s6DoQhZ4pCMqWwDT6","outcome":{"executor_id":"btc-client.testnet","gas_burnt":223182562500,"logs":[],"metadata":{"gas_profile":[],"version":3},"receipt_ids":[],"status":{"SuccessValue":""},"tokens_burnt":"0"},"proof":[{"direction":"Right","hash":"8yEwg14D2GyyLNnJMxdSLDJKyrKShMAL3zTnf9YpQyPW"},{"direction":"Right","hash":"2UK7BfpHf9fCCsvmfHktDfz6Rh8sFihhN6cuTU3R4BBA"}]}],"status":{"SuccessValue":""},"transaction":{"actions":[{"FunctionCall":{"args":"AQAAAABA0CKoR96WKs+KPP6zPl0flT6XC91eR3uAUgwNAAAAAAAAAAzcZU0cipmejc+wGqnRJchd5uM6qRJM5Oojp3FrkJ2HVmGyZsnyFBlkvks8","deposit":"0","gas":100000000000000,"method_name":"submit_blocks"}}],"hash":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","nonce":170437577001422,"priority_fee":0,"public_key":"ed25519:HM7ax8jJf41JozvanXepzhtD45AeRFcwJQCuLXFuDkjA","receiver_id":"btc-client.testnet","signature":"ed25519:2Qe3ccPSdzPddk764vm5jt4yXcvXgYQz3WzGF3oXpZLuaRa6ggpD131nSSy3FRVPquCvxYqgMGtdum8TKX3dVqNk","signer_id":"btc-client.testnet"},"transaction_outcome":{"block_hash":"9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K","id":"GMUCDLHFJVvmZYXmPf9QeUVAt9r9hXcQP1yL5emPFnvx","outcome":{"executor_id":"btc-client.testnet","gas_burnt":308276385598,"logs":[],"metadata":{"gas_profile":null,"version":1},"receipt_ids":["e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"],"status":{"SuccessReceiptId":"e2XGEosf843XMiCJHvZufvHKyw419ZYibDBdVJQr9cB"},"tokens_burnt":"30827638559800000000"},"proof":[{"direction":"Right","hash":"HDgWEk2okmDdAFAVf6ffxGBH6F6vdLM1X3H5Fmaafe4S"},{"direction":"Right","hash":"Ayxj8iVFTJMzZa7estoTtuBKJaUNhoipaaM7WmTjkkiS"}]}}"#;
         let view: FinalExecutionOutcomeViewEnum = serde_json::from_str(json).unwrap();
         assert!(matches!(view, FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(_)));

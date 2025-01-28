@@ -56,8 +56,12 @@ enum DumpWitnessesMode {
 
 impl DumpWitnessesCmd {
     pub(crate) fn run(&self, near_config: NearConfig, store: Store) {
-        let chain_store =
-            Rc::new(ChainStore::new(store, near_config.genesis.config.genesis_height, false));
+        let chain_store = Rc::new(ChainStore::new(
+            store,
+            near_config.genesis.config.genesis_height,
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        ));
 
         let witnesses =
             chain_store.get_latest_witnesses(self.height, self.shard_id, self.epoch_id).unwrap();
@@ -112,8 +116,11 @@ impl ValidateWitnessCmd {
         let witness: ChunkStateWitness = borsh::BorshDeserialize::try_from_slice(&encoded_witness)
             .expect("Failed to deserialize witness");
         let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
-        let epoch_manager =
-            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let epoch_manager = EpochManager::new_arc_handle(
+            store.clone(),
+            &near_config.genesis.config,
+            Some(home_dir),
+        );
         let runtime_adapter =
             NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
                 .expect("could not create the transaction runtime");

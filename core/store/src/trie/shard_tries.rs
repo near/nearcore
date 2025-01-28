@@ -1,4 +1,4 @@
-use super::mem::mem_tries::MemTries;
+use super::mem::memtries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
 use super::TrieRefcountSubtraction;
 use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
@@ -11,6 +11,7 @@ use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
 use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
 use crate::{metrics, DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage};
 use crate::{Trie, TrieChanges, TrieUpdate};
+use itertools::Itertools;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -19,14 +20,13 @@ use near_primitives::types::{
     BlockHeight, RawStateChange, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
-use tracing::info;
 
 struct ShardTriesInner {
     store: TrieStoreAdapter,
     trie_config: TrieConfig,
-    mem_tries: RwLock<HashMap<ShardUId, Arc<RwLock<MemTries>>>>,
+    memtries: RwLock<HashMap<ShardUId, Arc<RwLock<MemTries>>>>,
     /// Cache reserved for client actor to use
     caches: Mutex<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
@@ -41,6 +41,17 @@ struct ShardTriesInner {
     state_snapshot: Arc<RwLock<Option<StateSnapshot>>>,
     /// Configures how to make state snapshots.
     state_snapshot_config: StateSnapshotConfig,
+    /// Details on which shards are split into which shards.
+    /// The mapping is from parent_shard_uid to a list of child_shard_uids.
+    /// This mapping is only maintained for parent memtries that have split and
+    /// converted to hybrid memtries for the children.
+    ///
+    /// Once the child memtrie is recreated, we can remove it from this mapping.
+    ///
+    /// In super rare cases it's possible that we see forks close to the resharding boundary.
+    /// We would like to apply the same set of trie changes to the child memtrie to keep
+    /// a consistent view across forks.
+    temp_split_shard_map: RwLock<HashMap<ShardUId, Vec<ShardUId>>>,
 }
 
 #[derive(Clone)]
@@ -60,13 +71,14 @@ impl ShardTries {
         ShardTries(Arc::new(ShardTriesInner {
             store,
             trie_config,
-            mem_tries: RwLock::new(HashMap::new()),
+            memtries: Default::default(),
             caches: Mutex::new(caches),
             view_caches: Mutex::new(view_caches),
             flat_storage_manager,
             prefetchers: Default::default(),
-            state_snapshot: Arc::new(RwLock::new(None)),
+            state_snapshot: Default::default(),
             state_snapshot_config,
+            temp_split_shard_map: Default::default(),
         }))
     }
 
@@ -109,7 +121,7 @@ impl ShardTries {
     }
 
     fn trie_cache_enabled(&self, shard_uid: ShardUId, is_view: bool) -> bool {
-        is_view || self.get_mem_tries(shard_uid).is_none()
+        is_view || self.get_memtries(shard_uid).is_none()
     }
 
     fn get_trie_for_shard_internal(
@@ -129,8 +141,33 @@ impl ShardTries {
             .and_then(|block_hash| self.0.flat_storage_manager.chunk_view(shard_uid, block_hash));
         // Do not use memtries for view queries, for two reasons: memtries do not provide historical state,
         // and also this can introduce lock contention on memtries.
-        let memtries = if is_view { None } else { self.get_mem_tries(shard_uid) };
-        Trie::new_with_memtries(storage, memtries, state_root, flat_storage_chunk_view)
+        if is_view {
+            Trie::new_with_memtries(
+                storage,
+                None,
+                Default::default(),
+                state_root,
+                flat_storage_chunk_view,
+            )
+        } else {
+            let memtries = self.get_memtries(shard_uid);
+            let split_shard_map_guard = self.0.temp_split_shard_map.read().unwrap();
+            let children_shard_uid =
+                split_shard_map_guard.get(&shard_uid).cloned().unwrap_or_default();
+            let mut children_memtries = HashMap::new();
+            for shard_uid in children_shard_uid {
+                if let Some(memtrie) = self.get_memtries(shard_uid) {
+                    children_memtries.insert(shard_uid, memtrie);
+                }
+            }
+            Trie::new_with_memtries(
+                storage,
+                memtries,
+                children_memtries,
+                state_root,
+                flat_storage_chunk_view,
+            )
+        }
     }
 
     pub fn get_trie_for_shard(&self, shard_uid: ShardUId, state_root: StateRoot) -> Trie {
@@ -286,7 +323,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_insertions",
-        fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_insertions = trie_changes.insertions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_insertions(
@@ -309,7 +346,7 @@ impl ShardTries {
         level = "trace",
         target = "store::trie::shard_tries",
         "ShardTries::apply_deletions",
-        fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
+        fields(num_deletions = trie_changes.deletions().len(), shard_id = ?shard_uid.shard_id()),
         skip_all,
     )]
     pub fn apply_deletions(
@@ -365,15 +402,30 @@ impl ShardTries {
         shard_uid: ShardUId,
         block_height: BlockHeight,
     ) -> Option<StateRoot> {
-        if let Some(memtries) = self.get_mem_tries(shard_uid) {
+        // Apply children memtrie changes in case of forks on parent. Most of the time children_memtrie_changes
+        // will be empty. Lookup children_memtrie_changes for more context.
+        let split_shard_map_guard = self.0.temp_split_shard_map.read().unwrap();
+        let children_shard_uid = split_shard_map_guard.get(&shard_uid).cloned().unwrap_or_default();
+        for (shard_uid, memtrie_changes) in &trie_changes.children_memtrie_changes {
+            // Note that we should only be writing the changes to the child memtrie iff the child and parent
+            // share the frozen memtrie base.
+            // It's possible that while processing the block, the child memtrie was recreated and no longer
+            // shares the base with parent, in which case we skip writing the changes.
+            if children_shard_uid.contains(&shard_uid) {
+                let memtrie = self.get_memtries(*shard_uid).expect("Memtrie must exist");
+                memtrie.write().unwrap().apply_memtrie_changes(block_height, memtrie_changes);
+            }
+        }
+
+        if let Some(memtries) = self.get_memtries(shard_uid) {
             let changes = trie_changes
-                .mem_trie_changes
+                .memtrie_changes
                 .as_ref()
                 .expect("Memtrie changes must be present if memtrie is loaded");
             Some(memtries.write().unwrap().apply_memtrie_changes(block_height, changes))
         } else {
             assert!(
-                trie_changes.mem_trie_changes.is_none(),
+                trie_changes.memtrie_changes.is_none(),
                 "Memtrie changes must not be present if memtrie is not loaded"
             );
             None
@@ -393,95 +445,164 @@ impl ShardTries {
 
     /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
     /// in the given list. Should be called to unload obsolete tries from memory.
-    pub fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
-        info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
-            self.0.mem_tries.read().unwrap().keys(), shard_uids);
-        self.0.mem_tries.write().unwrap().retain(|shard_uid, _| shard_uids.contains(shard_uid));
-        info!(target: "memtrie", "Memtries retaining complete for shards {:?}", shard_uids);
+    pub fn retain_memtries(&self, shard_uids: &[ShardUId]) {
+        tracing::info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
+            self.0.memtries.read().unwrap().keys(), shard_uids);
+        self.0.memtries.write().unwrap().retain(|shard_uid, _| shard_uids.contains(shard_uid));
+        tracing::info!(target: "memtrie", "Memtries retaining complete for shards {:?}", shard_uids);
     }
 
     /// Remove trie from memory for given shard.
-    pub fn unload_mem_trie(&self, shard_uid: &ShardUId) {
-        info!(target: "memtrie", "Unloading trie from memory for shard {:?}...", shard_uid);
-        self.0.mem_tries.write().unwrap().remove(shard_uid);
-        info!(target: "memtrie", "Memtrie unloading complete for shard {:?}", shard_uid);
+    pub fn unload_memtrie(&self, shard_uid: &ShardUId) {
+        tracing::info!(target: "memtrie", "Unloading trie from memory for shard {:?}...", shard_uid);
+        self.0.memtries.write().unwrap().remove(shard_uid);
+        tracing::info!(target: "memtrie", "Memtrie unloading complete for shard {:?}", shard_uid);
     }
 
     /// Loads in-memory-trie for given shard and state root (if given).
-    pub fn load_mem_trie(
+    pub fn load_memtrie(
         &self,
         shard_uid: &ShardUId,
         state_root: Option<StateRoot>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
-        info!(target: "memtrie", "Loading trie to memory for shard {:?}...", shard_uid);
-        let mem_tries = load_trie_from_flat_state_and_delta(
+        tracing::info!(target: "memtrie", "Loading trie to memory for shard {:?}...", shard_uid);
+        let memtries = load_trie_from_flat_state_and_delta(
             &self.0.store.store(),
             *shard_uid,
             state_root,
             parallelize,
         )?;
-        self.0.mem_tries.write().unwrap().insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
-        info!(target: "memtrie", "Memtrie loading complete for shard {:?}", shard_uid);
+        self.0.memtries.write().unwrap().insert(*shard_uid, Arc::new(RwLock::new(memtries)));
+        tracing::info!(target: "memtrie", "Memtrie loading complete for shard {:?}", shard_uid);
         Ok(())
     }
 
     /// Loads in-memory trie upon catchup, if it is enabled.
     /// Requires state root because `ChunkExtra` is not available at the time mem-trie is being loaded.
-    pub fn load_mem_trie_on_catchup(
+    /// Mem-tries of shards that are pending resharding must be loaded in any case.
+    pub fn load_memtrie_on_catchup(
         &self,
         shard_uid: &ShardUId,
         state_root: &StateRoot,
+        shard_uids_pending_resharding: &HashSet<ShardUId>,
     ) -> Result<(), StorageError> {
-        if !self.0.trie_config.load_mem_tries_for_tracked_shards {
+        if !self.0.trie_config.load_memtries_for_tracked_shards
+            && !shard_uids_pending_resharding.contains(shard_uid)
+        {
             return Ok(());
         }
         // It should not happen that memtrie is already loaded for a shard
         // for which we just did state sync.
-        debug_assert!(!self.0.mem_tries.read().unwrap().contains_key(shard_uid));
-        self.load_mem_trie(shard_uid, Some(*state_root), false)
+        debug_assert!(!self.0.memtries.read().unwrap().contains_key(shard_uid));
+        self.load_memtrie(shard_uid, Some(*state_root), false)
     }
 
     /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
     /// but which exact shards to load depends on configuration. This may only be called when flat
     /// storage is ready.
-    pub fn load_mem_tries_for_enabled_shards(
+    ///
+    /// The `shard_uids_pending_resharding` parameter is used to load memtries
+    /// for shards that are not configured to be loaded but should be loaded
+    /// anyway. This is used when a shard is about to be resharded and we need
+    /// to have the memtries loaded for it.
+    pub fn load_memtries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
+        shard_uids_pending_resharding: &HashSet<ShardUId>,
         parallelize: bool,
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
         let shard_uids_to_load = tracked_shards
             .iter()
-            .copied()
             .filter(|shard_uid| {
-                trie_config.load_mem_tries_for_tracked_shards
-                    || trie_config.load_mem_tries_for_shards.contains(shard_uid)
+                trie_config.load_memtries_for_tracked_shards
+                    || trie_config.load_memtries_for_shards.contains(shard_uid)
+                    || shard_uids_pending_resharding.contains(shard_uid)
             })
-            .collect::<Vec<_>>();
+            .collect_vec();
 
-        info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
+        tracing::debug!(
+            target: "memtrie",
+            ?tracked_shards,
+            load_memtries_for_tracked_shards=?trie_config.load_memtries_for_tracked_shards,
+            load_memtries_for_shards=?trie_config.load_memtries_for_shards,
+            ?shard_uids_pending_resharding,
+            "Loading tries config"
+        );
+        tracing::info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
         shard_uids_to_load
             .par_iter()
-            .map(|shard_uid| self.load_mem_trie(shard_uid, None, parallelize))
+            .map(|shard_uid| self.load_memtrie(shard_uid, None, parallelize))
             .collect::<Result<(), StorageError>>()?;
 
-        info!(target: "memtrie", "Memtries loading complete for shards {:?}", shard_uids_to_load);
+        tracing::info!(target: "memtrie", "Memtries loading complete for shards {:?}", shard_uids_to_load);
         Ok(())
     }
 
     /// Retrieves the in-memory tries for the shard.
-    pub fn get_mem_tries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
-        let guard = self.0.mem_tries.read().unwrap();
+    pub fn get_memtries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
+        let guard = self.0.memtries.read().unwrap();
         guard.get(&shard_uid).cloned()
     }
 
     /// Garbage collects the in-memory tries for the shard up to (and including) the given
     /// height.
     pub fn delete_memtrie_roots_up_to_height(&self, shard_uid: ShardUId, height: BlockHeight) {
-        if let Some(memtries) = self.get_mem_tries(shard_uid) {
+        if let Some(memtries) = self.get_memtries(shard_uid) {
             memtries.write().unwrap().delete_until_height(height);
         }
+    }
+
+    /// Freezes in-memory trie for parent shard and copies reference from it to children shards.
+    /// This is needed to serve queries for these shards just after resharding, before proper
+    /// memtries are loaded.
+    /// Note that this function is idempotent. It's possible for us to call this function multiple
+    /// times for the same parent shard in case of fork handling at the resharding boundary.
+    pub fn freeze_parent_memtrie(
+        &self,
+        parent_shard_uid: ShardUId,
+        children_shard_uids: Vec<ShardUId>,
+    ) -> Result<(), StorageError> {
+        let mut split_shard_map_guard = self.0.temp_split_shard_map.write().unwrap();
+        if split_shard_map_guard.contains_key(&parent_shard_uid) {
+            // If the parent has already been split, then we don't do anything here.
+            return Ok(());
+        }
+
+        tracing::info!(
+            target: "memtrie",
+            ?parent_shard_uid,
+            ?children_shard_uids,
+            "Freezing parent memtrie, creating children memtries...",
+        );
+        let mut outer_guard = self.0.memtries.write().unwrap();
+        let Some(memtries) = outer_guard.remove(&parent_shard_uid) else {
+            return Err(StorageError::MemTrieLoadingError(format!(
+                "On freezing parent memtrie, memtrie not loaded for shard {:?}",
+                parent_shard_uid
+            )));
+        };
+        let mut guard = memtries.write().unwrap();
+        let memtries = std::mem::replace(&mut *guard, MemTries::new(parent_shard_uid));
+        let frozen_memtries = memtries.freeze();
+
+        // Create hybrid memtrie for both parent and children shards.
+        for shard_uid in [vec![parent_shard_uid], children_shard_uids.clone()].concat() {
+            outer_guard.insert(
+                shard_uid,
+                Arc::new(RwLock::new(MemTries::from_frozen_memtries(
+                    shard_uid,
+                    frozen_memtries.clone(),
+                ))),
+            );
+        }
+
+        // Insert the mapping from parent to children shards.
+        split_shard_map_guard.insert(parent_shard_uid, children_shard_uids);
+
+        tracing::info!(target: "memtrie", "Memtries freezing complete");
+        Ok(())
     }
 }
 
@@ -553,7 +674,7 @@ impl WrappedTrieChanges {
         level = "debug",
         target = "store::trie::shard_tries",
         "ShardTries::state_changes_into",
-        fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
+        fields(num_state_changes = self.state_changes.len(), shard_id = ?self.shard_uid.shard_id()),
         skip_all,
     )]
     pub fn state_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {

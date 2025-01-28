@@ -20,37 +20,69 @@ nodes = start_cluster(
                         0: {
                             "tracked_shards": [],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
-                                }
+                                },
+                                "state_sync_p2p_timeout": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
+                                "state_sync_external_backoff": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
                             }
                         },
                         1: {
                             "tracked_shards": [],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
-                                }
+                                },
+                                "state_sync_p2p_timeout": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
+                                "state_sync_external_backoff": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
                             }
                         },
                         2: {
                             "tracked_shards": [],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
-                                }
+                                },
+                                "state_sync_p2p_timeout": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
+                                "state_sync_external_backoff": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
                             }
                         },
                         3: {
                             "tracked_shards": [0, 1, 2, 3],
                             "consensus": {
-                                "state_sync_timeout": {
+                                "state_sync_external_timeout": {
                                     "secs": 2,
                                     "nanos": 0
-                                }
+                                },
+                                "state_sync_p2p_timeout": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
+                                "state_sync_external_backoff": {
+                                    "secs": 2,
+                                    "nanos": 0
+                                },
                             }
                         }
                     })

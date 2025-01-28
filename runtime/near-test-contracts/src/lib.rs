@@ -2,7 +2,6 @@
 
 use arbitrary::Arbitrary;
 use rand::{Fill, SeedableRng};
-use std::path::Path;
 use std::sync::OnceLock;
 
 /// Parse a WASM contract from WAT representation.
@@ -47,7 +46,7 @@ pub fn sized_contract(size: usize) -> Vec<u8> {
 /// not work for tests using an older version. In particular, if a test depends
 /// on a specific protocol version, it should use [`backwards_compatible_rs_contract`].
 pub fn rs_contract() -> &'static [u8] {
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/", "test_contract_rs.wasm"))
+    include_bytes!(env!("CONTRACT_test_contract_rs"))
 }
 
 /// Standard test contract which is compatible any protocol version, including
@@ -66,25 +65,21 @@ pub fn rs_contract() -> &'static [u8] {
 /// contracts content, we can build it manually with an older compiler and check
 /// in the new WASM.
 pub fn backwards_compatible_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("backwards_compatible_rs_contract.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_backwards_compatible_rs_contract"))
 }
 
 /// Standard test contract which additionally includes all host functions from
 /// the nightly protocol.
 pub fn nightly_rs_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("nightly_test_contract_rs.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_nightly_test_contract_rs"))
 }
 
 pub fn ts_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("test_contract_ts.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_test_contract_ts"))
 }
 
 pub fn fuzzing_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("contract_for_fuzzing_rs.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_contract_for_fuzzing_rs"))
 }
 
 /// NEP-141 implementation (fungible token contract).
@@ -97,8 +92,7 @@ pub fn fuzzing_contract() -> &'static [u8] {
 /// defined by NEP-141 is sufficient. But for future reference, the WASM was
 /// compiled with SDK version 4.1.1.
 pub fn ft_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    CONTRACT.get_or_init(|| read_contract("fungible_token.wasm")).as_slice()
+    include_bytes!(env!("CONTRACT_fungible_token"))
 }
 
 /// Smallest (reasonable) contract possible to build.
@@ -128,23 +122,11 @@ pub fn smallest_rs_contract() -> &'static [u8] {
 
 /// Contract that has all methods required by the gas parameter estimator.
 pub fn estimator_contract() -> &'static [u8] {
-    static CONTRACT: OnceLock<Vec<u8>> = OnceLock::new();
-    let file_name = if cfg!(feature = "nightly") {
-        "nightly_estimator_contract.wasm"
-    } else {
-        "stable_estimator_contract.wasm"
-    };
-    CONTRACT.get_or_init(|| read_contract(file_name)).as_slice()
+    include_bytes!(env!("CONTRACT_estimator_contract"))
 }
 
-/// Read given wasm file or panic if unable to.
-fn read_contract(file_name: &str) -> Vec<u8> {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = base.join("res").join(file_name);
-    match std::fs::read(&path) {
-        Ok(data) => data,
-        Err(err) => panic!("{}: {}", path.display(), err),
-    }
+pub fn congestion_control_test_contract() -> &'static [u8] {
+    include_bytes!(env!("CONTRACT_congestion_control_test_contract"))
 }
 
 #[test]
@@ -156,6 +138,7 @@ fn smoke_test() {
     assert!(!fuzzing_contract().is_empty());
     assert!(!backwards_compatible_rs_contract().is_empty());
     assert!(!ft_contract().is_empty());
+    assert!(!congestion_control_test_contract().is_empty());
 }
 
 pub struct LargeContract {
@@ -187,7 +170,7 @@ impl LargeContract {
         assert!(self.functions >= 1, "must specify at least 1 function to be generated");
         let mut module = Module::new();
         let mut type_section = TypeSection::new();
-        type_section.function([], []);
+        type_section.ty().function([], []);
         module.section(&type_section);
 
         if self.panic_imports != 0 {
@@ -230,7 +213,7 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
     };
     let mut module = Module::new();
     let mut type_section = TypeSection::new();
-    type_section.function([], []);
+    type_section.ty().function([], []);
     module.section(&type_section);
     let mut functions_section = FunctionSection::new();
     functions_section.function(0);
@@ -249,25 +232,62 @@ pub fn function_with_a_lot_of_nop(nops: u64) -> Vec<u8> {
     module.finish()
 }
 
+/// Wrapper to get more useful Debug.
+pub struct ArbitraryModule(pub wasm_smith::Module);
+
+impl ArbitraryModule {
+    pub fn new(config: wasm_smith::Config, u: &mut arbitrary::Unstructured) -> Self {
+        wasm_smith::Module::new(config, u).map(ArbitraryModule).expect("arbitrary won't fail")
+    }
+}
+
+fn normalize_config(mut config: wasm_smith::Config) -> wasm_smith::Config {
+    config.canonicalize_nans = true;
+    config.available_imports = Some(rs_contract().into());
+    config.max_memories = 1;
+    config.max_tables = 1;
+    config.bulk_memory_enabled = false;
+    config.exceptions_enabled = false;
+    config.gc_enabled = false;
+    config.memory64_enabled = false;
+    config.multi_value_enabled = false;
+    config.reference_types_enabled = false;
+    config.relaxed_simd_enabled = false;
+    config.saturating_float_to_int_enabled = false;
+    config.sign_extension_ops_enabled = false;
+    config.simd_enabled = false;
+    config.tail_call_enabled = false;
+    config.threads_enabled = false;
+    config.custom_page_sizes_enabled = false;
+    config
+}
+
+impl<'a> Arbitrary<'a> for ArbitraryModule {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let config = normalize_config(wasm_smith::Config::default());
+        Ok(Self::new(config, u))
+    }
+}
+
+impl std::fmt::Debug for ArbitraryModule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bytes = self.0.to_bytes();
+        write!(f, "{:?}", bytes)?;
+        if let Ok(wat) = wasmprinter::print_bytes(&bytes) {
+            write!(f, "\n{}", wat)?;
+        }
+        Ok(())
+    }
+}
+
 /// Generate an arbitrary valid contract.
 pub fn arbitrary_contract(seed: u64) -> Vec<u8> {
     let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
     let mut buffer = vec![0u8; 10240];
     buffer.try_fill(&mut rng).expect("fill buffer with random data");
     let mut arbitrary = arbitrary::Unstructured::new(&buffer);
-    let mut config = wasm_smith::SwarmConfig::arbitrary(&mut arbitrary).expect("make swarm config");
-    config.max_memories = 1;
-    config.max_tables = 1;
-    config.bulk_memory_enabled = false;
-    config.reference_types_enabled = false;
-    config.memory64_enabled = false;
-    config.simd_enabled = false;
-    config.multi_value_enabled = false;
-    config.relaxed_simd_enabled = false;
-    config.exceptions_enabled = false;
-    config.saturating_float_to_int_enabled = false;
-    config.sign_extension_enabled = false;
-    config.available_imports = Some(backwards_compatible_rs_contract().to_vec());
-    let module = wasm_smith::Module::new(config, &mut arbitrary).expect("generate module");
-    module.to_bytes()
+    let mut config =
+        normalize_config(wasm_smith::Config::arbitrary(&mut arbitrary).expect("make config"));
+    config.available_imports = Some(backwards_compatible_rs_contract().into());
+    ArbitraryModule::new(config, &mut arbitrary).0.to_bytes()
 }

@@ -19,7 +19,7 @@ fn benchmark_write_then_read_successful(
     let tmp_dir = tempfile::tempdir().unwrap();
     // Use default StoreConfig rather than NodeStorage::test_opener so we’re using the
     // same configuration as in production.
-    let store = NodeStorage::opener(tmp_dir.path(), false, &Default::default(), None)
+    let store = NodeStorage::opener(tmp_dir.path(), &Default::default(), None)
         .open()
         .unwrap()
         .get_hot_store();
@@ -52,7 +52,7 @@ fn generate_keys(count: usize, key_size: usize) -> Vec<Vec<u8>> {
     res
 }
 
-/// Read from DB value for given `kyes` in random order for `col`.
+/// Read from DB value for given `keys` in random order for `col`.
 /// Works only for column configured without reference counting, that is `.is_rc() == false`.
 fn read_from_db(store: &Store, keys: &[Vec<u8>], col: DBCol) -> usize {
     let mut read = 0;
