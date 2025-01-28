@@ -587,11 +587,7 @@ impl Receipt {
             predecessor_id,
             receiver_id: "system".parse().unwrap(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData {
-                code,
-                // code: Arc::from(code.into_boxed_slice()),
-                id,
-            }),
+            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData { code, id }),
         })
     }
 }
