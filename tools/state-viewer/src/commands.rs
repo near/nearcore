@@ -999,7 +999,7 @@ pub(crate) fn print_epoch_analysis(
 
     // The parameters below are required for the next next epoch generation.
     // For `CheckConsistency` mode, they will be overridden in the loop.
-    // For `Backtest` mode, they will stay the same and override information
+    // For `BackTest` mode, they will stay the same and override information
     // stored on disk.
     let mut next_epoch_info =
         epoch_heights_to_infos.get(&min_epoch_height.saturating_add(1)).unwrap().as_ref().clone();
@@ -1013,7 +1013,7 @@ pub(crate) fn print_epoch_analysis(
         EpochAnalysisMode::CheckConsistency => {
             println!("HEIGHT | VERSION | STATE SYNCS");
         }
-        EpochAnalysisMode::Backtest => {
+        EpochAnalysisMode::BackTest => {
             println!("epoch_height,original_protocol_version,state_syncs,min_validator_num,diff_validator_num,min_stake,diff_stake,rel_diff_stake");
             // Start from empty assignment for correct number of shards.
             *next_epoch_info.chunk_producers_settlement_mut() =
@@ -1059,7 +1059,7 @@ pub(crate) fn print_epoch_analysis(
                 epoch_protocol_version = epoch_info.protocol_version();
                 next_next_protocol_version = original_next_next_protocol_version;
             }
-            EpochAnalysisMode::Backtest => {
+            EpochAnalysisMode::BackTest => {
                 has_same_shard_layout = true;
                 epoch_protocol_version = PROTOCOL_VERSION;
                 next_next_protocol_version = PROTOCOL_VERSION;
@@ -1134,7 +1134,7 @@ pub(crate) fn print_epoch_analysis(
                     "Unequal epoch info at height {epoch_height}"
                 );
             }
-            EpochAnalysisMode::Backtest => {
+            EpochAnalysisMode::BackTest => {
                 // Print csv-style stats on screen.
                 println!(
                     "{next_next_epoch_height},{original_next_next_protocol_version},{state_syncs},{},{},{},{},{}",
@@ -1337,7 +1337,7 @@ fn print_state_stats_for_shard_uid(
 
     let mut state_stats = StateStats::default();
 
-    // iteratate for the first time to get the size statistics
+    // iterate for the first time to get the size statistics
     let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
     let iter = get_state_stats_account_iter(&group_by);
     for state_stats_account in iter {
@@ -1454,7 +1454,7 @@ pub struct StateStats {
     // The account that is in the middle of the state in respect to storage.
     pub middle_account: Option<StateStatsAccount>,
     // The total size of all accounts leading to the middle account.
-    // Can be used to determin how does the middle account split the state.
+    // Can be used to determine how does the middle account split the state.
     pub middle_account_leading_size: Option<ByteSize>,
 
     pub top_accounts: BinaryHeap<StateStatsAccount>,

@@ -625,7 +625,7 @@ impl EpochInfoCmd {
 
 #[derive(clap::Args)]
 pub struct EpochAnalysisCmd {
-    /// Start height of the epochs to analyse.
+    /// Start height of the epochs to analyze.
     #[clap(long)]
     start_height: EpochHeight,
     /// Epoch analysis mode.
@@ -644,7 +644,7 @@ pub enum EpochAnalysisMode {
     /// start epoch height.
     /// TODO (#11477): doesn't work for start epoch height <= 544 because of
     /// `EpochOutOfBounds` error.
-    Backtest,
+    BackTest,
 }
 
 impl EpochAnalysisCmd {
