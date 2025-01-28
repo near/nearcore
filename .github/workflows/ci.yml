@@ -5,19 +5,69 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  pull_request:
   merge_group:
+  pull_request:
+    # We'll use the check_changes job to determine what to run
 
 env:
   CI_HACKS: 1
 
 # BE CAREFUL IF EDITING THIS FILE:
-# If you add/remove python tests from here, you should also update `check_pytests.py`’s list of GHA_TESTS
+# If you add/remove python tests from here, you should also update `check_pytests.py`'s list of GHA_TESTS
 # so that it stays in-sync, to make sure no tests are lost.
 
 jobs:
+  # Add this job at the top to quickly check if we need to run tests
+  check_changes:
+    name: "Check Changed Files"
+    runs-on: ubuntu-latest
+    outputs:
+      should_run_tests: ${{ steps.filter.outputs.should_run_tests }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            should_run_tests:              
+              # First include all files
+              - '**'
+              
+              # Then exclude specific paths
+              - '!scripts/**'
+              - '!**.md'
+              - '!docs/**'
+              - '!LICENSE'
+              - '!README.md'
+              - '!CONTRIBUTING.md'
+              - '!SECURITY.md'
+              - '!.github/*.md'
+              - '!**/*.txt'
+              
+              # Finally re-include specific files that were excluded by the patterns above
+              - '**/requirements.txt'  # Re-include requirements.txt
+              - 'nightly/**.txt'       # Re-include txt files in nightly directory
+
+  # Create a job that reports success for all matrix jobs when Nextest is skipped
+  report_matrix_success:
+    name: ${{ matrix.name }}
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Only the matrix jobs
+          - name: "Cargo Nextest (Linux)"
+          - name: "Cargo Nextest (Linux Nightly)"
+    steps:
+      - run: echo "Skipped for documentation-only changes"
+
   cargo_nextest:
     name: "Cargo Nextest (${{matrix.name}})"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -67,6 +117,8 @@ jobs:
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +129,8 @@ jobs:
 
   py_backward_compat:
     name: "Backward Compatibility"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +157,8 @@ jobs:
 
   py_db_migration:
     name: "Database Migration"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -130,6 +186,8 @@ jobs:
 
   py_sanity_checks:
     name: "Sanity Checks"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-16core
     strategy:
       fail-fast: false
@@ -165,6 +223,8 @@ jobs:
 
   py_genesis_check:
     name: "Genesis Changes"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -191,6 +251,8 @@ jobs:
 
   py_style_check:
     name: "Style"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -206,6 +268,8 @@ jobs:
 
   py_upgradability:
     name: "Upgradability"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -232,6 +296,8 @@ jobs:
 
   protocol_schema_check:
     name: "Protocol Schema"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -242,6 +308,8 @@ jobs:
 
   check_fmt:
     name: "Cargo Fmt"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -252,6 +320,8 @@ jobs:
 
   check_clippy:
     name: "Cargo Clippy"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -262,6 +332,8 @@ jobs:
 
   doctests:
     name: "Rust Doctests"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -278,6 +350,8 @@ jobs:
 
   check_cargo_deny:
     name: "Cargo Deny"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -288,6 +362,8 @@ jobs:
 
   check_themis:
     name: "Themis"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -298,6 +374,8 @@ jobs:
 
   check_non_default:
     name: "Non-default Configuration Builds"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -308,6 +386,8 @@ jobs:
 
   check_udeps:
     name: "Unused Dependencies"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
@@ -318,6 +398,8 @@ jobs:
 
   cargo_audit:
     name: "Cargo Audit"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -328,9 +410,11 @@ jobs:
 
   generate_coverage:
     name: "Generate Coverage Artifact"
-    runs-on: ubuntu-latest
     needs:
+      - check_changes
       - cargo_nextest
+    if: needs.check_changes.outputs.should_run_tests == 'true'
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -381,19 +465,21 @@ jobs:
     name: "Upload Coverage"
     runs-on: ubuntu-latest
     needs:
+      - check_changes
       - cargo_nextest
       - py_backward_compat
       - py_db_migration
       - py_sanity_checks
       - py_genesis_check
       - py_upgradability
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-codecov-*
           merge-multiple: true
-      # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
+      # Keep the number of uploads here in sync with codecov.yml's after_n_build value
       # codecov will send a comment only after having received this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
@@ -433,6 +519,8 @@ jobs:
 
   publishable_packages_check:
     name: "Cargo check publishable packages separately"
+    needs: check_changes
+    if: needs.check_changes.outputs.should_run_tests == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
