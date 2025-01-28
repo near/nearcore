@@ -41,6 +41,13 @@ impl RawTrieNode {
             None => Self::BranchNoValue(children),
         }
     }
+
+    pub fn has_value(&self) -> bool {
+        match self {
+            Self::BranchWithValue(_, _) | Self::Leaf(_, _) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Children of a branch node.
