@@ -74,9 +74,6 @@ Details of bringing up and configuring a network are out of scope for this docum
 
 Choose the git commit and cargo features corresponding to what you want to benchmark. Most likely you will want a `--release` build to measure TPS.
 
-Watch out! Running the `neard` via `just run_localnet` is going by default pick whatever `release` executable currently compiled.
-So comparing different binaries one needs to be careful to (re-)compile the `neard` as needed.
-
 ### Create sub accounts
 
 Creating the state for synthetic benchmarks usually starts with creating accounts. We create sub accounts for the account specified by `--signer-key-path`. This avoids dealing with the registrar, which would be required for creating top level accounts. To view all options, run:
