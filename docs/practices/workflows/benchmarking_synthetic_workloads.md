@@ -23,6 +23,7 @@ The tooling's [`justfile`](../../../benchmarks/synth-bm/justfile) contains recip
 
 A typical workflow benchmarking the native token transfers using the above `justfile` would be something along the:
 - set up the network
+<!-- cspell:words subaccounts -->
 ```command
 rm -rf .near && just init_localnet
 # Modify the configuration (see the "Un-limit configuration" section)
@@ -108,7 +109,7 @@ Following these steps so far creates a config that will throttle throughput due 
 }
 ```
 
-Note that as `nearcore` evolves, these steps and `BENCHMARKNET` adjustments might need to be updated to achieve the effect of unlimiting configuration.
+Note that as `nearcore` evolves, these steps and `BENCHMARKNET` adjustments might need to be updated to achieve the effect of un-limiting configuration.
 
 
 Modifications of `genesis.json` need to be applied before initializing the network with `just init_localnet`. Otherwise `just run_localnet` will fail. If you ran the node with default config and want to switch to unlimited config, the required steps are:
