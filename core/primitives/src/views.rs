@@ -26,8 +26,6 @@ use crate::sharding::{
     ShardChunkHeaderInnerV3, ShardChunkHeaderV3,
 };
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-use crate::transaction::NonrefundableStorageTransferAction;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
@@ -47,7 +45,6 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
-use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -66,9 +63,6 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "dec_format")]
     pub locked: Balance,
-    #[serde(with = "dec_format")]
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    pub permanent_storage_bytes: StorageUsage,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
@@ -91,8 +85,6 @@ impl From<&Account> for AccountView {
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            permanent_storage_bytes: account.permanent_storage_bytes(),
             code_hash: account.code_hash(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
@@ -108,18 +100,7 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let permanent_storage_bytes = view.permanent_storage_bytes;
-        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-        let permanent_storage_bytes = 0;
-        Account::new(
-            view.amount,
-            view.locked,
-            permanent_storage_bytes,
-            view.code_hash,
-            view.storage_usage,
-            PROTOCOL_VERSION,
-        )
+        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
     }
 }
 
@@ -1151,11 +1132,6 @@ pub enum ActionView {
         #[serde(with = "dec_format")]
         deposit: Balance,
     },
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    NonrefundableStorageTransfer {
-        #[serde(with = "dec_format")]
-        deposit: Balance,
-    },
     Stake {
         #[serde(with = "dec_format")]
         stake: Balance,
@@ -1206,10 +1182,6 @@ impl From<Action> for ActionView {
                 deposit: action.deposit,
             },
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::NonrefundableStorageTransfer(action) => {
-                ActionView::NonrefundableStorageTransfer { deposit: action.deposit }
-            }
             Action::Stake(action) => {
                 ActionView::Stake { stake: action.stake, public_key: action.public_key }
             }
@@ -1264,10 +1236,6 @@ impl TryFrom<ActionView> for Action {
                 }))
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            ActionView::NonrefundableStorageTransfer { deposit } => {
-                Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction { deposit })
-            }
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))
             }

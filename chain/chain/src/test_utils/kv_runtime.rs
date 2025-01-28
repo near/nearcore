@@ -1303,10 +1303,8 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
-                        0,
                         CryptoHash::default(),
                         0,
-                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),

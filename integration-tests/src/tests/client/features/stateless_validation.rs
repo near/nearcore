@@ -110,14 +110,7 @@ fn run_chunk_validation_test(
         let staked = if i < num_validators { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(
-                initial_balance,
-                staked,
-                0,
-                CryptoHash::default(),
-                0,
-                genesis_protocol_version,
-            ),
+            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),

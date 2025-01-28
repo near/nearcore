@@ -447,10 +447,8 @@ impl TestGenesisBuilder {
                 account: Account::new(
                     user_account.balance,
                     validator_stake.remove(&user_account.account_id).unwrap_or(0),
-                    0,
                     CryptoHash::default(),
                     0,
-                    self.protocol_version,
                 ),
             });
             for access_key in &user_account.access_keys {
@@ -467,14 +465,7 @@ impl TestGenesisBuilder {
         for (account_id, balance) in validator_stake {
             records.push(StateRecord::Account {
                 account_id,
-                account: Account::new(
-                    0,
-                    balance,
-                    0,
-                    CryptoHash::default(),
-                    0,
-                    self.protocol_version,
-                ),
+                account: Account::new(0, balance, CryptoHash::default(), 0),
             });
         }
 
