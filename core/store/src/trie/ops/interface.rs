@@ -257,7 +257,7 @@ pub trait TrieIteratorStorageInterface<GenericTrieNodePtr, GenericValueHandle> {
     fn get_and_record_node(
         &self,
         ptr: GenericTrieNodePtr,
-    ) -> GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>;
+    ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
 
     // Get a value from the storage.
     fn get_and_record_value(&self, value_ref: GenericValueHandle) -> Result<Vec<u8>, StorageError>;

@@ -190,7 +190,7 @@ impl MemTries {
     /// Returns an iterator over the memtrie for the given trie root.
     pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator<'a>, StorageError> {
         let iter_storage = MemTrieIteratorInner::new(self, trie);
-        Ok(STMemTrieIterator::new(iter_storage, None))
+        STMemTrieIterator::new(iter_storage, None)
     }
 
     /// Looks up a key in the memtrie with the given state_root and returns the value if found.

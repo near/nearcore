@@ -1,10 +1,15 @@
 //! Iterator implementation that is shared between DiskTrieIterator and MemTrieIterator.
 use near_primitives::errors::StorageError;
+use near_primitives::hash::CryptoHash;
 
-use crate::trie::iterator::TrieItem;
+use crate::trie::trie_storage_update::TrieStorageNodePtr;
+use crate::trie::ValueHandle;
 use crate::NibbleSlice;
 
 use super::interface::{GenericTrieNode, TrieIteratorStorageInterface};
+
+/// The TrieItem is a tuple of (key, value) of the node.
+pub type TrieItem = (Vec<u8>, Vec<u8>);
 
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
@@ -18,7 +23,7 @@ struct Crumb<N, V> {
 /// Each node is processed in the following order:
 /// Entering -> At -> AtChild(0) -> ... -> AtChild(15) -> Exiting
 #[derive(Debug, Clone, Copy)]
-enum CrumbStatus {
+pub(crate) enum CrumbStatus {
     Entering,
     At,
     AtChild(u8),
@@ -54,7 +59,7 @@ impl<N, V> Crumb<N, V> {
 ///
 /// The trail and the key_nibbles may have different lengths e.g. an extension trie node
 /// will add only a single item to the trail but may add multiple nibbles to the key_nibbles.
-pub struct TrieIterator<TrieNodePtr, ValueHandle, I>
+pub struct TrieIteratorImpl<TrieNodePtr, ValueHandle, I>
 where
     TrieNodePtr: Copy,
     ValueHandle: Clone,
@@ -80,14 +85,17 @@ where
     prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
 }
 
-impl<N, V, I> TrieIterator<N, V, I>
+impl<N, V, I> TrieIteratorImpl<N, V, I>
 where
     N: Copy,
     V: Clone,
     I: TrieIteratorStorageInterface<N, V>,
 {
     /// Create a new iterator.
-    pub fn new(trie_interface: I, prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>) -> Self {
+    pub fn new(
+        trie_interface: I,
+        prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
+    ) -> Result<Self, StorageError> {
         let root = trie_interface.get_root();
         let mut iter = Self {
             trail: Vec::with_capacity(8),
@@ -95,17 +103,22 @@ where
             trie_interface,
             prune_condition,
         };
-        iter.descend_into_node(root);
-        iter
+        iter.descend_into_node(root)?;
+        Ok(iter)
     }
 
     /// Position the iterator on the first element with key >= `key`.
-    pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) {
-        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true);
+    pub fn seek_prefix<K: AsRef<[u8]>>(&mut self, key: K) -> Result<(), StorageError> {
+        self.seek_nibble_slice(NibbleSlice::new(key.as_ref()), true)?;
+        Ok(())
     }
 
     /// Returns the hash of the last node.
-    fn seek_nibble_slice(&mut self, mut key: NibbleSlice<'_>, is_prefix_seek: bool) -> Option<N> {
+    fn seek_nibble_slice(
+        &mut self,
+        mut key: NibbleSlice<'_>,
+        is_prefix_seek: bool,
+    ) -> Result<Option<N>, StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
 
@@ -127,7 +140,7 @@ where
         let mut prev_prefix_boundary = &mut false;
         loop {
             *prev_prefix_boundary = is_prefix_seek;
-            self.descend_into_node(ptr);
+            self.descend_into_node(ptr)?;
             let Crumb { status, node, prefix_boundary } = self.trail.last_mut().unwrap();
             prev_prefix_boundary = prefix_boundary;
             match &node {
@@ -172,18 +185,19 @@ where
                 }
             }
         }
-        ptr
+        Ok(ptr)
     }
 
     /// Fetches node by its ptr and adds it to the trail.
     ///
     /// The node is stored as the last [`Crumb`] in the trail.
-    fn descend_into_node(&mut self, ptr: Option<N>) {
+    fn descend_into_node(&mut self, ptr: Option<N>) -> Result<(), StorageError> {
         let node = match ptr {
-            Some(ptr) => self.trie_interface.get_and_record_node(ptr),
+            Some(ptr) => self.trie_interface.get_and_record_node(ptr)?,
             None => GenericTrieNode::Empty,
         };
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
+        Ok(())
     }
 
     /// Make key from nibbles.
@@ -258,7 +272,7 @@ enum IterStep<N, V> {
     Value(V),
 }
 
-impl<N, V, I> Iterator for TrieIterator<N, V, I>
+impl<N, V, I> Iterator for TrieIteratorImpl<N, V, I>
 where
     N: Copy,
     V: Clone,
@@ -282,14 +296,126 @@ where
                 }
                 // Skip processing node if it should be pruned.
                 (_, true) => {}
-                (IterStep::Descend(ptr), false) => {
-                    self.descend_into_node(Some(ptr));
-                }
+                (IterStep::Descend(ptr), false) => match self.descend_into_node(Some(ptr)) {
+                    Ok(_) => {}
+                    Err(e) => return Some(Err(e)),
+                },
                 (IterStep::Value(value_ref), false) => {
                     let value = self.trie_interface.get_and_record_value(value_ref);
                     return Some(value.map(|value| (self.key(), value)));
                 }
             }
+        }
+    }
+}
+
+/// *************************************************************************************************
+/// Section below is used for state sync. Ideally we should have a better way of reading the trie
+/// nodes and working with the iterator, example using trie recorder and prune conditions but while
+/// we figure that out, we can keep the implementation below
+/// *************************************************************************************************
+
+// Item extracted from Trie during depth first traversal, corresponding to some Trie node.
+#[derive(Debug)]
+pub struct TrieTraversalItem {
+    /// Hash of the node.
+    pub hash: CryptoHash,
+    /// Key of the node if it stores a value.
+    pub key: Option<Vec<u8>>,
+}
+
+// Extension for State Parts processing
+impl<I> TrieIteratorImpl<CryptoHash, ValueHandle, I>
+where
+    I: TrieIteratorStorageInterface<TrieStorageNodePtr, ValueHandle>,
+{
+    /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
+    /// order and return TrieTraversalItem for each visited node.
+    /// Used to generate and apply state parts for state sync.
+    pub fn visit_nodes_interval(
+        &mut self,
+        path_begin: &[u8],
+        path_end: &[u8],
+    ) -> Result<Vec<TrieTraversalItem>, StorageError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "visit_nodes_interval")
+        .entered();
+        let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
+        let last_hash = self
+            .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?
+            .unwrap();
+        let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
+        if self.key_nibbles[prefix..] >= path_end[prefix..] {
+            return Ok(vec![]);
+        }
+        let mut nodes_list = Vec::new();
+
+        // Actually (self.key_nibbles[..] == path_begin) always because path_begin always ends in a node
+        if &self.key_nibbles[..] >= path_begin {
+            nodes_list.push(TrieTraversalItem {
+                hash: last_hash,
+                key: self.has_value().then(|| self.key()),
+            });
+        }
+
+        loop {
+            let iter_step = match self.iter_step() {
+                Some(iter_step) => iter_step,
+                None => break,
+            };
+            match iter_step {
+                IterStep::PopTrail => {
+                    self.trail.pop();
+                    prefix = std::cmp::min(self.key_nibbles.len(), prefix);
+                }
+                IterStep::Descend(hash) => {
+                    prefix += Self::common_prefix(&path_end[prefix..], &self.key_nibbles[prefix..]);
+                    if self.key_nibbles[prefix..] >= path_end[prefix..] {
+                        break;
+                    }
+                    self.descend_into_node(Some(hash))?;
+                    nodes_list.push(TrieTraversalItem { hash, key: None });
+                }
+                IterStep::Continue => {}
+                IterStep::Value(value) => {
+                    if self.key_nibbles[prefix..] >= path_end[prefix..] {
+                        break;
+                    }
+                    self.trie_interface.get_and_record_value(value)?;
+                    let hash = match value {
+                        ValueHandle::HashAndSize(hash) => hash.hash,
+                        ValueHandle::InMemory(_) => panic!("Unexpected in-memory value"),
+                    };
+                    nodes_list.push(TrieTraversalItem {
+                        hash,
+                        key: self.has_value().then(|| self.key()),
+                    });
+                }
+            }
+        }
+        Ok(nodes_list)
+    }
+
+    fn common_prefix(str1: &[u8], str2: &[u8]) -> usize {
+        let mut prefix = 0;
+        while prefix < str1.len() && prefix < str2.len() && str1[prefix] == str2[prefix] {
+            prefix += 1;
+        }
+        prefix
+    }
+
+    fn has_value(&self) -> bool {
+        match self.trail.last() {
+            Some(b) => match &b.status {
+                CrumbStatus::At => match &b.node {
+                    GenericTrieNode::Branch { value, .. } => value.is_some(),
+                    GenericTrieNode::Leaf { .. } => true,
+                    _ => false,
+                },
+                _ => false,
+            },
+            None => false, // Trail finished
         }
     }
 }

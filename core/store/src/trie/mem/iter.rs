@@ -3,7 +3,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 
 use crate::trie::ops::interface::TrieIteratorStorageInterface;
-use crate::trie::ops::iter::TrieIterator;
+use crate::trie::ops::iter::TrieIteratorImpl;
 use crate::trie::OptimizedValueRef;
 use crate::Trie;
 
@@ -35,13 +35,14 @@ impl<'a> TrieIteratorStorageInterface<MemTrieNodeId, FlatStateValue> for MemTrie
         Some(root_ptr)
     }
 
-    fn get_and_record_node(&self, node: MemTrieNodeId) -> MemTrieNode {
+    fn get_and_record_node(&self, node: MemTrieNodeId) -> Result<MemTrieNode, StorageError> {
         let view = node.as_ptr(self.memtrie.arena.memory()).view();
         if let Some(recorder) = &self.trie.recorder {
             let raw_node_serialized = borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
             recorder.borrow_mut().record(&view.node_hash(), raw_node_serialized.into());
         }
-        MemTrieNode::from_existing_node_view(view)
+        let node = MemTrieNode::from_existing_node_view(view);
+        Ok(node)
     }
 
     fn get_and_record_value(&self, value_ref: FlatStateValue) -> Result<Vec<u8>, StorageError> {
@@ -56,4 +57,4 @@ impl<'a> TrieIteratorStorageInterface<MemTrieNodeId, FlatStateValue> for MemTrie
 }
 
 pub type STMemTrieIterator<'a> =
-    TrieIterator<MemTrieNodeId, FlatStateValue, MemTrieIteratorInner<'a>>;
+    TrieIteratorImpl<MemTrieNodeId, FlatStateValue, MemTrieIteratorInner<'a>>;
