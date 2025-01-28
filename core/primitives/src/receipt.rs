@@ -9,6 +9,7 @@ use near_fmt::AbbrBytes;
 use near_primitives_core::types::{Gas, ProtocolVersion};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
+use serde::ser::{SerializeStruct, Serializer};
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::borrow::{Borrow, Cow};
@@ -703,7 +704,6 @@ pub struct GlobalContractData {
     pub id: GlobalContractIdentifier,
 }
 
-use serde::ser::{SerializeStruct, Serializer};
 impl serde::Serialize for GlobalContractData {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
