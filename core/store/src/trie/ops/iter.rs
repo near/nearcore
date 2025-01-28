@@ -344,7 +344,7 @@ where
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash = self
             .seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?
-            .unwrap();
+            .unwrap_or_default();
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
             return Ok(vec![]);

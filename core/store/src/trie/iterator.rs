@@ -31,8 +31,12 @@ impl<'a> TrieIteratorStorageInterface<TrieStorageNodePtr, ValueHandle>
         &self,
         node: TrieStorageNodePtr,
     ) -> Result<TrieStorageNode, StorageError> {
-        let (_, raw_node) = self.trie.retrieve_raw_node(&node, true, true).unwrap().unwrap();
-        Ok(TrieStorageNode::from_raw_trie_node(raw_node.node))
+        let retrieve_raw_node_result = self.trie.retrieve_raw_node(&node, true, true)?;
+        let node = match retrieve_raw_node_result {
+            None => TrieStorageNode::Empty,
+            Some((_, raw_node)) => TrieStorageNode::from_raw_trie_node(raw_node.node),
+        };
+        Ok(node)
     }
 
     fn get_and_record_value(&self, value_ref: ValueHandle) -> Result<Vec<u8>, StorageError> {
