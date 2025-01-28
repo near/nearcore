@@ -22,7 +22,7 @@ The tooling's [`justfile`](../../../benchmarks/synth-bm/justfile) contains recip
 ### Benchmark native token transfers
 
 A typical workflow benchmarking the native token transfers using the above `justfile` would be something along the:
-- preparation step, needs to be run at least once per setup
+- preparation steps, need to be run at least once per setup
 ```command
 rm -rf .near && just init_localnet
 # Modify the configuration (see the "Un-limit configuration" section)
