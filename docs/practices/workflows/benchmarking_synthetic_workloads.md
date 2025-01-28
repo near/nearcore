@@ -71,8 +71,8 @@ Thus the numbers reported by the tool as if in
 [2025-01-27T14:05:12Z INFO  near_synth_bm::native_transfer] Sent 200000 txs in 6.50 seconds
 [2025-01-27T14:05:12Z INFO  near_synth_bm::rpc] Received 200000 tx responses in 6.49 seconds
 ```
-are not directly indicative of the runtime performance.
-The number of transactions actually processed may be obtained by querying the `near_transaction_processed_successfully_total` metric, e.g. with: `http://localhost:3030/metrics | grep transaction_processed`.
+are not directly indicative of the runtime performance and transaction outcomes.
+The number of transactions successfully processed may be obtained by querying the `near_transaction_processed_successfully_total` metric, e.g. with: `http://localhost:3030/metrics | grep transaction_processed`.
 Automatic calculation of transactions per second (TPS) when RPC requests are sent with `wait_until: NONE` is coming up shortly.
 
 ### Benchmark calls to the `sign` method of an MPC contract
