@@ -1,25 +1,38 @@
+use std::cell::RefCell;
+use std::sync::Arc;
+
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
 use super::mem::iter::STMemTrieIterator;
-use super::ops::interface::TrieIteratorStorageInterface;
+use super::ops::interface::GenericTrieInternalStorage;
 use super::ops::iter::{TrieItem, TrieIteratorImpl};
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodePtr};
 use super::{Trie, ValueHandle};
 
 pub struct DiskTrieIteratorInner<'a> {
     trie: &'a Trie,
+    /// If not `None`, a list of all nodes that the iterator has visited.
+    /// This is used only for state_viewer.
+    /// TODO: Remove this once we shift to using recorded storage in trie iterator.
+    visited_nodes: Option<RefCell<Vec<Arc<[u8]>>>>,
 }
 
 impl<'a> DiskTrieIteratorInner<'a> {
     pub fn new(trie: &'a Trie) -> Self {
-        Self { trie }
+        Self { trie, visited_nodes: None }
+    }
+
+    pub fn remember_visited_nodes(&mut self, record_nodes: bool) {
+        self.visited_nodes = record_nodes.then(|| RefCell::new(Vec::new()))
+    }
+
+    pub fn into_visited_nodes(self) -> Vec<Arc<[u8]>> {
+        self.visited_nodes.map(|n| n.into_inner()).unwrap_or_default()
     }
 }
 
-impl<'a> TrieIteratorStorageInterface<TrieStorageNodePtr, ValueHandle>
-    for DiskTrieIteratorInner<'a>
-{
+impl<'a> GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle> for DiskTrieIteratorInner<'a> {
     fn get_root(&self) -> Option<TrieStorageNodePtr> {
         if self.trie.root == CryptoHash::default() {
             return None;
@@ -29,14 +42,15 @@ impl<'a> TrieIteratorStorageInterface<TrieStorageNodePtr, ValueHandle>
 
     fn get_and_record_node(
         &self,
-        node: TrieStorageNodePtr,
+        ptr: TrieStorageNodePtr,
     ) -> Result<TrieStorageNode, StorageError> {
-        let retrieve_raw_node_result = self.trie.retrieve_raw_node(&node, true, true)?;
-        let node = match retrieve_raw_node_result {
-            None => TrieStorageNode::Empty,
-            Some((_, raw_node)) => TrieStorageNode::from_raw_trie_node(raw_node.node),
-        };
-        Ok(node)
+        let node = self.trie.retrieve_raw_node(&ptr, true, true)?.map(|(bytes, node)| {
+            if let Some(ref visited_nodes) = self.visited_nodes {
+                visited_nodes.borrow_mut().push(bytes);
+            }
+            TrieStorageNode::from_raw_trie_node(node.node)
+        });
+        Ok(node.unwrap_or_default())
     }
 
     fn get_and_record_value(&self, value_ref: ValueHandle) -> Result<Vec<u8>, StorageError> {

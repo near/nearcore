@@ -9,7 +9,6 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::borsh::BorshDeserialize;
-use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV1};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -171,18 +170,14 @@ impl TrieViewer {
         let mut values = vec![];
         let query = trie_key_parsers::get_raw_prefix_for_contract_data(account_id, prefix);
         let acc_sep_len = query.len() - prefix.len();
-        let trie = if include_proof {
-            &state_update.trie.recording_reads_new_recorder()
-        } else {
-            &state_update.trie
-        };
-        let mut iter = trie.disk_iter()?;
+        let mut iter = state_update.trie().disk_iter()?;
+        iter.remember_visited_nodes(include_proof);
         iter.seek_prefix(&query)?;
         for item in &mut iter {
             let (key, value) = item?;
             values.push(StateItem { key: key[acc_sep_len..].to_vec().into(), value: value.into() });
         }
-        let PartialState::TrieValues(proof) = trie.recorded_storage().unwrap_or_default().nodes;
+        let proof = iter.into_visited_nodes();
         Ok(ViewStateResult { values, proof })
     }
 

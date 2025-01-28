@@ -248,7 +248,7 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
 
 /// This is the interface used by TrieIterator to get nodes and values from the storage.
 /// It is used to abstract the storage of trie nodes and values.
-pub trait TrieIteratorStorageInterface<GenericTrieNodePtr, GenericValueHandle> {
+pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
     // Get the root node of the trie.
     // Optionally return None if the trie is empty.
     fn get_root(&self) -> Option<GenericTrieNodePtr>;

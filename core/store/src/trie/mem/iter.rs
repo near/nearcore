@@ -2,7 +2,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 
-use crate::trie::ops::interface::TrieIteratorStorageInterface;
+use crate::trie::ops::interface::GenericTrieInternalStorage;
 use crate::trie::ops::iter::TrieIteratorImpl;
 use crate::trie::OptimizedValueRef;
 use crate::Trie;
@@ -24,7 +24,7 @@ impl<'a> MemTrieIteratorInner<'a> {
     }
 }
 
-impl<'a> TrieIteratorStorageInterface<MemTrieNodeId, FlatStateValue> for MemTrieIteratorInner<'a> {
+impl<'a> GenericTrieInternalStorage<MemTrieNodeId, FlatStateValue> for MemTrieIteratorInner<'a> {
     fn get_root(&self) -> Option<MemTrieNodeId> {
         let root_hash = self.trie.root;
         if root_hash == CryptoHash::default() {

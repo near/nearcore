@@ -1,12 +1,15 @@
 //! Iterator implementation that is shared between DiskTrieIterator and MemTrieIterator.
+use std::sync::Arc;
+
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 
+use crate::trie::iterator::DiskTrieIteratorInner;
 use crate::trie::trie_storage_update::TrieStorageNodePtr;
 use crate::trie::ValueHandle;
 use crate::NibbleSlice;
 
-use super::interface::{GenericTrieNode, TrieIteratorStorageInterface};
+use super::interface::{GenericTrieInternalStorage, GenericTrieNode};
 
 /// The TrieItem is a tuple of (key, value) of the node.
 pub type TrieItem = (Vec<u8>, Vec<u8>);
@@ -63,7 +66,7 @@ pub struct TrieIteratorImpl<TrieNodePtr, ValueHandle, I>
 where
     TrieNodePtr: Copy,
     ValueHandle: Clone,
-    I: TrieIteratorStorageInterface<TrieNodePtr, ValueHandle>,
+    I: GenericTrieInternalStorage<TrieNodePtr, ValueHandle>,
 {
     trail: Vec<Crumb<TrieNodePtr, ValueHandle>>,
     key_nibbles: Vec<u8>,
@@ -89,7 +92,7 @@ impl<N, V, I> TrieIteratorImpl<N, V, I>
 where
     N: Copy,
     V: Clone,
-    I: TrieIteratorStorageInterface<N, V>,
+    I: GenericTrieInternalStorage<N, V>,
 {
     /// Create a new iterator.
     pub fn new(
@@ -276,7 +279,7 @@ impl<N, V, I> Iterator for TrieIteratorImpl<N, V, I>
 where
     N: Copy,
     V: Clone,
-    I: TrieIteratorStorageInterface<N, V>,
+    I: GenericTrieInternalStorage<N, V>,
 {
     type Item = Result<TrieItem, StorageError>;
 
@@ -327,7 +330,7 @@ pub struct TrieTraversalItem {
 // Extension for State Parts processing
 impl<I> TrieIteratorImpl<CryptoHash, ValueHandle, I>
 where
-    I: TrieIteratorStorageInterface<TrieStorageNodePtr, ValueHandle>,
+    I: GenericTrieInternalStorage<TrieStorageNodePtr, ValueHandle>,
 {
     /// Visits all nodes belonging to the interval [path_begin, path_end) in depth-first search
     /// order and return TrieTraversalItem for each visited node.
@@ -417,5 +420,16 @@ where
             },
             None => false, // Trail finished
         }
+    }
+}
+
+/// TODO: Remove this once we shift to using recorded storage in trie iterator.
+impl<'a> TrieIteratorImpl<CryptoHash, ValueHandle, DiskTrieIteratorInner<'a>> {
+    pub fn remember_visited_nodes(&mut self, record_nodes: bool) {
+        self.trie_interface.remember_visited_nodes(record_nodes)
+    }
+
+    pub fn into_visited_nodes(self) -> Vec<Arc<[u8]>> {
+        self.trie_interface.into_visited_nodes()
     }
 }
