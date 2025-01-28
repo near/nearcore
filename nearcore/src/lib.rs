@@ -250,17 +250,19 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let trie_metrics_arbiter = spawn_trie_metrics_loop(
-        config.clone(),
-        storage.get_hot_store(),
-        config.client_config.log_summary_period,
-    )?;
-
     let epoch_manager = EpochManager::new_arc_handle(
         storage.get_hot_store(),
         &config.genesis.config,
         Some(home_dir),
     );
+
+    let trie_metrics_arbiter = spawn_trie_metrics_loop(
+        config.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+        epoch_manager.clone(),
+    )?;
+
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.

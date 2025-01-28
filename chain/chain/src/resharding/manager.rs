@@ -76,10 +76,13 @@ impl ReshardingManager {
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
-        let next_block_has_new_shard_layout =
-            self.epoch_manager.is_next_block_epoch_start(block_hash)?
-                && shard_layout != next_shard_layout;
-        if !next_block_has_new_shard_layout {
+        let is_next_block_epoch_start = self.epoch_manager.is_next_block_epoch_start(block_hash)?;
+        if !is_next_block_epoch_start {
+            return Ok(());
+        }
+
+        let will_shard_layout_change = shard_layout != next_shard_layout;
+        if !will_shard_layout_change {
             tracing::debug!(target: "resharding", ?prev_hash, "prev block has the same shard layout, skipping");
             return Ok(());
         }
