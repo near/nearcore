@@ -12,7 +12,7 @@ use super::memtrie_update::MemTrieNode;
 use super::memtries::MemTries;
 use super::node::MemTrieNodeId;
 
-/// Tiny wrapper around `MemTries` and `Trie` to provide `TrieIteratorStorageInterface` implementation.
+/// Tiny wrapper around `MemTries` and `Trie` to provide `GenericTrieInternalStorage` implementation.
 pub struct MemTrieIteratorInner<'a> {
     memtrie: &'a MemTries,
     trie: &'a Trie,

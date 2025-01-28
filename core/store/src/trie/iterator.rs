@@ -13,7 +13,7 @@ use super::{Trie, ValueHandle};
 pub struct DiskTrieIteratorInner<'a> {
     trie: &'a Trie,
     /// If not `None`, a list of all nodes that the iterator has visited.
-    /// This is used only for state_viewer.
+    /// This is used only for TrieViewer.
     /// TODO: Remove this once we shift to using recorded storage in trie iterator.
     visited_nodes: Option<RefCell<Vec<Arc<[u8]>>>>,
 }
