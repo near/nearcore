@@ -1,4 +1,4 @@
-use crate::action::GlobalContractIdentifier;
+use crate::action::{base64, GlobalContractIdentifier};
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -587,10 +587,10 @@ impl Receipt {
             predecessor_id,
             receiver_id: "system".parse().unwrap(),
             receipt_id: CryptoHash::default(),
-            receipt: ReceiptEnum::GlobalContractDistribution(Arc::new(GlobalContractData {
-                code,
+            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData {
+                code: Arc::new(code),
                 id,
-            })),
+            }),
         })
     }
 }
@@ -612,7 +612,7 @@ pub enum ReceiptEnum {
     Data(DataReceipt),
     PromiseYield(ActionReceipt),
     PromiseResume(DataReceipt),
-    GlobalContractDistribution(Arc<GlobalContractData>),
+    GlobalContractDistribution(GlobalContractData),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -695,26 +695,31 @@ impl fmt::Debug for ReceivedData {
 
 #[serde_as]
 #[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Hash,
-    PartialEq,
-    Eq,
-    Clone,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
+    BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, serde::Deserialize, ProtocolSchema,
 )]
 pub struct GlobalContractData {
     #[serde_as(as = "Base64")]
-    pub code: Vec<u8>,
+    pub code: Arc<Vec<u8>>,
     pub id: GlobalContractIdentifier,
+}
+
+use serde::ser::{SerializeStruct, Serializer};
+impl serde::Serialize for GlobalContractData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("GlobalContractData", 2)?;
+        state.serialize_field("code", self.code.as_ref())?;
+        state.serialize_field("id", &self.id)?;
+        state.end()
+    }
 }
 
 impl fmt::Debug for GlobalContractData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GlobalContractData")
-            .field("code", &self.code)
+            .field("code", &format_args!("{}", base64(&self.code)))
             .field("id", &self.id)
             .finish()
     }

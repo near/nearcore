@@ -1965,7 +1965,7 @@ pub enum ReceiptEnumView {
         is_promise_resume: bool,
     },
     GlobalContractDistribution {
-        data: Arc<GlobalContractData>,
+        data: GlobalContractData,
     },
 }
 

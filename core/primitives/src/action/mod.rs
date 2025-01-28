@@ -13,7 +13,7 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
 
-fn base64(s: &[u8]) -> String {
+pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
