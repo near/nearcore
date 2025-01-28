@@ -131,6 +131,11 @@ impl HeaderSync {
                 debug!(target: "sync", "Sync: initial transition to Header sync. Header head {} at {}",
                     header_head.last_block_hash, header_head.height,
                 );
+
+                debug!(target: "sync", "Sync: boom sleep");
+                std::thread::sleep(std::time::Duration::from_millis(10000));
+                debug!(target: "sync", "Sync: boom sleep done");
+
                 true
             }
             SyncStatus::EpochSync { .. } | SyncStatus::StateSync { .. } => false,
