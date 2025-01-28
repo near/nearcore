@@ -31,6 +31,7 @@ use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
+use shard_info_provider::ShardInfoProvider;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -40,7 +41,7 @@ use validator_stats::{
     get_sortable_validator_online_ratio, get_sortable_validator_online_ratio_without_endorsements,
 };
 
-pub use crate::adapter::EpochManagerAdapter;
+pub use crate::adapter::EpochManagerInfoProvider;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
@@ -64,6 +65,10 @@ mod validator_stats;
 const EPOCH_CACHE_SIZE: usize = 50;
 const BLOCK_CACHE_SIZE: usize = 1000;
 const AGGREGATOR_SAVE_PERIOD: u64 = 1000;
+
+pub trait EpochManagerAdapter: Send + Sync + EpochManagerInfoProvider + ShardInfoProvider {}
+
+impl<T: EpochManagerInfoProvider + ShardInfoProvider> EpochManagerAdapter for T {}
 
 /// In the current architecture, various components have access to the same
 /// shared mutable instance of [`EpochManager`]. This handle manages locking

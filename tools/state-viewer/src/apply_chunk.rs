@@ -7,7 +7,7 @@ use near_chain::types::{
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
 use near_epoch_manager::shard_info_provider::ShardInfoProvider;
-use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManagerHandle, EpochManagerInfoProvider};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::block::MaybeNew;

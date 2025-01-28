@@ -8,7 +8,7 @@ use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThre
 use near_crypto::{KeyType, SecretKey};
 use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerHandle, EpochManagerInfoProvider};
 use near_jsonrpc_client::JsonRpcClient;
 use near_network::tcp;
 use near_network::types::PeerInfo;

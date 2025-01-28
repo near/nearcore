@@ -12,7 +12,7 @@ use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::shard_info_provider::ShardInfoProvider;
-use near_epoch_manager::{EpochManagerAdapter, RngSeed, ShardInfo};
+use near_epoch_manager::{EpochManagerInfoProvider, RngSeed, ShardInfo};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -658,7 +658,7 @@ impl ShardInfoProvider for MockEpochManager {
     }
 }
 
-impl EpochManagerAdapter for MockEpochManager {
+impl EpochManagerInfoProvider for MockEpochManager {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
     }

@@ -1,4 +1,4 @@
-use crate::shard_info_provider::ShardInfoProvider;
+// use crate::shard_info_provider::ShardInfoProvider;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -31,7 +31,7 @@ use std::sync::Arc;
 /// "_from_epoch_id" suffix and add the more precise methods using only the
 /// protocol version. This may simplify the usage of the EpochManagerAdapter in
 /// a few places where it's cumbersome to get the epoch id.
-pub trait EpochManagerAdapter: Send + Sync + ShardInfoProvider {
+pub trait EpochManagerInfoProvider: Send + Sync {
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
 
@@ -284,7 +284,7 @@ pub trait EpochManagerAdapter: Send + Sync + ShardInfoProvider {
     ) -> Result<Vec<EpochId>, EpochError>;
 }
 
-impl EpochManagerAdapter for EpochManagerHandle {
+impl EpochManagerInfoProvider for EpochManagerHandle {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         let epoch_manager = self.read();
         epoch_manager.get_epoch_info(epoch_id).is_ok()

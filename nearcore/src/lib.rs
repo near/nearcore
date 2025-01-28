@@ -32,8 +32,7 @@ use near_client::{
     ViewClientActor, ViewClientActorInner,
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::EpochManager;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManager, EpochManagerInfoProvider};
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::types::EpochId;

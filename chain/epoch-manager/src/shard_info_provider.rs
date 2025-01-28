@@ -14,7 +14,7 @@ use near_primitives::{
 };
 use near_store::ShardUId;
 
-use crate::{EpochManagerAdapter, EpochManagerHandle};
+use crate::{EpochManagerHandle, EpochManagerInfoProvider};
 
 pub trait ShardInfoProvider {
     /// Get the list of shard ids

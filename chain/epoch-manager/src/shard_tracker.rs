@@ -286,7 +286,7 @@ mod tests {
     use crate::shard_info_provider::ShardInfoProvider;
     use crate::shard_tracker::TrackedConfig;
     use crate::test_utils::hash_range;
-    use crate::{EpochManager, EpochManagerAdapter, EpochManagerHandle, RewardCalculator};
+    use crate::{EpochManager, EpochManagerHandle, EpochManagerInfoProvider, RewardCalculator};
     use itertools::Itertools;
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::epoch_block_info::BlockInfo;

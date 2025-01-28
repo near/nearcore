@@ -2,7 +2,7 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 use near_chain::types::Tip;
 use near_epoch_manager::shard_info_provider::ShardInfoProvider;
-use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManagerHandle, EpochManagerInfoProvider};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::config::SplitStorageConfig;

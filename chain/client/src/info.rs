@@ -983,8 +983,8 @@ mod tests {
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_chain_configs::{Genesis, MutableConfigValue};
     use near_epoch_manager::shard_tracker::ShardTracker;
-    use near_epoch_manager::test_utils::*;
     use near_epoch_manager::EpochManager;
+    use near_epoch_manager::{test_utils::*, EpochManagerInfoProvider};
     use near_network::test_utils::peer_id_from_seed;
     use near_primitives::hash::CryptoHash;
     use near_store::genesis::initialize_genesis_state;

@@ -5,7 +5,7 @@ use borsh::BorshDeserialize;
 use clap;
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_info_provider::ShardInfoProvider;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerHandle, EpochManagerInfoProvider};
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;

@@ -6,7 +6,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::shard_info_provider::ShardInfoProvider;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardVersion;
 use near_primitives::state::FlatStateValue;
@@ -378,7 +378,7 @@ impl FlatStorageCommand {
 
     fn move_flat_head_back(
         &self,
-        epoch_manager: &dyn EpochManagerAdapter,
+        shard_info_provider: &dyn ShardInfoProvider,
         runtime: &dyn RuntimeAdapter,
         chain_store: ChainStore,
         mut shard_uid: ShardUId,
@@ -401,8 +401,8 @@ impl FlatStorageCommand {
             let header = block.header();
 
             let epoch_id = header.epoch_id();
-            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+            let shard_layout = shard_info_provider.get_shard_layout(&epoch_id)?;
+            shard_uid = shard_info_provider.shard_id_to_uid(shard_id, epoch_id)?;
             let shard_index =
                 shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
 
