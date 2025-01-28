@@ -49,7 +49,10 @@ pub(crate) struct TrackedShardSchedule {
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
-pub(crate) fn fork_before_resharding_block(double_signing: bool) -> LoopAction {
+pub(crate) fn fork_before_resharding_block(
+    double_signing: bool,
+    blocks_produced: near_primitives::types::BlockHeight,
+) -> LoopAction {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
 
     let (done, succeeded) = LoopAction::shared_success_flag();
@@ -80,7 +83,7 @@ pub(crate) fn fork_before_resharding_block(double_signing: bool) -> LoopAction {
                         base_block_height: tip.height - 1,
                     }
                 };
-                client_actor.adv_produce_blocks_on(3, true, height_selection);
+                client_actor.adv_produce_blocks_on(blocks_produced, true, height_selection);
                 done.set(true);
             }
         },
