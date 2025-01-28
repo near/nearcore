@@ -6,6 +6,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -529,7 +530,8 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, Signer};
-    use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+    use near_epoch_manager::shard_info_provider::ShardInfoProvider;
+    use near_epoch_manager::EpochManager;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::utils::get_num_seats_per_shard;

@@ -2285,6 +2285,7 @@ mod test {
     use near_async::messaging::IntoSender;
     use near_async::time::FakeClock;
     use near_chain_configs::MutableConfigValue;
+    use near_epoch_manager::shard_info_provider::ShardInfoProvider;
     use near_epoch_manager::shard_tracker::TrackedConfig;
     use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
     use near_network::test_utils::MockPeerManagerAdapter;

@@ -7,6 +7,7 @@ use near_chain::BlockHeader;
 use near_chain::ChainStore;
 use near_chain::ChainStoreAccess;
 use near_chain_primitives::error::Error;
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::EpochManagerHandle;

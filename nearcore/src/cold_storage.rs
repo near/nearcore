@@ -1,6 +1,7 @@
 use std::sync::{atomic::AtomicBool, Arc};
 
 use near_chain::types::Tip;
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};

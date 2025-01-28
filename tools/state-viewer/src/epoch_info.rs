@@ -2,6 +2,7 @@ use borsh::BorshDeserialize;
 use core::ops::Range;
 use itertools::Itertools;
 use near_chain::{ChainStore, ChainStoreAccess, Error};
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::epoch_info::EpochInfo;

@@ -5,6 +5,7 @@ use clap::Parser;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardVersion;

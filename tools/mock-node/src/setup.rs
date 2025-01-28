@@ -6,6 +6,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
 use near_crypto::{KeyType, SecretKey};
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_jsonrpc_client::JsonRpcClient;

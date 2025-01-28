@@ -4,6 +4,7 @@ use std::path::Path;
 
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{

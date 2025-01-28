@@ -25,6 +25,7 @@ use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, ReceiptFilter,
 };
 use near_chain_configs::GenesisChangeConfig;
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;

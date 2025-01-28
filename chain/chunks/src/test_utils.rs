@@ -1,6 +1,7 @@
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
 use near_epoch_manager::EpochManagerHandle;

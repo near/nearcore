@@ -4,7 +4,8 @@ use near_chain::{
     types::{ApplyChunkResult, Tip},
     Block, BlockHeader, ChainStore, ChainStoreAccess,
 };
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::{
     errors::EpochError,
     types::{chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot},

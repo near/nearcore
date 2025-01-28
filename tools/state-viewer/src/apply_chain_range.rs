@@ -8,6 +8,7 @@ use near_chain::types::{
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use near_chain_configs::Genesis;
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;

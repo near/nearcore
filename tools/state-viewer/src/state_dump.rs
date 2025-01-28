@@ -2,6 +2,7 @@ use chrono::Utc;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, GenesisChangeConfig, GenesisConfig};
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::EpochManagerHandle;
 use near_primitives::account::id::AccountId;

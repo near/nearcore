@@ -1,29 +1,25 @@
+use crate::shard_info_provider::ShardInfoProvider;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block::Tip;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardInfo, ShardLayout};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
 };
-use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
-    ValidatorInfoIdentifier,
+    AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ValidatorInfoIdentifier,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
-use near_store::{ShardUId, StoreUpdate};
+use near_store::StoreUpdate;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager. The two
@@ -35,12 +31,9 @@ use std::sync::Arc;
 /// "_from_epoch_id" suffix and add the more precise methods using only the
 /// protocol version. This may simplify the usage of the EpochManagerAdapter in
 /// a few places where it's cumbersome to get the epoch id.
-pub trait EpochManagerAdapter: Send + Sync {
+pub trait EpochManagerAdapter: Send + Sync + ShardInfoProvider {
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool;
-
-    /// Get the list of shard ids
-    fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
     ///
@@ -57,43 +50,11 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Returns `account_id` that is supposed to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError>;
 
-    /// Which shard the account belongs to in the given epoch.
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError>;
-
-    /// Which shard the account belongs to in the given epoch.
-    fn account_id_to_shard_info(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardInfo, EpochError>;
-
-    /// Converts `ShardId` (index of shard in the *current* layout) to
-    /// `ShardUId` (`ShardId` + the version of shard layout itself.)
-    fn shard_id_to_uid(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardUId, EpochError>;
-
-    fn shard_id_to_index(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardIndex, EpochError>;
-
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError>;
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError>;
 
     fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError>;
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError>;
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError>;
 
     /// Returns true, if given hash is last block in it's epoch.
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
@@ -122,46 +83,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<EpochId, EpochError>;
-
-    /// For each `ShardId` in the current block, returns its parent `ShardId`
-    /// from previous block.
-    ///
-    /// Most of the times parent of the shard is the shard itself, unless a
-    /// resharding happened and some shards were split.
-    /// If there was no resharding, it just returns `shard_ids` as is, without any validation.
-    /// The resulting Vec will always be of the same length as the `shard_ids` argument.
-    ///
-    /// TODO(wacban) - rename to reflect the new return type
-    fn get_prev_shard_ids(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<(ShardId, ShardIndex)>, Error>;
-
-    /// For a `ShardId` in the current block, returns its parent `ShardId`
-    /// from previous block.
-    ///
-    /// Most of the times parent of the shard is the shard itself, unless a
-    /// resharding happened and some shards were split.
-    /// If there was no resharding, it just returns the `shard_id` as is, without any validation.
-    ///
-    /// TODO(wacban) - rename to reflect the new return type
-    fn get_prev_shard_id_from_prev_hash(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError>;
-
-    /// Get shard layout given hash of previous block.
-    fn get_shard_layout_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, EpochError>;
-
-    fn get_shard_layout_from_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> ShardLayout;
 
     /// Get [`EpochId`] from a block belonging to the epoch.
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError>;
@@ -213,12 +134,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError>;
 
-    fn get_epoch_chunk_producers_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<Vec<AccountId>, EpochError>;
-
     /// Returns all validators for a given epoch.
     fn get_epoch_all_validators(
         &self,
@@ -239,20 +154,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
         height: BlockHeight,
     ) -> Result<ValidatorStake, EpochError>;
-
-    /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
-    fn get_chunk_producer_info(
-        &self,
-        key: &ChunkProductionKey,
-    ) -> Result<ValidatorStake, EpochError>;
-
-    /// Gets the chunk validators for a given height and shard.
-    fn get_chunk_validator_assignments(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        height: BlockHeight,
-    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError>;
 
     fn get_validator_by_account_id(
         &self,
@@ -368,36 +269,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         request: &ContractCodeRequest,
     ) -> Result<bool, Error>;
 
-    fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
-
-    fn cares_about_shard_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
-
-    fn cares_about_shard_next_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
-
-    fn cared_about_shard_prev_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
-
-    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
-
     /// Tries to estimate in which epoch the given height would reside.
     /// Looks at the previous, current and next epoch around the tip
     /// and adds them to the result if the height might be inside the epoch.
@@ -411,74 +282,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         tip: &Tip,
         height: BlockHeight,
     ) -> Result<Vec<EpochId>, EpochError>;
-
-    /// Returns the list of ShardUIds in the current shard layout that will be
-    /// resharded in the future within this client. Those shards should be
-    /// loaded into memory on node startup.
-    ///
-    /// Please note that this method returns all shard uids that will be
-    /// resharded in the future, regardless of whether the client tracks them.
-    ///
-    /// e.g. In the following resharding tree shards 0 and 1 would be returned.
-    ///
-    ///  0      1       2
-    ///  |     / \      |
-    ///  0    3   4     2
-    ///  |\   |   |     |
-    ///  5 6  3   4     2
-    ///  | |  |   |\    |
-    ///  5 6  3   7 8   2
-    ///
-    /// Please note that shard 4 is not returned even though it is split later
-    /// on. That is because it is a child of another parent and it should
-    /// already be loaded into memory after the first resharding.
-    fn get_shard_uids_pending_resharding(
-        &self,
-        head_protocol_version: ProtocolVersion,
-        client_protocol_version: ProtocolVersion,
-    ) -> Result<HashSet<ShardUId>, Error> {
-        let head_shard_layout = self.get_shard_layout_from_protocol_version(head_protocol_version);
-        let mut shard_layouts = vec![];
-        for protocol_version in head_protocol_version + 1..=client_protocol_version {
-            let shard_layout = self.get_shard_layout_from_protocol_version(protocol_version);
-            if shard_layout == head_shard_layout {
-                continue;
-            }
-
-            let last_shard_layout = shard_layouts.last();
-            if last_shard_layout != Some(&shard_layout) {
-                shard_layouts.push(shard_layout);
-            }
-        }
-
-        let mut result = HashSet::new();
-        for shard_uid in head_shard_layout.shard_uids() {
-            let shard_id = shard_uid.shard_id();
-            for shard_layout in &shard_layouts {
-                let children = shard_layout.get_children_shards_uids(shard_id);
-                let Some(children) = children else {
-                    break;
-                };
-                if children.len() > 1 {
-                    result.insert(shard_uid);
-                    break;
-                }
-            }
-        }
-
-        Ok(result)
-    }
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         let epoch_manager = self.read();
         epoch_manager.get_epoch_info(epoch_id).is_ok()
-    }
-
-    fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
     fn num_total_parts(&self) -> usize {
@@ -507,49 +316,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_info.get_validator(validator_id).account_id().clone())
     }
 
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.account_id_to_shard_id(account_id))
-    }
-
-    fn account_id_to_shard_info(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardInfo, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let shard_id = shard_layout.account_id_to_shard_id(account_id);
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(ShardInfo { shard_index, shard_uid })
-    }
-
-    fn shard_id_to_uid(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardUId, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
-    }
-
-    fn shard_id_to_index(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardIndex, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.get_shard_index(shard_id)?)
-    }
-
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_block_info(hash)
@@ -564,18 +330,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_epoch_info(epoch_id)
-    }
-
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_shard_layout(epoch_id)
-    }
-
-    fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
-        let epoch_manager = self.read();
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let epoch_config = epoch_manager.get_epoch_config(protocol_version);
-        Ok(ShardConfig::new(epoch_config))
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
@@ -616,69 +370,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_next_epoch_id_from_prev_block(parent_hash)
-    }
-
-    fn get_prev_shard_ids(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
-        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
-        let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
-        let is_resharding_boundary =
-            self.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
-
-        let mut result = vec![];
-        if is_resharding_boundary {
-            for shard_id in shard_ids {
-                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
-                let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
-                result.push((parent_shard_id, parent_shard_index));
-            }
-            Ok(result)
-        } else {
-            for shard_id in shard_ids {
-                let shard_index = shard_layout.get_shard_index(shard_id)?;
-                result.push((shard_id, shard_index));
-            }
-            Ok(result)
-        }
-    }
-
-    fn get_prev_shard_id_from_prev_hash(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
-        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
-        let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
-        let is_resharding_boundary =
-            self.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
-
-        if is_resharding_boundary {
-            let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
-            let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
-            Ok((prev_shard_layout, parent_shard_id, parent_shard_index))
-        } else {
-            let shard_index = shard_layout.get_shard_index(shard_id)?;
-            Ok((shard_layout, shard_id, shard_index))
-        }
-    }
-
-    fn get_shard_layout_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        self.get_shard_layout(&epoch_id)
-    }
-
-    fn get_shard_layout_from_protocol_version(
-        &self,
-        protocol_version: ProtocolVersion,
-    ) -> ShardLayout {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_config(protocol_version).shard_layout
     }
 
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -745,15 +436,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
 
-    fn get_epoch_chunk_producers_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<Vec<AccountId>, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, shard_id)
-    }
-
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
@@ -769,23 +451,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?)
-    }
-
-    fn get_chunk_producer_info(
-        &self,
-        key: &ChunkProductionKey,
-    ) -> Result<ValidatorStake, EpochError> {
-        self.read().get_chunk_producer_info(key)
-    }
-
-    fn get_chunk_validator_assignments(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        height: BlockHeight,
-    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, height)
     }
 
     fn get_validator_by_account_id(
@@ -941,51 +606,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(request.verify_signature(validator.public_key()))
     }
 
-    fn cares_about_shard_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
-    }
-
-    fn cares_about_shard_next_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_next_epoch_from_prev_block(
-            parent_hash,
-            account_id,
-            shard_id,
-        )
-    }
-
-    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-    // If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
-    fn cared_about_shard_prev_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let (_layout, parent_shard_id, _index) =
-            self.get_prev_shard_id_from_prev_hash(parent_hash, shard_id)?;
-        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(parent_hash)?;
-
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
-    }
-
-    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.will_shard_layout_change(parent_hash)
-    }
-
     fn possible_epochs_of_height_around_tip(
         &self,
         tip: &Tip,
@@ -1002,15 +622,5 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
-    }
-
-    fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 }
