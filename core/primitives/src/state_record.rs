@@ -18,6 +18,7 @@ use std::fmt::{Display, Formatter};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct DelayedReceipt {
+    #[serde(skip)]
     pub index: Option<u64>,
 
     #[serde(flatten)]
