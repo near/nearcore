@@ -113,4 +113,6 @@ Following these steps so far creates a config that will throttle throughput due 
 }
 ```
 
+cspell:words
+<!-- cspell:words unlimiting -->
 Note that as `nearcore` evolves, these steps and `BENCHMARKNET` adjustments might need to be updated to achieve the effect of unlimiting configuration.
