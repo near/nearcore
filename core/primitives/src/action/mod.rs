@@ -146,7 +146,7 @@ pub enum GlobalContractDeployMode {
 pub struct DeployGlobalContractAction {
     /// WebAssembly binary
     #[serde_as(as = "Base64")]
-    pub code: Vec<u8>,
+    pub code: std::sync::Arc<[u8]>,
 
     pub deploy_mode: GlobalContractDeployMode,
 }

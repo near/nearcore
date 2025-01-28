@@ -580,7 +580,7 @@ impl Receipt {
 
     pub fn new_global_contract_distribution(
         predecessor_id: AccountId,
-        code: Vec<u8>,
+        code: Arc<[u8]>,
         id: GlobalContractIdentifier,
     ) -> Self {
         Self::V0(ReceiptV0 {
@@ -588,7 +588,8 @@ impl Receipt {
             receiver_id: "system".parse().unwrap(),
             receipt_id: CryptoHash::default(),
             receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData {
-                code: Arc::from(code.into_boxed_slice()),
+                code,
+                // code: Arc::from(code.into_boxed_slice()),
                 id,
             }),
         })

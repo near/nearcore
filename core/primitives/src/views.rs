@@ -1179,11 +1179,11 @@ pub enum ActionView {
     },
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
-        code: Vec<u8>,
+        code: Arc<[u8]>,
     },
     DeployGlobalContractByAccountId {
         #[serde_as(as = "Base64")]
-        code: Vec<u8>,
+        code: Arc<[u8]>,
     },
     UseGlobalContract {
         code_hash: CryptoHash,
@@ -1227,15 +1227,14 @@ impl From<Action> for ActionView {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
-            Action::DeployGlobalContract(action) => {
-                let code = hash(&action.code).as_ref().to_vec();
-                match action.deploy_mode {
-                    GlobalContractDeployMode::CodeHash => ActionView::DeployGlobalContract { code },
-                    GlobalContractDeployMode::AccountId => {
-                        ActionView::DeployGlobalContractByAccountId { code }
-                    }
+            Action::DeployGlobalContract(action) => match action.deploy_mode {
+                GlobalContractDeployMode::CodeHash => {
+                    ActionView::DeployGlobalContract { code: action.code }
                 }
-            }
+                GlobalContractDeployMode::AccountId => {
+                    ActionView::DeployGlobalContractByAccountId { code: action.code }
+                }
+            },
             Action::UseGlobalContract(action) => match action.contract_identifier {
                 GlobalContractIdentifier::CodeHash(code_hash) => {
                     ActionView::UseGlobalContract { code_hash }
