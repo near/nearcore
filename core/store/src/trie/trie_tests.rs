@@ -211,7 +211,7 @@ mod trie_storage_tests {
     use crate::adapter::StoreAdapter;
     use crate::test_utils::create_test_store;
     use crate::trie::accounting_cache::TrieAccountingCache;
-    use crate::trie::iter::TrieIterator;
+    use crate::trie::iterator::TrieIterator;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountAddition;
     use crate::{TrieChanges, TrieConfig};

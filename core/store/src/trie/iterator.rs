@@ -74,7 +74,7 @@ impl<'a> TrieIterator<'a> {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
-    use crate::trie::iter::TrieIterator;
+    use crate::trie::iterator::TrieIterator;
     use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
     use itertools::Itertools;

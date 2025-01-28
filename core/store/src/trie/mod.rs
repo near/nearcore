@@ -16,7 +16,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
-use iter::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
+use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
 use itertools::Itertools;
 use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::memtries::MemTries;
@@ -51,7 +51,7 @@ use trie_storage_update::{
 pub mod accounting_cache;
 mod config;
 mod from_flat;
-pub mod iter;
+pub mod iterator;
 pub mod mem;
 mod nibble_slice;
 pub mod ops;
