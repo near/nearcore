@@ -22,15 +22,15 @@ The tooling's [`justfile`](../../../benchmarks/synth-bm/justfile) contains recip
 ### Benchmark native token transfers
 
 A typical workflow benchmarking the native token transfers using the above `justfile` would be something along the:
-- preparation steps, need to be run at least once per setup
+- set up the network
 ```command
 rm -rf .near && just init_localnet
 # Modify the configuration (see the "Un-limit configuration" section)
-just create_subaccounts
-```
-- benchmarking
-```command
 [t1]$ just run_localnet
+[t1]$ just create_subaccounts
+```
+- run the benchmark
+```command
 # set the desired tx rate (`--interval-duration-micros`) and the total volume (`--num-transfers`) in the justfile
 [t2]$ just benchmark_native_transfers
 ```
@@ -115,7 +115,7 @@ Modifications of `genesis.json` need to be applied before initializing the netwo
 
 ```console
 # Remove .near as you will need to initialize localnet again.
-rm -rf .near
+$ rm -rf .near
 $ just init_localnet
 # Modify the configuration
 $ just run_localnet
