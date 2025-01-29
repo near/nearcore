@@ -15,8 +15,12 @@ use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap};
 
+// Keeps track of the mapping of delayed receipts from a source shard to the
+// shards their receivers will belong to in the forked chain
 pub(crate) struct DelayedReceiptTracker {
     source_shard_uid: ShardUId,
+    // indices[target_shard_idx] contains the delayed receipt indices in self.source_shard_uid that
+    // will belong to target_shard_idx after the account IDs are mapped
     indices: Vec<BTreeSet<u64>>,
 }
 
@@ -87,6 +91,9 @@ fn set_target_delayed_receipt(
     trie_updates.insert(target_key, Some(value));
 }
 
+// This should be called after push() has been called on each DelayedReceiptTracker in `trackers`
+// for each receipt in its shard. This reads and maps the accounts and keys in all the receipts and
+// writes them to the right shards.
 pub(crate) fn write_delayed_receipts(
     runtime: &NightshadeRuntime,
     update_state: &[ShardUpdateState],
