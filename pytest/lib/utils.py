@@ -16,17 +16,16 @@ from retrying import retry
 from rc import gcloud
 
 import cluster
-from configured_logger import logger
-import key
 import transaction
+from configured_logger import logger
 
 
 class TxContext:
 
-    def __init__(self, act_to_val, nodes):
+    def __init__(self, act_to_val, nodes: typing.List[cluster.BaseNode]):
         self.next_nonce = 2
         self.num_nodes = len(nodes)
-        self.nodes = nodes
+        self.nodes: typing.List[cluster.BaseNode] = nodes
         self.act_to_val = act_to_val
         self.expected_balances = self.get_balances()
         assert len(act_to_val) == self.num_nodes

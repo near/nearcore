@@ -1,5 +1,4 @@
 use self::accounting_cache::TrieAccountingCache;
-use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
@@ -7,7 +6,6 @@ pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
@@ -18,6 +16,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
+use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
 use itertools::Itertools;
 use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::memtries::MemTries;
@@ -85,7 +84,7 @@ pub(crate) struct StorageHandle(usize);
 /// Stores index of value in the array of new values and its length for memory
 /// counting.
 #[derive(Clone, Hash, Debug, Copy)]
-pub(crate) struct StorageValueHandle(usize, usize);
+pub struct StorageValueHandle(usize, usize);
 
 pub struct TrieCosts {
     pub byte_of_key: u64,
@@ -103,7 +102,7 @@ pub enum KeyLookupMode {
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
 #[derive(Clone, Copy, Hash)]
-pub(crate) enum ValueHandle {
+pub enum ValueHandle {
     InMemory(StorageValueHandle),
     HashAndSize(ValueRef),
 }
@@ -1622,25 +1621,26 @@ impl Trie {
     /// Returns an iterator that can be used to traverse any range in the trie.
     /// This only uses the on-disk trie. If memtrie iteration is desired, see
     /// `lock_for_iter`.
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
-        DiskTrieIterator::new(self, None)
+    #[inline]
+    pub fn disk_iter(&self) -> Result<DiskTrieIterator, StorageError> {
+        self.disk_iter_with_prune_condition(None)
     }
 
-    pub fn disk_iter_with_max_depth<'a>(
-        &'a self,
+    #[cfg(test)]
+    pub(crate) fn disk_iter_with_max_depth(
+        &self,
         max_depth: usize,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(
-            self,
-            Some(Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth)),
-        )
+    ) -> Result<DiskTrieIterator, StorageError> {
+        let prune_condition = Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth);
+        self.disk_iter_with_prune_condition(Some(prune_condition))
     }
 
-    pub fn disk_iter_with_prune_condition<'a>(
-        &'a self,
+    #[inline]
+    pub fn disk_iter_with_prune_condition(
+        &self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(self, prune_condition)
+    ) -> Result<DiskTrieIterator, StorageError> {
+        DiskTrieIterator::new(DiskTrieIteratorInner::new(self), prune_condition)
     }
 
     /// Grabs a read lock on the trie, so that a memtrie iterator can be
@@ -1689,7 +1689,10 @@ impl<'a> TrieWithReadLock<'a> {
     pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
         match &self.memtries {
             Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie)?)),
-            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
+            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
+                DiskTrieIteratorInner::new(&self.trie),
+                None,
+            )?)),
         }
     }
 }

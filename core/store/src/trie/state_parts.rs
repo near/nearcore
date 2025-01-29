@@ -17,7 +17,6 @@
 //! necessary to prove its position in the list of prefix sums.
 
 use crate::flat::{FlatStateChanges, FlatStateIterator};
-use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{ApplyStatePartResult, RawTrieNodeWithSize};
@@ -33,6 +32,7 @@ use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use super::ops::iter::TrieTraversalItem;
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
 use super::TrieRefcountDeltaMap;
 
@@ -525,7 +525,7 @@ mod tests {
 
     use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
-    use crate::trie::iterator::CrumbStatus;
+    use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::{
         TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,
     };
