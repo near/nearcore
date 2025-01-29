@@ -367,12 +367,8 @@ impl Chain {
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
         let transaction_validity_period = chain_genesis.transaction_validity_period;
-        let chain_store = ChainStore::new(
-            store.clone(),
-            chain_genesis.height,
-            save_trie_changes,
-            transaction_validity_period,
-        );
+        let chain_store =
+            ChainStore::new(store.clone(), save_trie_changes, transaction_validity_period);
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");
         let (genesis, _genesis_chunks) = Self::make_genesis_block(
@@ -441,7 +437,6 @@ impl Chain {
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut chain_store = ChainStore::new(
             runtime_adapter.store().clone(),
-            chain_genesis.height,
             chain_config.save_trie_changes,
             transaction_validity_period,
         );

@@ -357,12 +357,8 @@ pub(crate) fn apply_tx(
     tx_hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    let mut chain_store = ChainStore::new(
-        store.clone(),
-        genesis_config.genesis_height,
-        false,
-        genesis_config.transaction_validity_period,
-    );
+    let mut chain_store =
+        ChainStore::new(store.clone(), false, genesis_config.transaction_validity_period);
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
     if let Some(outcome) = outcomes.first() {
@@ -501,12 +497,8 @@ pub(crate) fn apply_receipt(
     id: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    let mut chain_store = ChainStore::new(
-        store.clone(),
-        genesis_config.genesis_height,
-        false,
-        genesis_config.transaction_validity_period,
-    );
+    let mut chain_store =
+        ChainStore::new(store.clone(), false, genesis_config.transaction_validity_period);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
         Ok(vec![apply_receipt_in_block(
@@ -577,12 +569,8 @@ mod test {
 
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let mut chain_store = ChainStore::new(
-            store.clone(),
-            genesis.config.genesis_height,
-            false,
-            genesis.config.transaction_validity_period,
-        );
+        let mut chain_store =
+            ChainStore::new(store.clone(), false, genesis.config.transaction_validity_period);
 
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
@@ -671,12 +659,8 @@ mod test {
 
         let store = create_test_store();
         initialize_genesis_state(store.clone(), &genesis, None);
-        let chain_store = ChainStore::new(
-            store.clone(),
-            genesis.config.genesis_height,
-            false,
-            genesis.config.transaction_validity_period,
-        );
+        let chain_store =
+            ChainStore::new(store.clone(), false, genesis.config.transaction_validity_period);
 
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(

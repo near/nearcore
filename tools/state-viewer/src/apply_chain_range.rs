@@ -74,12 +74,8 @@ fn apply_block_from_range(
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the read store anyway
-    let mut read_chain_store = ChainStore::new(
-        read_store.clone(),
-        genesis.config.genesis_height,
-        false,
-        genesis.config.transaction_validity_period,
-    );
+    let mut read_chain_store =
+        ChainStore::new(read_store.clone(), false, genesis.config.transaction_validity_period);
     let block_hash = match read_chain_store.get_block_hash_by_height(height) {
         Ok(block_hash) => block_hash,
         Err(_) => {
@@ -382,12 +378,8 @@ pub fn apply_chain_range(
         only_contracts,
         ?storage)
     .entered();
-    let chain_store = ChainStore::new(
-        read_store.clone(),
-        genesis.config.genesis_height,
-        false,
-        genesis.config.transaction_validity_period,
-    );
+    let chain_store =
+        ChainStore::new(read_store.clone(), false, genesis.config.transaction_validity_period);
     let final_head = chain_store.final_head().unwrap();
     let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
     let shard_uid =

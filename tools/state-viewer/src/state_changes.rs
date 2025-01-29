@@ -79,7 +79,6 @@ fn dump_state_changes(
         EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
     let chain_store = ChainStore::new(
         store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -154,7 +153,6 @@ fn apply_state_changes(
     .expect("could not create the transaction runtime");
     let mut chain_store = ChainStore::new(
         store,
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );

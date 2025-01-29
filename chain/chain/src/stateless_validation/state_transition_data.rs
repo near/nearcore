@@ -185,7 +185,7 @@ mod tests {
         let mut store_update = store.store_update();
         set_genesis_height(&mut store_update, &0);
         store_update.commit().unwrap();
-        ChainStore::new(store.clone(), 0, true, 5)
+        ChainStore::new(store.clone(), true, 5)
     }
 
     fn save_state_transition_data(

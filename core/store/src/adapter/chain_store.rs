@@ -25,17 +25,11 @@ use crate::{
 
 use super::StoreAdapter;
 
-/// TODO: having genesis_height and save_trie_changes don't make sense here
 #[derive(Clone)]
 pub struct ChainStoreAdapter {
     store: Store,
     /// Genesis block height.
     genesis_height: BlockHeight,
-    /// save_trie_changes should be set to true iff
-    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
-    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
-    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
-    save_trie_changes: bool,
 }
 
 impl StoreAdapter for ChainStoreAdapter {
@@ -45,12 +39,11 @@ impl StoreAdapter for ChainStoreAdapter {
 }
 
 impl ChainStoreAdapter {
-    pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> Self {
-        let store_genesis_height = get_genesis_height(&store)
+    pub fn new(store: Store) -> Self {
+        let genesis_height = get_genesis_height(&store)
             .expect("Store failed on fetching genesis height")
             .expect("Genesis height not found in storage");
-        assert_eq!(store_genesis_height, genesis_height, "Genesis height mismatch");
-        Self { store, genesis_height, save_trie_changes }
+        Self { store, genesis_height }
     }
 
     /// The chain head.
@@ -394,10 +387,6 @@ impl ChainStoreAdapter {
     /// Get height of genesis
     pub fn get_genesis_height(&self) -> BlockHeight {
         self.genesis_height
-    }
-
-    pub fn save_trie_changes(&self) -> bool {
-        self.save_trie_changes
     }
 }
 

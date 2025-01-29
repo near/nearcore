@@ -286,7 +286,6 @@ impl ForkNetworkCommand {
 
         let chain = ChainStore::new(
             store.clone(),
-            near_config.genesis.config.genesis_height,
             false,
             near_config.genesis.config.transaction_validity_period,
         );

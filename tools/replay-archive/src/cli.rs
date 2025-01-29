@@ -119,7 +119,6 @@ impl ReplayController {
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(
             store.clone(),
-            genesis_height,
             false,
             near_config.genesis.config.transaction_validity_period,
         );
