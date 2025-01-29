@@ -9,7 +9,7 @@ use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::PublicKey;
-use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle, EpochManagerInfoProvider};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};

@@ -7,7 +7,7 @@ use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::{EpochManager, EpochManagerInfoProvider};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};

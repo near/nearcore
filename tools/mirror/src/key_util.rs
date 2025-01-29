@@ -5,7 +5,8 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_crypto::{PublicKey, SecretKey};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::shard_info_provider::ShardInfoProvider;
+use near_epoch_manager::EpochManager;
 use near_jsonrpc_primitives::types::query::{
     QueryResponseKind as RpcQueryResponseKind, RpcQueryRequest,
 };

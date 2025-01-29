@@ -34,6 +34,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::ShardUId;
 use num_rational::Ratio;
+use shard_info_provider::ShardInfoProvider;
 
 impl EpochManager {
     /// Returns number of produced and expected blocks by given validator.
