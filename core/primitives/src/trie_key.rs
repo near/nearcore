@@ -869,9 +869,10 @@ mod tests {
         let key = TrieKey::DelayedReceiptIndices;
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
-        let key = TrieKey::DelayedReceipt { index: 0 };
+        let key = TrieKey::DelayedReceipt { index: 123 };
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
+        assert_eq!(trie_key_parsers::parse_index_from_delayed_receipt_key(&raw_key).unwrap(), 123);
     }
 
     #[test]
