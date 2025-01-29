@@ -4483,9 +4483,16 @@ impl Chain {
     ) -> HashMap<ShardId, Vec<Receipt>> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-            let entry = result.entry(shard_id).or_insert_with(Vec::new);
-            entry.push(receipt)
+            if receipt.send_to_all_shards() {
+                for shard_id in shard_layout.shard_ids() {
+                    let entry = result.entry(shard_id).or_insert_with(Vec::new);
+                    entry.push(receipt.clone());
+                }
+            } else {
+                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
+                let entry = result.entry(shard_id).or_insert_with(Vec::new);
+                entry.push(receipt);
+            }
         }
         result
     }
@@ -4506,13 +4513,22 @@ impl Chain {
         }
         let mut cache = HashMap::new();
         for receipt in receipts {
-            let &mut shard_id = cache
-                .entry(receipt.receiver_id())
-                .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
-            // This unwrap should be safe as we pre-populated the map with all
-            // valid shard ids.
-            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-            result_map.get_mut(&shard_index).unwrap().1.push(receipt);
+            if receipt.send_to_all_shards() {
+                for shard_id in shard_layout.shard_ids() {
+                    // This unwrap should be safe as we pre-populated the map with all
+                    // valid shard ids.
+                    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+                    result_map.get_mut(&shard_index).unwrap().1.push(receipt);
+                }
+            } else {
+                let &mut shard_id = cache
+                    .entry(receipt.receiver_id())
+                    .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
+                // This unwrap should be safe as we pre-populated the map with all
+                // valid shard ids.
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+                result_map.get_mut(&shard_index).unwrap().1.push(receipt);
+            }
         }
 
         let mut result_vec = vec![];

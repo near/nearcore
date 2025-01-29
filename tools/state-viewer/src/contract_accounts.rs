@@ -368,6 +368,7 @@ fn try_find_actions_spawned_by_receipt(
                                 .get_or_insert_with(Default::default)
                                 .insert(ActionType::DataReceipt);
                         }
+                        ReceiptEnum::GlobalContractDistribution(_) => {}
                     }
                 }
             }
