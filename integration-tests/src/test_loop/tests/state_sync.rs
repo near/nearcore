@@ -492,7 +492,7 @@ fn slow_test_state_sync_current_epoch() {
 // Specifically, checking what happens when we stop tracking a shard and then track it again,
 // while also needing to state sync another shard.
 #[test]
-fn test_state_sync_untrack_then_track() {
+fn slow_test_state_sync_untrack_then_track() {
     init_test_logger();
 
     let params = StateSyncTest {
@@ -536,7 +536,7 @@ fn test_state_sync_untrack_then_track() {
 // first sync block that will end up skipped on the canonical chain (node0) provides a
 // state sync header that other nodes see as invalid.
 #[test]
-fn test_state_sync_from_fork() {
+fn slow_test_state_sync_from_fork() {
     init_test_logger();
 
     let params = StateSyncTest {
@@ -574,7 +574,7 @@ fn test_state_sync_from_fork() {
 // even be possible to do it without reaching into and modifying the implementation, by writing some function
 // that will hack together just the right parameters (account IDs, stakes, etc)
 #[test]
-fn test_state_sync_to_fork() {
+fn slow_test_state_sync_to_fork() {
     init_test_logger();
 
     let params = StateSyncTest {
@@ -609,7 +609,7 @@ fn test_state_sync_to_fork() {
 // from one before it to one after it, so that when setting the sync hash, we cannot just check the final head
 // on each new header update.
 #[test]
-fn test_state_sync_fork_after_sync() {
+fn slow_test_state_sync_fork_after_sync() {
     init_test_logger();
 
     let params = StateSyncTest {
@@ -641,7 +641,7 @@ fn test_state_sync_fork_after_sync() {
 
 // This one tests what happens when we skip a block before the sync block, for good measure.
 #[test]
-fn test_state_sync_fork_before_sync() {
+fn slow_test_state_sync_fork_before_sync() {
     init_test_logger();
 
     let params = StateSyncTest {
