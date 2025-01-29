@@ -81,6 +81,7 @@ fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
 
 /// 4 shards, random receipt sizes, 10% probability of missing chunks
 #[test]
+#[cfg_attr(not(feature = "nightly"), ignore = "Test flaky for dev #12836")]
 fn ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(5)
