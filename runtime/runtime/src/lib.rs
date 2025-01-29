@@ -20,6 +20,7 @@ pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -42,7 +43,7 @@ use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
     SignedTransaction, TransferAction,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
@@ -485,7 +486,7 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
-                action_deploy_global_contract(account_id, deploy_global_contract, &mut result)?;
+                action_deploy_global_contract(account_id, deploy_global_contract, &mut result);
             }
             Action::UseGlobalContract(use_global_contract) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
@@ -960,6 +961,37 @@ impl Runtime {
         })
     }
 
+    fn apply_global_contract_distribution_receipt(
+        &self,
+        receipt: &Receipt,
+        state_update: &mut TrieUpdate,
+    ) {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_global_contract_distribution_receipt",
+        )
+        .entered();
+
+        let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt()
+        else {
+            unreachable!("given receipt should be an global contract distribution receipt")
+        };
+
+        let trie_key = TrieKey::GlobalContractCode {
+            identifier: match &global_contract_data.id {
+                GlobalContractIdentifier::CodeHash(hash) => {
+                    GlobalContractCodeIdentifier::CodeHash(*hash)
+                }
+                GlobalContractIdentifier::AccountId(account_id) => {
+                    GlobalContractCodeIdentifier::AccountId(account_id.clone())
+                }
+            },
+        };
+        state_update.set(trie_key, global_contract_data.code.to_vec());
+        state_update
+            .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+    }
+
     fn generate_refund_receipts(
         &self,
         current_gas_price: Balance,
@@ -1231,6 +1263,10 @@ impl Runtime {
                     // ignore all but the first.
                     return Ok(None);
                 }
+            }
+            ReceiptEnum::GlobalContractDistribution(_) => {
+                self.apply_global_contract_distribution_receipt(receipt, state_update);
+                return Ok(None);
             }
         };
         // We didn't trigger execution, so we need to commit the state.
@@ -2754,6 +2790,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                     };
                     return handle_receipt(mgr, state_update, receiver, account_id, &yr);
                 }
+                ReceiptEnum::GlobalContractDistribution(_) => false,
             }
         }
         handle_receipt(pipeline_manager, state_update, &receiver, account_id, peek)
