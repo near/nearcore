@@ -13,7 +13,7 @@ use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::manager::ReshardingManager;
 use crate::resharding::types::ReshardingSender;
-use crate::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
+use crate::sharding::{get_receipts_shuffle_salt, num_total_parts, shuffle_receipt_proofs};
 use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager, verify_block_vrf,
     verify_chunk_header_signature_with_epoch_manager,
@@ -1408,7 +1408,8 @@ impl Chain {
                 return Ok(true);
             }
         }
-        for part_id in 0..self.epoch_manager.num_total_parts() {
+        let total_parts = num_total_parts(self.epoch_manager.as_ref());
+        for part_id in 0..total_parts {
             if &Some(self.epoch_manager.get_part_owner(&epoch_id, part_id as u64)?) == me {
                 return Ok(true);
             }

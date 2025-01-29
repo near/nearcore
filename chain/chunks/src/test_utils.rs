@@ -1,4 +1,5 @@
 use near_async::messaging::CanSend;
+use near_chain::sharding::{num_data_parts, num_total_parts};
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -87,8 +88,8 @@ impl ChunkTestFixture {
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
         let mock_client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
 
-        let data_parts = epoch_manager.num_data_parts();
-        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let data_parts = num_data_parts(&epoch_manager);
+        let parity_parts = num_total_parts(&epoch_manager) - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
         let mock_ancestor_hash = CryptoHash::default();
         // generate a random block hash for the block at height 1

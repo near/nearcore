@@ -7,6 +7,32 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
+/// Number of Reed-Solomon parts we split each chunk into.
+///
+/// Note: this shouldn't be too large, our Reed-Solomon supports at most 256
+/// parts.
+pub fn num_total_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
+    let seats = epoch_manager.get_genesis_num_block_producer_seats();
+    if seats > 1 {
+        seats as usize
+    } else {
+        2
+    }
+}
+
+/// How many Reed-Solomon parts are data parts.
+///
+/// That is, fetching this many parts should be enough to reconstruct a
+/// chunk, if there are no errors.
+pub fn num_data_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
+    let total_parts = num_total_parts(epoch_manager);
+    if total_parts <= 3 {
+        1
+    } else {
+        (total_parts - 1) / 3
+    }
+}
+
 /// Gets salt for shuffling receipts grouped by **source shards** before
 /// processing them in the target shard.
 pub fn get_receipts_shuffle_salt<'a>(

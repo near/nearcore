@@ -22,6 +22,7 @@ use near_chain::chain::{
     VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
+use near_chain::sharding::{num_data_parts, num_total_parts};
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::PrepareTransactionsChunkContext;
@@ -325,8 +326,8 @@ impl Client {
             false,
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
-        let data_parts = epoch_manager.num_data_parts();
-        let parity_parts = epoch_manager.num_total_parts() - data_parts;
+        let data_parts = num_data_parts(epoch_manager.as_ref());
+        let parity_parts = num_total_parts(epoch_manager.as_ref()) - data_parts;
 
         let doomslug = Doomslug::new(
             clock.clone(),

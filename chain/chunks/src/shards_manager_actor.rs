@@ -95,6 +95,7 @@ use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
+use near_chain::sharding::{num_data_parts, num_total_parts};
 use near_chain::signature_verification::{
     verify_chunk_header_signature_with_epoch_manager,
     verify_chunk_header_signature_with_epoch_manager_and_parts,
@@ -359,6 +360,7 @@ impl ShardsManagerActor {
         initial_chain_header_head: Tip,
         chunk_request_retry_period: Duration,
     ) -> Self {
+        let total_parts = num_total_parts(epoch_manager.as_ref());
         Self {
             clock,
             validator_signer,
@@ -368,11 +370,8 @@ impl ShardsManagerActor {
             shard_tracker,
             peer_manager_adapter: network_adapter,
             client_adapter,
-            rs: ReedSolomon::new(
-                epoch_manager.num_data_parts(),
-                epoch_manager.num_total_parts() - epoch_manager.num_data_parts(),
-            )
-            .unwrap(),
+            rs: ReedSolomon::new(total_parts, total_parts - num_data_parts(epoch_manager.as_ref()))
+                .unwrap(),
             encoded_chunks: EncodedChunksCache::new(),
             requested_partial_encoded_chunks: RequestPool::new(
                 CHUNK_REQUEST_RETRY,
@@ -480,7 +479,8 @@ impl ShardsManagerActor {
 
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(ancestor_hash)?;
 
-        for part_ord in 0..self.epoch_manager.num_total_parts() {
+        let total_parts = num_total_parts(self.epoch_manager.as_ref());
+        for part_ord in 0..total_parts {
             let part_ord = part_ord as u64;
             if cache_entry.is_some_and(|cache_entry| cache_entry.parts.contains_key(&part_ord)) {
                 continue;
@@ -1126,7 +1126,7 @@ impl ShardsManagerActor {
             chunk_hash = ?chunk.chunk_hash())
         .entered();
 
-        let data_parts = self.epoch_manager.num_data_parts();
+        let data_parts = num_data_parts(self.epoch_manager.as_ref());
         if chunk.content().num_fetched_parts() < data_parts {
             debug!(target: "chunks", num_fetched_parts = chunk.content().num_fetched_parts(), data_parts, "Incomplete");
             return ChunkStatus::Incomplete;
@@ -1212,7 +1212,7 @@ impl ShardsManagerActor {
         }
 
         // check part merkle proofs
-        let num_total_parts = self.epoch_manager.num_total_parts();
+        let num_total_parts = num_total_parts(self.epoch_manager.as_ref());
         for part_info in forward.parts.iter() {
             self.validate_part(forward.merkle_root, part_info, num_total_parts)?;
         }
@@ -1260,7 +1260,7 @@ impl ShardsManagerActor {
 
     fn insert_forwarded_chunk(&mut self, forward: PartialEncodedChunkForwardMsg) {
         let chunk_hash = forward.chunk_hash.clone();
-        let num_total_parts = self.epoch_manager.num_total_parts() as u64;
+        let num_total_parts = num_total_parts(self.epoch_manager.as_ref()) as u64;
         match self.chunk_forwards_cache.get_mut(&chunk_hash) {
             None => {
                 // Never seen this chunk hash before, collect the parts and cache them
@@ -1505,9 +1505,9 @@ impl ShardsManagerActor {
             if entry.complete {
                 return Ok(ProcessPartialEncodedChunkResult::Known);
             }
-            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.epoch_manager.num_data_parts());
+            debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = num_data_parts(self.epoch_manager.as_ref()));
         } else {
-            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.epoch_manager.num_data_parts());
+            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = num_data_parts(self.epoch_manager.as_ref()));
         }
 
         // 1.b Checking chunk height
@@ -1548,7 +1548,7 @@ impl ShardsManagerActor {
         let partial_encoded_chunk = partial_encoded_chunk.as_ref().into_inner();
 
         // 1.d Checking part_ords' validity
-        let num_total_parts = self.epoch_manager.num_total_parts();
+        let num_total_parts = num_total_parts(self.epoch_manager.as_ref());
         for part_info in partial_encoded_chunk.parts.iter() {
             // TODO: only validate parts we care about
             // https://github.com/near/nearcore/issues/5885
@@ -1714,7 +1714,7 @@ impl ShardsManagerActor {
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry, me)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry, me)?;
 
-        let can_reconstruct = entry.parts.len() >= self.epoch_manager.num_data_parts();
+        let can_reconstruct = entry.parts.len() >= num_data_parts(self.epoch_manager.as_ref());
         let chunk_producer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
@@ -1765,7 +1765,7 @@ impl ShardsManagerActor {
             let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
             let mut encoded_chunk = EncodedShardChunk::from_header(
                 header.clone(),
-                self.epoch_manager.num_total_parts(),
+                num_total_parts(self.epoch_manager.as_ref()),
                 protocol_version,
             );
 
@@ -1994,7 +1994,8 @@ impl ShardsManagerActor {
         chunk_entry: &EncodedChunksCacheEntry,
         me: Option<&AccountId>,
     ) -> Result<bool, Error> {
-        for part_ord in 0..self.epoch_manager.num_total_parts() {
+        let total_parts = num_total_parts(self.epoch_manager.as_ref());
+        for part_ord in 0..total_parts {
             let part_ord = part_ord as u64;
             if !chunk_entry.parts.contains_key(&part_ord) {
                 if need_part(prev_block_hash, part_ord, me, self.epoch_manager.as_ref())? {
@@ -2072,7 +2073,8 @@ impl ShardsManagerActor {
 
         let mut block_producer_mapping = HashMap::new();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
-        for part_ord in 0..self.epoch_manager.num_total_parts() {
+        let total_parts = num_total_parts(self.epoch_manager.as_ref());
+        for part_ord in 0..total_parts {
             let part_ord = part_ord as u64;
             let to_whom = self.epoch_manager.get_part_owner(&epoch_id, part_ord).unwrap();
 
@@ -2518,7 +2520,7 @@ mod test {
                 })
                 .count()
         };
-        let non_owned_part_ords: Vec<u64> = (0..(fixture.epoch_manager.num_total_parts() as u64))
+        let non_owned_part_ords: Vec<u64> = (0..(num_total_parts(&fixture.epoch_manager) as u64))
             .filter(|ord| !fixture.mock_part_ords.contains(ord))
             .collect();
         // Received 3 partial encoded chunks; the owned part is received 3 times, but should
@@ -2934,7 +2936,7 @@ mod test {
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture
             .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
+            .decode_chunk(num_data_parts(&fixture.epoch_manager))
             .unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
@@ -3026,7 +3028,7 @@ mod test {
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture
             .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
+            .decode_chunk(num_data_parts(&fixture.epoch_manager))
             .unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
@@ -3158,7 +3160,7 @@ mod test {
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture
             .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
+            .decode_chunk(num_data_parts(&fixture.epoch_manager))
             .unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();
@@ -3166,7 +3168,7 @@ mod test {
         let (source, response) =
             shards_manager.prepare_partial_encoded_chunk_response(PartialEncodedChunkRequestMsg {
                 chunk_hash: fixture.mock_chunk_header.chunk_hash(),
-                part_ords: vec![0, fixture.epoch_manager.num_total_parts() as u64],
+                part_ords: vec![0, num_total_parts(&fixture.epoch_manager) as u64],
                 tracking_shards: HashSet::new(),
             });
         assert_eq!(source, PartialEncodedChunkResponseSource::ShardChunkOnDisk);
@@ -3194,7 +3196,7 @@ mod test {
         let mut update = fixture.chain_store.store_update();
         let shard_chunk = fixture
             .mock_encoded_chunk
-            .decode_chunk(fixture.epoch_manager.num_data_parts())
+            .decode_chunk(num_data_parts(&fixture.epoch_manager))
             .unwrap();
         update.save_chunk(shard_chunk);
         update.commit().unwrap();

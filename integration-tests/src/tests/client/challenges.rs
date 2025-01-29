@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 use near_async::time::Clock;
+use near_chain::sharding::{num_data_parts, num_total_parts};
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
@@ -213,8 +214,9 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     env.produce_block(0, 1);
     let (ProduceChunkResult { chunk: encoded_chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
-    let chunk =
-        encoded_chunk.decode_chunk(env.clients[0].chain.epoch_manager.num_data_parts()).unwrap();
+    let chunk = encoded_chunk
+        .decode_chunk(num_data_parts(env.clients[0].chain.epoch_manager.as_ref()))
+        .unwrap();
 
     let shard_id = chunk.shard_id();
     let challenge_result =
@@ -364,8 +366,8 @@ fn test_verify_chunk_invalid_state_challenge() {
     // Invalid chunk & block.
     let last_block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
     let last_block = env.clients[0].chain.get_block(&last_block_hash).unwrap();
-    let total_parts = env.clients[0].epoch_manager.num_total_parts();
-    let data_parts = env.clients[0].epoch_manager.num_data_parts();
+    let total_parts = num_total_parts(env.clients[0].epoch_manager.as_ref());
+    let data_parts = num_data_parts(env.clients[0].epoch_manager.as_ref());
     let parity_parts = total_parts - data_parts;
     let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
     let congestion_info = ProtocolFeature::CongestionControl

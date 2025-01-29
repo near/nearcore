@@ -18,6 +18,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, Nonce};
 
+use crate::sharding::num_data_parts;
 use crate::signature_verification::{
     verify_block_header_signature_with_epoch_manager,
     verify_chunk_header_signature_with_epoch_manager,
@@ -343,7 +344,8 @@ fn validate_chunk_proofs_challenge(
     let tmp_chunk;
     let chunk_ref = match &*chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
-            match encoded_chunk.decode_chunk(epoch_manager.num_data_parts()) {
+            let data_parts = num_data_parts(epoch_manager);
+            match encoded_chunk.decode_chunk(data_parts) {
                 Ok(chunk) => {
                     tmp_chunk = Some(chunk);
                     tmp_chunk.as_ref().unwrap()
