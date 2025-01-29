@@ -10,7 +10,8 @@
         "debug_scripts/Pipfile",
         "docs/images/**",
         "pytest/requirements.txt",
-        "pytest/tests/sandbox/patch_state.py"
+        "pytest/tests/sandbox/patch_state.py",
+        "utils/mainnet-res/res/storage_usage_delta.json"
     ],
     "dictionaryDefinitions": [],
     "dictionaries": [],
