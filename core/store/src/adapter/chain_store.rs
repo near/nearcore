@@ -19,8 +19,8 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, inde
 use near_primitives::views::LightClientBlockView;
 
 use crate::{
-    DBCol, Store, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, TAIL_KEY,
+    get_genesis_height, DBCol, Store, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY,
+    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, TAIL_KEY,
 };
 
 use super::StoreAdapter;
@@ -46,6 +46,10 @@ impl StoreAdapter for ChainStoreAdapter {
 
 impl ChainStoreAdapter {
     pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> Self {
+        let store_genesis_height = get_genesis_height(&store)
+            .expect("Store failed on fetching genesis height")
+            .expect("Genesis height not found in storage");
+        assert_eq!(store_genesis_height, genesis_height, "Genesis height mismatch");
         Self { store, genesis_height, save_trie_changes }
     }
 
