@@ -1,5 +1,4 @@
 use super::ValidatorSchedule;
-use crate::sharding::{num_data_parts, num_total_parts};
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
@@ -436,14 +435,14 @@ impl EpochManagerAdapter for MockEpochManager {
         12 + (self.num_shards + 1) % 50
     }
 
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
-        let validators =
-            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
-        // if we don't use data_parts and total_parts as part of the formula here, the part owner
-        //     would not depend on height, and tests wouldn't catch passing wrong height here
-        let idx = part_id as usize + num_data_parts(self) + num_total_parts(self);
-        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
-    }
+    // fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
+    //     let validators =
+    //         &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
+    //     // if we don't use data_parts and total_parts as part of the formula here, the part owner
+    //     //     would not depend on height, and tests wouldn't catch passing wrong height here
+    //     let idx = part_id as usize + num_data_parts(self) + num_total_parts(self);
+    //     Ok(validators[idx as usize % validators.len()].0.account_id().clone())
+    // }
 
     fn account_id_to_shard_id(
         &self,

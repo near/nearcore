@@ -95,7 +95,7 @@ use near_async::time::Duration;
 use near_async::time::{self, Clock};
 use near_chain::byzantine_assert;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
-use near_chain::sharding::{num_data_parts, num_total_parts};
+use near_chain::sharding::{get_part_owner, num_data_parts, num_total_parts};
 use near_chain::signature_verification::{
     verify_chunk_header_signature_with_epoch_manager,
     verify_chunk_header_signature_with_epoch_manager_and_parts,
@@ -489,7 +489,7 @@ impl ShardsManagerActor {
             // Note: If request_from_archival is true, we potentially call
             // get_part_owner unnecessarily.  It’s probably not worth optimizing
             // though unless you can think of a concise way to do it.
-            let part_owner = self.epoch_manager.get_part_owner(&epoch_id, part_ord)?;
+            let part_owner = get_part_owner(self.epoch_manager.as_ref(), &epoch_id, part_ord)?;
             let we_own_part = Some(&part_owner) == me;
             if !request_full && !we_own_part {
                 continue;
@@ -1854,9 +1854,7 @@ impl ShardsManagerActor {
             .iter()
             .filter(|part| {
                 part_ords.contains(&part.part_ord)
-                    && self
-                        .epoch_manager
-                        .get_part_owner(epoch_id, part.part_ord)
+                    && get_part_owner(self.epoch_manager.as_ref(), epoch_id, part.part_ord)
                         .is_ok_and(|owner| &owner == me)
             })
             .cloned()
@@ -2076,7 +2074,7 @@ impl ShardsManagerActor {
         let total_parts = num_total_parts(self.epoch_manager.as_ref());
         for part_ord in 0..total_parts {
             let part_ord = part_ord as u64;
-            let to_whom = self.epoch_manager.get_part_owner(&epoch_id, part_ord).unwrap();
+            let to_whom = get_part_owner(self.epoch_manager.as_ref(), &epoch_id, part_ord).unwrap();
 
             let entry = block_producer_mapping.entry(to_whom).or_insert_with(Vec::new);
             entry.push(part_ord);

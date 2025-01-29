@@ -1,5 +1,5 @@
 use near_async::messaging::CanSend;
-use near_chain::sharding::{num_data_parts, num_total_parts};
+use near_chain::sharding::{get_part_owner, num_data_parts, num_total_parts};
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -176,7 +176,7 @@ impl ChunkTestFixture {
             .iter()
             .copied()
             .filter(|p| {
-                epoch_manager.get_part_owner(&mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
+                get_part_owner(&epoch_manager, &mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
             })
             .collect();
         let encoded_chunk = mock_chunk.create_partial_encoded_chunk(

@@ -2,6 +2,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::version::ProtocolFeature;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -31,6 +32,18 @@ pub fn num_data_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
     } else {
         (total_parts - 1) / 3
     }
+}
+
+/// Returns `account_id` that is supposed to have the `part_id`.
+pub fn get_part_owner(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    part_id: u64,
+) -> Result<AccountId, EpochError> {
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
+    let settlement = epoch_info.block_producers_settlement();
+    let validator_id = settlement[part_id as usize % settlement.len()];
+    Ok(epoch_info.get_validator(validator_id).account_id().clone())
 }
 
 /// Gets salt for shuffling receipts grouped by **source shards** before

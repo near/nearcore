@@ -42,9 +42,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get the list of shard ids
     fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError>;
 
-    /// Returns `account_id` that is supposed to have the `part_id`.
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError>;
-
     fn get_genesis_num_block_producer_seats(&self) -> u64;
 
     /// Which shard the account belongs to in the given epoch.
@@ -473,14 +470,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_genesis_num_block_producer_seats(&self) -> u64 {
         self.read().genesis_num_block_producer_seats
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
-        let epoch_manager = self.read();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let settlement = epoch_info.block_producers_settlement();
-        let validator_id = settlement[part_id as usize % settlement.len()];
-        Ok(epoch_info.get_validator(validator_id).account_id().clone())
     }
 
     fn account_id_to_shard_id(
