@@ -1,5 +1,5 @@
 use crate::delayed_receipts::DelayedReceiptTracker;
-use crate::single_shard_storage_mutator::{ShardUpdateState, SingleShardStorageMutator};
+use crate::storage_mutator::{ShardUpdateState, StorageMutator};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
@@ -153,7 +153,7 @@ struct Validator {
 }
 
 type MakeSingleShardStorageMutatorFn =
-    Arc<dyn Fn(Vec<ShardUpdateState>) -> anyhow::Result<SingleShardStorageMutator> + Send + Sync>;
+    Arc<dyn Fn(Vec<ShardUpdateState>) -> anyhow::Result<StorageMutator> + Send + Sync>;
 
 impl ForkNetworkCommand {
     pub fn run(
@@ -373,7 +373,7 @@ impl ForkNetworkCommand {
         let runtime2 = runtime.clone();
         let shard_layout2 = shard_layout.clone();
         let make_storage_mutator: MakeSingleShardStorageMutatorFn = Arc::new(move |update_state| {
-            SingleShardStorageMutator::new(&runtime2.clone(), update_state, shard_layout2.clone())
+            StorageMutator::new(&runtime2.clone(), update_state, shard_layout2.clone())
         });
 
         let new_state_roots = self.prepare_state(
@@ -440,7 +440,7 @@ impl ForkNetworkCommand {
         }
 
         let storage_mutator =
-            SingleShardStorageMutator::new(&runtime, update_state.clone(), shard_layout.clone())?;
+            StorageMutator::new(&runtime, update_state.clone(), shard_layout.clone())?;
         let new_validator_accounts = self.add_validator_accounts(
             validators,
             runtime_config,
@@ -604,8 +604,7 @@ impl ForkNetworkCommand {
         tracing::info!(?shard_uid);
         let shard_idx = shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
 
-        let mut storage_mutator: SingleShardStorageMutator =
-            make_storage_mutator(update_state.clone())?;
+        let mut storage_mutator: StorageMutator = make_storage_mutator(update_state.clone())?;
 
         // TODO: allow mutating the state with a secret, so this can be used to prepare a public test network
         let default_key = near_mirror::key_mapping::default_extra_key(None).public_key();
@@ -918,7 +917,7 @@ impl ForkNetworkCommand {
         runtime_config: &Arc<RuntimeConfig>,
         home_dir: &Path,
         shard_layout: &ShardLayout,
-        mut storage_mutator: SingleShardStorageMutator,
+        mut storage_mutator: StorageMutator,
     ) -> anyhow::Result<Vec<AccountInfo>> {
         let mut new_validator_accounts = vec![];
 

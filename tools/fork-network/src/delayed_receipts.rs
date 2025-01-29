@@ -1,4 +1,4 @@
-use crate::single_shard_storage_mutator::ShardUpdateState;
+use crate::storage_mutator::ShardUpdateState;
 
 use near_chain::types::RuntimeAdapter;
 use near_crypto::PublicKey;
@@ -157,13 +157,8 @@ pub(crate) fn write_delayed_receipts(
         let indices = TrieQueueIndices { first_index: 0, next_available_index };
         let value = borsh::to_vec(&indices).unwrap();
         updates.push((key, Some(value)));
-        crate::single_shard_storage_mutator::commit_shard(
-            shard_uid,
-            &shard_tries,
-            update_state,
-            updates,
-        )
-        .context("failed committing trie changes")?
+        crate::storage_mutator::commit_shard(shard_uid, &shard_tries, update_state, updates)
+            .context("failed committing trie changes")?
     }
 
     Ok(())

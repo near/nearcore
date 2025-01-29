@@ -87,13 +87,13 @@ impl ShardUpdates {
 
 /// Object that updates the existing state. Combines all changes, commits them
 /// and returns new state roots.
-pub(crate) struct SingleShardStorageMutator {
+pub(crate) struct StorageMutator {
     updates: Vec<ShardUpdates>,
     shard_tries: ShardTries,
     shard_layout: ShardLayout,
 }
 
-impl SingleShardStorageMutator {
+impl StorageMutator {
     pub(crate) fn new(
         runtime: &NightshadeRuntime,
         update_state: Vec<ShardUpdateState>,
