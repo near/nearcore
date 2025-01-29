@@ -122,7 +122,7 @@ mod tests {
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;
     use near_store::test_utils::create_test_store;
-    use near_store::{DBCol, Store};
+    use near_store::{set_genesis_height, DBCol, Store};
 
     use super::{clear_before_last_final_block, StateTransitionStartHeights};
     use crate::ChainStore;
@@ -182,6 +182,9 @@ mod tests {
     }
 
     fn create_chain_store(store: &Store) -> ChainStore {
+        let mut store_update = store.store_update();
+        set_genesis_height(&mut store_update, &0);
+        store_update.commit().unwrap();
         ChainStore::new(store.clone(), 0, true, 5)
     }
 
