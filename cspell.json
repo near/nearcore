@@ -11,7 +11,7 @@
         "docs/images/**",
         "pytest/requirements.txt",
         "pytest/tests/sandbox/patch_state.py",
-        "utils/mainnet-res/res/storage_usage_delta.json"
+        "utils/mainnet-res/res/**.json"
     ],
     "dictionaryDefinitions": [],
     "dictionaries": [],
