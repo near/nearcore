@@ -20,9 +20,9 @@ use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
 use itertools::Itertools;
 use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::memtries::MemTries;
-use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::PartialState;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
@@ -72,7 +72,6 @@ pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-/// For fraud proofs
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PartialStorage {
     pub nodes: PartialState,
