@@ -22,6 +22,7 @@ use near_primitives::types::{AccountId, EpochId};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::adapter::StoreAdapter;
+use near_store::set_genesis_height;
 use near_store::test_utils::create_test_store;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::VecDeque;
@@ -69,6 +70,10 @@ impl ChunkTestFixture {
             panic!("Invalid setup: there must be at least as many block producers as shards");
         }
         let store = create_test_store();
+        let mut store_update = store.store_update();
+        set_genesis_height(&mut store_update, &0);
+        store_update.commit().unwrap();
+
         let epoch_manager = setup_epoch_manager_with_block_and_chunk_producers(
             store.clone(),
             (0..num_block_producers).map(|i| format!("test_bp_{}", i).parse().unwrap()).collect(),

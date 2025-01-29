@@ -50,8 +50,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
-    TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_height, set_genesis_state_roots, DBCol, ShardTries, Store,
+    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use node_runtime::SignedValidPeriodTransactions;
@@ -362,6 +362,7 @@ impl KeyValueRuntime {
             shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
+        set_genesis_height(&mut store_update, &0);
         store_update.commit().expect("Store failed on genesis initialization");
 
         Arc::new(KeyValueRuntime {

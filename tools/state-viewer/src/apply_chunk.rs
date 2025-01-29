@@ -576,6 +576,7 @@ mod test {
         );
 
         let store = create_test_store();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let mut chain_store = ChainStore::new(
             store.clone(),
             genesis.config.genesis_height,
@@ -583,7 +584,6 @@ mod test {
             genesis.config.transaction_validity_period,
         );
 
-        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
@@ -670,6 +670,7 @@ mod test {
         );
 
         let store = create_test_store();
+        initialize_genesis_state(store.clone(), &genesis, None);
         let chain_store = ChainStore::new(
             store.clone(),
             genesis.config.genesis_height,
@@ -677,7 +678,6 @@ mod test {
             genesis.config.transaction_validity_period,
         );
 
-        initialize_genesis_state(store.clone(), &genesis, None);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
