@@ -365,9 +365,9 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
 #[test]
 #[cfg(feature = "test_features")]
-fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
+fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
-    let mut test = AdversarialBehaviorTestData::new();
+    let mut test = AdversarialBehaviorTestData::netest_bls12381_g1_multiexp_mul_fuzzerw();
     test.env.clients[7].produce_invalid_chunks = true;
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
