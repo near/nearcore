@@ -11,6 +11,7 @@ use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
 use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
 use near_chain_primitives::error::Error;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
@@ -562,7 +563,8 @@ impl<'a> ChainUpdate<'a> {
 
         self.chain_store_update.save_chunk(chunk);
 
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
             *block_header.hash(),
@@ -639,7 +641,8 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block_header.prev_hash();
         let prev_block_header = self.chain_store_update.get_block_header(prev_hash)?;
 
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
         let chunk_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
         let apply_result = self.runtime_adapter.apply_chunk(

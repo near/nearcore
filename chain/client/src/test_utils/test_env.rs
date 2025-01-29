@@ -13,6 +13,7 @@ use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_crypto::{InMemorySigner, Signer};
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -557,10 +558,12 @@ impl TestEnv {
         let head = client.chain.head().unwrap();
         let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
         let shard_id =
-            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+            account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
+                .unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
+        let shard_uid =
+            shard_id_to_uid(client.epoch_manager.as_ref(), shard_id, &head.epoch_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_index];
 
         for i in 0..self.clients.len() {
@@ -616,8 +619,10 @@ impl TestEnv {
         let head = client.chain.head().unwrap();
         let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
         let shard_id =
-            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
-        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
+            account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
+                .unwrap();
+        let shard_uid =
+            shard_id_to_uid(client.epoch_manager.as_ref(), shard_id, &head.epoch_id).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_index];

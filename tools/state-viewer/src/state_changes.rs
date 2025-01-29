@@ -1,6 +1,9 @@
 use borsh::BorshDeserialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
+use near_epoch_manager::shard_assignment::{
+    account_id_to_shard_id, shard_id_to_index, shard_id_to_uid,
+};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::TrieKey;
@@ -164,8 +167,8 @@ fn apply_state_changes(
         let block_hash = block_header.hash();
         let block_height = block_header.height();
         let epoch_id = block_header.epoch_id();
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
-        let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
+        let shard_index = shard_id_to_index(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
 
         for StateChangesForShard { shard_id: state_change_shard_id, state_changes } in state_changes
         {
@@ -221,7 +224,7 @@ pub fn get_state_change_shard_id(
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<ShardId, near_chain::near_chain_primitives::error::Error> {
     if let Some(account_id) = trie_key.get_account_id() {
-        let shard_id = epoch_manager.account_id_to_shard_id(&account_id, epoch_id)?;
+        let shard_id = account_id_to_shard_id(epoch_manager, &account_id, epoch_id)?;
         Ok(shard_id)
     } else {
         let shard_uid =

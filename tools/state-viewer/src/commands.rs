@@ -25,6 +25,7 @@ use near_chain::{
     Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, ReceiptFilter,
 };
 use near_chain_configs::GenesisChangeConfig;
+use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
@@ -73,8 +74,8 @@ pub(crate) fn apply_block(
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let epoch_id = block.header().epoch_id();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
-    let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id).unwrap();
+    let shard_index = shard_id_to_index(epoch_manager, shard_id, epoch_id).unwrap();
     if matches!(storage, StorageSource::FlatStorage) {
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
@@ -427,7 +428,7 @@ pub(crate) fn dump_code(
 
     for (shard_index, state_root) in state_roots.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
         if let Ok(contract_code) =
             runtime.view_contract_code(&shard_uid, *state_root, &account_id.parse().unwrap())
         {

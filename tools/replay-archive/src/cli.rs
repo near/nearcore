@@ -20,6 +20,7 @@ use near_chain::{
 };
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -246,9 +247,7 @@ impl ReplayController {
             let prev_chunk_header = &prev_chunk_headers[shard_id];
             let epoch_id = block.header().epoch_id();
             let shard_id: ShardId = shard_id.try_into()?;
-            let shard_uid = self
-                .epoch_manager
-                .shard_id_to_uid(shard_id, epoch_id)
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
                 .context("Failed to get shard UID from shard id")?;
             let replay_output = self
                 .replay_chunk(

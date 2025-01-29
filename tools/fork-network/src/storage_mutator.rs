@@ -1,5 +1,6 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_assignment::account_id_to_shard_info;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::types::{AccountId, EpochId, StateRoot};
@@ -36,7 +37,7 @@ impl StorageMutator {
         account_id: &AccountId,
     ) -> anyhow::Result<&mut SingleShardStorageMutator> {
         let shard_info =
-            self.epoch_manager.account_id_to_shard_info(&account_id, &self.epoch_id)?;
+            account_id_to_shard_info(self.epoch_manager.as_ref(), &account_id, &self.epoch_id)?;
         Ok(&mut self.mutators[shard_info.shard_index])
     }
 
