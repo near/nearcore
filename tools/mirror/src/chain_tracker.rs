@@ -823,7 +823,7 @@ impl TxTracker {
                     }
                 }
             }
-            ReceiptEnumView::Data { .. } => {}
+            ReceiptEnumView::Data { .. } | ReceiptEnumView::GlobalContractDistribution { .. } => {}
         };
         Ok(())
     }

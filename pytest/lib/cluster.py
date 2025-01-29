@@ -300,14 +300,25 @@ class BaseNode(object):
                        hash=sync_info['latest_block_hash'])
 
     def get_all_heights(self):
+
+        # Helper function to check if the block response is a "block not found" error.
+        def block_not_found(block) -> bool:
+            error = block.get('error')
+            if error is None:
+                return False
+
+            data = error.get('data')
+            if data is None:
+                return False
+
+            return 'DB Not Found Error: BLOCK:' in data
+
         hash_ = self.get_latest_block().hash
         heights = []
 
         while True:
             block = self.get_block(hash_)
-            if 'error' in block and 'data' in block[
-                    'error'] and 'DB Not Found Error: BLOCK:' in block['error'][
-                        'data']:
+            if block_not_found(block):
                 break
             elif 'result' not in block:
                 logger.info(block)

@@ -6,6 +6,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -131,7 +132,7 @@ pub(crate) fn apply_chunk(
             MaybeNew::Old(missing_chunk) => missing_chunk.shard_id(),
         };
         let shard_uid =
-            epoch_manager.shard_id_to_uid(shard_id, prev_block.header().epoch_id()).unwrap();
+            shard_id_to_uid(epoch_manager, shard_id, prev_block.header().epoch_id()).unwrap();
         let Ok(chunk_extra) = chain_store.get_chunk_extra(&prev_block_hash, &shard_uid) else {
             continue;
         };
@@ -167,7 +168,7 @@ pub(crate) fn apply_chunk(
 
     if matches!(storage, StorageSource::FlatStorage) {
         let shard_uid =
-            epoch_manager.shard_id_to_uid(shard_id, prev_block.header().epoch_id()).unwrap();
+            shard_id_to_uid(epoch_manager, shard_id, prev_block.header().epoch_id()).unwrap();
         runtime.get_flat_storage_manager().create_flat_storage_for_shard(shard_uid).unwrap();
     }
 
@@ -356,12 +357,8 @@ pub(crate) fn apply_tx(
     tx_hash: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    let mut chain_store = ChainStore::new(
-        store.clone(),
-        genesis_config.genesis_height,
-        false,
-        genesis_config.transaction_validity_period,
-    );
+    let mut chain_store =
+        ChainStore::new(store.clone(), false, genesis_config.transaction_validity_period);
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
     if let Some(outcome) = outcomes.first() {
@@ -500,12 +497,8 @@ pub(crate) fn apply_receipt(
     id: CryptoHash,
     storage: StorageSource,
 ) -> anyhow::Result<Vec<ApplyChunkResult>> {
-    let mut chain_store = ChainStore::new(
-        store.clone(),
-        genesis_config.genesis_height,
-        false,
-        genesis_config.transaction_validity_period,
-    );
+    let mut chain_store =
+        ChainStore::new(store.clone(), false, genesis_config.transaction_validity_period);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
         Ok(vec![apply_receipt_in_block(
@@ -529,6 +522,7 @@ mod test {
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, Signer};
+    use near_epoch_manager::shard_assignment::shard_id_to_uid;
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::SignedTransaction;
@@ -574,14 +568,10 @@ mod test {
         );
 
         let store = create_test_store();
-        let mut chain_store = ChainStore::new(
-            store.clone(),
-            genesis.config.genesis_height,
-            false,
-            genesis.config.transaction_validity_period,
-        );
-
         initialize_genesis_state(store.clone(), &genesis, None);
+        let mut chain_store =
+            ChainStore::new(store.clone(), false, genesis.config.transaction_validity_period);
+
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
@@ -621,7 +611,8 @@ mod test {
             let new_roots = shard_layout
                 .shard_ids()
                 .map(|shard_id| {
-                    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+                    let shard_uid =
+                        shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id).unwrap();
                     *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();
@@ -667,14 +658,10 @@ mod test {
         );
 
         let store = create_test_store();
-        let chain_store = ChainStore::new(
-            store.clone(),
-            genesis.config.genesis_height,
-            false,
-            genesis.config.transaction_validity_period,
-        );
-
         initialize_genesis_state(store.clone(), &genesis, None);
+        let chain_store =
+            ChainStore::new(store.clone(), false, genesis.config.transaction_validity_period);
+
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config, None);
         let runtime = NightshadeRuntime::test(
             Path::new("."),
@@ -717,7 +704,8 @@ mod test {
             let new_roots = shard_ids
                 .iter()
                 .map(|&shard_id| {
-                    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+                    let shard_uid =
+                        shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id).unwrap();
                     *chain_store.get_chunk_extra(&hash, &shard_uid).unwrap().state_root()
                 })
                 .collect::<Vec<_>>();

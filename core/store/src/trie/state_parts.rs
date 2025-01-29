@@ -17,15 +17,14 @@
 //! necessary to prove its position in the list of prefix sums.
 
 use crate::flat::{FlatStateChanges, FlatStateIterator};
-use crate::trie::iterator::TrieTraversalItem;
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{ApplyStatePartResult, RawTrieNodeWithSize};
 use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
 use borsh::BorshDeserialize;
-use near_primitives::challenge::PartialState;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::is_contract_code_key;
 use near_primitives::types::{ShardId, StateRoot};
@@ -33,6 +32,7 @@ use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use super::ops::iter::TrieTraversalItem;
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
 use super::TrieRefcountDeltaMap;
 
@@ -525,7 +525,7 @@ mod tests {
 
     use crate::adapter::StoreUpdateAdapter;
     use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
-    use crate::trie::iterator::CrumbStatus;
+    use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::{
         TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,
     };

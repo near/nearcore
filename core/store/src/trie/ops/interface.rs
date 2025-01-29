@@ -245,3 +245,20 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
     /// Deletes a state value from the trie.
     fn delete_value(&mut self, value: GenericValueHandle) -> Result<(), StorageError>;
 }
+
+/// This is the interface used by TrieIterator to get nodes and values from the storage.
+/// It is used to abstract the storage of trie nodes and values.
+pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
+    // Get the root node of the trie.
+    // Optionally return None if the trie is empty.
+    fn get_root(&self) -> Option<GenericTrieNodePtr>;
+
+    // Get a node from the storage.
+    fn get_and_record_node(
+        &self,
+        ptr: GenericTrieNodePtr,
+    ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
+
+    // Get a value from the storage.
+    fn get_and_record_value(&self, value_ref: GenericValueHandle) -> Result<Vec<u8>, StorageError>;
+}

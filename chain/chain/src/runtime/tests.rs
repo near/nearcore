@@ -5,6 +5,7 @@ use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
@@ -16,6 +17,7 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -37,7 +39,7 @@ use near_chain_configs::{
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::challenge::{ChallengesResult, PartialState, SlashedValidator};
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::types::{
     BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
@@ -301,7 +303,7 @@ impl TestEnv {
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id).unwrap();
         if let Some(flat_storage) =
             self.runtime.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
         {
@@ -375,8 +377,14 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
-            let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-            new_receipts.entry(shard_id).or_default().push(receipt);
+            if receipt.send_to_all_shards() {
+                for shard_id in shard_layout.shard_ids() {
+                    new_receipts.entry(shard_id).or_default().push(receipt.clone());
+                }
+            } else {
+                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
+                new_receipts.entry(shard_id).or_default().push(receipt);
+            }
         }
         self.last_receipts = new_receipts;
         self.last_proposals = all_proposals;
@@ -406,7 +414,8 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
         let shard_id = shard_layout.account_id_to_shard_id(account_id);
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &self.head.epoch_id).unwrap();
         self.runtime
             .view_account(&shard_uid, self.state_roots[shard_index], account_id)
             .unwrap()

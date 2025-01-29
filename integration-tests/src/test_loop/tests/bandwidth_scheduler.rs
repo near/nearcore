@@ -66,7 +66,7 @@ use crate::test_loop::utils::TGAS;
 
 /// 3 shards, random receipt sizes
 #[test]
-fn slow_test_bandwidth_scheduler_three_shards_random_receipts() {
+fn ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(3)
         .default_link_generator(|| Box::new(RandomReceiptSizeGenerator))
@@ -81,7 +81,8 @@ fn slow_test_bandwidth_scheduler_three_shards_random_receipts() {
 
 /// 4 shards, random receipt sizes, 10% probability of missing chunks
 #[test]
-fn slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks() {
+#[cfg_attr(not(feature = "nightly"), ignore = "Test flaky for dev #12836")]
+fn ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks() {
     let scenario = TestScenarioBuilder::new()
         .num_shards(5)
         .default_link_generator(|| Box::new(RandomReceiptSizeGenerator))

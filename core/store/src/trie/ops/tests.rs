@@ -9,7 +9,7 @@ use itertools::Itertools;
 use near_primitives::{shard_layout::ShardUId, types::StateRoot};
 
 use crate::test_utils::TestTriesBuilder;
-use crate::trie::mem::iter::MemTrieIterator;
+use crate::trie::mem::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use crate::trie::mem::memtrie_update::TrackingMode;
 use crate::trie::mem::memtries::MemTries;
 use crate::trie::mem::nibbles_utils::{
@@ -119,9 +119,11 @@ fn run(initial_entries: Vec<(Vec<u8>, Vec<u8>)>, retain_multi_ranges: Vec<Range<
         retain_split_shard_custom_ranges_for_trie(&partial_trie, &retain_multi_ranges);
 
     let entries = if mem_state_root != StateRoot::default() {
-        let state_root_ptr = memtries.get_root(&mem_state_root).unwrap();
         let trie = Trie::new(Arc::new(TrieMemoryPartialStorage::default()), mem_state_root, None);
-        MemTrieIterator::new(Some(state_root_ptr), &trie).map(|e| e.unwrap()).collect_vec()
+        STMemTrieIterator::new(MemTrieIteratorInner::new(&memtries, &trie), None)
+            .unwrap()
+            .map(|e| e.unwrap())
+            .collect_vec()
     } else {
         vec![]
     };
