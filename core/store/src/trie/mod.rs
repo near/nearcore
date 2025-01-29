@@ -1,5 +1,4 @@
 use self::accounting_cache::TrieAccountingCache;
-use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
@@ -7,7 +6,6 @@ pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
@@ -18,6 +16,7 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
+use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
 use itertools::Itertools;
 use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::memtries::MemTries;
@@ -85,7 +84,7 @@ pub(crate) struct StorageHandle(usize);
 /// Stores index of value in the array of new values and its length for memory
 /// counting.
 #[derive(Clone, Hash, Debug, Copy)]
-pub(crate) struct StorageValueHandle(usize, usize);
+pub struct StorageValueHandle(usize, usize);
 
 pub struct TrieCosts {
     pub byte_of_key: u64,
@@ -102,30 +101,8 @@ pub enum KeyLookupMode {
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
-// TODO(#12361): replace with `RawTrieNodeWithSize` fields.
-#[derive(Clone, Hash)]
-enum NodeHandle {
-    Hash(CryptoHash),
-}
-
-impl NodeHandle {
-    fn unwrap_hash(&self) -> &CryptoHash {
-        match self {
-            Self::Hash(hash) => hash,
-        }
-    }
-}
-
-impl std::fmt::Debug for NodeHandle {
-    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Hash(hash) => write!(fmtr, "{hash}"),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Hash)]
-pub(crate) enum ValueHandle {
+pub enum ValueHandle {
     InMemory(StorageValueHandle),
     HashAndSize(ValueRef),
 }
@@ -135,58 +112,6 @@ impl std::fmt::Debug for ValueHandle {
         match self {
             Self::HashAndSize(value) => write!(fmtr, "{value:?}"),
             Self::InMemory(StorageValueHandle(num, _)) => write!(fmtr, "@{num}"),
-        }
-    }
-}
-
-// TODO(#12361): replace with `RawTrieNode`.
-#[derive(Clone, Hash)]
-enum TrieNode {
-    /// Null trie node. Could be an empty root or an empty branch entry.
-    Empty,
-    /// Key and value of the leaf node.
-    Leaf(Vec<u8>, ValueHandle),
-    /// Branch of 16 possible children and value if key ends here.
-    Branch(Box<Children<NodeHandle>>, Option<ValueHandle>),
-    /// Key and child of extension.
-    Extension(Vec<u8>, NodeHandle),
-}
-
-// TODO(#12361): replace with `RawTrieNodeWithSize`.
-#[derive(Clone, Debug)]
-pub struct TrieNodeWithSize {
-    node: TrieNode,
-    memory_usage: u64,
-}
-
-impl TrieNodeWithSize {
-    fn from_raw(rc_node: RawTrieNodeWithSize) -> TrieNodeWithSize {
-        TrieNodeWithSize::new(TrieNode::new(rc_node.node), rc_node.memory_usage)
-    }
-
-    fn new(node: TrieNode, memory_usage: u64) -> TrieNodeWithSize {
-        TrieNodeWithSize { node, memory_usage }
-    }
-
-    fn empty() -> TrieNodeWithSize {
-        TrieNodeWithSize { node: TrieNode::Empty, memory_usage: 0 }
-    }
-}
-
-impl TrieNode {
-    fn new(rc_node: RawTrieNode) -> TrieNode {
-        fn new_branch(children: Children, value: Option<ValueRef>) -> TrieNode {
-            let children = children.0.map(|el| el.map(NodeHandle::Hash));
-            let children = Box::new(Children(children));
-            let value = value.map(ValueHandle::HashAndSize);
-            TrieNode::Branch(children, value)
-        }
-
-        match rc_node {
-            RawTrieNode::Leaf(key, value) => TrieNode::Leaf(key, ValueHandle::HashAndSize(value)),
-            RawTrieNode::BranchNoValue(children) => new_branch(children, None),
-            RawTrieNode::BranchWithValue(value, children) => new_branch(children, Some(value)),
-            RawTrieNode::Extension(key, child) => TrieNode::Extension(key, NodeHandle::Hash(child)),
         }
     }
 }
@@ -259,86 +184,6 @@ impl UpdatedTrieStorageNodeWithSize {
         let mut buf = String::new();
         self.print(&mut buf, trie_update, &mut "".to_string()).expect("printing failed");
         buf
-    }
-}
-
-impl TrieNode {
-    pub fn has_value(&self) -> bool {
-        match self {
-            Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
-            _ => false,
-        }
-    }
-
-    fn memory_usage_for_value_length(value_length: u64) -> u64 {
-        value_length * TRIE_COSTS.byte_of_value + TRIE_COSTS.node_cost
-    }
-
-    fn memory_usage_value(value: &ValueHandle) -> u64 {
-        let value_length = match value {
-            ValueHandle::InMemory(_) => {
-                panic!("InMemory nodes exist, but storage is not provided")
-            }
-            ValueHandle::HashAndSize(value) => u64::from(value.length),
-        };
-        Self::memory_usage_for_value_length(value_length)
-    }
-
-    /// TODO(#12361): in particular, consider replacing with
-    /// `GenericUpdatedTrieNode::memory_usage_direct`.
-    fn memory_usage_direct(&self) -> u64 {
-        match self {
-            TrieNode::Empty => {
-                // DEVNOTE: empty nodes don't exist in storage.
-                // In the in-memory implementation Some(TrieNode::Empty) and None are interchangeable as
-                // children of branch nodes which means cost has to be 0
-                0
-            }
-            TrieNode::Leaf(key, value) => {
-                TRIE_COSTS.node_cost
-                    + (key.len() as u64) * TRIE_COSTS.byte_of_key
-                    + Self::memory_usage_value(value)
-            }
-            TrieNode::Branch(_children, value) => {
-                TRIE_COSTS.node_cost
-                    + value.as_ref().map_or(0, |value| Self::memory_usage_value(value))
-            }
-            TrieNode::Extension(key, _child) => {
-                TRIE_COSTS.node_cost + (key.len() as u64) * TRIE_COSTS.byte_of_key
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for TrieNode {
-    /// Formats single trie node.
-    ///
-    /// Width can be used to specify indentation.
-    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let empty = "";
-        let indent = fmtr.width().unwrap_or(0);
-        match self {
-            TrieNode::Empty => write!(fmtr, "{empty:indent$}Empty"),
-            TrieNode::Leaf(key, value) => write!(
-                fmtr,
-                "{empty:indent$}Leaf({:?}, {value:?})",
-                NibbleSlice::from_encoded(key).0
-            ),
-            TrieNode::Branch(children, value) => {
-                match value {
-                    Some(value) => write!(fmtr, "{empty:indent$}Branch({value:?}):"),
-                    None => write!(fmtr, "{empty:indent$}Branch:"),
-                }?;
-                for (idx, child) in children.iter() {
-                    write!(fmtr, "\n{empty:indent$} {idx:x}: {child:?}")?;
-                }
-                Ok(())
-            }
-            TrieNode::Extension(key, child) => {
-                let key = NibbleSlice::from_encoded(key).0;
-                write!(fmtr, "{empty:indent$}Extension({key:?}, {child:?})")
-            }
-        }
     }
 }
 
@@ -615,7 +460,7 @@ pub struct ApplyStatePartResult {
 
 enum NodeOrValue {
     Node,
-    Value(std::sync::Arc<[u8]>),
+    Value(Arc<[u8]>),
 }
 
 /// Like a ValueRef, but allows for optimized retrieval of the value if the
@@ -1258,12 +1103,13 @@ impl Trie {
         Ok(())
     }
 
+    /// Retrieves decoded raw node alongside with its raw bytes representation.
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
         use_accounting_cache: bool,
         side_effects: bool,
-    ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
+    ) -> Result<Option<(Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
@@ -1301,22 +1147,6 @@ impl Trie {
                 trie_update.refcount_changes.subtract(*hash, 1);
                 Ok(result)
             }
-        }
-    }
-
-    /// Retrieves decoded node alongside with its raw bytes representation.
-    ///
-    /// Note that because Empty nodes (those which are referenced by
-    /// [`Self::EMPTY_ROOT`] hash) aren’t stored in the database, they don’t
-    /// have a bytes representation.  For those nodes the first return value
-    /// will be `None`.
-    fn retrieve_node(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
-        match self.retrieve_raw_node(hash, true, true)? {
-            None => Ok((None, TrieNodeWithSize::empty())),
-            Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
 
@@ -1791,25 +1621,26 @@ impl Trie {
     /// Returns an iterator that can be used to traverse any range in the trie.
     /// This only uses the on-disk trie. If memtrie iteration is desired, see
     /// `lock_for_iter`.
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
-        DiskTrieIterator::new(self, None)
+    #[inline]
+    pub fn disk_iter(&self) -> Result<DiskTrieIterator, StorageError> {
+        self.disk_iter_with_prune_condition(None)
     }
 
-    pub fn disk_iter_with_max_depth<'a>(
-        &'a self,
+    #[cfg(test)]
+    pub(crate) fn disk_iter_with_max_depth(
+        &self,
         max_depth: usize,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(
-            self,
-            Some(Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth)),
-        )
+    ) -> Result<DiskTrieIterator, StorageError> {
+        let prune_condition = Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth);
+        self.disk_iter_with_prune_condition(Some(prune_condition))
     }
 
-    pub fn disk_iter_with_prune_condition<'a>(
-        &'a self,
+    #[inline]
+    pub fn disk_iter_with_prune_condition(
+        &self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(self, prune_condition)
+    ) -> Result<DiskTrieIterator, StorageError> {
+        DiskTrieIterator::new(DiskTrieIteratorInner::new(self), prune_condition)
     }
 
     /// Grabs a read lock on the trie, so that a memtrie iterator can be
@@ -1858,7 +1689,10 @@ impl<'a> TrieWithReadLock<'a> {
     pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
         match &self.memtries {
             Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie)?)),
-            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
+            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
+                DiskTrieIteratorInner::new(&self.trie),
+                None,
+            )?)),
         }
     }
 }

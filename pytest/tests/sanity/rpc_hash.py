@@ -41,7 +41,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
 
     Args:
         header: JSON representation of the block header.
-        msg_version: Version of the BlockHeaderInnerRest to use when serialising
+        msg_version: Version of the BlockHeaderInnerRest to use when serializing
             and computing hash.  This depends on protocol version used when the
             block was generated.
     Returns:
@@ -89,7 +89,7 @@ def compute_block_hash(header: typing.Dict[str, typing.Any],
 
     inner_rest = inner_rest_msg()
     # Some of the fields are superfluous in some of the versions of the message
-    # but that’s quite all right.  Serialiser will ignore them and
+    # but that’s quite all right.  Serializer will ignore them and
     # unconditionally setting them makes the code simpler.
     inner_rest.block_body_hash = get_hash('block_body_hash')
     inner_rest.chunk_receipts_root = get_hash('chunk_receipts_root')
@@ -262,7 +262,7 @@ class HashTestCase(unittest.TestCase):
 
         Args:
             msg_version: Version of the BlockHeaderInnerRest to use when
-                serialising and computing hash.
+                serializing and computing hash.
             protocol_version: If given, protocol version to use in the cluster
                 (which will be set in genesis); If not given, cluster will be
                 started with the newest supported protocol version.

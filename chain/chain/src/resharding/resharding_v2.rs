@@ -236,8 +236,7 @@ impl Chain {
             let TrieUpdateBatch { entries } = batch;
             let (store_update, apply_time) = {
                 let timer = Instant::now();
-                // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
-                // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
+                // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator.
                 let (store_update, new_state_roots) = tries.add_values_to_children_states(
                     &state_roots,
                     entries,

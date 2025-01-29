@@ -29,7 +29,7 @@ genesis_change = [
     ], ["total_supply", "4060000000000000000000000000000000"]
 ]
 
-# give more stake to the bootnode so that it can produce the blocks alone
+# give more stake to the boot node so that it can produce the blocks alone
 nodes = start_cluster(2, 1, 8, None, genesis_change, {
     0: {
         "tracked_shards": [0]

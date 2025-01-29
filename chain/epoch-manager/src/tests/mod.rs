@@ -3786,6 +3786,22 @@ fn test_get_shard_uids_pending_resharding_none() {
     assert_eq!(shard_uids.len(), 0);
 }
 
+/// Test there are no ShardUIds pending resharding when there are no planned
+/// reshardings in the simple nightshade v3 shard layout that is used in prod.
+///
+/// This test checks that when then protocol version is changing but the shard
+/// layout is not, no shard is pending resharding.
+#[test]
+fn test_get_shard_uids_pending_resharding_simple_nightshade() {
+    let v3 = ShardLayout::get_simple_nightshade_layout_v3();
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[v3.clone(), v3]);
+    assert_eq!(shard_uids.len(), 0);
+
+    let v4 = ShardLayout::get_simple_nightshade_layout_v4();
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[v4.clone(), v4]);
+    assert_eq!(shard_uids.len(), 0);
+}
+
 /// Test that there is only one ShardUId pending resharding during a single
 /// resharding.
 #[test]

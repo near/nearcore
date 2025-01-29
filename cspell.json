@@ -30,6 +30,7 @@
         "backpressure",
         "Banasik",
         "BASEPOINT",
+        "behaviour",
         "benchmarknet",
         "betanet",
         "bijective",
@@ -37,7 +38,6 @@
         "bitmask",
         "bitvec",
         "BLOCKLIST",
-        "bootnodes",
         "borsh",
         "bufbuild",
         "bytesize",
@@ -126,6 +126,7 @@
         "locustfile",
         "locustfiles",
         "Logunov",
+        "manytx",
         "Mbps",
         "memtable",
         "memtrie",
@@ -192,6 +193,7 @@
         "profraw",
         "profraws",
         "pugachag",
+        "pwasm",
         "pytest",
         "pytests",
         "PYTHONPATH",
@@ -320,7 +322,8 @@
         "yocto",
         "yoctonear",
         "zstd",
-        "Zulip"
+        "Zulip",
+        "deser"
     ],
     "ignoreWords": [],
     "import": []

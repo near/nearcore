@@ -49,7 +49,7 @@ class ValidatorRemoveKeyQuickTest(unittest.TestCase):
         validator_key = validator.validator_key
         validator.remove_validator_key()
         wait_for_blocks(rpc, target=EPOCH_LENGTH * 2)
-        validator.reload_updateable_config()
+        validator.reload_updatable_config()
         validator.stop_checking_store()
         try:
             wait_for_blocks(rpc, count=5, timeout=10)
@@ -59,7 +59,7 @@ class ValidatorRemoveKeyQuickTest(unittest.TestCase):
             self.fail('Blocks are not supposed to be produced')
 
         validator.reset_validator_key(validator_key)
-        validator.reload_updateable_config()
+        validator.reload_updatable_config()
         validator.stop_checking_store()
         wait_for_blocks(rpc, count=EPOCH_LENGTH * 2)
 

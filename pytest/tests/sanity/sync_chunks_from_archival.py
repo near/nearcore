@@ -84,11 +84,11 @@ class Handler(ProxyHandler):
 # TODO(mina86): Make it a utility class
 class Timeout:
 
-    def __init__(self, sesconds: float) -> None:
-        if sesconds <= 0:
-            raise ValueError('sesconds must be positive')
+    def __init__(self, seconds: float) -> None:
+        if seconds <= 0:
+            raise ValueError('seconds must be positive')
         self.__start = time.monotonic()
-        self.__end = self.__start + sesconds
+        self.__end = self.__start + seconds
 
     def check(self) -> bool:
         return time.monotonic() < self.__end

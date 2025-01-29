@@ -290,7 +290,7 @@ class LoadTestSpoon:
             self.max_tps,
             # Make the helper run a bit longer - there is significant delay
             # between the time when the first helper is started and when this
-            # scipts begins the test.
+            # scripts begins the test.
             self.test_timeout + 4 * self.EPOCH_HEIGHT_CHECK_DELAY,
             self.contract_deploy_time,
         )

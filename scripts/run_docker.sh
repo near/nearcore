@@ -18,7 +18,7 @@ fi
 ulimit -c unlimited
 
 echo "Telemetry: ${TELEMETRY_URL}"
-echo "Bootnodes: ${BOOT_NODES}"
+echo "Boot nodes: ${BOOT_NODES}"
 
 exec neard run ${TELEMETRY_URL:+--telemetry-url="$TELEMETRY_URL"} \
                ${BOOT_NODES:+--boot-nodes="$BOOT_NODES"} "$@"
