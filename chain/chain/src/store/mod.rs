@@ -382,9 +382,10 @@ pub fn filter_incoming_receipts_for_shard(
         let mut filtered_receipts = vec![];
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
-            let receiver_shard_id =
-                target_shard_layout.account_id_to_shard_id(receipt.receiver_id());
-            if receiver_shard_id == target_shard_id {
+            if receipt.send_to_all_shards()
+                || target_shard_layout.account_id_to_shard_id(receipt.receiver_id())
+                    == target_shard_id
+            {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {

@@ -10,7 +10,8 @@
         "debug_scripts/Pipfile",
         "docs/images/**",
         "pytest/requirements.txt",
-        "pytest/tests/sandbox/patch_state.py"
+        "pytest/tests/sandbox/patch_state.py",
+        "utils/mainnet-res/res/**.json"
     ],
     "dictionaryDefinitions": [],
     "dictionaries": [],
@@ -114,6 +115,7 @@
         "kickout",
         "Kickouts",
         "kkuuue",
+        "libc",
         "libcore",
         "libfuzzer",
         "librocksdb",

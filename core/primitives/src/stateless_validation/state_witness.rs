@@ -3,11 +3,11 @@ use std::fmt::Debug;
 
 use super::ChunkProductionKey;
 use crate::bandwidth_scheduler::BandwidthRequests;
-use crate::challenge::PartialState;
 use crate::congestion_info::CongestionInfo;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
+use crate::state::PartialState;
 use crate::transaction::SignedTransaction;
 use crate::types::{EpochId, SignatureDifferentiator};
 use crate::utils::compression::CompressedData;

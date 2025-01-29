@@ -691,6 +691,7 @@ pub(crate) fn compute_receipt_congestion_gas(
             // of it without expensive state lookups.
             Ok(0)
         }
+        ReceiptEnum::GlobalContractDistribution(_) => Ok(0),
     }
 }
 

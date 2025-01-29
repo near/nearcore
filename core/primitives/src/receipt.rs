@@ -1,3 +1,4 @@
+use crate::action::{base64, GlobalContractIdentifier};
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -15,6 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::io::{self, Read};
 use std::io::{Error, ErrorKind};
+use std::sync::Arc;
 
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
@@ -246,10 +248,10 @@ impl<'a> StateStoredReceipt<'a> {
 impl BorshSerialize for Receipt {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
-            Receipt::V0(receipt) => receipt.serialize(writer),
+            Receipt::V0(receipt) => BorshSerialize::serialize(&receipt, writer),
             Receipt::V1(receipt) => {
                 BorshSerialize::serialize(&1_u8, writer)?;
-                receipt.serialize(writer)
+                BorshSerialize::serialize(&receipt, writer)
             }
         }
     }
@@ -485,6 +487,10 @@ impl Receipt {
         *self.receipt_id()
     }
 
+    pub fn send_to_all_shards(&self) -> bool {
+        matches!(self.receipt(), ReceiptEnum::GlobalContractDistribution(..))
+    }
+
     /// Generates a receipt with a transfer from system for a given balance without a receipt_id.
     /// This should be used for token refunds instead of gas refunds. It inherits priority from the parent receipt.
     /// It doesn't refund the allowance of the access key. For gas refunds use `new_gas_refund`.
@@ -571,6 +577,19 @@ impl Receipt {
             }),
         }
     }
+
+    pub fn new_global_contract_distribution(
+        predecessor_id: AccountId,
+        code: Arc<[u8]>,
+        id: GlobalContractIdentifier,
+    ) -> Self {
+        Self::V0(ReceiptV0 {
+            predecessor_id,
+            receiver_id: "system".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::GlobalContractDistribution(GlobalContractData { code, id }),
+        })
+    }
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
@@ -590,6 +609,7 @@ pub enum ReceiptEnum {
     Data(DataReceipt),
     PromiseYield(ActionReceipt),
     PromiseResume(DataReceipt),
+    GlobalContractDistribution(GlobalContractData),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -666,6 +686,33 @@ impl fmt::Debug for ReceivedData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReceivedData")
             .field("data", &format_args!("{}", AbbrBytes(self.data.as_deref())))
+            .finish()
+    }
+}
+
+#[serde_as]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    PartialEq,
+    Eq,
+    Clone,
+    serde::Deserialize,
+    serde::Serialize,
+    ProtocolSchema,
+)]
+pub struct GlobalContractData {
+    #[serde_as(as = "Base64")]
+    pub code: Arc<[u8]>,
+    pub id: GlobalContractIdentifier,
+}
+
+impl fmt::Debug for GlobalContractData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlobalContractData")
+            .field("code", &format_args!("{}", base64(&self.code)))
+            .field("id", &self.id)
             .finish()
     }
 }

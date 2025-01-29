@@ -1,3 +1,4 @@
+use near_primitives::types::ShardId;
 use serde_json::Value;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, arbitrary::Arbitrary)]
@@ -34,9 +35,8 @@ pub enum RpcChunkError {
         #[serde(skip_serializing)]
         error_message: String,
     },
-    // TODO Should use ShardId instead of u64
     #[error("Shard id {shard_id} does not exist")]
-    InvalidShardId { shard_id: u64 },
+    InvalidShardId { shard_id: ShardId },
     #[error("Chunk with hash {chunk_hash:?} has never been observed on this node")]
     UnknownChunk { chunk_hash: near_primitives::sharding::ChunkHash },
 }

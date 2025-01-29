@@ -926,18 +926,17 @@ fn slow_test_resharding_v3_resharding_block_in_fork() {
             .num_validators(0)
             .num_rpcs(0)
             .num_archivals(0)
-            .add_loop_action(fork_before_resharding_block(false))
+            .add_loop_action(fork_before_resharding_block(false, 3))
             .build(),
     );
 }
 
 #[test]
-// TODO(resharding): duplicate this test so that in one case resharding is performed on block
-//                   B(height=13) and in another case resharding is performed on block B'(height=13).
-//                   In the current scenario the real resharding happens on block B'. Low priority TODO
-//                   since it's a very rare corner case.
+// Scenario:
+// Two double signed blocks B(height=15) and B'(height=15) processed in the order B -> B'.
+// In this scenario the chain discards the resharding at B' and performs resharding at B.
 #[cfg(feature = "test_features")]
-fn slow_test_resharding_v3_double_sign_resharding_block() {
+fn slow_test_resharding_v3_double_sign_resharding_block_first_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .num_clients(1)
@@ -945,7 +944,26 @@ fn slow_test_resharding_v3_double_sign_resharding_block() {
             .num_validators(0)
             .num_rpcs(0)
             .num_archivals(0)
-            .add_loop_action(fork_before_resharding_block(true))
+            .add_loop_action(fork_before_resharding_block(true, 1))
+            .build(),
+    );
+}
+
+#[test]
+// Scenario:
+// Two double signed blocks B(height=15) and B'(height=15) and a third block C(height=19)
+// processed in the order B -> B' -> C.
+// In this scenario the chain discards the reshardings at B and B' and performs resharding at C.
+#[cfg(feature = "test_features")]
+fn slow_test_resharding_v3_double_sign_resharding_block_last_fork() {
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(1)
+            .num_producers(1)
+            .num_validators(0)
+            .num_rpcs(0)
+            .num_archivals(0)
+            .add_loop_action(fork_before_resharding_block(true, 3))
             .build(),
     );
 }

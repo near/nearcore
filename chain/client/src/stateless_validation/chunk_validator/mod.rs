@@ -11,6 +11,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, Chain};
 use near_chain_primitives::Error;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert;
@@ -103,7 +104,7 @@ impl ChunkValidator {
         // We can also skip validating the chunk state witness in this case.
         // We don't need to switch to parent shard uid, because resharding
         // creates chunk extra for new shard uid.
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
         let prev_block = chain.get_block(prev_block_hash)?;
         let last_header =
             Chain::get_prev_chunk_header(epoch_manager.as_ref(), &prev_block, shard_id)?;

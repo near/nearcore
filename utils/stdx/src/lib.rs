@@ -3,7 +3,7 @@
 #![deny(clippy::arithmetic_side_effects)]
 
 // TODO(mina86): Replace usage of the split functions by split_array_ref et al
-// methods of array and slice types once those are stabilised.
+// methods of array and slice types once those are stabilized.
 
 /// Splits `&[u8; L + R]` into `(&[u8; L], &[u8; R])`.
 pub fn split_array<const N: usize, const L: usize, const R: usize>(
@@ -62,7 +62,7 @@ fn test_join() {
 }
 
 /// Splits a slice into a slice of N-element arrays.
-// TODO(mina86): Replace with [T]::as_chunks once that’s stabilised.
+// TODO(mina86): Replace with [T]::as_chunks once that’s stabilized.
 pub fn as_chunks<const N: usize, T>(slice: &[T]) -> (&[[T; N]], &[T]) {
     const {
         if N == 0 {
