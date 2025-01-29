@@ -360,7 +360,7 @@ impl ShardsManagerActor {
         initial_chain_header_head: Tip,
         chunk_request_retry_period: Duration,
     ) -> Self {
-        let total_parts = num_total_parts(epoch_manager.as_ref());
+        let data_parts = num_data_parts(epoch_manager.as_ref());
         Self {
             clock,
             validator_signer,
@@ -370,7 +370,7 @@ impl ShardsManagerActor {
             shard_tracker,
             peer_manager_adapter: network_adapter,
             client_adapter,
-            rs: ReedSolomon::new(total_parts, total_parts - num_data_parts(epoch_manager.as_ref()))
+            rs: ReedSolomon::new(data_parts, num_total_parts(epoch_manager.as_ref()) - data_parts)
                 .unwrap(),
             encoded_chunks: EncodedChunksCache::new(),
             requested_partial_encoded_chunks: RequestPool::new(
