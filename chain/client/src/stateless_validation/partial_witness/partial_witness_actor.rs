@@ -11,6 +11,7 @@ use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::types::RuntimeAdapter;
 use near_chain::Error;
 use near_chain_configs::MutableValidatorSigner;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::state_witness::{
     ChunkContractAccessesMessage, ChunkStateWitnessAckMessage, ContractCodeRequestMessage,
@@ -744,7 +745,8 @@ impl PartialWitnessActor {
 
         let storage = TrieDBStorage::new(
             TrieStoreAdapter::new(self.runtime.store().clone()),
-            self.epoch_manager.shard_id_to_uid(
+            shard_id_to_uid(
+                self.epoch_manager.as_ref(),
                 main_transition_key.shard_id,
                 &self.epoch_manager.get_epoch_id(&main_transition_key.block_hash)?,
             )?,

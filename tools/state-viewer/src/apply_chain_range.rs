@@ -8,6 +8,7 @@ use near_chain::types::{
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use near_chain_configs::Genesis;
+use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -89,8 +90,8 @@ fn apply_block_from_range(
     };
     let block = read_chain_store.get_block(&block_hash).unwrap();
     let epoch_id = block.header().epoch_id();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
-    let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id).unwrap();
+    let shard_index = shard_id_to_index(epoch_manager, shard_id, epoch_id).unwrap();
     assert!(block.chunks().len() > 0);
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;

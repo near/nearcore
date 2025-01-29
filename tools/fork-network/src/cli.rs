@@ -6,6 +6,7 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
@@ -303,7 +304,8 @@ impl ForkNetworkCommand {
         let state_roots: Vec<(ShardId, StateRoot)> = shard_layout
             .shard_ids()
             .map(|shard_id| {
-                let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+                let shard_uid =
+                    shard_id_to_uid(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();

@@ -6,7 +6,8 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_crypto::PublicKey;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -182,12 +183,11 @@ impl crate::ChainAccess for ChainAccess {
     ) -> Result<Vec<PublicKey>, ChainError> {
         let mut ret = Vec::new();
         let header = self.chain.get_block_header(block_hash)?;
-        let shard_id = self
-            .epoch_manager
-            .account_id_to_shard_id(account_id, header.epoch_id())
+        let shard_id =
+            account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, header.epoch_id())
+                .into_chain_error()?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
             .into_chain_error()?;
-        let shard_uid =
-            self.epoch_manager.shard_id_to_uid(shard_id, header.epoch_id()).into_chain_error()?;
         let chunk_extra = self.chain.get_chunk_extra(header.hash(), &shard_uid)?;
         match self
             .runtime

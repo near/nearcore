@@ -1,11 +1,12 @@
 use anyhow::Context;
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use std::path::Path;
 
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_crypto::{PublicKey, SecretKey};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::EpochManager;
 use near_jsonrpc_primitives::types::query::{
     QueryResponseKind as RpcQueryResponseKind, RpcQueryRequest,
 };
@@ -78,11 +79,9 @@ pub(crate) fn keys_from_source_db(
     let header = chain
         .get_block_header_by_height(block_height)
         .with_context(|| format!("failed getting block header #{}", block_height))?;
-    let shard_id = epoch_manager
-        .account_id_to_shard_id(&account_id, header.epoch_id())
+    let shard_id = account_id_to_shard_id(epoch_manager.as_ref(), &account_id, header.epoch_id())
         .with_context(|| format!("failed finding shard for {}", &account_id))?;
-    let shard_uid = epoch_manager
-        .shard_id_to_uid(shard_id, header.epoch_id())
+    let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, header.epoch_id())
         .context("failed mapping ShardID to ShardUID")?;
     let chunk_extra =
         chain.get_chunk_extra(header.hash(), &shard_uid).context("failed getting chunk extra")?;

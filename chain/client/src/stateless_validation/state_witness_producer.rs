@@ -4,6 +4,7 @@ use crate::Client;
 use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess, ReceiptFilter};
 use near_chain_primitives::Error;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
@@ -264,7 +265,7 @@ impl Client {
         epoch_id: &EpochId,
         shard_id: ShardId,
     ) -> Result<(ChunkStateTransition, CryptoHash, ContractUpdates), Error> {
-        let shard_uid = self.chain.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        let shard_uid = shard_id_to_uid(self.chain.epoch_manager.as_ref(), shard_id, epoch_id)?;
         let stored_chunk_state_transition_data = self
             .chain
             .chain_store()
@@ -309,7 +310,7 @@ impl Client {
         epoch_id: &EpochId,
         shard_id: ShardId,
     ) -> Result<(ChunkStateTransition, CryptoHash, ContractUpdates), Error> {
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
         Ok((
             ChunkStateTransition {
                 block_hash: *block_hash,

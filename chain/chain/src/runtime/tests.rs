@@ -5,6 +5,7 @@ use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
@@ -301,7 +302,7 @@ impl TestEnv {
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).unwrap_or_default();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id).unwrap();
         if let Some(flat_storage) =
             self.runtime.get_flat_storage_manager().get_flat_storage_for_shard(shard_uid)
         {
@@ -412,7 +413,8 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout(&self.head.epoch_id).unwrap();
         let shard_id = shard_layout.account_id_to_shard_id(account_id);
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &self.head.epoch_id).unwrap();
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &self.head.epoch_id).unwrap();
         self.runtime
             .view_account(&shard_uid, self.state_roots[shard_index], account_id)
             .unwrap()
