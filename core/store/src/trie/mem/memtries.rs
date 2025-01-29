@@ -16,7 +16,7 @@ use super::arena::single_thread::STArena;
 use super::arena::Arena;
 use super::arena::FrozenArena;
 use super::flexible_data::value::ValueView;
-use super::iter::STMemTrieIterator;
+use super::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use super::lookup::memtrie_lookup;
 use super::memtrie_update::{construct_root_from_changes, MemTrieUpdate, TrackingMode};
 use super::node::{MemTrieNodeId, MemTrieNodePtr};
@@ -189,12 +189,8 @@ impl MemTries {
 
     /// Returns an iterator over the memtrie for the given trie root.
     pub fn get_iter<'a>(&'a self, trie: &'a Trie) -> Result<STMemTrieIterator<'a>, StorageError> {
-        let root = if trie.root == CryptoHash::default() {
-            None
-        } else {
-            Some(self.get_root(&trie.root)?)
-        };
-        Ok(STMemTrieIterator::new(root, trie))
+        let iter_storage = MemTrieIteratorInner::new(self, trie);
+        STMemTrieIterator::new(iter_storage, None)
     }
 
     /// Looks up a key in the memtrie with the given state_root and returns the value if found.

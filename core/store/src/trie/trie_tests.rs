@@ -211,9 +211,10 @@ mod trie_storage_tests {
     use crate::adapter::StoreAdapter;
     use crate::test_utils::create_test_store;
     use crate::trie::accounting_cache::TrieAccountingCache;
+    use crate::trie::iterator::TrieIterator;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountAddition;
-    use crate::{TrieChanges, TrieConfig, TrieIterator};
+    use crate::{TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::hash;
