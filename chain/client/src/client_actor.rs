@@ -2267,7 +2267,11 @@ impl Handler<ChunkEndorsementMessage> for ClientActorInner {
 impl Handler<StateHeaderValidationRequest> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: StateHeaderValidationRequest) -> Result<(), near_chain::Error> {
-        self.client.chain.set_state_header(msg.shard_id, msg.sync_hash, msg.header)
+        self.client.chain.state_sync_adapter.set_state_header(
+            msg.shard_id,
+            msg.sync_hash,
+            msg.header,
+        )
     }
 }
 

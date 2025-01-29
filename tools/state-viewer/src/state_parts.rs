@@ -349,7 +349,8 @@ async fn load_state_parts(
                 }
             };
 
-            let state_header = chain.get_state_response_header(shard_id, sync_hash).unwrap();
+            let state_header =
+                chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash).unwrap();
             let state_root = state_header.chunk_prev_state_root();
 
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
@@ -389,6 +390,7 @@ async fn load_state_parts(
         match action {
             LoadAction::Apply => {
                 chain
+                    .state_sync_adapter
                     .set_state_part(shard_id, sync_hash, PartId::new(part_id, num_parts), &part)
                     .unwrap();
                 chain
@@ -459,7 +461,8 @@ async fn dump_state_parts(
     let sync_prev_header = chain.get_previous_header(&sync_block_header).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
 
-    let state_header = chain.compute_state_response_header(shard_id, sync_hash).unwrap();
+    let state_header =
+        chain.state_sync_adapter.compute_state_response_header(shard_id, sync_hash).unwrap();
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = state_header.num_state_parts();
     let part_ids = get_part_ids(part_from, part_to, num_parts);
