@@ -249,9 +249,10 @@ pub fn filter_incoming_receipts_for_shard(
         let mut filtered_receipts = vec![];
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
-            let receiver_shard_id =
-                target_shard_layout.account_id_to_shard_id(receipt.receiver_id());
-            if receiver_shard_id == target_shard_id {
+            if receipt.send_to_all_shards()
+                || target_shard_layout.account_id_to_shard_id(receipt.receiver_id())
+                    == target_shard_id
+            {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {
@@ -268,6 +269,11 @@ pub fn filter_incoming_receipts_for_shard(
 pub struct ChainStore {
     store: ChainStoreAdapter,
     latest_known: once_cell::unsync::OnceCell<LatestKnown>,
+    /// save_trie_changes should be set to true iff
+    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    save_trie_changes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -294,13 +300,13 @@ where
 impl ChainStore {
     pub fn new(
         store: Store,
-        genesis_height: BlockHeight,
         save_trie_changes: bool,
         transaction_validity_period: BlockHeightDelta,
     ) -> ChainStore {
         ChainStore {
-            store: store.chain_store(genesis_height, save_trie_changes),
+            store: store.chain_store(),
             latest_known: once_cell::unsync::OnceCell::new(),
+            save_trie_changes,
             transaction_validity_period,
         }
     }
@@ -2167,7 +2173,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
                 wrapped_trie_changes.state_changes_into(&mut store_update.trie_store_update());
 
-                if self.chain_store.save_trie_changes() {
+                if self.chain_store.save_trie_changes {
                     wrapped_trie_changes.trie_changes_into(&mut store_update.trie_store_update());
                 }
             }

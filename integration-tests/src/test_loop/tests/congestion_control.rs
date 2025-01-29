@@ -30,7 +30,7 @@ const NUM_CLIENTS: usize = NUM_PRODUCERS + NUM_VALIDATORS + NUM_RPC;
 /// with producers, validators, rpc nodes, single shard tracking and state sync.
 #[cfg_attr(not(feature = "test_features"), ignore)]
 #[test]
-fn test_congestion_control_simple() {
+fn slow_test_congestion_control_simple() {
     init_test_logger();
 
     // Test setup

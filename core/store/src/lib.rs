@@ -15,7 +15,7 @@ use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use config::ArchivalConfig;
-use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
+use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -1105,6 +1105,16 @@ pub fn set_genesis_congestion_infos(
 ) {
     store_update
         .set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos)
+        .expect("Borsh cannot fail");
+}
+
+pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
+    store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY)
+}
+
+pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &BlockHeight) {
+    store_update
+        .set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height)
         .expect("Borsh cannot fail");
 }
 

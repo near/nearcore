@@ -52,6 +52,7 @@ use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error};
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -59,7 +60,7 @@ use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Chunks, 
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, PartialState, SlashedValidator,
+    MaybeEncodedShardChunk, SlashedValidator,
 };
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
@@ -74,6 +75,7 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
     StateSyncInfo,
 };
+use near_primitives::state::PartialState;
 use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
@@ -359,15 +361,11 @@ impl Chain {
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
         let transaction_validity_period = chain_genesis.transaction_validity_period;
-        let chain_store = ChainStore::new(
-            store.clone(),
-            chain_genesis.height,
-            save_trie_changes,
-            transaction_validity_period,
-        );
+        let chain_store =
+            ChainStore::new(store.clone(), save_trie_changes, transaction_validity_period);
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
-            ChainStoreAdapter::new(chain_store.store(), chain_genesis.height, save_trie_changes),
+            ChainStoreAdapter::new(chain_store.store()),
             epoch_manager.clone(),
             runtime_adapter.clone(),
         );
@@ -439,17 +437,12 @@ impl Chain {
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut chain_store = ChainStore::new(
             runtime_adapter.store().clone(),
-            chain_genesis.height,
             chain_config.save_trie_changes,
             transaction_validity_period,
         );
         let state_sync_adapter = ChainStateSyncAdapter::new(
             clock.clone(),
-            ChainStoreAdapter::new(
-                chain_store.store(),
-                chain_genesis.height,
-                chain_config.save_trie_changes,
-            ),
+            ChainStoreAdapter::new(chain_store.store()),
             epoch_manager.clone(),
             runtime_adapter.clone(),
         );
@@ -720,7 +713,7 @@ impl Chain {
 
             store_update.save_chunk_extra(
                 genesis.hash(),
-                &epoch_manager.shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
+                &shard_id_to_uid(epoch_manager, chunk_header.shard_id(), &EpochId::default())?,
                 Self::create_genesis_chunk_extra(
                     state_root,
                     chain_genesis.gas_limit,
@@ -1992,7 +1985,7 @@ impl Chain {
                 true,
             );
             let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
-            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
             if care_about_shard_this_or_next_epoch {
                 shards_cares_this_or_next_epoch.push(shard_uid);
             }
@@ -2159,7 +2152,7 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<(), Error> {
         let epoch_id = block.header().epoch_id();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
 
         // Update flat storage.
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
@@ -2755,7 +2748,7 @@ impl Chain {
                 shard_id,
                 true,
             ) {
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+                let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
                 self.resharding_manager.start_resharding(
                     self.chain_store.store_update(),
                     &block,
@@ -3203,7 +3196,7 @@ impl Chain {
             cares_about_shard_next_epoch,
             cared_about_shard_prev_epoch,
         );
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
         Ok(ShardContext { shard_uid, should_apply_chunk })
     }
 
@@ -3922,9 +3915,16 @@ impl Chain {
     ) -> HashMap<ShardId, Vec<Receipt>> {
         let mut result = HashMap::new();
         for receipt in receipts {
-            let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
-            let entry = result.entry(shard_id).or_insert_with(Vec::new);
-            entry.push(receipt)
+            if receipt.send_to_all_shards() {
+                for shard_id in shard_layout.shard_ids() {
+                    let entry = result.entry(shard_id).or_insert_with(Vec::new);
+                    entry.push(receipt.clone());
+                }
+            } else {
+                let shard_id = shard_layout.account_id_to_shard_id(receipt.receiver_id());
+                let entry = result.entry(shard_id).or_insert_with(Vec::new);
+                entry.push(receipt);
+            }
         }
         result
     }
@@ -3945,13 +3945,22 @@ impl Chain {
         }
         let mut cache = HashMap::new();
         for receipt in receipts {
-            let &mut shard_id = cache
-                .entry(receipt.receiver_id())
-                .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
-            // This unwrap should be safe as we pre-populated the map with all
-            // valid shard ids.
-            let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-            result_map.get_mut(&shard_index).unwrap().1.push(receipt);
+            if receipt.send_to_all_shards() {
+                for shard_id in shard_layout.shard_ids() {
+                    // This unwrap should be safe as we pre-populated the map with all
+                    // valid shard ids.
+                    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+                    result_map.get_mut(&shard_index).unwrap().1.push(receipt);
+                }
+            } else {
+                let &mut shard_id = cache
+                    .entry(receipt.receiver_id())
+                    .or_insert_with(|| shard_layout.account_id_to_shard_id(receipt.receiver_id()));
+                // This unwrap should be safe as we pre-populated the map with all
+                // valid shard ids.
+                let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
+                result_map.get_mut(&shard_index).unwrap().1.push(receipt);
+            }
         }
 
         let mut result_vec = vec![];

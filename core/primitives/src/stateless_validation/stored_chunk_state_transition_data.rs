@@ -1,4 +1,4 @@
-use crate::challenge::PartialState;
+use crate::state::PartialState;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use near_schema_checker_lib::ProtocolSchema;

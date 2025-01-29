@@ -72,7 +72,6 @@ fn create_chain_and_executor(
     };
     let executor = Arc::new(SerialExecutor::new(ChainStore::new(
         node_storage.get_hot_store(),
-        chain_genesis.height,
         false,
         chain_genesis.transaction_validity_period,
     )));
