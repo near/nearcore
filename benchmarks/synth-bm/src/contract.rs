@@ -70,9 +70,13 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
 
     let client = JsonRpcClient::connect(&args.rpc_url);
     if args.read_nonces_from_network {
-        accounts =
-            update_account_nonces(client.clone(), accounts, 5_000, Some(&args.user_data_dir))
-                .await?;
+        accounts = update_account_nonces(
+            client.clone(),
+            accounts,
+            1_000_000 / args.transactions_per_second,
+            Some(&args.user_data_dir),
+        )
+        .await?;
     }
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;

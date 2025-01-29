@@ -147,12 +147,12 @@ pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
 pub async fn update_account_nonces(
     client: JsonRpcClient,
     mut accounts: Vec<Account>,
-    tps_limit: u64,
+    rps_limit: u64,
     accounts_path: Option<&PathBuf>,
 ) -> anyhow::Result<Vec<Account>> {
     let mut tasks = JoinSet::new();
 
-    let mut interval = time::interval(Duration::from_micros(1_000_000u64 / tps_limit));
+    let mut interval = time::interval(Duration::from_micros(1_000_000u64 / rps_limit));
     for (i, account) in accounts.iter().enumerate() {
         interval.tick().await;
         let client = client.clone();
@@ -252,7 +252,15 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
 
     info!("Querying nonces of newly created sub accounts.");
 
-    sub_accounts = update_account_nonces(client.clone(), sub_accounts, 5_000, None).await?;
+    // Nonces of new access keys are set by nearcore: https://github.com/near/nearcore/pull/4064
+    // Query them from the rpc to write `Accounts` with valid nonces to disk
+    sub_accounts = update_account_nonces(
+        client.clone(),
+        sub_accounts,
+        1_000_000 / args.interval_duration_micros,
+        None,
+    )
+    .await?;
 
     for account in sub_accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;

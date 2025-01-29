@@ -40,7 +40,6 @@ pub struct BenchmarkArgs {
 }
 
 pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
-    println!("read_nonces_from_network = {}", &args.read_nonces_from_network);
     let mut accounts = accounts_from_dir(&args.user_data_dir)?;
     assert!(accounts.len() >= 2);
 
@@ -55,9 +54,13 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let block_service = Arc::new(BlockService::new(client.clone()).await);
 
     if args.read_nonces_from_network {
-        accounts =
-            update_account_nonces(client.clone(), accounts, 5_000, Some(&args.user_data_dir))
-                .await?;
+        accounts = update_account_nonces(
+            client.clone(),
+            accounts,
+            1_000_000 / args.interval_duration_micros,
+            Some(&args.user_data_dir),
+        )
+        .await?;
     }
 
     block_service.clone().start().await;
