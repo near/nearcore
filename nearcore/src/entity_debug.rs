@@ -12,7 +12,6 @@ use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery, EntityQueryWithParams,
 };
 use near_primitives::block::Tip;
-use near_primitives::challenge::{PartialState, TrieValue};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -23,6 +22,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
+use near_primitives::state::{PartialState, TrieValue};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,

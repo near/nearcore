@@ -8,8 +8,8 @@ use near_client::sync::external::{
 };
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
-use near_primitives::challenge::PartialState;
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{EpochId, StateRoot};

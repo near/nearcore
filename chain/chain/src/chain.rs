@@ -60,7 +60,7 @@ use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Chunks, 
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
-    MaybeEncodedShardChunk, PartialState, SlashedValidator,
+    MaybeEncodedShardChunk, SlashedValidator,
 };
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
@@ -75,6 +75,7 @@ use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, EncodedShardChunk, ReceiptList, ReceiptProof, ShardChunk,
     ShardChunkHeader, ShardProof, StateSyncInfo,
 };
+use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
     get_num_state_parts, ReceiptProofResponse, RootProof, ShardStateSyncResponseHeader,
