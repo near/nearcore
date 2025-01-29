@@ -1,5 +1,5 @@
 use near_async::messaging::CanSend;
-use near_chain::sharding::{get_part_owner, num_data_parts, num_total_parts};
+use near_chain::sharding::{chunk_part_owner, num_chunk_data_parts, num_total_chunk_parts};
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -88,8 +88,8 @@ impl ChunkTestFixture {
         let mock_network = Arc::new(MockPeerManagerAdapter::default());
         let mock_client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
 
-        let data_parts = num_data_parts(&epoch_manager);
-        let parity_parts = num_total_parts(&epoch_manager) - data_parts;
+        let data_parts = num_chunk_data_parts(&epoch_manager);
+        let parity_parts = num_total_chunk_parts(&epoch_manager) - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();
         let mock_ancestor_hash = CryptoHash::default();
         // generate a random block hash for the block at height 1
@@ -176,7 +176,8 @@ impl ChunkTestFixture {
             .iter()
             .copied()
             .filter(|p| {
-                get_part_owner(&epoch_manager, &mock_epoch_id, *p).unwrap() == mock_chunk_part_owner
+                chunk_part_owner(&epoch_manager, &mock_epoch_id, *p).unwrap()
+                    == mock_chunk_part_owner
             })
             .collect();
         let encoded_chunk = mock_chunk.create_partial_encoded_chunk(

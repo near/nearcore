@@ -11,7 +11,7 @@ use actix_rt::System;
 use itertools::Itertools;
 use near_async::messaging::Sender;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
-use near_chain::sharding::{num_data_parts, num_total_parts};
+use near_chain::sharding::{num_chunk_data_parts, num_total_chunk_parts};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{Chain, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
@@ -205,8 +205,8 @@ pub fn create_chunk(
     // reconstruct the chunk with changes (if any)
     if should_replace {
         // The best way it to decode chunk, replace transactions and then recreate encoded chunk.
-        let total_parts = num_total_parts(client.chain.epoch_manager.as_ref());
-        let data_parts = num_data_parts(client.chain.epoch_manager.as_ref());
+        let total_parts = num_total_chunk_parts(client.chain.epoch_manager.as_ref());
+        let data_parts = num_chunk_data_parts(client.chain.epoch_manager.as_ref());
         let decoded_chunk = chunk.decode_chunk(data_parts).unwrap();
         let parity_parts = total_parts - data_parts;
         let rs = ReedSolomon::new(data_parts, parity_parts).unwrap();

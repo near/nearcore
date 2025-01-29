@@ -12,8 +12,8 @@ use rand_chacha::ChaCha20Rng;
 ///
 /// Note: this shouldn't be too large, our Reed-Solomon supports at most 256
 /// parts.
-pub fn num_total_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
-    let seats = epoch_manager.get_genesis_num_block_producer_seats();
+pub fn num_total_chunk_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
+    let seats = epoch_manager.genesis_num_block_producer_seats();
     if seats > 1 {
         seats as usize
     } else {
@@ -25,8 +25,8 @@ pub fn num_total_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
 ///
 /// That is, fetching this many parts should be enough to reconstruct a
 /// chunk, if there are no errors.
-pub fn num_data_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
-    let total_parts = num_total_parts(epoch_manager);
+pub fn num_chunk_data_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
+    let total_parts = num_total_chunk_parts(epoch_manager);
     if total_parts <= 3 {
         1
     } else {
@@ -35,7 +35,7 @@ pub fn num_data_parts(epoch_manager: &dyn EpochManagerAdapter) -> usize {
 }
 
 /// Returns `account_id` that is supposed to have the `part_id`.
-pub fn get_part_owner(
+pub fn chunk_part_owner(
     epoch_manager: &dyn EpochManagerAdapter,
     epoch_id: &EpochId,
     part_id: u64,

@@ -42,7 +42,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get the list of shard ids
     fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError>;
 
-    fn get_genesis_num_block_producer_seats(&self) -> u64;
+    fn genesis_num_block_producer_seats(&self) -> u64;
 
     /// Which shard the account belongs to in the given epoch.
     fn account_id_to_shard_id(
@@ -468,7 +468,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
-    fn get_genesis_num_block_producer_seats(&self) -> u64 {
+    fn genesis_num_block_producer_seats(&self) -> u64 {
         self.read().genesis_num_block_producer_seats
     }
 

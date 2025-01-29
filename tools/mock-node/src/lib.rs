@@ -2,7 +2,7 @@
 //! components of the mock network.
 
 use anyhow::{anyhow, Context as AnyhowContext};
-use near_chain::sharding::num_total_parts;
+use near_chain::sharding::num_total_chunk_parts;
 use near_chain::{Block, Chain, ChainStoreAccess, Error};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
@@ -464,7 +464,7 @@ fn retrieve_partial_encoded_chunk(
     chain: &Chain,
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
-    let num_total_parts = num_total_parts(chain.epoch_manager.as_ref());
+    let num_total_parts = num_total_chunk_parts(chain.epoch_manager.as_ref());
     let partial_chunk = chain.chain_store().get_partial_chunk(&request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
