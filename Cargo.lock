@@ -4440,7 +4440,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "near-primitives",
  "near-test-contracts",
  "tracing",
 ]

@@ -16,14 +16,14 @@ anyhow.workspace = true
 clap.workspace = true
 tracing.workspace = true
 
-near-primitives.workspace = true
 near-test-contracts.workspace = true
 
 [features]
+nightly_protocol = []
 nightly = [
-  "near-primitives/nightly",
+  "near-test-contracts/nightly",
   "nightly_protocol",
 ]
-nightly_protocol = [
-  "near-primitives/nightly_protocol",
+test_features = [
+  "near-test-contracts/test_features",
 ]
