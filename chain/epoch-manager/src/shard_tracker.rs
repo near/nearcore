@@ -54,96 +54,6 @@ pub struct ShardTracker {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 }
 
-/// For each `ShardId` in the current block, returns its parent `ShardId`
-/// from previous block.
-///
-/// Most of the times parent of the shard is the shard itself, unless a
-/// resharding happened and some shards were split.
-/// If there was no resharding, it just returns `shard_ids` as is, without any validation.
-/// The resulting Vec will always be of the same length as the `shard_ids` argument.
-///
-/// TODO(wacban) - rename to reflect the new return type
-pub fn get_prev_shard_ids(
-    epoch_manager: &dyn EpochManagerAdapter,
-    prev_hash: &CryptoHash,
-    shard_ids: Vec<ShardId>,
-) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
-    let shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_hash)?;
-    let prev_shard_layout =
-        epoch_manager.get_shard_layout(&epoch_manager.get_epoch_id(prev_hash)?)?;
-    let is_resharding_boundary =
-        epoch_manager.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
-
-    let mut result = vec![];
-    if is_resharding_boundary {
-        for shard_id in shard_ids {
-            let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
-            let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
-            result.push((parent_shard_id, parent_shard_index));
-        }
-        Ok(result)
-    } else {
-        for shard_id in shard_ids {
-            let shard_index = shard_layout.get_shard_index(shard_id)?;
-            result.push((shard_id, shard_index));
-        }
-        Ok(result)
-    }
-}
-
-/// For a `ShardId` in the current block, returns its parent `ShardId`
-/// from previous block.
-///
-/// Most of the times parent of the shard is the shard itself, unless a
-/// resharding happened and some shards were split.
-/// If there was no resharding, it just returns the `shard_id` as is, without any validation.
-///
-/// TODO(wacban) - rename to reflect the new return type
-pub fn get_prev_shard_id_from_prev_hash(
-    epoch_manager: &dyn EpochManagerAdapter,
-    prev_hash: &CryptoHash,
-    shard_id: ShardId,
-) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
-    let shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_hash)?;
-    let prev_shard_layout =
-        epoch_manager.get_shard_layout(&epoch_manager.get_epoch_id(prev_hash)?)?;
-    let is_resharding_boundary =
-        epoch_manager.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
-
-    if is_resharding_boundary {
-        let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
-        let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
-        Ok((prev_shard_layout, parent_shard_id, parent_shard_index))
-    } else {
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok((shard_layout, shard_id, shard_index))
-    }
-}
-
-/// Get shard layout given hash of previous block.
-pub fn get_shard_layout_from_prev_block(
-    epoch_manager: &dyn EpochManagerAdapter,
-    parent_hash: &CryptoHash,
-) -> Result<ShardLayout, EpochError> {
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-    epoch_manager.get_shard_layout(&epoch_id)
-}
-
-// `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-// If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
-pub fn cared_about_shard_prev_epoch_from_prev_block(
-    epoch_manager: &dyn EpochManagerAdapter,
-    parent_hash: &CryptoHash,
-    account_id: &AccountId,
-    shard_id: ShardId,
-) -> Result<bool, EpochError> {
-    let (_layout, parent_shard_id, _index) =
-        get_prev_shard_id_from_prev_hash(epoch_manager, parent_hash, shard_id)?;
-    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(parent_hash)?;
-
-    epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
-}
-
 impl ShardTracker {
     pub fn new(tracked_config: TrackedConfig, epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         ShardTracker {
@@ -287,10 +197,13 @@ impl ShardTracker {
         // TODO: fix these unwrap_or here and handle error correctly. The current behavior masks potential errors and bugs
         // https://github.com/near/nearcore/issues/4936
         if let Some(account_id) = account_id {
-            let account_cares_about_shard = self
-                .epoch_manager
-                .cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
-                .unwrap_or(false);
+            let account_cares_about_shard = cares_about_shard_from_prev_block(
+                self.epoch_manager.as_ref(),
+                parent_hash,
+                account_id,
+                shard_id,
+            )
+            .unwrap_or(false);
             if account_cares_about_shard {
                 // An account has to track this shard because of its validation duties.
                 return true;
@@ -330,9 +243,13 @@ impl ShardTracker {
     ) -> bool {
         if let Some(account_id) = account_id {
             let account_cares_about_shard = {
-                self.epoch_manager
-                    .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
-                    .unwrap_or(false)
+                cares_about_shard_next_epoch_from_prev_block(
+                    self.epoch_manager.as_ref(),
+                    parent_hash,
+                    account_id,
+                    shard_id,
+                )
+                .unwrap_or(false)
             };
             if account_cares_about_shard {
                 // An account has to track this shard because of its validation duties.
@@ -372,6 +289,143 @@ impl ShardTracker {
     /// Returns whether the node is configured for all shards tracking.
     pub fn tracks_all_shards(&self) -> bool {
         matches!(self.tracked_config, TrackedConfig::AllShards)
+    }
+}
+
+/// For each `ShardId` in the current block, returns its parent `ShardId`
+/// from previous block.
+///
+/// Most of the times parent of the shard is the shard itself, unless a
+/// resharding happened and some shards were split.
+/// If there was no resharding, it just returns `shard_ids` as is, without any validation.
+/// The resulting Vec will always be of the same length as the `shard_ids` argument.
+///
+/// TODO(wacban) - rename to reflect the new return type
+pub fn get_prev_shard_ids(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_hash: &CryptoHash,
+    shard_ids: Vec<ShardId>,
+) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
+    let shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_hash)?;
+    let prev_shard_layout =
+        epoch_manager.get_shard_layout(&epoch_manager.get_epoch_id(prev_hash)?)?;
+    let is_resharding_boundary =
+        epoch_manager.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
+
+    let mut result = vec![];
+    if is_resharding_boundary {
+        for shard_id in shard_ids {
+            let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+            let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
+            result.push((parent_shard_id, parent_shard_index));
+        }
+        Ok(result)
+    } else {
+        for shard_id in shard_ids {
+            let shard_index = shard_layout.get_shard_index(shard_id)?;
+            result.push((shard_id, shard_index));
+        }
+        Ok(result)
+    }
+}
+
+/// For a `ShardId` in the current block, returns its parent `ShardId`
+/// from previous block.
+///
+/// Most of the times parent of the shard is the shard itself, unless a
+/// resharding happened and some shards were split.
+/// If there was no resharding, it just returns the `shard_id` as is, without any validation.
+///
+/// TODO(wacban) - rename to reflect the new return type
+pub fn get_prev_shard_id_from_prev_hash(
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_hash: &CryptoHash,
+    shard_id: ShardId,
+) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
+    let shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_hash)?;
+    let prev_shard_layout =
+        epoch_manager.get_shard_layout(&epoch_manager.get_epoch_id(prev_hash)?)?;
+    let is_resharding_boundary =
+        epoch_manager.is_next_block_epoch_start(prev_hash)? && prev_shard_layout != shard_layout;
+
+    if is_resharding_boundary {
+        let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+        let parent_shard_index = prev_shard_layout.get_shard_index(parent_shard_id)?;
+        Ok((prev_shard_layout, parent_shard_id, parent_shard_index))
+    } else {
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        Ok((shard_layout, shard_id, shard_index))
+    }
+}
+
+/// Get shard layout given hash of previous block.
+pub fn get_shard_layout_from_prev_block(
+    epoch_manager: &dyn EpochManagerAdapter,
+    parent_hash: &CryptoHash,
+) -> Result<ShardLayout, EpochError> {
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+    epoch_manager.get_shard_layout(&epoch_id)
+}
+
+// `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+// If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
+pub fn cared_about_shard_prev_epoch_from_prev_block(
+    epoch_manager: &dyn EpochManagerAdapter,
+    parent_hash: &CryptoHash,
+    account_id: &AccountId,
+    shard_id: ShardId,
+) -> Result<bool, EpochError> {
+    let (_layout, parent_shard_id, _index) =
+        get_prev_shard_id_from_prev_hash(epoch_manager, parent_hash, shard_id)?;
+    let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(parent_hash)?;
+
+    epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
+}
+
+pub fn cares_about_shard_from_prev_block(
+    epoch_manager: &dyn EpochManagerAdapter,
+    parent_hash: &CryptoHash,
+    account_id: &AccountId,
+    shard_id: ShardId,
+) -> Result<bool, EpochError> {
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
+    epoch_manager.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
+}
+
+// `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+// If shard layout will change next epoch, returns true if it cares about any shard
+// that `shard_id` will split to
+pub fn cares_about_shard_next_epoch_from_prev_block(
+    epoch_manager: &dyn EpochManagerAdapter,
+    parent_hash: &CryptoHash,
+    account_id: &AccountId,
+    shard_id: ShardId,
+) -> Result<bool, EpochError> {
+    let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(parent_hash)?;
+    if epoch_manager.will_shard_layout_change(parent_hash)? {
+        let shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
+        // The expect below may be triggered when the protocol version
+        // changes by multiple versions at once and multiple shard layout
+        // changes are captured. In this case the shards from the original
+        // shard layout are not valid parents in the final shard layout.
+        //
+        // This typically occurs in tests that are pegged to start at a
+        // certain protocol version and then upgrade to stable.
+        let split_shards = shard_layout
+            .get_children_shards_ids(shard_id)
+            .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
+        for next_shard_id in split_shards {
+            if epoch_manager.cares_about_shard_in_epoch(
+                &next_epoch_id,
+                account_id,
+                next_shard_id,
+            )? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    } else {
+        epoch_manager.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
     }
 }
 

@@ -11,7 +11,6 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
@@ -860,51 +859,6 @@ impl EpochManagerAdapter for MockEpochManager {
         let shard_layout = self.get_shard_layout(epoch_id)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(epoch_valset, shard_index);
-        for validator in chunk_producers {
-            if validator.account_id() == account_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    fn cares_about_shard_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        // This `unwrap` here tests that in all code paths we check that the epoch exists before
-        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
-        //    the calling function.
-        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let shard_layout = get_shard_layout_from_prev_block(self, parent_hash)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_index);
-        for validator in chunk_producers {
-            if validator.account_id() == account_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    fn cares_about_shard_next_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        // This `unwrap` here tests that in all code paths we check that the epoch exists before
-        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
-        //    the calling function.
-        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let shard_layout = get_shard_layout_from_prev_block(self, parent_hash)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_producers = self.get_chunk_producers(
-            (epoch_valset.1 + 1) % self.validators_by_valset.len(),
-            shard_index,
-        );
         for validator in chunk_producers {
             if validator.account_id() == account_id {
                 return Ok(true);

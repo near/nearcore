@@ -1,4 +1,5 @@
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_epoch_manager::shard_tracker::cares_about_shard_from_prev_block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
@@ -32,10 +33,13 @@ where
             let client: &Client = self[i].as_ref();
             let validator_signer = client.validator_signer.get().unwrap();
             let account_id = validator_signer.validator_id();
-            let tracks_shard = client
-                .epoch_manager
-                .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, shard_id)
-                .unwrap();
+            let tracks_shard = cares_about_shard_from_prev_block(
+                client.epoch_manager.as_ref(),
+                &head.prev_block_hash,
+                &account_id,
+                shard_id,
+            )
+            .unwrap();
             if tracks_shard {
                 return i;
             }
@@ -118,10 +122,13 @@ where
             let account_id = validator_signer.validator_id();
             let mut tracked_shards = Vec::new();
             for shard_id in &all_shard_ids {
-                let tracks_shard = client
-                    .epoch_manager
-                    .cares_about_shard_from_prev_block(&head.prev_block_hash, account_id, *shard_id)
-                    .unwrap();
+                let tracks_shard = cares_about_shard_from_prev_block(
+                    client.epoch_manager.as_ref(),
+                    &head.prev_block_hash,
+                    account_id,
+                    *shard_id,
+                )
+                .unwrap();
                 if tracks_shard {
                     tracked_shards.push(*shard_id);
                 }
