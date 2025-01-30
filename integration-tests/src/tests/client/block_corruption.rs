@@ -121,7 +121,7 @@ fn is_breaking_block_change(original: &Block, corrupt: &Block) -> bool {
 /// Returns `Ok(reason)` if corrupt block wasn't parsed or had changes that are not breaking by design.
 /// Returns `Err(reason)` if corrupt block was processed or correct block wasn't processed afterwards.
 fn check_corrupt_block(
-    mut env: TestEnv,
+    env: &mut TestEnv,
     corrupt_block_vec: Vec<u8>,
     correct_block: Block,
     corrupted_bit_idx: usize,
@@ -163,6 +163,7 @@ fn check_corrupt_block(
 /// Each block contains one 'send' transaction.
 /// First three blocks are produced without changes.
 /// For the fourth block we are calculating two versions – correct and corrupt.
+/// Blocks are produced at heights on top of `last_block_height`.
 /// Corrupt block is produced by
 /// - serializing correct block
 /// - flipping one bit
@@ -175,17 +176,14 @@ fn check_corrupt_block(
 /// Returns `Ok(reason)` if corrupt block wasn't parsed or had changes that are not breaking by design.
 /// Returns `Err(reason)` if corrupt block was processed or correct block wasn't processed afterwards.
 fn check_process_flipped_block_fails_on_bit(
+    env: &mut TestEnv,
+    last_block_height: BlockHeight,
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
-    let epoch_length = 5000000;
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
+    let mut last_block = env.clients[0].chain.get_head_block().unwrap();
 
-    let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-
-    let mid_height = 3;
-    for h in 1..=mid_height {
+    let mid_height = last_block_height + 3;
+    for h in last_block_height + 1..=mid_height {
         let txs = create_tx_load(h, &last_block);
         for tx in txs {
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
@@ -247,8 +245,29 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
     // List of reasons `check_process_flipped_block_fails_on_bit` returned `Ok`.
     // Should contain various validation errors.
     let mut oks = vec![];
+
+    let create_env = || {
+        let mut genesis =
+            Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+        genesis.config.epoch_length = 5000000;
+        TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
+    };
+
+    let mut env = create_env();
+    let mut last_block_height = 0;
+
     loop {
-        let res = check_process_flipped_block_fails_on_bit(corrupted_bit_idx);
+        // Reset env once in a while to avoid excessive memory usage.
+        if corrupted_bit_idx % 1_000 == 0 {
+            env = create_env();
+            last_block_height = 0;
+        }
+
+        let res = check_process_flipped_block_fails_on_bit(
+            &mut env,
+            last_block_height,
+            corrupted_bit_idx,
+        );
         if let Ok(res) = &res {
             if res.to_string() == "End" {
                 // `corrupted_bit_idx` is out of bounds for correct block length. Should stop iteration.
@@ -260,6 +279,8 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
             Ok(o) => oks.push(o),
         }
         corrupted_bit_idx += 1;
+        // `check_process_flipped_block_fails_on_bit` adds four blocks to the chain.
+        last_block_height += 4;
     }
     tracing::info!("All of the Errors:");
     for err in &errs {
