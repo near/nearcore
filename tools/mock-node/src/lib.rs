@@ -429,6 +429,7 @@ impl MockPeer {
     // listen on the addr passed to MockPeer::new() and wait til someone connects.
     // Then respond to messages indefinitely until an error occurs
     async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
+        // TODO: should just keep accepting incoming conns
         let mut conn = self.listener.accept().await?;
         let messages = InFlightMessages::new(self.network_config.response_delay);
         tokio::pin!(messages);
