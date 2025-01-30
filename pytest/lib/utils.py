@@ -254,8 +254,12 @@ def load_test_contract(
     binary_name = config.get('binary_name', 'neard')
     binary_path = os.path.join(near_root, binary_name)
 
-    logger.info(f'Loading test contract {filename}')
+    cmd = [binary_path, '--version']
+    output = subprocess.check_output(cmd).decode()
+    logger.info(f'neard version:\n{output}')
+    assert 'test_features' in output
 
+    logger.info(f'Loading test contract {filename}')
     cmd = [binary_path, 'dump-test-contracts', '--contract-name', filename]
     output = subprocess.check_output(cmd)
     return output
