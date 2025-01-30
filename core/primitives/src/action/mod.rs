@@ -12,8 +12,9 @@ use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
+use std::sync::Arc;
 
-fn base64(s: &[u8]) -> String {
+pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
@@ -146,7 +147,7 @@ pub enum GlobalContractDeployMode {
 pub struct DeployGlobalContractAction {
     /// WebAssembly binary
     #[serde_as(as = "Base64")]
-    pub code: Vec<u8>,
+    pub code: Arc<[u8]>,
 
     pub deploy_mode: GlobalContractDeployMode,
 }
@@ -166,6 +167,7 @@ impl fmt::Debug for DeployGlobalContractAction {
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    Hash,
     PartialEq,
     Eq,
     Clone,

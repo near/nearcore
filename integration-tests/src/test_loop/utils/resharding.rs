@@ -11,6 +11,7 @@ use near_chain::ChainStoreAccess;
 use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptOrStateStoredReceipt;
@@ -49,7 +50,10 @@ pub(crate) struct TrackedShardSchedule {
 
 // Returns a callable function that, when invoked inside a test loop iteration, can force the creation of a chain fork.
 #[cfg(feature = "test_features")]
-pub(crate) fn fork_before_resharding_block(double_signing: bool) -> LoopAction {
+pub(crate) fn fork_before_resharding_block(
+    double_signing: bool,
+    blocks_produced: near_primitives::types::BlockHeight,
+) -> LoopAction {
     use near_client::client_actor::AdvProduceBlockHeightSelection;
 
     let (done, succeeded) = LoopAction::shared_success_flag();
@@ -80,7 +84,7 @@ pub(crate) fn fork_before_resharding_block(double_signing: bool) -> LoopAction {
                         base_block_height: tip.height - 1,
                     }
                 };
-                client_actor.adv_produce_blocks_on(3, true, height_selection);
+                client_actor.adv_produce_blocks_on(blocks_produced, true, height_selection);
                 done.set(true);
             }
         },
@@ -827,7 +831,8 @@ pub(crate) fn check_state_cleanup(
             let [tracked_shard_id] =
                 tracked_shard_schedule.schedule[epoch_height as usize].clone().try_into().unwrap();
             let tracked_shard_uid =
-                client.epoch_manager.shard_id_to_uid(tracked_shard_id, &tip.epoch_id).unwrap();
+                shard_id_to_uid(client.epoch_manager.as_ref(), tracked_shard_id, &tip.epoch_id)
+                    .unwrap();
 
             if latest_height.get() == 0 {
                 // This is beginning of the test, and the first epoch after genesis has height 1.

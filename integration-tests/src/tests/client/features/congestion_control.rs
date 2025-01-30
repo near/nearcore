@@ -4,6 +4,7 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::{TestEnv, TestEnvBuilder};
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountId;
@@ -382,10 +383,12 @@ fn slow_test_protocol_upgrade_under_congestion() {
     // Please not that this is not updated and won't work for resharding.
     let epoch_id = tip.epoch_id;
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
-    let contract_shard_id = env.clients[0]
-        .epoch_manager
-        .account_id_to_shard_id(&CONTRACT_ID.parse().unwrap(), &tip.epoch_id)
-        .unwrap();
+    let contract_shard_id = account_id_to_shard_id(
+        env.clients[0].epoch_manager.as_ref(),
+        &CONTRACT_ID.parse().unwrap(),
+        &tip.epoch_id,
+    )
+    .unwrap();
     let contract_shard_index = shard_layout.get_shard_index(contract_shard_id).unwrap();
 
     // Check there is still congestion, which this test is all about.

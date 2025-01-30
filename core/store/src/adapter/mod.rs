@@ -5,8 +5,6 @@ pub mod trie_store;
 
 use std::ops::{Deref, DerefMut};
 
-use near_primitives::types::BlockHeight;
-
 use crate::{Store, StoreUpdate};
 
 /// Internal enum that can store either an owned StoreUpdate to a reference to StoreUpdate.
@@ -94,12 +92,8 @@ pub trait StoreAdapter {
         self.store_ref().clone()
     }
 
-    fn chain_store(
-        &self,
-        genesis_height: BlockHeight,
-        save_trie_changes: bool,
-    ) -> chain_store::ChainStoreAdapter {
-        chain_store::ChainStoreAdapter::new(self.store(), genesis_height, save_trie_changes)
+    fn chain_store(&self) -> chain_store::ChainStoreAdapter {
+        chain_store::ChainStoreAdapter::new(self.store())
     }
 
     fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {

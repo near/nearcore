@@ -7,7 +7,7 @@ use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{ShardInfo, ShardLayout};
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest,
@@ -56,34 +56,6 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Returns `account_id` that is supposed to have the `part_id`.
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError>;
-
-    /// Which shard the account belongs to in the given epoch.
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError>;
-
-    /// Which shard the account belongs to in the given epoch.
-    fn account_id_to_shard_info(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardInfo, EpochError>;
-
-    /// Converts `ShardId` (index of shard in the *current* layout) to
-    /// `ShardUId` (`ShardId` + the version of shard layout itself.)
-    fn shard_id_to_uid(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardUId, EpochError>;
-
-    fn shard_id_to_index(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardIndex, EpochError>;
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError>;
 
@@ -505,49 +477,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let settlement = epoch_info.block_producers_settlement();
         let validator_id = settlement[part_id as usize % settlement.len()];
         Ok(epoch_info.get_validator(validator_id).account_id().clone())
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.account_id_to_shard_id(account_id))
-    }
-
-    fn account_id_to_shard_info(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardInfo, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let shard_id = shard_layout.account_id_to_shard_id(account_id);
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(ShardInfo { shard_index, shard_uid })
-    }
-
-    fn shard_id_to_uid(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardUId, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
-    }
-
-    fn shard_id_to_index(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardIndex, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.get_shard_index(shard_id)?)
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
