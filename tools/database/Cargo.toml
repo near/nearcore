@@ -24,9 +24,11 @@ tempfile.workspace = true
 bytesize.workspace = true
 zstd.workspace = true
 tracing.workspace = true
+hex.workspace = true
 
 nearcore.workspace = true
 near-o11y.workspace = true
+near-crypto.workspace = true
 near-epoch-manager.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true
