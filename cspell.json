@@ -10,7 +10,8 @@
         "debug_scripts/Pipfile",
         "docs/images/**",
         "pytest/requirements.txt",
-        "pytest/tests/sandbox/patch_state.py"
+        "pytest/tests/sandbox/patch_state.py",
+        "utils/mainnet-res/res/**.json"
     ],
     "dictionaryDefinitions": [],
     "dictionaries": [],
@@ -30,6 +31,7 @@
         "backpressure",
         "Banasik",
         "BASEPOINT",
+        "behaviour",
         "benchmarknet",
         "betanet",
         "bijective",
@@ -37,7 +39,6 @@
         "bitmask",
         "bitvec",
         "BLOCKLIST",
-        "bootnodes",
         "borsh",
         "bufbuild",
         "bytesize",
@@ -114,6 +115,7 @@
         "kickout",
         "Kickouts",
         "kkuuue",
+        "libc",
         "libcore",
         "libfuzzer",
         "librocksdb",
@@ -126,6 +128,7 @@
         "locustfile",
         "locustfiles",
         "Logunov",
+        "manytx",
         "Mbps",
         "memtable",
         "memtrie",
@@ -192,6 +195,7 @@
         "profraw",
         "profraws",
         "pugachag",
+        "pwasm",
         "pytest",
         "pytests",
         "PYTHONPATH",
@@ -320,7 +324,8 @@
         "yocto",
         "yoctonear",
         "zstd",
-        "Zulip"
+        "Zulip",
+        "deser"
     ],
     "ignoreWords": [],
     "import": []

@@ -38,7 +38,9 @@ impl HandlerWithContext<FlatStorageShardCatchupRequest> for ReshardingActor {
 
 impl Handler<MemtrieReloadRequest> for ReshardingActor {
     fn handle(&mut self, _msg: MemtrieReloadRequest) {
-        // TODO(resharding)
+        // TODO(resharding): implement memtrie reloading. At this stage the flat storage for
+        // `msg.shard_uid` should be ready. Construct a new memtrie in the background and replace
+        // with hybrid memtrie with it. Afterwards, the hybrid memtrie can be deleted.
     }
 }
 

@@ -30,6 +30,7 @@ import cluster
 from configured_logger import logger
 import utils
 
+# cspell:ignore astderr astdout cids getgid getuid testimage userns
 BLOCKS = 42
 NUM_NODES = 3
 
@@ -74,7 +75,7 @@ def docker_run(shell_cmd: typing.Optional[str] = None,
     Args:
         shell_cmd: Optionally a shell command to execute inside of the
             container.  It's going to be run using `sh -c` and it's caller's
-            responsibility to make sure all data inside is properly sanitised.
+            responsibility to make sure all data inside is properly sanitized.
             If not given, command configured via CMD when building the container
             will be executed as typical for Docker images.
         detach: Whether the `docker run` command should detach or not.  If

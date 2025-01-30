@@ -1,5 +1,6 @@
 use crate::StoreValidator;
 
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
@@ -409,13 +410,17 @@ pub(crate) fn block_chunks_exist(
                         chunk_header
                     );
                     if cares_about_shard {
-                        let shard_uid = sv
-                            .epoch_manager
-                            .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
-                            .map_err(|err| StoreValidatorError::DBNotFound {
+                        let shard_uid = shard_id_to_uid(
+                            sv.epoch_manager.as_ref(),
+                            chunk_header.shard_id(),
+                            block.header().epoch_id(),
+                        )
+                        .map_err(|err| {
+                            StoreValidatorError::DBNotFound {
                                 func_name: "get_shard_layout",
                                 reason: err.to_string(),
-                            })?;
+                            }
+                        })?;
                         let block_shard_uid = get_block_shard_uid(block.hash(), &shard_uid);
                         unwrap_or_err_db!(
                             sv.store
@@ -724,13 +729,15 @@ pub(crate) fn outcome_indexed_by_block_hash(
     );
     for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
-            let shard_uid = sv
-                .epoch_manager
-                .shard_id_to_uid(chunk_header.shard_id(), block.header().epoch_id())
-                .map_err(|err| StoreValidatorError::DBNotFound {
-                    func_name: "get_shard_layout",
-                    reason: err.to_string(),
-                })?;
+            let shard_uid = shard_id_to_uid(
+                sv.epoch_manager.as_ref(),
+                chunk_header.shard_id(),
+                block.header().epoch_id(),
+            )
+            .map_err(|err| StoreValidatorError::DBNotFound {
+                func_name: "get_shard_layout",
+                reason: err.to_string(),
+            })?;
             if let Ok(Some(_)) = sv.store.get_ser::<ChunkExtra>(
                 DBCol::ChunkExtra,
                 &get_block_shard_uid(block.hash(), &shard_uid),

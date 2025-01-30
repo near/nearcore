@@ -71,6 +71,12 @@ pub enum GenericTrieNode<TrieNodePtr, GenericValueHandle> {
     },
 }
 
+impl<N, V> Default for GenericTrieNode<N, V> {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
+
 impl<N, V> GenericTrieNode<N, V>
 where
     V: HasValueLength,
@@ -134,6 +140,12 @@ impl<N, V> From<GenericTrieNode<N, V>> for GenericUpdatedTrieNode<N, V> {
 pub struct GenericTrieNodeWithSize<GenericTrieNodePtr, GenericValueHandle> {
     pub node: GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>,
     pub memory_usage: u64,
+}
+
+impl<N, V> Default for GenericTrieNodeWithSize<N, V> {
+    fn default() -> Self {
+        Self { node: Default::default(), memory_usage: 0 }
+    }
 }
 
 /// An updated node with its memory usage.
@@ -232,4 +244,21 @@ pub(crate) trait GenericTrieUpdate<'a, GenericTrieNodePtr, GenericValueHandle> {
 
     /// Deletes a state value from the trie.
     fn delete_value(&mut self, value: GenericValueHandle) -> Result<(), StorageError>;
+}
+
+/// This is the interface used by TrieIterator to get nodes and values from the storage.
+/// It is used to abstract the storage of trie nodes and values.
+pub trait GenericTrieInternalStorage<GenericTrieNodePtr, GenericValueHandle> {
+    // Get the root node of the trie.
+    // Optionally return None if the trie is empty.
+    fn get_root(&self) -> Option<GenericTrieNodePtr>;
+
+    // Get a node from the storage.
+    fn get_and_record_node(
+        &self,
+        ptr: GenericTrieNodePtr,
+    ) -> Result<GenericTrieNode<GenericTrieNodePtr, GenericValueHandle>, StorageError>;
+
+    // Get a value from the storage.
+    fn get_and_record_value(&self, value_ref: GenericValueHandle) -> Result<Vec<u8>, StorageError>;
 }

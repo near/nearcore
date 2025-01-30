@@ -57,7 +57,7 @@ def do_moar_stakes(last_block_hash, update_expected):
     if len(sequence) == 0:
         stakes = [0, 0, 0]
         # have 1-2 validators with stake, and the remaining without
-        # make numbers dibisable by 1M so that we can easily distinguish a situation when the current locked amt has some reward added to it (not divisable by 1M) vs not (divisable by 1M)
+        # make numbers divisible by 1M so that we can easily distinguish a situation when the current locked amt has some reward added to it (not divisible by 1M) vs not (divisible by 1M)
         stakes[random.randint(0, 2)] = random.randint(
             70000000000000000000000000, 100000000000000000000000000) * 1000000
         stakes[random.randint(0, 2)] = random.randint(

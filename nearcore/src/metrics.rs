@@ -2,7 +2,7 @@ use crate::NearConfig;
 use actix_rt::ArbiterHandle;
 use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram_vec, try_create_int_counter_vec,
     try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
@@ -107,15 +107,17 @@ fn log_trie_item(key: Vec<u8>, value: Vec<u8>) {
     }
 }
 
-fn export_postponed_receipt_count(near_config: &NearConfig, store: &Store) -> anyhow::Result<()> {
+fn export_postponed_receipt_count(
+    near_config: &NearConfig,
+    store: &Store,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> anyhow::Result<()> {
     let chain_store = ChainStore::new(
         store.clone(),
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
-    let epoch_manager =
-        EpochManager::new_from_genesis_config(store.clone(), &near_config.genesis.config)?;
 
     let head = chain_store.final_head()?;
     let block = chain_store.get_block(&head.last_block_hash)?;
@@ -194,6 +196,7 @@ pub fn spawn_trie_metrics_loop(
     near_config: NearConfig,
     store: Store,
     period: Duration,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> anyhow::Result<ArbiterHandle> {
     tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
     let arbiter = actix_rt::Arbiter::new();
@@ -208,7 +211,7 @@ pub fn spawn_trie_metrics_loop(
             interval.tick().await;
 
             let start_time = std::time::Instant::now();
-            let result = export_postponed_receipt_count(&near_config, &store);
+            let result = export_postponed_receipt_count(&near_config, &store, epoch_manager.as_ref());
             if let Err(err) = result {
                 tracing::error!(target: "metrics", "Error when exporting postponed receipts count {err}.");
             };

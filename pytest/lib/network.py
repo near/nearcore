@@ -15,6 +15,7 @@ def _run_process(cmd):
 
 def init_network_pillager():
     _run_process(["mkdir", "-p", "/sys/fs/cgroup/net_cls/block"])
+    # cspell:ignore classid
     try:
         with open("/sys/fs/cgroup/net_cls/block/net_cls.classid", 'w') as f:
             f.write("42")

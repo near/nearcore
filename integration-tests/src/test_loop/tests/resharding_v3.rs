@@ -138,9 +138,6 @@ struct TestReshardingParameters {
     delay_flat_state_resharding: BlockHeightDelta,
     /// Make promise yield timeout much shorter than normal.
     short_yield_timeout: bool,
-    // TODO(resharding) Remove this when negative refcounts are properly handled.
-    /// Whether to allow negative refcount being a result of the database update.
-    allow_negative_refcount: bool,
     /// If not disabled, use testloop action that will delete an account after resharding
     /// and check that the account is accessible through archival node but not through a regular node.
     disable_temporary_account_test: bool,
@@ -282,7 +279,6 @@ impl TestReshardingParametersBuilder {
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
-            allow_negative_refcount: self.allow_negative_refcount.unwrap_or(true),
             disable_temporary_account_test,
             temporary_account_id,
             num_epochs_to_wait,
@@ -413,10 +409,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     if params.track_all_shards {
         builder = builder.track_all_shards();
-    }
-
-    if params.allow_negative_refcount {
-        builder = builder.allow_negative_refcount();
     }
 
     if params.limit_outgoing_gas || params.short_yield_timeout {
@@ -588,7 +580,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
                 client,
                 &resharding_block_hash.get().unwrap(),
                 parent_shard_uid,
-                params.allow_negative_refcount,
             );
         }
 
@@ -614,13 +605,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 }
 
 #[test]
-fn test_resharding_v3() {
+fn slow_test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
 }
 
 // TODO(resharding) Add test with double resharding (not independent) when it is supported.
 #[test]
-fn test_resharding_v3_two_independent_splits() {
+fn slow_test_resharding_v3_two_independent_splits() {
     let second_resharding_boundary_account = "account2".parse().unwrap();
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -646,7 +637,7 @@ fn shard_sequence_to_schedule(
 }
 
 #[test]
-fn test_resharding_v3_two_splits_one_after_another_at_single_node() {
+fn slow_test_resharding_v3_two_splits_one_after_another_at_single_node() {
     let first_resharding_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let second_resharding_boundary_account: AccountId = "account2".parse().unwrap();
 
@@ -703,7 +694,7 @@ fn test_resharding_v3_two_splits_one_after_another_at_single_node() {
 // Track parent shard before resharding, child shard after resharding, and then an unrelated shard forever.
 // Eventually, the State column should only contain entries belonging to the last tracked shard.
 #[test]
-fn test_resharding_v3_state_cleanup() {
+fn slow_test_resharding_v3_state_cleanup() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -732,7 +723,7 @@ fn test_resharding_v3_state_cleanup() {
 
 // Track parent shard before resharding, but do not track any child shard after resharding.
 #[test]
-fn test_resharding_v3_do_not_track_children_after_resharding() {
+fn slow_test_resharding_v3_do_not_track_children_after_resharding() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -763,7 +754,7 @@ fn test_resharding_v3_do_not_track_children_after_resharding() {
 // We expect all parent state and mapping have been removed,
 // then child shard was state synced without mapping.
 #[test]
-fn test_resharding_v3_stop_track_child_for_5_epochs() {
+fn slow_test_resharding_v3_stop_track_child_for_5_epochs() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -806,7 +797,7 @@ fn test_resharding_v3_stop_track_child_for_5_epochs() {
 // We expect the mapping to parent to be preserved, because there were not enough
 // epochs where we did not track any child for mapping to be removed.
 #[test]
-fn test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between() {
+fn slow_test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -846,7 +837,7 @@ fn test_resharding_v3_stop_track_child_for_5_epochs_with_sibling_in_between() {
 // Sets up an extra node that doesn't track the parent, doesn't track the child in the first post-resharding
 // epoch, and then tracks a child in the epoch after that. This checks that state sync works in that case.
 #[test]
-fn test_resharding_v3_sync_child() {
+fn slow_test_resharding_v3_sync_child() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -873,7 +864,7 @@ fn test_resharding_v3_sync_child() {
 }
 
 #[test]
-fn test_resharding_v3_track_all_shards() {
+fn slow_test_resharding_v3_track_all_shards() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .track_all_shards(true)
@@ -883,7 +874,7 @@ fn test_resharding_v3_track_all_shards() {
 }
 
 #[test]
-fn test_resharding_v3_drop_chunks_before() {
+fn slow_test_resharding_v3_drop_chunks_before() {
     let chunk_ranges_to_drop = HashMap::from([(1, -2..0)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -894,7 +885,7 @@ fn test_resharding_v3_drop_chunks_before() {
 }
 
 #[test]
-fn test_resharding_v3_drop_chunks_after() {
+fn slow_test_resharding_v3_drop_chunks_after() {
     let chunk_ranges_to_drop = HashMap::from([(2, 0..2)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -904,7 +895,7 @@ fn test_resharding_v3_drop_chunks_after() {
 }
 
 #[test]
-fn test_resharding_v3_drop_chunks_before_and_after() {
+fn slow_test_resharding_v3_drop_chunks_before_and_after() {
     let chunk_ranges_to_drop = HashMap::from([(0, -2..2)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -915,7 +906,7 @@ fn test_resharding_v3_drop_chunks_before_and_after() {
 }
 
 #[test]
-fn test_resharding_v3_drop_chunks_all() {
+fn slow_test_resharding_v3_drop_chunks_all() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, 0..3), (3, 0..1)]);
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
@@ -927,7 +918,7 @@ fn test_resharding_v3_drop_chunks_all() {
 
 #[test]
 #[cfg(feature = "test_features")]
-fn test_resharding_v3_resharding_block_in_fork() {
+fn slow_test_resharding_v3_resharding_block_in_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .num_clients(1)
@@ -935,18 +926,17 @@ fn test_resharding_v3_resharding_block_in_fork() {
             .num_validators(0)
             .num_rpcs(0)
             .num_archivals(0)
-            .add_loop_action(fork_before_resharding_block(false))
+            .add_loop_action(fork_before_resharding_block(false, 3))
             .build(),
     );
 }
 
 #[test]
-// TODO(resharding): duplicate this test so that in one case resharding is performed on block
-//                   B(height=13) and in another case resharding is performed on block B'(height=13).
-//                   In the current scenario the real resharding happens on block B'. Low priority TODO
-//                   since it's a very rare corner case.
+// Scenario:
+// Two double signed blocks B(height=15) and B'(height=15) processed in the order B -> B'.
+// In this scenario the chain discards the resharding at B' and performs resharding at B.
 #[cfg(feature = "test_features")]
-fn test_resharding_v3_double_sign_resharding_block() {
+fn slow_test_resharding_v3_double_sign_resharding_block_first_fork() {
     test_resharding_v3_base(
         TestReshardingParametersBuilder::default()
             .num_clients(1)
@@ -954,13 +944,32 @@ fn test_resharding_v3_double_sign_resharding_block() {
             .num_validators(0)
             .num_rpcs(0)
             .num_archivals(0)
-            .add_loop_action(fork_before_resharding_block(true))
+            .add_loop_action(fork_before_resharding_block(true, 1))
             .build(),
     );
 }
 
 #[test]
-fn test_resharding_v3_shard_shuffling() {
+// Scenario:
+// Two double signed blocks B(height=15) and B'(height=15) and a third block C(height=19)
+// processed in the order B -> B' -> C.
+// In this scenario the chain discards the reshardings at B and B' and performs resharding at C.
+#[cfg(feature = "test_features")]
+fn slow_test_resharding_v3_double_sign_resharding_block_last_fork() {
+    test_resharding_v3_base(
+        TestReshardingParametersBuilder::default()
+            .num_clients(1)
+            .num_producers(1)
+            .num_validators(0)
+            .num_rpcs(0)
+            .num_archivals(0)
+            .add_loop_action(fork_before_resharding_block(true, 3))
+            .build(),
+    );
+}
+
+#[test]
+fn slow_test_resharding_v3_shard_shuffling() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
         .num_epochs_to_wait(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
@@ -973,7 +982,7 @@ fn test_resharding_v3_shard_shuffling() {
 /// in the next epoch after that. In that case we don't want to state sync because we can just perform
 /// the resharding and continue applying chunks for the child in the first epoch post-resharding.
 #[test]
-fn test_resharding_v3_shard_shuffling_untrack_then_track() {
+fn slow_test_resharding_v3_shard_shuffling_untrack_then_track() {
     let account_in_stable_shard: AccountId = "account0".parse().unwrap();
     let split_boundary_account: AccountId = NEW_BOUNDARY_ACCOUNT.parse().unwrap();
     let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
@@ -1002,7 +1011,7 @@ fn test_resharding_v3_shard_shuffling_untrack_then_track() {
 }
 
 #[test]
-fn test_resharding_v3_shard_shuffling_intense() {
+fn slow_test_resharding_v3_shard_shuffling_intense() {
     let chunk_ranges_to_drop = HashMap::from([(0, -1..2), (1, -3..0), (2, -3..3), (3, 0..1)]);
     let params = TestReshardingParametersBuilder::default()
         .num_accounts(8)
@@ -1021,7 +1030,7 @@ fn test_resharding_v3_shard_shuffling_intense() {
 /// resharding. Caught a bug with invalid storage costs computed during flat
 /// storage resharding.
 #[test]
-fn test_resharding_v3_storage_operations() {
+fn slow_test_resharding_v3_storage_operations() {
     let sender_account: AccountId = "account1".parse().unwrap();
     let account_in_parent: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -1036,7 +1045,7 @@ fn test_resharding_v3_storage_operations() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_delayed_receipts_left_child() {
+fn slow_test_resharding_v3_delayed_receipts_left_child() {
     let account: AccountId = "account4".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
         .deploy_test_contract(account.clone())
@@ -1050,14 +1059,13 @@ fn test_resharding_v3_delayed_receipts_left_child() {
             vec![account],
             ReceiptKind::Delayed,
         ))
-        .allow_negative_refcount(true)
         .build();
     test_resharding_v3_base(params);
 }
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_delayed_receipts_right_child() {
+fn slow_test_resharding_v3_delayed_receipts_right_child() {
     let account: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
         .deploy_test_contract(account.clone())
@@ -1071,7 +1079,6 @@ fn test_resharding_v3_delayed_receipts_right_child() {
             vec![account],
             ReceiptKind::Delayed,
         ))
-        .allow_negative_refcount(true)
         .epoch_length(INCREASED_EPOCH_LENGTH)
         .build();
     test_resharding_v3_base(params);
@@ -1107,13 +1114,13 @@ fn test_resharding_v3_split_parent_buffered_receipts_base(base_shard_layout_vers
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_split_parent_buffered_receipts_v1() {
+fn slow_test_resharding_v3_split_parent_buffered_receipts_v1() {
     test_resharding_v3_split_parent_buffered_receipts_base(1);
 }
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_split_parent_buffered_receipts_v2() {
+fn slow_test_resharding_v3_split_parent_buffered_receipts_v2() {
     test_resharding_v3_split_parent_buffered_receipts_base(2);
 }
 
@@ -1149,13 +1156,13 @@ fn test_resharding_v3_buffered_receipts_towards_splitted_shard_base(
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v1() {
+fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard_v1() {
     test_resharding_v3_buffered_receipts_towards_splitted_shard_base(1);
 }
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_buffered_receipts_towards_splitted_shard_v2() {
+fn slow_test_resharding_v3_buffered_receipts_towards_splitted_shard_v2() {
     test_resharding_v3_buffered_receipts_towards_splitted_shard_base(2);
 }
 
@@ -1202,7 +1209,7 @@ fn slow_test_resharding_v3_large_receipts_towards_splitted_shard_v2() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
+fn slow_test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
     let receiver_account: AccountId = "account4".parse().unwrap();
     let account_1_in_stable_shard: AccountId = "account1".parse().unwrap();
     let account_2_in_stable_shard: AccountId = "account2".parse().unwrap();
@@ -1220,7 +1227,7 @@ fn test_resharding_v3_outgoing_receipts_towards_splitted_shard() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
+fn slow_test_resharding_v3_outgoing_receipts_from_splitted_shard() {
     let receiver_account: AccountId = "account0".parse().unwrap();
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
@@ -1238,7 +1245,7 @@ fn test_resharding_v3_outgoing_receipts_from_splitted_shard() {
 }
 
 #[test]
-fn test_resharding_v3_load_memtrie_v1() {
+fn slow_test_resharding_v3_load_memtrie_v1() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(1)
         .load_memtries_for_tracked_shards(false)
@@ -1247,7 +1254,7 @@ fn test_resharding_v3_load_memtrie_v1() {
 }
 
 #[test]
-fn test_resharding_v3_load_memtrie_v2() {
+fn slow_test_resharding_v3_load_memtrie_v2() {
     let params = TestReshardingParametersBuilder::default()
         .base_shard_layout_version(2)
         .load_memtries_for_tracked_shards(false)
@@ -1257,7 +1264,7 @@ fn test_resharding_v3_load_memtrie_v2() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_slower_post_processing_tasks() {
+fn slow_test_resharding_v3_slower_post_processing_tasks() {
     // When there's a resharding task delay and single-shard tracking, the delay might be pushed out
     // even further because the resharding task might have to wait for the state snapshot to be made
     // before it can proceed, which might mean that flat storage won't be ready for the child shard for a whole epoch.
@@ -1272,7 +1279,7 @@ fn test_resharding_v3_slower_post_processing_tasks() {
 
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
+fn slow_test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
     let params = TestReshardingParametersBuilder::default()
         .shuffle_shard_assignment_for_chunk_producers(true)
         .num_epochs_to_wait(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
@@ -1283,7 +1290,7 @@ fn test_resharding_v3_shard_shuffling_slower_post_processing_tasks() {
 }
 
 #[test]
-fn test_resharding_v3_yield_resume() {
+fn slow_test_resharding_v3_yield_resume() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -1307,7 +1314,7 @@ fn test_resharding_v3_yield_resume() {
 }
 
 #[test]
-fn test_resharding_v3_yield_timeout() {
+fn slow_test_resharding_v3_yield_timeout() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
@@ -1327,7 +1334,6 @@ fn test_resharding_v3_yield_timeout() {
             vec![account_in_left_child, account_in_right_child],
             ReceiptKind::PromiseYield,
         ))
-        .allow_negative_refcount(true)
         .epoch_length(INCREASED_EPOCH_LENGTH)
         .build();
     test_resharding_v3_base(params);

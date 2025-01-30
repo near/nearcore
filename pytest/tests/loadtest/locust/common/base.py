@@ -32,7 +32,7 @@ DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
 logger = new_logger(level=logging.WARN)
 
 # This is used to make the specific tests wait for the do_on_locust_init function
-# to initialize the funding account, before initializating the users.
+# to initialize the funding account, before initializing the users.
 INIT_DONE = threading.Event()
 
 
@@ -960,6 +960,7 @@ def _(parser):
 
 class TestEvaluateRpcResult(unittest.TestCase):
 
+    # cspell:disable
     def test_smart_contract_panic(self):
         input = """{
           "result": {
@@ -981,7 +982,7 @@ class TestEvaluateRpcResult(unittest.TestCase):
                       "index": 0,
                       "kind": {
                         "FunctionCallError": {
-                          "ExecutionError": "Smart contract panicked: The account doesnt have enough balance"
+                          "ExecutionError": "Smart contract panicked: The account doesn't have enough balance"
                         }
                       }
                     }
