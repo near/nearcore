@@ -655,12 +655,9 @@ impl ViewClientActorInner {
         announce_account: &AnnounceAccount,
     ) -> Result<bool, Error> {
         let announce_hash = announce_account.hash();
-        let head = self.chain.head()?;
-
         self.epoch_manager
             .verify_validator_signature(
                 &announce_account.epoch_id,
-                &head.last_block_hash,
                 &announce_account.account_id,
                 announce_hash.as_ref(),
                 &announce_account.signature,

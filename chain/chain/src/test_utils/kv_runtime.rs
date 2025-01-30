@@ -10,7 +10,7 @@ use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
-use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{KeyType, PublicKey, SecretKey};
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
@@ -28,10 +28,6 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest,
-};
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
@@ -766,29 +762,19 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_validator_by_account_id(
         &self,
         epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
         for validator_stake in validators.block_producers.iter() {
             if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
+                return Ok(validator_stake.clone());
             }
         }
         for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
+                return Ok(validator_stake.clone());
             }
         }
-        Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
-    }
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
         Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
@@ -841,49 +827,6 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn should_validate_signatures(&self) -> bool {
         false
-    }
-
-    fn verify_validator_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_chunk_endorsement_signature(
-        &self,
-        _endorsement: &ChunkEndorsement,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_witness_contract_accesses_signature(
-        &self,
-        _accesses: &ChunkContractAccesses,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_witness_contract_code_request_signature(
-        &self,
-        _request: &ContractCodeRequest,
-    ) -> Result<bool, Error> {
-        Ok(true)
     }
 
     fn cares_about_shard_in_epoch(

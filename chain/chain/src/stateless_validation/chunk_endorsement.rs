@@ -88,11 +88,7 @@ pub fn validate_chunk_endorsements_in_block(
         let mut endorsed_chunk_validators = HashMap::new();
         for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
             let Some(signature) = signature else { continue };
-            let (validator, _) = epoch_manager.get_validator_by_account_id(
-                &epoch_id,
-                block.header().prev_hash(),
-                account_id,
-            )?;
+            let validator = epoch_manager.get_validator_by_account_id(&epoch_id, account_id)?;
 
             // Block should not be produced with an invalid signature.
             if !ChunkEndorsement::validate_signature(
