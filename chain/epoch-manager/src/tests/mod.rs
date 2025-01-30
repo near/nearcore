@@ -3355,8 +3355,7 @@ fn test_verify_partial_witness_signature() {
     let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
 
     // Verify if the test signer has same public key as the chunk validator.
-    let (validator, _) =
-        epoch_manager.get_validator_by_account_id(&epoch_id, &h[0], &account_id).unwrap();
+    let validator = epoch_manager.get_validator_by_account_id(&epoch_id, &account_id).unwrap();
     let chunk_producer: AccountId = "test1".parse().unwrap();
     let signer = Arc::new(create_test_signer(chunk_producer.as_str()));
     assert_eq!(signer.public_key(), validator.public_key().clone());

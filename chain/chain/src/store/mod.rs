@@ -382,9 +382,10 @@ pub fn filter_incoming_receipts_for_shard(
         let mut filtered_receipts = vec![];
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
-            let receiver_shard_id =
-                target_shard_layout.account_id_to_shard_id(receipt.receiver_id());
-            if receiver_shard_id == target_shard_id {
+            if receipt.send_to_all_shards()
+                || target_shard_layout.account_id_to_shard_id(receipt.receiver_id())
+                    == target_shard_id
+            {
                 tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {
@@ -401,6 +402,11 @@ pub fn filter_incoming_receipts_for_shard(
 pub struct ChainStore {
     store: ChainStoreAdapter,
     latest_known: once_cell::unsync::OnceCell<LatestKnown>,
+    /// save_trie_changes should be set to true iff
+    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
+    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
+    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
+    save_trie_changes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
 }
@@ -427,13 +433,13 @@ where
 impl ChainStore {
     pub fn new(
         store: Store,
-        genesis_height: BlockHeight,
         save_trie_changes: bool,
         transaction_validity_period: BlockHeightDelta,
     ) -> ChainStore {
         ChainStore {
-            store: store.chain_store(genesis_height, save_trie_changes),
+            store: store.chain_store(),
             latest_known: once_cell::unsync::OnceCell::new(),
+            save_trie_changes,
             transaction_validity_period,
         }
     }
@@ -1950,121 +1956,6 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    /// Only used in mock network
-    /// Create a new ChainStoreUpdate that copies the necessary chain state related to `block_hash`
-    /// from `source_store` to the current store.
-    pub fn copy_chain_state_as_of_block(
-        chain_store: &'a mut ChainStore,
-        block_hash: &CryptoHash,
-        source_epoch_manager: &dyn EpochManagerAdapter,
-        source_store: &ChainStore,
-    ) -> Result<ChainStoreUpdate<'a>, Error> {
-        let mut chain_store_update = ChainStoreUpdate::new(chain_store);
-        let block = source_store.get_block(block_hash)?;
-        let header = block.header().clone();
-        let height = header.height();
-        let tip = Tip {
-            height,
-            last_block_hash: *block_hash,
-            prev_block_hash: *header.prev_hash(),
-            epoch_id: *header.epoch_id(),
-            next_epoch_id: *header.next_epoch_id(),
-        };
-        chain_store_update.head = Some(tip.clone());
-        chain_store_update.tail = Some(height);
-        chain_store_update.chunk_tail = Some(height);
-        chain_store_update.fork_tail = Some(height);
-        chain_store_update.header_head = Some(tip.clone());
-        chain_store_update.final_head = Some(tip);
-        chain_store_update.chain_store_cache_update.blocks.insert(*block_hash, block.clone());
-        chain_store_update.chain_store_cache_update.headers.insert(*block_hash, header.clone());
-        // store all headers until header.last_final_block
-        // needed to light client
-        let mut prev_hash = *header.prev_hash();
-        let last_final_hash = header.last_final_block();
-        loop {
-            let header = source_store.get_block_header(&prev_hash)?;
-            chain_store_update.chain_store_cache_update.headers.insert(prev_hash, header.clone());
-            if &prev_hash == last_final_hash {
-                break;
-            } else {
-                chain_store_update
-                    .chain_store_cache_update
-                    .next_block_hashes
-                    .insert(*header.prev_hash(), prev_hash);
-                prev_hash = *header.prev_hash();
-            }
-        }
-        chain_store_update
-            .chain_store_cache_update
-            .block_extras
-            .insert(*block_hash, source_store.get_block_extra(block_hash)?);
-        let shard_layout = source_epoch_manager.get_shard_layout(&header.epoch_id())?;
-        for shard_uid in shard_layout.shard_uids() {
-            chain_store_update.chain_store_cache_update.chunk_extras.insert(
-                (*block_hash, shard_uid),
-                source_store.get_chunk_extra(block_hash, &shard_uid)?.clone(),
-            );
-        }
-        for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
-            let shard_id = shard_layout.get_shard_id(shard_index)?;
-            let chunk_hash = chunk_header.chunk_hash();
-            chain_store_update
-                .chain_store_cache_update
-                .chunks
-                .insert(chunk_hash.clone(), source_store.get_chunk(&chunk_hash)?.clone());
-            chain_store_update.chain_store_cache_update.outgoing_receipts.insert(
-                (*block_hash, shard_id),
-                source_store.get_outgoing_receipts(block_hash, shard_id)?.clone(),
-            );
-            chain_store_update.chain_store_cache_update.incoming_receipts.insert(
-                (*block_hash, shard_id),
-                source_store.get_incoming_receipts(block_hash, shard_id)?.clone(),
-            );
-            let outcome_ids =
-                source_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
-            for id in outcome_ids.iter() {
-                if let Some(existing_outcome) =
-                    source_store.get_outcome_by_id_and_block_hash(id, block_hash)?
-                {
-                    chain_store_update
-                        .chain_store_cache_update
-                        .outcomes
-                        .insert((*id, *block_hash), existing_outcome);
-                }
-            }
-            chain_store_update
-                .chain_store_cache_update
-                .outcome_ids
-                .insert((*block_hash, shard_id), outcome_ids);
-        }
-        chain_store_update
-            .chain_store_cache_update
-            .height_to_hashes
-            .insert(height, Some(*block_hash));
-        chain_store_update
-            .chain_store_cache_update
-            .next_block_hashes
-            .insert(*header.prev_hash(), *block_hash);
-        let block_merkle_tree = source_store.get_block_merkle_tree(block_hash)?;
-        chain_store_update
-            .chain_store_cache_update
-            .block_merkle_tree
-            .insert(*block_hash, block_merkle_tree.clone());
-        chain_store_update
-            .chain_store_cache_update
-            .block_ordinal_to_hash
-            .insert(block_merkle_tree.size(), *block_hash);
-        chain_store_update.chain_store_cache_update.processed_block_heights.insert(height);
-
-        // other information not directly related to this block
-        chain_store_update.chain_store_cache_update.height_to_hashes.insert(
-            source_store.get_genesis_height(),
-            Some(source_store.get_block_hash_by_height(source_store.get_genesis_height())?),
-        );
-        Ok(chain_store_update)
-    }
-
     #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
@@ -2308,7 +2199,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
                 wrapped_trie_changes.state_changes_into(&mut store_update.trie_store_update());
 
-                if self.chain_store.save_trie_changes() {
+                if self.chain_store.save_trie_changes {
                     wrapped_trie_changes.trie_changes_into(&mut store_update.trie_store_update());
                 }
             }

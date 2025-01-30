@@ -5,12 +5,11 @@ use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo, StorageUsage};
+use near_primitives::types::{AccountId, AccountInfo};
 use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
-use near_primitives_core::version::PROTOCOL_VERSION;
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::{hash_map, HashMap};
@@ -48,40 +47,22 @@ fn set_total_balance(dst: &mut Account, src: &Account) {
 }
 
 impl AccountRecords {
-    fn new(
-        amount: Balance,
-        locked: Balance,
-        permanent_storage_bytes: StorageUsage,
-        num_bytes_account: u64,
-    ) -> Self {
+    fn new(amount: Balance, locked: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(amount, locked, permanent_storage_bytes, num_bytes_account);
+        ret.set_account(amount, locked, num_bytes_account);
         ret
     }
 
     fn new_validator(stake: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(0, stake, 0, num_bytes_account);
+        ret.set_account(0, stake, num_bytes_account);
         ret.amount_needed = true;
         ret
     }
 
-    fn set_account(
-        &mut self,
-        amount: Balance,
-        locked: Balance,
-        permanent_storage_bytes: StorageUsage,
-        num_bytes_account: u64,
-    ) {
+    fn set_account(&mut self, amount: Balance, locked: Balance, num_bytes_account: u64) {
         assert!(self.account.is_none());
-        let account = Account::new(
-            amount,
-            locked,
-            permanent_storage_bytes,
-            CryptoHash::default(),
-            num_bytes_account,
-            PROTOCOL_VERSION,
-        );
+        let account = Account::new(amount, locked, CryptoHash::default(), num_bytes_account);
         self.account = Some(account);
     }
 
@@ -200,7 +181,6 @@ fn parse_extra_records(
                         let r = AccountRecords::new(
                             account.amount(),
                             account.locked(),
-                            account.permanent_storage_bytes(),
                             num_bytes_account,
                         );
                         e.insert(r);
@@ -214,12 +194,7 @@ fn parse_extra_records(
                                 &account_id
                             ));
                         }
-                        r.set_account(
-                            account.amount(),
-                            account.locked(),
-                            account.permanent_storage_bytes(),
-                            num_bytes_account,
-                        );
+                        r.set_account(account.amount(), account.locked(), num_bytes_account);
                     }
                 }
             }
@@ -483,16 +458,8 @@ mod test {
         fn parse(&self) -> StateRecord {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
-                    // `permanent_storage_bytes` can be implemented if this is required in state records.
-                    let permanent_storage_bytes = 0;
-                    let account = Account::new(
-                        *amount,
-                        *locked,
-                        permanent_storage_bytes,
-                        CryptoHash::default(),
-                        *storage_usage,
-                        PROTOCOL_VERSION,
-                    );
+                    let account =
+                        Account::new(*amount, *locked, CryptoHash::default(), *storage_usage);
                     StateRecord::Account { account_id: account_id.parse().unwrap(), account }
                 }
                 Self::AccessKey { account_id, public_key } => StateRecord::AccessKey {

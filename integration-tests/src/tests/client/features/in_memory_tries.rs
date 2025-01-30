@@ -39,7 +39,7 @@ fn slow_test_in_memory_trie_node_consistency() {
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
-    let epoch_length = 10000;
+    let epoch_length = 9000;
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(&["account0", "account1"], &[]);
 

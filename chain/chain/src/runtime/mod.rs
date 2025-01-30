@@ -9,6 +9,7 @@ use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
@@ -1378,8 +1379,7 @@ fn congestion_control_accepts_transaction(
         return Ok(true);
     }
     let receiver_id = tx.transaction.receiver_id();
-    let receiving_shard = epoch_manager.account_id_to_shard_id(receiver_id, &epoch_id)?;
-
+    let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);
     let Some(congestion_info) = congestion_info else {
         return Ok(true);

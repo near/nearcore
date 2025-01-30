@@ -64,9 +64,6 @@ sandbox = [
   "near-o11y/sandbox",
   "node-runtime/sandbox",
 ]
-protocol_feature_nonrefundable_transfer_nep491 = [
-  "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
-]
 
 nightly = [
   "near-chain-configs/nightly",
@@ -82,7 +79,6 @@ nightly = [
   "nearcore/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
-  "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
 ]
 nightly_protocol = [

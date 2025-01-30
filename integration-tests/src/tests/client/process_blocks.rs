@@ -2248,7 +2248,6 @@ fn test_validate_chunk_extra() {
     genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_height = genesis_block.header().height();
 
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = SignedTransaction::from_actions(
@@ -2351,7 +2350,6 @@ fn test_validate_chunk_extra() {
     env.pause_block_processing(&mut capture, block2.hash());
     let mut chain_store = ChainStore::new(
         env.clients[0].chain.chain_store().store(),
-        genesis_height,
         true,
         genesis.config.transaction_validity_period,
     );

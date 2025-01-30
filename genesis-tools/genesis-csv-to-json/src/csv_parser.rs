@@ -11,7 +11,6 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, FunctionCallAction};
 use near_primitives::types::{AccountId, AccountInfo, Balance, Gas};
-use near_primitives::version::PROTOCOL_VERSION;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -189,14 +188,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
 
     let mut res = vec![StateRecord::Account {
         account_id: row.account_id.clone(),
-        account: Account::new(
-            row.amount,
-            row.validator_stake,
-            0,
-            smart_contract_hash,
-            0,
-            PROTOCOL_VERSION,
-        ),
+        account: Account::new(row.amount, row.validator_stake, smart_contract_hash, 0),
     }];
 
     // Add restricted access keys.

@@ -35,7 +35,6 @@ pub(crate) fn replay_headers(
 ) {
     let chain_store = ChainStore::new(
         store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );

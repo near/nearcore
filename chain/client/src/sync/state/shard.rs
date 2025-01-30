@@ -8,6 +8,7 @@ use near_async::messaging::AsyncSender;
 use near_chain::types::RuntimeAdapter;
 use near_chain::BlockHeader;
 use near_client_primitives::types::ShardSyncStatus;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
@@ -78,7 +79,7 @@ pub(super) async fn run_state_sync_for_shard(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+    let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
     metrics::STATE_SYNC_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string()])
         .set(num_parts as i64);

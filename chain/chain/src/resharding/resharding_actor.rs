@@ -46,14 +46,7 @@ impl Handler<MemtrieReloadRequest> for ReshardingActor {
 
 impl ReshardingActor {
     pub fn new(store: Store, genesis: &ChainGenesis) -> Self {
-        Self {
-            chain_store: ChainStore::new(
-                store,
-                genesis.height,
-                false,
-                genesis.transaction_validity_period,
-            ),
-        }
+        Self { chain_store: ChainStore::new(store, false, genesis.transaction_validity_period) }
     }
 
     fn handle_flat_storage_split_shard(

@@ -108,7 +108,6 @@ impl TrieIterationBenchmarkCmd {
         let genesis_config = &near_config.genesis.config;
         let chain_store = ChainStore::new(
             store.clone(),
-            genesis_config.genesis_height,
             near_config.client_config.save_trie_changes,
             genesis_config.transaction_validity_period,
         );

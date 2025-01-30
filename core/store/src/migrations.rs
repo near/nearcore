@@ -2,12 +2,12 @@ use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use anyhow::{anyhow, Context};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
