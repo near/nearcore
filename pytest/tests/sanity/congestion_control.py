@@ -325,7 +325,7 @@ class CongestionControlTest(unittest.TestCase):
     def __deploy_contracts(self, node: BaseNode, accounts: list[Key]):
         logger.info("Deploying contracts")
 
-        contract = load_test_contract('test_contract_rs.wasm')
+        contract = load_test_contract('rs_contract.wasm')
         deploy_contract_tx_list = list()
         for account in accounts:
             tx_hash = self.__deploy_contract(node, account, contract)

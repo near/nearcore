@@ -12,8 +12,8 @@ fn main() {
     let code = match &*name {
         "trivial" => trivial_contract(),
         "rs_contract" => rs_contract(),
-        "backwards_compatible_rs_contract" => backwards_compatible_rs_contract(),
         "nightly_rs_contract" => nightly_rs_contract(),
+        "backwards_compatible_rs_contract" => backwards_compatible_rs_contract(),
         "ts_contract" => ts_contract(),
         "fuzzing_contract" => fuzzing_contract(),
         "ft_contract" => ft_contract(),

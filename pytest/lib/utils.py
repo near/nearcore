@@ -247,8 +247,21 @@ def load_binary_file(filepath):
 def load_test_contract(
         filename: str = 'backwards_compatible_rs_contract.wasm') -> bytearray:
     """Loads a WASM file from near-test-contracts package."""
+    path = pathlib.Path(__file__).resolve()
+    logger.info(
+        f'Loading test contract {filename} path: {path} repo: {_REPO_DIR}')
     output = subprocess.check_output(
-        ['cargo', 'run', '-p', 'near-test-contracts', filename], cwd=_REPO_DIR)
+        [
+            'cargo',
+            'run',
+            '--features',
+            'test_features',
+            '-p',
+            'near-test-contracts',
+            filename,
+        ],
+        cwd=_REPO_DIR,
+    )
     return output
 
 
