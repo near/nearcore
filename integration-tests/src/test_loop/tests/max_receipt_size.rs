@@ -1,6 +1,7 @@
 use assert_matches::assert_matches;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter};
+use near_epoch_manager::shard_tracker::get_prev_shard_id_from_prev_hash;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::block::MaybeNew;
@@ -397,10 +398,13 @@ fn assert_oversized_receipt_occurred(env: &TestLoopEnv) {
                 continue;
             };
             let shard_id = new_chunk.shard_id();
-            let prev_shard_index = epoch_manager
-                .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
-                .unwrap()
-                .2;
+            let prev_shard_index = get_prev_shard_id_from_prev_hash(
+                epoch_manager,
+                block.header().prev_hash(),
+                shard_id,
+            )
+            .unwrap()
+            .2;
             let prev_height_included =
                 prev_block.chunks().get(prev_shard_index).unwrap().height_included();
 

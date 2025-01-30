@@ -41,7 +41,9 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{Error, StateSyncStatus};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::shard_tracker::{
+    get_prev_shard_id_from_prev_hash, get_shard_layout_from_prev_block, ShardTracker,
+};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::ProcessTxResponse;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
@@ -1023,8 +1025,11 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let (_, prev_shard_id, prev_shard_index) =
-            self.epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
+        let (_, prev_shard_id, prev_shard_index) = get_prev_shard_id_from_prev_hash(
+            self.epoch_manager.as_ref(),
+            prev_block.hash(),
+            shard_id,
+        )?;
         let last_chunk_header =
             prev_block.chunks().get(prev_shard_index).cloned().ok_or_else(|| {
                 Error::ChunkProducer(format!(
@@ -1605,10 +1610,9 @@ impl Client {
 
         // TODO(#10569) We would like a proper error handling here instead of `expect`.
         let parent_hash = *chunk_header.prev_block_hash();
-        let shard_layout = self
-            .epoch_manager
-            .get_shard_layout_from_prev_block(&parent_hash)
-            .expect("Could not obtain shard layout");
+        let shard_layout =
+            get_shard_layout_from_prev_block(self.epoch_manager.as_ref(), &parent_hash)
+                .expect("Could not obtain shard layout");
 
         let shard_id = partial_chunk.shard_id();
         let shard_index =
@@ -1804,9 +1808,11 @@ impl Client {
             // layout after the pool resharding
             if self.epoch_manager.is_next_block_epoch_start(&block_hash).unwrap_or(false) {
                 let new_shard_layout =
-                    self.epoch_manager.get_shard_layout_from_prev_block(&block_hash);
-                let old_shard_layout =
-                    self.epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash());
+                    get_shard_layout_from_prev_block(self.epoch_manager.as_ref(), &block_hash);
+                let old_shard_layout = get_shard_layout_from_prev_block(
+                    self.epoch_manager.as_ref(),
+                    block.header().prev_hash(),
+                );
                 match (old_shard_layout, new_shard_layout) {
                     (Ok(old_shard_layout), Ok(new_shard_layout)) => {
                         if old_shard_layout != new_shard_layout {

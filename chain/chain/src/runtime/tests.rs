@@ -6,7 +6,7 @@ use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::shard_tracker::{get_shard_layout_from_prev_block, ShardTracker};
 use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
@@ -374,7 +374,8 @@ impl TestEnv {
             .unwrap()
             .commit()
             .unwrap();
-        let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
+        let shard_layout =
+            get_shard_layout_from_prev_block(self.epoch_manager.as_ref(), &new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
             if receipt.send_to_all_shards() {
@@ -1459,7 +1460,8 @@ fn test_insufficient_stake() {
 fn test_flat_state_usage() {
     let env = TestEnv::new(vec![vec!["test1".parse().unwrap()]], 4, false);
     let prev_hash = env.head.prev_block_hash;
-    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_layout =
+        get_shard_layout_from_prev_block(env.epoch_manager.as_ref(), &prev_hash).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
     let state_root = Trie::EMPTY_ROOT;
 
@@ -1499,7 +1501,8 @@ fn test_trie_and_flat_state_equality() {
     // - using state trie, which should use flat state after enabling it in the protocol
     // - using view state, which should never use flat state
     let prev_hash = env.head.prev_block_hash;
-    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_layout =
+        get_shard_layout_from_prev_block(env.epoch_manager.as_ref(), &prev_hash).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
 
     let state_root = env.state_roots[0];
@@ -1644,7 +1647,8 @@ fn prepare_transactions(
     storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
     let prev_hash = env.head.prev_block_hash;
-    let shard_layout = env.epoch_manager.get_shard_layout_from_prev_block(&prev_hash).unwrap();
+    let shard_layout =
+        get_shard_layout_from_prev_block(env.epoch_manager.as_ref(), &prev_hash).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
     let block = chain.get_block(&prev_hash).unwrap();
     let congestion_info = block.block_congestion_info();

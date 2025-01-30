@@ -12,6 +12,7 @@ use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
 use near_chain_primitives::error::Error;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
@@ -297,7 +298,8 @@ impl<'a> ChainUpdate<'a> {
                 }
             }
 
-            let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
+            let shard_layout =
+                get_shard_layout_from_prev_block(self.epoch_manager.as_ref(), &prev.hash())?;
             SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
             SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
         }

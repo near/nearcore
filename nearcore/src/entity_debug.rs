@@ -5,6 +5,7 @@ use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManagerAdapter;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -264,9 +265,10 @@ impl EntityDebugHandlerImpl {
                 let chunk = store
                     .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
-                let shard_layout = self
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                let shard_layout = get_shard_layout_from_prev_block(
+                    self.epoch_manager.as_ref(),
+                    &chunk.cloned_header().prev_block_hash(),
+                )?;
                 let shard_id = chunk.shard_id();
                 let shard_index =
                     shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;
@@ -396,9 +398,10 @@ impl EntityDebugHandlerImpl {
                 let chunk = store
                     .get_ser::<ShardChunk>(DBCol::Chunks, &borsh::to_vec(&chunk_hash).unwrap())?
                     .ok_or_else(|| anyhow!("Chunk not found"))?;
-                let shard_layout = self
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
+                let shard_layout = get_shard_layout_from_prev_block(
+                    self.epoch_manager.as_ref(),
+                    &chunk.cloned_header().prev_block_hash(),
+                )?;
                 let shard_id = chunk.shard_id();
                 let shard_index =
                     shard_layout.get_shard_index(shard_id).map_err(Into::<EpochError>::into)?;

@@ -14,6 +14,7 @@ use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
+use near_epoch_manager::shard_tracker::cares_about_shard_from_prev_block;
 use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -567,14 +568,13 @@ impl TestEnv {
         let last_chunk_header = &last_block.chunks()[shard_index];
 
         for i in 0..self.clients.len() {
-            let tracks_shard = self.clients[i]
-                .epoch_manager
-                .cares_about_shard_from_prev_block(
-                    &head.prev_block_hash,
-                    &self.get_client_id(i),
-                    shard_id,
-                )
-                .unwrap();
+            let tracks_shard = cares_about_shard_from_prev_block(
+                self.clients[i].epoch_manager.as_ref(),
+                &head.prev_block_hash,
+                &self.get_client_id(i),
+                shard_id,
+            )
+            .unwrap();
             if tracks_shard {
                 let response = self.clients[i]
                     .runtime_adapter

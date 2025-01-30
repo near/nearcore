@@ -5,6 +5,9 @@ use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess, ReceiptFilter};
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::{
+    get_prev_shard_id_from_prev_hash, get_shard_layout_from_prev_block,
+};
 use near_o11y::log_assert_fail;
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
@@ -208,10 +211,12 @@ impl Client {
             }
 
             let current_epoch_id = *header.epoch_id();
-            let current_shard_id = self
-                .epoch_manager
-                .get_prev_shard_id_from_prev_hash(&current_block_hash, next_shard_id)?
-                .1;
+            let current_shard_id = get_prev_shard_id_from_prev_hash(
+                self.epoch_manager.as_ref(),
+                &current_block_hash,
+                next_shard_id,
+            )?
+            .1;
             if current_shard_id != next_shard_id {
                 // If shard id changes, we need to get implicit state
                 // transition from current shard id to the next shard id.
@@ -367,9 +372,10 @@ impl Client {
         // Fetch all incoming receipts for `prev_chunk`.
         // They will be between `prev_prev_chunk.height_included` (first block containing `prev_prev_chunk`)
         // and `prev_chunk_original_block`
-        let shard_layout = self
-            .epoch_manager
-            .get_shard_layout_from_prev_block(prev_chunk_original_block.prev_hash())?;
+        let shard_layout = get_shard_layout_from_prev_block(
+            self.epoch_manager.as_ref(),
+            prev_chunk_original_block.prev_hash(),
+        )?;
         let incoming_receipt_proofs = self.chain.chain_store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             prev_chunk_header.shard_id(),
