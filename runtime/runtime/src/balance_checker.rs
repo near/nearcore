@@ -610,7 +610,6 @@ mod tests {
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         // We use `u128::MAX - 1`, because `u128::MAX` is used as a sentinel value for accounts version 2 or higher.
-        // See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
         let alice = account_new(u128::MAX - 1, hash(&[]));
         let bob = account_new(2u128, hash(&[]));
 
@@ -639,8 +638,7 @@ mod tests {
     }
 
     /// This tests shows what would happen if the total balance becomes u128::MAX
-    /// which is also the sentinel value use to distinguish between accounts version 1 and 2 or higher
-    /// See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
+    /// which is also the sentinel value use to distinguish between accounts version 1 and 2 or higher.
     #[test]
     fn test_total_balance_u128_max() {
         let tries = TestTriesBuilder::new().build();
