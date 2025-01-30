@@ -1,5 +1,7 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::optimistic_block::OptimisticBlock;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::BlockHeight;
 use std::cmp::Ordering;
 use std::collections::{
@@ -184,6 +186,175 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
                     }
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct OptimisticBlockChunks {
+    remaining_chunks: usize,
+    prev_block_height: BlockHeight,
+    chunks: Vec<Option<ShardChunkHeader>>,
+}
+
+impl OptimisticBlockChunks {
+    pub fn new(prev_block_height: BlockHeight, num_shards: usize) -> Self {
+        Self { remaining_chunks: num_shards, prev_block_height, chunks: vec![None; num_shards] }
+    }
+}
+/// Stores optimistic blocks which are waiting for chunks to be received.
+#[derive(Debug, Default)]
+pub struct OptimisticBlockChunksPool {
+    /// Strict tip. Everything dies before this height.
+    final_tip: BlockHeight,
+    /// Optimistic blocks tip. Softer to ensure unique optimistic block processing.
+    blocks_tip: BlockHeight,
+    /// Maps previous block hash to the received optimistic block with the
+    /// highest height on top of it.
+    blocks: HashMap<CryptoHash, OptimisticBlock>,
+    /// Maps previous block hash to the vector of chunk headers corresponding
+    /// to complete chunks.
+    chunks: HashMap<CryptoHash, OptimisticBlockChunks>,
+    /// Result.
+    latest_ready_block: Option<(OptimisticBlock, Vec<ShardChunkHeader>)>,
+}
+
+impl OptimisticBlockChunksPool {
+    pub fn new() -> Self {
+        Self {
+            final_tip: 0,
+            blocks_tip: 0,
+            blocks: Default::default(),
+            chunks: Default::default(),
+            latest_ready_block: None,
+        }
+    }
+
+    pub fn add_block(&mut self, block: OptimisticBlock) {
+        if block.height() <= self.blocks_tip {
+            return;
+        }
+
+        let prev_block_hash = *block.prev_block_hash();
+        self.blocks.insert(prev_block_hash, block);
+        self.update_latest_ready_block(&prev_block_hash);
+    }
+
+    pub fn accept_chunk(
+        &mut self,
+        shard_layout: &ShardLayout,
+        prev_block_height: BlockHeight,
+        chunk_header: ShardChunkHeader,
+    ) {
+        if prev_block_height <= self.final_tip {
+            return;
+        }
+
+        let prev_block_hash = *chunk_header.prev_block_hash();
+        let entry = self.chunks.entry(prev_block_hash).or_insert_with(|| {
+            OptimisticBlockChunks::new(prev_block_height, shard_layout.num_shards() as usize)
+        });
+
+        let shard_index = shard_layout.get_shard_index(chunk_header.shard_id()).unwrap();
+        let chunk_entry = entry.chunks.get_mut(shard_index).unwrap();
+        let chunk_hash = chunk_header.chunk_hash();
+        if let Some(chunk) = &chunk_entry {
+            let existing_chunk_hash = chunk.chunk_hash();
+            tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "Chunk already found for OptimisticBlock");
+            return;
+        }
+
+        *chunk_entry = Some(chunk_header);
+        entry.remaining_chunks -= 1;
+        tracing::debug!(
+            target: "chunks",
+            ?prev_block_hash,
+            ?chunk_hash,
+            remaining_chunks = entry.remaining_chunks,
+            "New chunk found for OptimisticBlock"
+        );
+
+        if entry.remaining_chunks == 0 {
+            tracing::debug!(
+                target: "chunks",
+                ?prev_block_hash,
+                "All chunks received for OptimisticBlock"
+            );
+            self.update_latest_ready_block(&prev_block_hash);
+        }
+    }
+
+    pub fn take_latest_ready_block(&mut self) -> Option<(OptimisticBlock, Vec<ShardChunkHeader>)> {
+        self.latest_ready_block.take()
+    }
+
+    fn update_latest_ready_block(&mut self, prev_block_hash: &CryptoHash) {
+        let Some(chunks) = self.chunks.get(prev_block_hash) else {
+            return;
+        };
+        if chunks.remaining_chunks != 0 {
+            return;
+        }
+        let Some(block) = self.blocks.remove(prev_block_hash) else {
+            return;
+        };
+        if block.height() <= self.blocks_tip {
+            return;
+        }
+
+        tracing::info!(
+            target: "chunks",
+            ?prev_block_hash,
+            optimistic_block_hash = ?block.hash(),
+            block_height = block.height(),
+            "OptimisticBlock is ready"
+        );
+        let chunks = chunks
+            .chunks
+            .iter()
+            .map(|c| {
+                let mut chunk = c.clone().unwrap();
+                // Debatable but probably ok
+                *chunk.height_included_mut() = block.height();
+                chunk
+            })
+            .collect();
+        self.update_blocks_tip(block.height());
+        self.latest_ready_block = Some((block, chunks));
+    }
+
+    pub fn update_tip(&mut self, tip: BlockHeight) {
+        self.update_blocks_tip(tip);
+
+        self.final_tip = std::cmp::max(self.final_tip, tip);
+        let hashes_to_remove: Vec<_> = self
+            .chunks
+            .iter()
+            .filter(|(_, h)| h.prev_block_height <= self.final_tip)
+            .map(|(h, _)| *h)
+            .collect();
+        for h in hashes_to_remove {
+            self.chunks.remove(&h);
+        }
+    }
+
+    pub fn update_blocks_tip(&mut self, blocks_tip: BlockHeight) {
+        self.blocks_tip = std::cmp::max(self.blocks_tip, blocks_tip);
+        let hashes_to_remove: Vec<_> = self
+            .blocks
+            .iter()
+            .filter(|(_, h)| h.height() <= self.blocks_tip)
+            .map(|(h, _)| *h)
+            .collect();
+        for h in hashes_to_remove {
+            self.blocks.remove(&h);
+        }
+
+        let Some((block, _)) = &self.latest_ready_block else {
+            return;
+        };
+        if block.height() <= self.blocks_tip {
+            self.latest_ready_block = None;
         }
     }
 }

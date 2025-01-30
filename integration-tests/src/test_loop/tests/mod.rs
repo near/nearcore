@@ -14,6 +14,7 @@ mod in_memory_tries;
 mod max_receipt_size;
 mod multinode_stateless_validators;
 mod multinode_test_loop_example;
+mod optimistic_block;
 mod protocol_upgrade;
 mod reject_outdated_blocks;
 mod resharding_v3;
