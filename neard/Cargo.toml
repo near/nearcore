@@ -56,6 +56,7 @@ near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
+near-dump-test-contract.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
@@ -88,6 +89,7 @@ nightly = [
   "near-state-parts/nightly",
   "near-store/nightly",
   "near-undo-block/nightly",
+  "near-dump-test-contract/nightly",
   "nearcore/nightly",
   "nightly_protocol",
   "protocol_feature_nonrefundable_transfer_nep491",
@@ -108,6 +110,7 @@ nightly_protocol = [
   "near-state-parts/nightly_protocol",
   "near-store/nightly_protocol",
   "near-undo-block/nightly_protocol",
+  "near-dump-test-contract/nightly_protocol",
   "nearcore/nightly_protocol",
 ]
 shadow_chunk_validation = [

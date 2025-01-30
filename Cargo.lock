@@ -4435,6 +4435,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-dump-test-contract"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "near-primitives",
+ "near-test-contracts",
+ "tracing",
+]
+
+[[package]]
 name = "near-dyn-configs"
 version = "0.0.0"
 dependencies = [
@@ -5526,6 +5537,7 @@ dependencies = [
  "near-config-utils",
  "near-crypto",
  "near-database-tool",
+ "near-dump-test-contract",
  "near-dyn-configs",
  "near-flat-storage",
  "near-fork-network",

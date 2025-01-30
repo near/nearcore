@@ -1,0 +1,29 @@
+[package]
+name = "near-dump-test-contract"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+
+near-primitives.workspace = true
+near-test-contracts.workspace = true
+
+[features]
+nightly = [
+  "near-primitives/nightly",
+  "nightly_protocol",
+]
+nightly_protocol = [
+  "near-primitives/nightly_protocol",
+]
