@@ -61,6 +61,18 @@ pub struct AccountV1 {
     storage_usage: StorageUsage,
 }
 
+#[allow(dead_code)]
+impl AccountV1 {
+    fn to_v2(&self) -> AccountV2 {
+        AccountV2 {
+            amount: self.amount,
+            locked: self.locked,
+            code_hash: self.code_hash,
+            storage_usage: self.storage_usage,
+        }
+    }
+}
+
 // TODO(global-contract): add new field
 #[derive(
     BorshSerialize,
