@@ -304,13 +304,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         request: &ContractCodeRequest,
     ) -> Result<bool, Error>;
 
-    fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
-
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
 
     /// Tries to estimate in which epoch the given height would reside.
@@ -779,15 +772,5 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
-    }
-
-    fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 }

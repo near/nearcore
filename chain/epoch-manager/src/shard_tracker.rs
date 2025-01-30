@@ -103,9 +103,12 @@ impl ShardTracker {
                 let subset = &schedule[index as usize];
                 Ok(subset.contains(&shard_id))
             }
-            TrackedConfig::ShadowValidator(account_id) => {
-                self.epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
-            }
+            TrackedConfig::ShadowValidator(account_id) => cares_about_shard_in_epoch(
+                self.epoch_manager.as_ref(),
+                epoch_id,
+                account_id,
+                shard_id,
+            ),
         }
     }
 
@@ -367,6 +370,29 @@ pub fn get_shard_layout_from_prev_block(
     epoch_manager.get_shard_layout(&epoch_id)
 }
 
+pub fn cares_about_shard_in_epoch(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_id: &EpochId,
+    account_id: &AccountId,
+    shard_id: ShardId,
+) -> Result<bool, EpochError> {
+    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+    let shard_index = shard_layout.get_shard_index(shard_id)?;
+
+    let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+    let chunk_producers = chunk_producers_settlement
+        .get(shard_index)
+        .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+    for validator_id in chunk_producers.iter() {
+        if epoch_info.validator_account_id(*validator_id) == account_id {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
 // If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
 pub fn cared_about_shard_prev_epoch_from_prev_block(
@@ -379,7 +405,7 @@ pub fn cared_about_shard_prev_epoch_from_prev_block(
         get_prev_shard_id_from_prev_hash(epoch_manager, parent_hash, shard_id)?;
     let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(parent_hash)?;
 
-    epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
+    cares_about_shard_in_epoch(epoch_manager, &prev_epoch_id, account_id, parent_shard_id)
 }
 
 pub fn cares_about_shard_from_prev_block(
@@ -389,7 +415,7 @@ pub fn cares_about_shard_from_prev_block(
     shard_id: ShardId,
 ) -> Result<bool, EpochError> {
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-    epoch_manager.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
+    cares_about_shard_in_epoch(epoch_manager, &epoch_id, account_id, shard_id)
 }
 
 // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
@@ -415,17 +441,14 @@ pub fn cares_about_shard_next_epoch_from_prev_block(
             .get_children_shards_ids(shard_id)
             .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
         for next_shard_id in split_shards {
-            if epoch_manager.cares_about_shard_in_epoch(
-                &next_epoch_id,
-                account_id,
-                next_shard_id,
-            )? {
+            if cares_about_shard_in_epoch(epoch_manager, &next_epoch_id, account_id, next_shard_id)?
+            {
                 return Ok(true);
             }
         }
         Ok(false)
     } else {
-        epoch_manager.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
+        cares_about_shard_in_epoch(epoch_manager, &next_epoch_id, account_id, shard_id)
     }
 }
 
