@@ -5,7 +5,8 @@ use anyhow::Context;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
-use near_crypto::{KeyType, SecretKey};
+use near_chain_configs::{GenesisValidationMode, MutableConfigValue};
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_jsonrpc_client::JsonRpcClient;
@@ -119,7 +120,6 @@ pub struct MockNode {
 pub fn setup_mock_node(
     client_home_dir: &Path,
     network_home_dir: &Path,
-    mut config: NearConfig,
     network_config: &MockNetworkConfig,
     client_start_height: BlockHeight,
     network_start_height: Option<BlockHeight>,
@@ -128,6 +128,19 @@ pub fn setup_mock_node(
     mock_listen_addr: tcp::ListenerAddr,
 ) -> MockNode {
     let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
+
+    let mut config = nearcore::config::load_config(network_home_dir, GenesisValidationMode::Full)
+        .context("Error loading config").unwrap();
+    config.validator_signer = MutableConfigValue::new(None, "validator_signer");
+    config.client_config.min_num_peers = 1;
+    let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
+    config.network_config.node_key = signer.secret_key;
+    config.client_config.tracked_shards =
+        config.genesis.config.shard_layout.shard_ids().collect();
+    if config.rpc_config.is_none() {
+        config.rpc_config = Some(near_jsonrpc::RpcConfig::default());
+    }
+
     let (mock_network_epoch_manager, mock_network_shard_tracker, mock_network_runtime) =
         setup_runtime(network_home_dir, &config, false);
     tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");

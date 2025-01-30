@@ -8,8 +8,6 @@ use anyhow::Context;
 use mock_node::setup::{setup_mock_node, MockNode};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
-use near_chain_configs::{GenesisValidationMode, MutableConfigValue};
-use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc_client::JsonRpcClient;
 use near_network::tcp;
 use near_o11y::testonly::init_integration_logger;
@@ -105,17 +103,6 @@ fn main() -> anyhow::Result<()> {
     init_integration_logger();
     let args: Cli = clap::Parser::parse();
     let home_dir = Path::new(&args.chain_history_home_dir);
-    let mut near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
-        .context("Error loading config")?;
-    near_config.validator_signer = MutableConfigValue::new(None, "validator_signer");
-    near_config.client_config.min_num_peers = 1;
-    let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
-    near_config.network_config.node_key = signer.secret_key;
-    near_config.client_config.tracked_shards =
-        near_config.genesis.config.shard_layout.shard_ids().collect();
-    if near_config.rpc_config.is_none() {
-        near_config.rpc_config = Some(near_jsonrpc::RpcConfig::default());
-    }
     let tempdir;
     let client_home_dir = match &args.client_home_dir {
         Some(it) => it.as_path(),
@@ -148,7 +135,6 @@ fn main() -> anyhow::Result<()> {
         let MockNode { target_height, mut mock_peer, rpc_client } = setup_mock_node(
             Path::new(&client_home_dir),
             home_dir,
-            near_config,
             &network_config,
             client_height,
             network_height,
