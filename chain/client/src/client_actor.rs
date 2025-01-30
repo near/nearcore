@@ -963,7 +963,7 @@ impl ClientActorInner {
             .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
-        if self.client.is_validator(&next_epoch_id, &prev_block_hash, validator_signer) {
+        if self.client.is_validator(&next_epoch_id, validator_signer) {
             debug!(target: "client", "Sending announce account for {}", signer.validator_id());
             self.last_validator_announce_time = Some(now);
 
@@ -1327,8 +1327,8 @@ impl ClientActorInner {
         match chain_store_update.commit() {
             Ok(_) => {
                 let head = unwrap_or_return!(self.client.chain.head());
-                if self.client.is_validator(&head.epoch_id, &head.last_block_hash, &signer)
-                    || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash, &signer)
+                if self.client.is_validator(&head.epoch_id, &signer)
+                    || self.client.is_validator(&head.next_epoch_id, &signer)
                 {
                     for approval in approvals {
                         if let Err(e) = self.client.send_block_approval(

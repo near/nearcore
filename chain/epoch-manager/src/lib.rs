@@ -1213,18 +1213,6 @@ impl EpochManager {
             .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
-    /// Returns fisherman for given account id for given epoch.
-    pub fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        epoch_info
-            .get_fisherman_by_account(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
-    }
-
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         Ok(*self.get_block_info(block_hash)?.epoch_id())
     }

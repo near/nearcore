@@ -898,14 +898,8 @@ impl Chain {
     fn partial_verify_orphan_header_signature(&self, header: &BlockHeader) -> Result<bool, Error> {
         let block_producer =
             self.epoch_manager.get_block_producer(header.epoch_id(), header.height())?;
-        // DEVNOTE: we pass head which is not necessarily on block's chain, but it's only used for
-        // slashing info which we will ignore
-        let head = self.head()?;
-        let (block_producer, _slashed) = self.epoch_manager.get_validator_by_account_id(
-            header.epoch_id(),
-            &head.last_block_hash,
-            &block_producer,
-        )?;
+        let block_producer =
+            self.epoch_manager.get_validator_by_account_id(header.epoch_id(), &block_producer)?;
         Ok(header.signature().verify(header.hash().as_ref(), block_producer.public_key()))
     }
 
@@ -1203,7 +1197,6 @@ impl Chain {
         &self,
         challenges: &[Challenge],
         epoch_id: &EpochId,
-        prev_block_hash: &CryptoHash,
     ) -> Result<(ChallengesResult, Vec<CryptoHash>), Error> {
         let _span = tracing::debug_span!(
             target: "chain",
@@ -1217,7 +1210,6 @@ impl Chain {
                 self.epoch_manager.as_ref(),
                 self.runtime_adapter.as_ref(),
                 epoch_id,
-                prev_block_hash,
                 challenge,
             ) {
                 Ok((hash, account_ids)) => {
@@ -1554,7 +1546,7 @@ impl Chain {
     /// soon as possible and allow next block producer to skip invalid blocks.
     pub fn process_challenge(&mut self, challenge: &Challenge) {
         let head = unwrap_or_return!(self.head());
-        match self.verify_challenges(&[challenge.clone()], &head.epoch_id, &head.last_block_hash) {
+        match self.verify_challenges(&[challenge.clone()], &head.epoch_id) {
             Ok((_, challenged_blocks)) => {
                 let mut chain_update = self.chain_update();
                 for block_hash in challenged_blocks {
@@ -2331,7 +2323,7 @@ impl Chain {
         }
 
         let (challenges_result, challenged_blocks) =
-            self.verify_challenges(block.challenges(), header.epoch_id(), header.prev_hash())?;
+            self.verify_challenges(block.challenges(), header.epoch_id())?;
 
         let prev_block = self.get_block(&prev_hash)?;
 

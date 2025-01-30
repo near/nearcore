@@ -746,11 +746,9 @@ impl ClientActorInner {
             let mut endorsed_chunk_validators = HashMap::new();
             for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
                 let Some(signature) = signature else { continue };
-                let Ok((validator, _)) = self.client.epoch_manager.get_validator_by_account_id(
-                    &epoch_id,
-                    block.header().prev_hash(),
-                    account_id,
-                ) else {
+                let Ok(validator) =
+                    self.client.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
+                else {
                     continue;
                 };
                 if !ChunkEndorsement::validate_signature(

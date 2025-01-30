@@ -573,11 +573,8 @@ impl Client {
             return Err(Error::BlockProducer("Should reschedule".to_string()));
         }
 
-        let (validator_stake, _) = self.epoch_manager.get_validator_by_account_id(
-            &epoch_id,
-            &prev_header.hash(),
-            &next_block_proposer,
-        )?;
+        let validator_stake =
+            self.epoch_manager.get_validator_by_account_id(&epoch_id, &next_block_proposer)?;
 
         let validator_pk = validator_stake.take_public_key();
         if validator_pk != validator_signer.public_key() {
@@ -2127,23 +2124,13 @@ impl Client {
         self.process_block_processing_artifact(blocks_processing_artifacts, signer);
     }
 
-    pub fn is_validator(
-        &self,
-        epoch_id: &EpochId,
-        block_hash: &CryptoHash,
-        signer: &Option<Arc<ValidatorSigner>>,
-    ) -> bool {
+    pub fn is_validator(&self, epoch_id: &EpochId, signer: &Option<Arc<ValidatorSigner>>) -> bool {
         match signer {
             None => false,
             Some(signer) => {
                 let account_id = signer.validator_id();
-                match self
-                    .epoch_manager
-                    .get_validator_by_account_id(epoch_id, block_hash, account_id)
-                {
-                    Ok((validator_stake, is_slashed)) => {
-                        !is_slashed && validator_stake.take_public_key() == signer.public_key()
-                    }
+                match self.epoch_manager.get_validator_by_account_id(epoch_id, account_id) {
+                    Ok(validator_stake) => validator_stake.take_public_key() == signer.public_key(),
                     Err(_) => false,
                 }
             }
@@ -2157,27 +2144,19 @@ impl Client {
         check_validator: bool,
         error: near_chain::Error,
     ) {
-        let is_validator =
-            |epoch_id, block_hash, account_id, epoch_manager: &dyn EpochManagerAdapter| {
-                match epoch_manager.get_validator_by_account_id(epoch_id, block_hash, account_id) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
-            };
+        let is_validator = |epoch_id, account_id, epoch_manager: &dyn EpochManagerAdapter| {
+            epoch_manager.get_validator_by_account_id(epoch_id, account_id).is_ok()
+        };
         if let near_chain::Error::DBNotFoundErr(_) = error {
             if check_validator {
                 let head = unwrap_or_return!(self.chain.head());
-                if !is_validator(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    &approval.account_id,
-                    self.epoch_manager.as_ref(),
-                ) && !is_validator(
-                    &head.next_epoch_id,
-                    &head.last_block_hash,
-                    &approval.account_id,
-                    self.epoch_manager.as_ref(),
-                ) {
+                if !is_validator(&head.epoch_id, &approval.account_id, self.epoch_manager.as_ref())
+                    && !is_validator(
+                        &head.next_epoch_id,
+                        &approval.account_id,
+                        self.epoch_manager.as_ref(),
+                    )
+                {
                     return;
                 }
             }
@@ -2263,11 +2242,10 @@ impl Client {
             // exist in the epoch of the next block, we use the epoch after next to validate the
             // signature. We don't care here if the block is actually on the epochs boundary yet,
             // `Doomslug::on_approval_message` below will handle it.
-            let validator_epoch_id = match self.epoch_manager.get_validator_by_account_id(
-                &next_block_epoch_id,
-                &parent_hash,
-                account_id,
-            ) {
+            let validator_epoch_id = match self
+                .epoch_manager
+                .get_validator_by_account_id(&next_block_epoch_id, account_id)
+            {
                 Ok(_) => next_block_epoch_id,
                 Err(EpochError::NotAValidator(_, _)) => {
                     match self.epoch_manager.get_next_epoch_id_from_prev_block(&parent_hash) {
@@ -2279,7 +2257,6 @@ impl Client {
             };
             match self.epoch_manager.verify_validator_signature(
                 &validator_epoch_id,
-                &parent_hash,
                 account_id,
                 Approval::get_data_for_sig(inner, *target_height).as_ref(),
                 signature,
