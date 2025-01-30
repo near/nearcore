@@ -158,7 +158,7 @@ pub struct Client {
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync and blocks catch up
     pub catchup_state_syncs: HashMap<CryptoHash, CatchupState>,
-    /// Spawns async tasks for catchupstate sync.
+    /// Spawns async tasks for catchup state sync.
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
     /// Sender for catchup state sync requests.
     chain_sender_for_state_sync: ChainSenderForStateSync,
