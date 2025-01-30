@@ -57,28 +57,24 @@ fn setup_runtime(
 
 fn setup_mock_peer(
     chain: Chain,
-    config: &mut NearConfig,
+    config: &NearConfig,
     network_start_height: Option<BlockHeight>,
     network_config: MockNetworkConfig,
     target_height: BlockHeight,
     shard_layout: ShardLayout,
     mock_listen_addr: tcp::ListenerAddr,
-) -> tokio::task::JoinHandle<anyhow::Result<()>> {
+) -> (tokio::task::JoinHandle<anyhow::Result<()>>, PeerInfo) {
     let network_start_height = match network_start_height {
         None => target_height,
         Some(0) => chain.genesis_block().header().height(),
         Some(it) => it,
     };
     let secret_key = SecretKey::from_random(KeyType::ED25519);
-    config
-        .network_config
-        .peer_store
-        .boot_nodes
-        .push(PeerInfo::new(PeerId::new(secret_key.public_key()), *mock_listen_addr));
     let chain_id = config.genesis.config.chain_id.clone();
     let block_production_delay = config.client_config.min_block_production_delay;
     let archival = config.client_config.archive;
-    actix::spawn(async move {
+    let peer_info = PeerInfo::new(PeerId::new(secret_key.public_key()), *mock_listen_addr);
+    let mock_peer = actix::spawn(async move {
         let mock = MockPeer::new(
             chain,
             secret_key,
@@ -92,60 +88,32 @@ fn setup_mock_peer(
         )
         .await?;
         mock.run(target_height).await
-    })
+    });
+    (mock_peer, peer_info)
 }
 
-pub struct MockNode {
-    // target height actually available to sync to in the chain history database
-    pub target_height: BlockHeight,
-    pub mock_peer: tokio::task::JoinHandle<anyhow::Result<()>>,
-    // client that allows making RPC requests to the node under test
-    pub rpc_client: JsonRpcClient,
-}
-
-/// Set up a mock node, including setting up
-/// a MockPeerManagerActor and a ClientActor and a ViewClientActor
-/// `client_home_dir`: home dir for the new client
-/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
-///                     to construct `MockPeerManagerActor`
-/// `config`: config for the new client
-/// `network_delay`: delay for getting response from the simulated network
-/// `client_start_height`: start height for client
-/// `network_start_height`: height at which the simulated network starts producing blocks
-/// `target_height`: height that the simulated peers will produce blocks until. If None, will
-///                  use the height from the chain head in storage
-/// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
-///
-/// Returns a struct representing the node under test
-pub fn setup_mock_node(
+fn setup_and_run_neard(
     client_home_dir: &Path,
-    network_home_dir: &Path,
-    network_config: &MockNetworkConfig,
     client_start_height: BlockHeight,
-    network_start_height: Option<BlockHeight>,
-    target_height: Option<BlockHeight>,
     in_memory_storage: bool,
-    mock_listen_addr: tcp::ListenerAddr,
-) -> MockNode {
-    let parent_span = tracing::debug_span!(target: "mock_node", "setup_mock_node").entered();
-
-    let mut config = nearcore::config::load_config(network_home_dir, GenesisValidationMode::Full)
-        .context("Error loading config").unwrap();
+    mock_network_runtime: &NightshadeRuntime,
+    mock_network_epoch_manager: &EpochManagerHandle,
+    mock_peer_info: PeerInfo,
+) -> anyhow::Result<JsonRpcClient> {
+    let parent_span = tracing::debug_span!(target: "mock_node", "setup_and_run_neard").entered();
+    let mut config = nearcore::config::load_config(client_home_dir, GenesisValidationMode::Full)
+        .context("Error loading config")
+        .unwrap();
     config.validator_signer = MutableConfigValue::new(None, "validator_signer");
     config.client_config.min_num_peers = 1;
     let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
     config.network_config.node_key = signer.secret_key;
-    config.client_config.tracked_shards =
-        config.genesis.config.shard_layout.shard_ids().collect();
+    config.client_config.tracked_shards = config.genesis.config.shard_layout.shard_ids().collect();
     if config.rpc_config.is_none() {
         config.rpc_config = Some(near_jsonrpc::RpcConfig::default());
     }
-
-    let (mock_network_epoch_manager, mock_network_shard_tracker, mock_network_runtime) =
-        setup_runtime(network_home_dir, &config, false);
-    tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");
-
-    let chain_genesis = ChainGenesis::new(&config.genesis.config);
+    config.network_config.peer_store.boot_nodes.clear();
+    config.network_config.peer_store.boot_nodes.push(mock_peer_info);
 
     // set up client dir to be ready to process blocks from client_start_height
     if client_start_height > 0 {
@@ -190,7 +158,7 @@ pub fn setup_mock_node(
         let chain_store_update = ChainStoreUpdate::copy_chain_state_as_of_block(
             &mut chain_store,
             &hash,
-            mock_network_epoch_manager.as_ref(),
+            mock_network_epoch_manager,
             &mut network_chain_store,
         )
         .unwrap();
@@ -262,12 +230,62 @@ pub fn setup_mock_node(
                 .unwrap();
         }
     }
+    let rpc_client = near_jsonrpc_client::new_client(&format!(
+        "http://{}",
+        &config.rpc_config.as_ref().expect("the JSON RPC config must be set").addr
+    ));
+    let _node = nearcore::start_with_config(client_home_dir, config).unwrap();
+
+    Ok(rpc_client)
+}
+
+pub struct MockNode {
+    // target height actually available to sync to in the chain history database
+    pub target_height: BlockHeight,
+    pub mock_peer: tokio::task::JoinHandle<anyhow::Result<()>>,
+    // client that allows making RPC requests to the node under test
+    pub rpc_client: JsonRpcClient,
+}
+
+/// Set up a mock node, including setting up
+/// a MockPeerManagerActor and a ClientActor and a ViewClientActor
+/// `client_home_dir`: home dir for the new client
+/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
+///                     to construct `MockPeerManagerActor`
+/// `config`: config for the new client
+/// `network_delay`: delay for getting response from the simulated network
+/// `client_start_height`: start height for client
+/// `network_start_height`: height at which the simulated network starts producing blocks
+/// `target_height`: height that the simulated peers will produce blocks until. If None, will
+///                  use the height from the chain head in storage
+/// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
+///
+/// Returns a struct representing the node under test
+pub fn setup_mock_node(
+    client_home_dir: &Path,
+    network_home_dir: &Path,
+    network_config: &MockNetworkConfig,
+    client_start_height: BlockHeight,
+    network_start_height: Option<BlockHeight>,
+    target_height: Option<BlockHeight>,
+    in_memory_storage: bool,
+    mock_listen_addr: tcp::ListenerAddr,
+) -> MockNode {
+    let config = nearcore::config::load_config(network_home_dir, GenesisValidationMode::Full)
+        .context("Error loading config")
+        .unwrap();
+
+    let (mock_network_epoch_manager, mock_network_shard_tracker, mock_network_runtime) =
+        setup_runtime(network_home_dir, &config, false);
+    tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");
+
+    let chain_genesis = ChainGenesis::new(&config.genesis.config);
 
     let chain = Chain::new_for_view_client(
         Clock::real(),
         mock_network_epoch_manager.clone(),
         mock_network_shard_tracker,
-        mock_network_runtime,
+        mock_network_runtime.clone(),
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         config.client_config.save_trie_changes,
@@ -278,22 +296,24 @@ pub fn setup_mock_node(
     let shard_layout = mock_network_epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let target_height = min(target_height.unwrap_or(head.height), head.height);
 
-    config.network_config.peer_store.boot_nodes.clear();
-    let mock_peer = setup_mock_peer(
+    let (mock_peer, mock_peer_info) = setup_mock_peer(
         chain,
-        &mut config,
+        &config,
         network_start_height,
         network_config.clone(),
         target_height,
         shard_layout,
         mock_listen_addr,
     );
-
-    let rpc_client = near_jsonrpc_client::new_client(&format!(
-        "http://{}",
-        &config.rpc_config.as_ref().expect("the JSON RPC config must be set").addr
-    ));
-    let _node = nearcore::start_with_config(client_home_dir, config).unwrap();
+    let rpc_client = setup_and_run_neard(
+        client_home_dir,
+        client_start_height,
+        in_memory_storage,
+        mock_network_runtime.as_ref(),
+        mock_network_epoch_manager.as_ref(),
+        mock_peer_info,
+    )
+    .unwrap();
 
     MockNode { target_height, mock_peer, rpc_client }
 }
