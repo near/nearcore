@@ -245,23 +245,19 @@ def load_binary_file(filepath):
 
 
 def load_test_contract(
-        filename: str = 'backwards_compatible_rs_contract.wasm') -> bytearray:
-    """Loads a WASM file from near-test-contracts package."""
-    path = pathlib.Path(__file__).resolve()
-    logger.info(
-        f'Loading test contract {filename} path: {path} repo: {_REPO_DIR}')
-    output = subprocess.check_output(
-        [
-            'cargo',
-            'run',
-            '--features',
-            'test_features',
-            '-p',
-            'near-test-contracts',
-            filename,
-        ],
-        cwd=_REPO_DIR,
-    )
+    filename: str = 'backwards_compatible_rs_contract.wasm',
+    config: cluster.Config = cluster.DEFAULT_CONFIG,
+) -> bytearray:
+    """Loads a WASM file from neard."""
+
+    near_root = config['near_root']
+    binary_name = config.get('binary_name', 'neard')
+    binary_path = os.path.join(near_root, binary_name)
+
+    logger.info(f'Loading test contract {filename}')
+
+    cmd = [binary_path, 'dump-test-contracts', '--contract-name', filename]
+    output = subprocess.check_output(cmd)
     return output
 
 
