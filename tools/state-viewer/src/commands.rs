@@ -390,10 +390,11 @@ pub(crate) fn dump_account_storage(
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
         };
-        let item = trie.get(&key.to_vec());
+        let key = key.to_vec();
+        let item = trie.get(&key);
         let value = item.unwrap();
         if let Some(value) = value {
-            let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
+            let record = StateRecord::from_raw_key_value(&key, value).unwrap();
             match record {
                 StateRecord::Data { account_id: _, data_key: _, value } => {
                     fs::write(output, value.as_slice()).unwrap();
@@ -719,7 +720,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
             runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
-            if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
+            if let Some(state_record) = StateRecord::from_raw_key_value(&key, value) {
                 println!("{}", state_record);
             }
         }
@@ -1378,7 +1379,7 @@ fn get_state_stats_group_by<'a>(
                 let key_size = key.len() as u64;
                 let value_size = value.len() as u64;
                 let size = ByteSize::b(key_size + value_size);
-                let state_record = StateRecord::from_raw_key_value(key, value);
+                let state_record = StateRecord::from_raw_key_value(&key, value);
                 state_record.map(|state_record| StateStatsStateRecord {
                     account_id: state_record_to_account_id(&state_record).clone(),
                     state_record,

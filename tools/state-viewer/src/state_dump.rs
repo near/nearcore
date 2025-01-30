@@ -6,8 +6,10 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::EpochManagerHandle;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::BlockHeader;
+use near_primitives::receipt::ReceiptOrStateStoredReceipt;
 use near_primitives::state_record::state_record_to_account_id;
-use near_primitives::state_record::StateRecord;
+use near_primitives::state_record::{DelayedReceipt, StateRecord};
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
 use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
@@ -154,7 +156,7 @@ pub fn state_dump_redis(
             .unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
-            if let Some(sr) = StateRecord::from_raw_key_value(key, value) {
+            if let Some(sr) = StateRecord::from_raw_key_value(&key, value) {
                 if let StateRecord::Account { account_id, account } = &sr {
                     println!("Account: {}", account_id);
                     let redis_key = account_id.as_bytes();
@@ -222,6 +224,32 @@ fn should_include_record(
     }
 }
 
+// This keeps track of the delayed receipt indices we've seen in a shard.
+// This is necessary because the iteration order of delayed receipts will not
+// necessarily match their order in the queue. So we remember the indices with this
+// type and then write them in the right order at the end.
+struct DelayedReceiptsTracker {
+    indices: Option<std::ops::Range<u64>>,
+}
+
+impl DelayedReceiptsTracker {
+    fn new() -> Self {
+        Self { indices: None }
+    }
+
+    fn index_seen(&mut self, index: u64) {
+        match &mut self.indices {
+            Some(indices) => {
+                indices.start = std::cmp::min(indices.start, index);
+                indices.end = std::cmp::max(indices.end, index + 1);
+            }
+            None => {
+                self.indices = Some(std::ops::Range { start: index, end: index + 1 });
+            }
+        }
+    }
+}
+
 /// Iterates over the state, calling `callback` for every record that genesis needs to contain.
 fn iterate_over_records(
     epoch_manager: &EpochManagerHandle,
@@ -252,42 +280,65 @@ fn iterate_over_records(
         let trie = runtime
             .get_trie_for_shard(shard_id, last_block_header.prev_hash(), *state_root, false)
             .unwrap();
+        let mut indices = DelayedReceiptsTracker::new();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
-            if let Some(mut sr) = StateRecord::from_raw_key_value(key, value) {
+            if let Some(mut sr) = StateRecord::from_raw_key_value(&key, value) {
                 if !should_include_record(&sr, &account_allowlist) {
                     continue;
                 }
-                if let StateRecord::Account { account_id, account } = &mut sr {
-                    if account.locked() > 0 {
-                        let stake = *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
-                        if account.locked() > stake {
-                            account.set_amount(account.amount() + account.locked() - stake);
+                match &mut sr {
+                    StateRecord::Account { account_id, account } => {
+                        if account.locked() > 0 {
+                            let mut stake =
+                                *validators.get(account_id).map(|(_, s)| s).unwrap_or(&0);
+                            if let Some(whitelist) = &change_config.whitelist_validators {
+                                if !whitelist.contains(account_id) {
+                                    stake = 0;
+                                }
+                            }
+                            if account.locked() > stake {
+                                account.set_amount(account.amount() + account.locked() - stake);
+                            }
+                            account.set_locked(stake);
                         }
-                        account.set_locked(stake);
+                        total_supply += account.amount() + account.locked();
+                        callback(sr);
                     }
-                    total_supply += account.amount() + account.locked();
-                }
-                change_state_record(&mut sr, change_config);
-                callback(sr);
+                    StateRecord::DelayedReceipt(r) => {
+                        // The index is always set when iterating over the trie
+                        let index = r.index.unwrap();
+                        indices.index_seen(index);
+                    }
+                    _ => {
+                        callback(sr);
+                    }
+                };
+            }
+        }
+
+        // Now write all delayed receipts in the right order
+        if let Some(indices) = indices.indices {
+            for index in indices {
+                let key = TrieKey::DelayedReceipt { index };
+                let value =
+                    near_store::get_pure::<ReceiptOrStateStoredReceipt>(&trie, &key).unwrap();
+                let Some(receipt) = value else {
+                    tracing::warn!(
+                        "Expected delayed receipt with index {} in shard {} not found",
+                        index,
+                        shard_id
+                    );
+                    continue;
+                };
+                let receipt = Box::new(receipt.into_receipt());
+                let record =
+                    StateRecord::DelayedReceipt(DelayedReceipt { index: Some(index), receipt });
+                callback(record);
             }
         }
     }
     total_supply
-}
-
-/// Change record according to genesis_change_config.
-/// 1. Remove stake from non-whitelisted validators;
-pub fn change_state_record(record: &mut StateRecord, genesis_change_config: &GenesisChangeConfig) {
-    // Kick validators outside of whitelist
-    if let Some(whitelist) = &genesis_change_config.whitelist_validators {
-        if let StateRecord::Account { account_id, account } = record {
-            if !whitelist.contains(account_id) {
-                account.set_amount(account.amount() + account.locked());
-                account.set_locked(0);
-            }
-        }
-    }
 }
 
 /// Change genesis_config according to genesis_change_config.

@@ -619,7 +619,7 @@ impl ForkNetworkCommand {
                 Ok((key, FlatStateValue::Inlined(value))) => (key, value),
                 otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
             };
-            if let Some(sr) = StateRecord::from_raw_key_value(key.clone(), value.clone()) {
+            if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
                 match sr {
                     StateRecord::AccessKey { account_id, public_key, access_key } => {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
@@ -630,7 +630,7 @@ impl ForkNetworkCommand {
                         }
                         let new_account_id = map_account(&account_id, None);
                         let replacement = map_key(&public_key, None);
-                        storage_mutator.delete_access_key(account_id, public_key)?;
+                        storage_mutator.remove(key)?;
                         storage_mutator.set_access_key(
                             new_account_id,
                             replacement.public_key(),
@@ -643,7 +643,7 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_account(account_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_account(new_account_id, account)?;
                             accounts_implicit_updated += 1;
                         }
@@ -652,7 +652,7 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_data(account_id, &data_key)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_data(new_account_id, &data_key, value)?;
                             contract_data_updated += 1;
                         }
@@ -661,13 +661,13 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_code(account_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_code(new_account_id, code)?;
                             contract_code_updated += 1;
                         }
                     }
                     StateRecord::PostponedReceipt(mut receipt) => {
-                        storage_mutator.delete_postponed_receipt(&receipt)?;
+                        storage_mutator.remove(key)?;
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
                         storage_mutator.set_postponed_receipt(&receipt)?;
                         postponed_receipts_updated += 1;
@@ -676,15 +676,18 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_received_data(account_id, data_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_received_data(new_account_id, data_id, &data)?;
                             received_data_updated += 1;
                         }
                     }
                     StateRecord::DelayedReceipt(mut receipt) => {
-                        storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
-                        near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
-                        storage_mutator.set_delayed_receipt(index_delayed_receipt, &receipt)?;
+                        storage_mutator.remove(key)?;
+                        near_mirror::genesis::map_receipt(&mut receipt.receipt, None, &default_key);
+                        // The index is guaranteed to be set when iterating over the trie rather than reading
+                        // serialized StateRecords
+                        let index = receipt.index.unwrap();
+                        storage_mutator.set_delayed_receipt(index, &receipt.receipt)?;
                         index_delayed_receipt += 1;
                     }
                 }
@@ -785,6 +788,7 @@ impl ForkNetworkCommand {
         }
         tracing::info!(?shard_uid, num_accounts, num_added, "Pass 2 done");
 
+        storage_mutator.set_delayed_receipt_indices()?;
         let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
 
         tracing::info!(?shard_uid, "Commit done");
