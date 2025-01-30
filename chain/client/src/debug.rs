@@ -167,9 +167,9 @@ impl Handler<DebugStatus> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
-            DebugStatus::SyncStatus => {
-                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
-            }
+            DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(
+                self.client.sync_handler.sync_status.clone().into(),
+            )),
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
             }
