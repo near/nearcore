@@ -120,7 +120,7 @@ impl ProcessNode {
         result
     }
 
-    /// Clear storage directory and run keygen
+    /// Clear storage directory and run key gen
     pub fn reset_storage(&self) {
         Command::new("rm").arg("-r").arg(&self.work_dir).spawn().unwrap().wait().unwrap();
         self.config.save_to_dir(&self.work_dir);

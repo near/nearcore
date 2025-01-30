@@ -101,12 +101,12 @@ impl AccountDataCacheSnapshot {
     /// * adding a random_minor_version to AccountData, specifically to avoid collisions
     ///   (so we would be comparing `(version,random_minor_version)` instead)
     /// * using some crypto hash function `h` and compare `(version,h(data))`. Assuming that `h`
-    ///   behaves like a random oracle, the semantics will be equivaluent to
+    ///   behaves like a random oracle, the semantics will be equivalent to
     ///   `random_minor_version`, except that if a node signs exactly the same data and in the
     ///   previous run, then there will be a collision. But in such a case it doesn't matter
     ///   since the data is the same.
     /// * storing `version` of the last signed AccountData in persistent storage,
-    ///   so that the node literally never signs AccountsData with colling versions.
+    ///   so that the node literally never signs AccountsData with colliding versions.
     ///   This assumption is fragile as long as validators migrate their nodes without copying over
     ///   the whole storage.
     fn is_new(&self, d: &SignedAccountData) -> bool {

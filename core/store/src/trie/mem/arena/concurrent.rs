@@ -212,6 +212,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_arena() {
+        // cspell:words starena
         let arena = ConcurrentArena::new();
         let mut thread1 = arena.for_thread();
         let mut thread2 = arena.for_thread();

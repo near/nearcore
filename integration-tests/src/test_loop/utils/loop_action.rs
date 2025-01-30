@@ -24,7 +24,7 @@ pub(crate) struct LoopAction {
 
 impl LoopAction {
     /// Returns a pair of pointers to the same flag, initially set to false.
-    /// To be used for a succees flag that is shared between `LoopAction` and its `LoopActionFn`.
+    /// To be used for a success flag that is shared between `LoopAction` and its `LoopActionFn`.
     pub fn shared_success_flag() -> (Rc<Cell<bool>>, Rc<Cell<bool>>) {
         let flag = Rc::new(Cell::new(false));
         (flag.clone(), flag)

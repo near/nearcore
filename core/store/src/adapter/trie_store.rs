@@ -168,6 +168,15 @@ impl<'a> TrieStoreUpdateAdapter<'a> {
         )
     }
 
+    /// Remove State of any shard that uses `shard_uid_db_key_prefix` as database key prefix.
+    /// That is potentially State of any descendant of the shard with the given `ShardUId`.
+    /// Use with caution, as it might potentially remove the State of a descendant shard that is still in use!
+    pub fn delete_shard_uid_prefixed_state(&mut self, shard_uid_db_key_prefix: ShardUId) {
+        let key_from = shard_uid_db_key_prefix.to_bytes();
+        let key_to = ShardUId::get_upper_bound_db_key(&key_from);
+        self.store_update.delete_range(DBCol::State, &key_from, &key_to);
+    }
+
     pub fn delete_all_state(&mut self) {
         self.store_update.delete_all(DBCol::State)
     }

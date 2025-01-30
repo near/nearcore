@@ -9,6 +9,7 @@ import requests
 import semver
 from configured_logger import logger
 
+# cspell:words BASEHREF
 _UNAME = os.uname()[0]
 _IS_DARWIN = _UNAME == 'Darwin'
 _BASEHREF = 'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com'
@@ -131,6 +132,7 @@ def patch_binary(binary: pathlib.Path) -> None:
 
     Currently only supports NixOS.
     """
+    # cspell:words patchelf nixpkgs nixos rpath
     # Are we running on NixOS and require patching…?
     try:
         with open('/etc/os-release', 'r') as f:

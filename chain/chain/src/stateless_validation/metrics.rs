@@ -120,7 +120,7 @@ pub static CHUNK_STATE_WITNESS_DECODE_TIME: LazyLock<HistogramVec> = LazyLock::n
     .unwrap()
 });
 
-pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE: LazyLock<HistogramVec> =
+pub(crate) static CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE: LazyLock<HistogramVec> =
     LazyLock::new(|| {
         try_create_histogram_vec(
             "near_chunk_state_witness_main_state_transition_size",
@@ -186,7 +186,7 @@ fn record_witness_size_metrics_fallible(
     CHUNK_STATE_WITNESS_TOTAL_SIZE
         .with_label_values(&[&shard_id.as_str()])
         .observe(encoded_size as f64);
-    CHUNK_STATE_WITNESS_MAIN_STATE_TRANSISTION_SIZE
+    CHUNK_STATE_WITNESS_MAIN_STATE_TRANSITION_SIZE
         .with_label_values(&[shard_id.as_str()])
         .observe(borsh::to_vec(&witness.main_state_transition)?.len() as f64);
     CHUNK_STATE_WITNESS_NEW_TRANSACTIONS_SIZE

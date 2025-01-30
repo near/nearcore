@@ -4,7 +4,9 @@ use near_chain::{
     types::{ApplyChunkResult, Tip},
     Block, BlockHeader, ChainStore, ChainStoreAccess,
 };
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{
+    shard_assignment::shard_id_to_uid, EpochManager, EpochManagerAdapter, EpochManagerHandle,
+};
 use near_primitives::{
     errors::EpochError,
     types::{chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot},
@@ -37,7 +39,6 @@ pub fn load_trie_stop_at_height(
 ) -> (Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Vec<StateRoot>, BlockHeader) {
     let chain_store = ChainStore::new(
         store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -181,7 +182,7 @@ pub fn check_apply_block_result(
         "apply chunk for shard {} at height {}, resulting chunk extra {:?}",
         shard_id, height, &new_chunk_extra,
     );
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, block.header().epoch_id()).unwrap();
     if block.chunks()[shard_index].height_included() == height {
         if let Ok(old_chunk_extra) = chain_store.get_chunk_extra(block_hash, &shard_uid) {
             if chunk_extras_equal(&new_chunk_extra, old_chunk_extra.as_ref()) {

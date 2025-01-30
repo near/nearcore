@@ -21,7 +21,7 @@ fn build_chain() {
     // The hashes here will have to be modified after changes to the protocol.
     // In particular if you update protocol version or add new protocol
     // features.  If this assert is failing without you adding any new or
-    // stabilising any existing protocol features, this indicates bug in your
+    // stabilizing any existing protocol features, this indicates bug in your
     // code which unexpectedly changes the protocol.
     //
     // To update the hashes you can use cargo-insta.  Note that you’ll need to
@@ -33,9 +33,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"GARF4HBtQJ41quFA9fvjHpbVYT4o15syhL3FkH1o7poT");
+        insta::assert_snapshot!(hash, @"24ZC3eGVvtFdTEok4wPGBzx3x61tWqQpves7nFvow2zf");
     } else {
-        insta::assert_snapshot!(hash, @"5LkmueLrB2cc3vURr6VKvT9acRTuNzWGTvzLGFJkRD9c");
+        insta::assert_snapshot!(hash, @"3e2u5p2hUijQd7o5Dg1pK9QAHGZ9uCK19KDV86TJW78f");
     }
 
     for i in 1..5 {
@@ -51,9 +51,9 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_snapshot!(hash, @"HiXuBfW5Xd6e8ZTbMhwtPEXeZxe7macc8DvaWryNdvcf");
+        insta::assert_snapshot!(hash, @"9enFQNcVUW65x3oW2iVdYSBxK9qFNETAixEQZLzXWeaQ");
     } else {
-        insta::assert_snapshot!(hash, @"5txsrLCmQp9kn3jYRp1VHrCDt7oBTnhyi71rEPZmm8Ce");
+        insta::assert_snapshot!(hash, @"Gh5KqeboPbLh2ZwTqQLY2n5FQdPasFAEkPVfnM66LGjn");
     }
 }
 
@@ -91,6 +91,7 @@ fn build_chain_with_orphans() {
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
         clock,
+        None,
         None,
     );
     assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);

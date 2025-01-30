@@ -10,8 +10,7 @@ use near_crypto::InMemorySigner;
 use near_network::types::NetworkRequests;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, PartialState,
-    TrieValue,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
@@ -19,6 +18,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::state::{PartialState, TrieValue};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -117,6 +117,7 @@ fn test_verify_block_double_sign_challenge() {
         *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
         Clock::real(),
+        None,
         None,
     );
     let epoch_id = *b1.header().epoch_id();
@@ -445,10 +446,18 @@ fn test_verify_chunk_invalid_state_challenge() {
         block_merkle_tree.root(),
         Clock::real(),
         None,
+        None,
     );
 
-    let challenge_body =
-        client.chain.create_chunk_state_challenge(&last_block, &block, &block.chunks()[0]).unwrap();
+    let challenge_body = client
+        .chain
+        .create_chunk_state_challenge(
+            &last_block,
+            block.header().height(),
+            &block.chunks(),
+            &block.chunks()[0],
+        )
+        .unwrap();
     {
         let prev_merkle_proofs =
             Block::compute_chunk_headers_root(last_block.chunks().iter_deprecated()).1;

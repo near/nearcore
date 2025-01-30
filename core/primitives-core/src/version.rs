@@ -62,7 +62,7 @@ pub enum ProtocolFeature {
     /// Make block producers produce chunks for the same block they would later produce to avoid
     /// network delays
     SynchronizeBlockChunkProduction,
-    /// Change the algorithm to count WASM stack usage to avoid undercounting in
+    /// Change the algorithm to count WASM stack usage to avoid under counting in
     /// some cases.
     CorrectStackLimit,
     /// Add `AccessKey` nonce range for implicit accounts, as in `AccessKeyNonceRange` feature.
@@ -156,9 +156,6 @@ pub enum ProtocolFeature {
     /// Increases main_storage_proof_size_soft_limit parameter from 3mb to 4mb
     IncreaseStorageProofSizeSoftLimit,
 
-    /// Protocol version reserved for use in resharding tests.
-    SimpleNightshadeTestonly,
-
     // Shuffle shard assignments for chunk producers at every epoch.
     ShuffleShardAssignments,
     /// Cross-shard congestion control according to <https://github.com/near/NEPs/pull/539>.
@@ -174,8 +171,10 @@ pub enum ProtocolFeature {
     ChunkEndorsementsInBlockHeader,
     /// Store receipts in State in the StateStoredReceipt format.
     StateStoredReceipt,
-    /// Resharding V3
+    /// Resharding V3 - Adding "game.hot.tg-0" boundary.
     SimpleNightshadeV4,
+    /// Resharding V3 - Adding "earn.kaiching" boundary.
+    SimpleNightshadeV5,
     /// Exclude contract code from the chunk state witness and distribute it to chunk validators separately.
     ExcludeContractCodeFromStateWitness,
     /// A scheduler which limits bandwidth for sending receipts between shards.
@@ -189,13 +188,15 @@ pub enum ProtocolFeature {
     ///
     /// Chunks no longer become entirely invalid in case invalid transactions are included in the
     /// chunk. Instead the transactions are discarded during their conversion to receipts.
-    #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
     RelaxedChunkValidation,
     /// Exclude existing contract code in deploy-contract and delete-account actions from the chunk state witness.
     /// Instead of sending code in the witness, the code checks the code-size using the internal trie nodes.
     ExcludeExistingCodeFromWitnessForCodeLen,
     /// Use the block height instead of the block hash to calculate the receipt ID.
     BlockHeightForReceiptId,
+    /// Enable optimistic block production.
+    ProduceOptimisticBlock,
+    GlobalContracts,
 }
 
 impl ProtocolFeature {
@@ -257,12 +258,15 @@ impl ProtocolFeature {
             ProtocolFeature::ExcludeContractCodeFromStateWitness => 73,
             ProtocolFeature::FixStakingThreshold
             | ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions
-            | ProtocolFeature::FixChunkProducerStakingThreshold => 74,
-
-            // This protocol version is reserved for use in resharding tests. An extra resharding
-            // is simulated on top of the latest shard layout in production. Note that later
-            // protocol versions will still have the production layout.
-            ProtocolFeature::SimpleNightshadeTestonly => 100,
+            | ProtocolFeature::FixChunkProducerStakingThreshold
+            | ProtocolFeature::RelaxedChunkValidation
+            // BandwidthScheduler and CurrentEpochStateSync must be enabled
+            // before ReshardingV3! When releasing this feature please make sure
+            // to schedule separate protocol upgrades for these features.
+            | ProtocolFeature::BandwidthScheduler
+            | ProtocolFeature::CurrentEpochStateSync => 74,
+            ProtocolFeature::SimpleNightshadeV4 => 75,
+            ProtocolFeature::SimpleNightshadeV5 => 76,
 
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
@@ -272,20 +276,12 @@ impl ProtocolFeature {
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
-            // CurrentEpochStateSync must be enabled before ReshardingV3! When
-            // releasing this feature please make sure to schedule separate
-            // protocol upgrades for those features!
-            ProtocolFeature::CurrentEpochStateSync => 144,
-            // BandwidthScheduler must be enabled before ReshardingV3! When
-            // releasing this feature please make sure to schedule separate
-            // protocol upgrades for those features!
-            ProtocolFeature::BandwidthScheduler => 145,
-            ProtocolFeature::SimpleNightshadeV4 => 146,
-            #[cfg(feature = "protocol_feature_relaxed_chunk_validation")]
-            ProtocolFeature::RelaxedChunkValidation => 147,
             ProtocolFeature::ExcludeExistingCodeFromWitnessForCodeLen => 148,
-            ProtocolFeature::BlockHeightForReceiptId => 149,
+            ProtocolFeature::BlockHeightForReceiptId | ProtocolFeature::ProduceOptimisticBlock => {
+                149
+            }
             // Place features that are not yet in Nightly below this line.
+            ProtocolFeature::GlobalContracts => 200,
         }
     }
 
@@ -295,7 +291,7 @@ impl ProtocolFeature {
 }
 
 /// Current protocol version used on the mainnet with all stable features.
-const STABLE_PROTOCOL_VERSION: ProtocolVersion = 74;
+const STABLE_PROTOCOL_VERSION: ProtocolVersion = 76;
 
 // On nightly, pick big enough version to support all features.
 const NIGHTLY_PROTOCOL_VERSION: ProtocolVersion = 149;

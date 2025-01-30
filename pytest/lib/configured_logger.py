@@ -23,6 +23,7 @@ def new_logger(
     :param stderr: Optional to set. If outfile is not set, and stderr is set to True, then will log to stderr instead of stdout.
     :return: The configured logger.
     """
+    # cspell:ignore levelname
     # If name is not specified, create one so that this can be a separate logger.
     if name is None:
         name = f"logger_{uuid.uuid1()}"

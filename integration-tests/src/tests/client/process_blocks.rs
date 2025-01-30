@@ -346,6 +346,7 @@ fn receive_network_block() {
                 block_merkle_tree.root(),
                 Clock::real(),
                 None,
+                None,
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -433,6 +434,7 @@ fn produce_block_with_approvals() {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             actor_handles.client_actor.do_send(
@@ -630,6 +632,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real(),
+                None,
                 None,
             );
             // Send block with invalid chunk mask
@@ -1423,13 +1426,8 @@ fn test_archival_save_trie_changes() {
                 store.store().get_ser(DBCol::TrieChanges, &key).unwrap();
 
             if let Some(trie_changes) = trie_changes {
-                // We don't do any transactions in this test so the root should remain unchanged.
-                if ProtocolFeature::BandwidthScheduler.enabled(genesis.config.protocol_version) {
-                    // After BandwidthScheduler there's a state change at every height, even when there are no transactions
-                    assert!(trie_changes.old_root != trie_changes.new_root);
-                } else {
-                    assert_eq!(trie_changes.old_root, trie_changes.new_root);
-                }
+                // After BandwidthScheduler there's a state change at every height, even when there are no transactions
+                assert!(trie_changes.old_root != trie_changes.new_root);
             }
         }
     }
@@ -1656,7 +1654,9 @@ fn ultra_slow_test_gc_after_state_sync() {
     assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    env.clients[1].chain.clear_data(&Default::default()).unwrap();
+    let signer = env.clients[1].validator_signer.get();
+    let me = signer.as_ref().map(|signer| signer.validator_id());
+    env.clients[1].chain.clear_data(&Default::default(), me).unwrap();
 }
 
 #[test]
@@ -1694,7 +1694,7 @@ fn ultra_slow_test_process_block_after_state_sync() {
         let Some(sync_hash) = env.clients[0].chain.get_sync_hash(&block_hash).unwrap() else {
             sync_hash_attempts += 1;
             // Sync hash should be available in 4 blocks
-            assert!(sync_hash_attempts <= 4, "sync_hash_attempts: {}", sync_hash_attempts);
+            assert!(sync_hash_attempts <= 5, "sync_hash_attempts: {}", sync_hash_attempts);
             continue;
         };
         // Produce one more block after the sync hash is found so that the snapshot will be created
@@ -2178,25 +2178,40 @@ fn test_data_reset_before_state_sync() {
 #[test]
 fn test_sync_hash_validity() {
     init_test_logger();
-    let epoch_length = 5;
+    let epoch_length = 8;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
-    for i in 1..19 {
-        env.produce_block(0, i);
+    let mut height = 1;
 
-        let header = env.clients[0].chain.get_block_header_by_height(i).unwrap();
-        let block_hash = *header.hash();
-        let valid = env.clients[0].chain.check_sync_hash_validity(&block_hash).unwrap();
-        println!("height {} -> {}", i, valid);
-        if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
-            // This assumes that all shards have new chunks in every block, which should be true
-            // with TestEnv::produce_block()
-            assert_eq!(valid, (i % epoch_length) == 4);
-        } else {
-            assert_eq!(valid, header.epoch_id() != &EpochId::default() && (i % epoch_length) == 1);
+    for _num_epochs in 0..4 {
+        let epoch_start = height;
+        for _ in 0..epoch_length {
+            env.produce_block(0, height);
+            height += 1;
+        }
+        let expected_sync_height =
+            if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
+                // This assumes that all shards have new chunks in every block, which should be true
+                // with TestEnv::produce_block()
+                epoch_start + 3
+            } else {
+                // No sync hash in the first epoch
+                if epoch_start < epoch_length {
+                    continue;
+                }
+                epoch_start
+            };
+
+        for h in epoch_start..height {
+            let header = env.clients[0].chain.get_block_header_by_height(h).unwrap();
+            let valid = env.clients[0].chain.check_sync_hash_validity(header.hash()).unwrap();
+
+            println!("height {} -> {}", header.height(), valid);
+            assert_eq!(valid, header.height() == expected_sync_height);
         }
     }
+
     let bad_hash = CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap();
     let res = env.clients[0].chain.check_sync_hash_validity(&bad_hash);
     println!("bad hash -> {:?}", res.is_ok());
@@ -2233,7 +2248,6 @@ fn test_validate_chunk_extra() {
     genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let genesis_height = genesis_block.header().height();
 
     let signer = InMemorySigner::test_signer(&"test0".parse().unwrap());
     let tx = SignedTransaction::from_actions(
@@ -2335,8 +2349,7 @@ fn test_validate_chunk_extra() {
 
     env.pause_block_processing(&mut capture, block2.hash());
     let mut chain_store = ChainStore::new(
-        env.clients[0].chain.chain_store().store().clone(),
-        genesis_height,
+        env.clients[0].chain.chain_store().store(),
         true,
         genesis.config.transaction_validity_period,
     );
@@ -2395,7 +2408,7 @@ fn test_validate_chunk_extra() {
 #[test]
 fn slow_test_catchup_gas_price_change() {
     init_test_logger();
-    let epoch_length = 5;
+    let epoch_length = 8;
     let min_gas_price = 10000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -2430,9 +2443,9 @@ fn slow_test_catchup_gas_price_change() {
 
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }
-    // We go up to height 10 because height 6 is the first block of the new epoch, and we want at least
-    // 3 more blocks (plus one more for nodes to create snapshots) if syncing to the current epoch's state
-    for i in 3..=10 {
+    // We go up to the end of the next epoch because we want at least 3 more blocks from the start
+    // (plus one more for nodes to create snapshots) if syncing to the current epoch's state
+    for i in 3..=epoch_length * 2 {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();
         blocks.push(block.clone());
         env.process_block(0, block.clone(), Provenance::PRODUCED);
@@ -2558,7 +2571,7 @@ fn test_block_execution_outcomes() {
 
     let mut expected_outcome_ids = HashSet::new();
     let mut delayed_receipt_id = vec![];
-    // Due to gas limit, the first two transaactions will create local receipts and they get executed
+    // Due to gas limit, the first two transactions will create local receipts and they get executed
     // in the same block. The last local receipt will become delayed receipt
     for (i, id) in tx_hashes.into_iter().enumerate() {
         let execution_outcome = env.clients[0].chain.get_execution_outcome(&id).unwrap();
@@ -3667,7 +3680,7 @@ fn test_long_chain_with_restart_from_snapshot() {
     }
 
     let mut env2 = TestEnv::builder(&genesis.config)
-        .stores(vec![env1.clients[0].chain.chain_store().store().clone()])
+        .stores(vec![env1.clients[0].chain.chain_store().store()])
         .nightshade_runtimes(&genesis)
         .archive(false)
         .build();
@@ -3678,6 +3691,7 @@ fn test_long_chain_with_restart_from_snapshot() {
     }
 }
 
+/// cspell:words aarch
 /// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
     use super::*;
@@ -3744,7 +3758,7 @@ mod contract_precompilation_tests {
 
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the neede snapshot.
+            // and then one more than that so the node will generate the needed snapshot.
             produce_blocks_from_height(&mut env, 4, height) - 2
         } else {
             height - 1
@@ -3769,7 +3783,7 @@ mod contract_precompilation_tests {
         }
 
         // Check that contract function may be successfully called on the second client.
-        // Note that we can't test that behaviour is the same on two clients, because
+        // Note that we can't test that behavior is the same on two clients, because
         // compile_module_cached_wasmer0 is cached by contract key via macro.
         let block = env.clients[0].chain.get_block_by_height(sync_height - 1).unwrap();
         let shard_uid = ShardUId::single_shard();
@@ -3857,7 +3871,7 @@ mod contract_precompilation_tests {
 
         let sync_height = if ProtocolFeature::CurrentEpochStateSync.enabled(PROTOCOL_VERSION) {
             // `height` is one more than the start of the epoch. Produce two more blocks with chunks,
-            // and then one more than that so the node will generate the neede snapshot.
+            // and then one more than that so the node will generate the needed snapshot.
             produce_blocks_from_height(&mut env, 4, height) - 2
         } else {
             height - 1

@@ -75,7 +75,7 @@ impl From<ParseIntError> for ErrorKind {
 
 impl From<serde_json::Error> for ErrorKind {
     fn from(value: serde_json::Error) -> Self {
-        Self::InternalInvariantError(format!("JSON Serialisation Error, {:?}", value))
+        Self::InternalInvariantError(format!("JSON Serialization Error, {:?}", value))
     }
 }
 impl From<near_client_primitives::types::GetStateChangesError> for ErrorKind {

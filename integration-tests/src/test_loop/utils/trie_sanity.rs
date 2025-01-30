@@ -346,7 +346,6 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     client: &Client,
     resharding_block_hash: &CryptoHash,
     parent_shard_uid: ShardUId,
-    allow_negative_refcount: bool,
 ) {
     let tip = client.chain.head().unwrap();
     let epoch_id = tip.epoch_id;
@@ -363,7 +362,7 @@ pub fn check_state_shard_uid_mapping_after_resharding(
     let mut tracked_mapped_children = vec![];
     let store = client.chain.chain_store.store();
     for child_shard_uid in &children_shard_uids {
-        let mapped_shard_uid = get_shard_uid_mapping(store, *child_shard_uid);
+        let mapped_shard_uid = get_shard_uid_mapping(&store, *child_shard_uid);
         if &mapped_shard_uid == child_shard_uid {
             continue;
         }
@@ -372,9 +371,11 @@ pub fn check_state_shard_uid_mapping_after_resharding(
             tracked_mapped_children.push(*child_shard_uid);
         }
     }
+    // Currently we set the mapping for both children, or the mapping has been deleted.
+    assert!(shard_uid_mapping.is_empty() || shard_uid_mapping.len() == 2);
 
     // Whether we found any value in DB for which we could test the mapping.
-    let mut checked_any_key = false;
+    let mut has_any_parent_shard_uid_prefix = false;
     let trie_store = store.trie_store();
     for kv in store.iter_raw_bytes(DBCol::State) {
         let (key, value) = kv.unwrap();
@@ -384,19 +385,12 @@ pub fn check_state_shard_uid_mapping_after_resharding(
         if shard_uid != parent_shard_uid {
             continue;
         }
+        has_any_parent_shard_uid_prefix = true;
         let node_hash = CryptoHash::try_from_slice(&key[8..]).unwrap();
         let (value, rc) = decode_value_with_rc(&value);
         // It is possible we have delayed receipts leftovers on disk,
         // that would result it `MissingTrieValue` if we attempt to read them through the Trie interface.
-        // TODO(resharding) Remove this when negative refcounts are properly handled.
-        if rc <= 0 {
-            assert!(allow_negative_refcount);
-            // That can only be -1, because delayed receipt can be removed at most twice (by both children).
-            assert_eq!(rc, -1);
-            // In case of negative refcount, we only store the refcount, and the value is empty.
-            assert!(value.is_none());
-            continue;
-        }
+        assert!(rc > 0);
         let parent_value = trie_store.get(parent_shard_uid, &node_hash);
         // Sanity check: parent shard data must still be accessible using Trie interface and parent ShardUId.
         assert_eq!(&parent_value.unwrap()[..], value.unwrap());
@@ -406,9 +400,11 @@ pub fn check_state_shard_uid_mapping_after_resharding(
             let child_value = trie_store.get(*child_shard_uid, &node_hash);
             assert_eq!(&child_value.unwrap()[..], value.unwrap());
         }
-        checked_any_key = true;
     }
-    assert!(checked_any_key);
+    // If we do not have the parent State, the ShardUId mapping has to be empty as well.
+    if !has_any_parent_shard_uid_prefix {
+        assert!(shard_uid_mapping.is_empty());
+    }
 
     let shards_tracked_before_resharding = get_tracked_shards(client, resharding_block_hash);
     let tracked_parent_before_resharding =
@@ -421,18 +417,15 @@ pub fn check_state_shard_uid_mapping_after_resharding(
         assert_eq!(tracked_mapped_children.len(), 2);
         assert_eq!(shards_tracked_after_resharding.len(), shard_layout.num_shards() as usize,);
     }
-    // If any child shard was tracked after resharding, it means the node had to split the parent shard.
+    // If neither child shard was tracked after resharding, we do not have the mapping set.
     if children_shard_uids
         .iter()
-        .any(|child_shard_uid| shards_tracked_after_resharding.contains(child_shard_uid))
+        .all(|child_shard_uid| !shards_tracked_after_resharding.contains(child_shard_uid))
     {
-        assert_eq!(shard_uid_mapping.len(), 2);
-    } else if tracked_parent_before_resharding {
-        // Parent was tracked before resharding, but no child was tracked after resharding.
-        // TODO(resharding) Consider not resharding in such case. If fixed, the assert below should change from 2 to 0.
-        assert_eq!(shard_uid_mapping.len(), 2);
-    } else {
-        // Otherwise, no mapping was set and no shard State would be mapped.
-        assert!(shard_uid_mapping.is_empty());
+        // Possible corner case is if parent was tracked before resharding, but no child was tracked after resharding.
+        // TODO(resharding) Consider not resharding in such case. When fixed, the assert below should become unconditional.
+        if !tracked_parent_before_resharding {
+            assert!(shard_uid_mapping.is_empty());
+        }
     }
 }

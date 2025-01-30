@@ -23,7 +23,7 @@ pub fn need_receipt(
     me: Option<&AccountId>,
     shard_tracker: &ShardTracker,
 ) -> bool {
-    cares_about_shard_this_or_next_epoch(me, prev_block_hash, shard_id, true, shard_tracker)
+    shard_tracker.cares_about_shard_this_or_next_epoch(me, prev_block_hash, shard_id, true)
 }
 
 /// Returns true if we need this part to sign the block.
@@ -35,18 +35,6 @@ pub fn need_part(
 ) -> Result<bool, EpochError> {
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
     Ok(Some(&epoch_manager.get_part_owner(&epoch_id, part_ord)?) == me)
-}
-
-pub fn cares_about_shard_this_or_next_epoch(
-    account_id: Option<&AccountId>,
-    parent_hash: &CryptoHash,
-    shard_id: ShardId,
-    is_me: bool,
-    shard_tracker: &ShardTracker,
-) -> bool {
-    // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
-    shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
-        || shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
 }
 
 pub fn get_shards_cares_about_this_or_next_epoch(
@@ -61,12 +49,11 @@ pub fn get_shards_cares_about_this_or_next_epoch(
         .unwrap()
         .into_iter()
         .filter(|&shard_id| {
-            cares_about_shard_this_or_next_epoch(
+            shard_tracker.cares_about_shard_this_or_next_epoch(
                 account_id,
                 block_header.prev_hash(),
                 shard_id,
                 is_me,
-                shard_tracker,
             )
         })
         .collect()
@@ -131,12 +118,11 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
     shard_tracker: &ShardTracker,
 ) -> PartialEncodedChunk {
     let prev_block_hash = header.prev_block_hash();
-    let cares_about_shard = cares_about_shard_this_or_next_epoch(
+    let cares_about_shard = shard_tracker.cares_about_shard_this_or_next_epoch(
         me,
         prev_block_hash,
         header.shard_id(),
         true,
-        shard_tracker,
     );
     let parts = parts
         .filter(|entry| {

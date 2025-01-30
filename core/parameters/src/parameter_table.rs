@@ -1,5 +1,5 @@
 use super::config::{AccountCreationConfig, RuntimeConfig};
-use crate::config::{CongestionControlConfig, WitnessConfig};
+use crate::config::{BandwidthSchedulerConfig, CongestionControlConfig, WitnessConfig};
 use crate::cost::{
     ActionCosts, ExtCostsConfig, Fee, ParameterCost, RuntimeFeesConfig, StorageUsageConfig,
 };
@@ -343,6 +343,12 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::CombinedTransactionsSizeLimit)?,
                 new_transactions_validation_state_size_soft_limit: params
                     .get(Parameter::NewTransactionsValidationStateSizeSoftLimit)?,
+            },
+            bandwidth_scheduler_config: BandwidthSchedulerConfig {
+                max_shard_bandwidth: params.get(Parameter::MaxShardBandwidth)?,
+                max_single_grant: params.get(Parameter::MaxSingleGrant)?,
+                max_allowance: params.get(Parameter::MaxAllowance)?,
+                max_base_bandwidth: params.get(Parameter::MaxBaseBandwidth)?,
             },
             use_state_stored_receipt: params.get(Parameter::UseStateStoredReceipt)?,
         })

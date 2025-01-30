@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use near_chain_configs::{UpdateableClientConfig, UpdateableValidatorSigner};
+use near_chain_configs::{UpdatableClientConfig, UpdatableValidatorSigner};
 use near_o11y::log_config::LogConfig;
 use near_time::Clock;
 use std::path::PathBuf;
@@ -11,27 +11,27 @@ mod metrics;
 
 #[derive(Clone, Default)]
 /// Contains the latest state of configs which can be updated at runtime.
-pub struct UpdateableConfigs {
+pub struct UpdatableConfigs {
     /// Contents of the file LOG_CONFIG_FILENAME.
     pub log_config: Option<LogConfig>,
     /// Contents of the `config.json` corresponding to the mutable fields of `ClientConfig`.
-    pub client_config: Option<UpdateableClientConfig>,
+    pub client_config: Option<UpdatableClientConfig>,
     /// Validator key hot loaded from file.
     /// `None` means that the validator key existence could not be determined.
     /// `Some(None)` means that it was determined that the validator key does not exist.
-    pub validator_signer: Option<UpdateableValidatorSigner>,
+    pub validator_signer: Option<UpdatableValidatorSigner>,
 }
 
 /// Pushes the updates to listeners.
 #[derive(Default)]
-pub struct UpdateableConfigLoader {
+pub struct UpdatableConfigLoader {
     /// Notifies receivers about the new config values available.
-    tx: Option<Sender<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>>,
+    tx: Option<Sender<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>>,
 }
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-pub enum UpdateableConfigLoaderError {
+pub enum UpdatableConfigLoaderError {
     #[error("Failed to parse a dynamic config file {file:?}: {err:?}")]
     Parse { file: PathBuf, err: serde_json::Error },
     #[error("Can't open or read a dynamic config file {file:?}: {err:?}")]
@@ -41,29 +41,29 @@ pub enum UpdateableConfigLoaderError {
     #[error("Can't open or read the validator key file {file:?}: {err:?}")]
     ValidatorKeyFileError { file: PathBuf, err: anyhow::Error },
     #[error("One or multiple dynamic config files reload errors {0:?}")]
-    Errors(Vec<UpdateableConfigLoaderError>),
+    Errors(Vec<UpdatableConfigLoaderError>),
     #[error("No home dir set")]
     NoHomeDir(),
 }
 
-impl UpdateableConfigLoader {
+impl UpdatableConfigLoader {
     pub fn new(
-        updateable_configs: UpdateableConfigs,
-        tx: Sender<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>,
+        updatable_configs: UpdatableConfigs,
+        tx: Sender<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>,
     ) -> Self {
         let mut result = Self { tx: Some(tx) };
-        result.reload(Ok(updateable_configs));
+        result.reload(Ok(updatable_configs));
         result
     }
 
     pub fn reload(
         &mut self,
-        updateable_configs: Result<UpdateableConfigs, UpdateableConfigLoaderError>,
+        updatable_configs: Result<UpdatableConfigs, UpdatableConfigLoaderError>,
     ) {
-        match updateable_configs {
-            Ok(updateable_configs) => {
-                near_o11y::reload_log_config(updateable_configs.log_config.as_ref());
-                self.tx.as_ref().map(|tx| tx.send(Ok(updateable_configs.clone())));
+        match updatable_configs {
+            Ok(updatable_configs) => {
+                near_o11y::reload_log_config(updatable_configs.log_config.as_ref());
+                self.tx.as_ref().map(|tx| tx.send(Ok(updatable_configs.clone())));
                 Self::update_metrics();
             }
             Err(err) => {

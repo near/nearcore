@@ -142,13 +142,11 @@ pub fn setup_mock_node(
         tracing::info!(target: "mock_node", ?client_home_dir, "Setup client runtime");
         let mut chain_store = ChainStore::new(
             client_runtime.store().clone(),
-            config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
             config.genesis.config.transaction_validity_period,
         );
         let mut network_chain_store = ChainStore::new(
             mock_network_runtime.store().clone(),
-            config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
             config.genesis.config.transaction_validity_period,
         );

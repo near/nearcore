@@ -14,14 +14,14 @@ def get_block(url, block_hash):
         "method": "block",
     }
 
-    payload["params"] = {
+    payload["params"] = ({
         "block_id": block_hash
     } if block_hash is not None else {
         "finality": "final"
-    }
+    })
 
     response = requests.post(url, json=payload)
-    return response.json()['result']['header']
+    return response.json()["result"]["header"]
 
 
 def ns_to_seconds(ns):
@@ -29,6 +29,7 @@ def ns_to_seconds(ns):
 
 
 def format_time(seconds):
+    # cspell:words gmtime
     return time.strftime("%H hours, %M minutes", time.gmtime(seconds))
 
 
@@ -45,14 +46,14 @@ def get_exponential_weighted_epoch_lengths(url,
         block_data = get_block(url, current_hash)
 
         # Get the timestamp of this block (start of current epoch)
-        current_timestamp = int(block_data['timestamp'])
+        current_timestamp = int(block_data["timestamp"])
 
         # Get the next epoch hash (last block hash of previous epoch.)
-        previous_hash = block_data['next_epoch_id']
+        previous_hash = block_data["next_epoch_id"]
 
         # Fetch the block data for start of previous epoch
         previous_block_data = get_block(url, previous_hash)
-        previous_timestamp = int(previous_block_data['timestamp'])
+        previous_timestamp = int(previous_block_data["timestamp"])
 
         # Calculate the length of the epoch in nanoseconds
         epoch_length = current_timestamp - previous_timestamp
@@ -106,14 +107,14 @@ def predict_future_epochs(starting_epoch_timestamp, avg_epoch_length,
                                                  target_timezone)
 
         # Format date
-        future_date = future_datetime.strftime('%Y-%m-%d %H:%M:%S %Z%z %A')
+        future_date = future_datetime.strftime("%Y-%m-%d %H:%M:%S %Z%z %A")
         print(f"Predicted start of epoch {i}: {future_date}")
 
     return future_epochs
 
 
 def find_epoch_for_timestamp(future_epochs, voting_timestamp):
-    for (epoch_number, epoch_timestamp) in enumerate(future_epochs):
+    for epoch_number, epoch_timestamp in enumerate(future_epochs):
         if voting_timestamp < epoch_timestamp:
             return epoch_number
     return len(future_epochs)
@@ -129,7 +130,7 @@ def find_best_voting_hour(voting_date_str, future_epochs):
     for hour in range(24):
         # Construct datetime for each hour of the voting date
         voting_datetime = datetime.strptime(
-            f"{voting_date_str} {hour:02d}:00:00", '%Y-%m-%d %H:%M:%S')
+            f"{voting_date_str} {hour:02d}:00:00", "%Y-%m-%d %H:%M:%S")
         voting_datetime = pytz.utc.localize(voting_datetime)
         voting_timestamp = voting_datetime.timestamp()
 
@@ -159,7 +160,7 @@ def find_best_voting_hour(voting_date_str, future_epochs):
         print(
             f"\nVoting hours on {voting_date_str} UTC that result in upgrade during working hours (UTC {WORKING_HOURS_START}:00-{WORKING_HOURS_END}:00):"
         )
-        for (hour, epoch) in valid_hours:
+        for hour, epoch in valid_hours:
             print(f"- {hour:02d}:00, Upgrade Epoch: {epoch}")
     else:
         print(
@@ -169,7 +170,7 @@ def find_best_voting_hour(voting_date_str, future_epochs):
 
 def valid_voting_datetime(s):
     try:
-        dt = datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
+        dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
         return dt
     except ValueError:
         raise argparse.ArgumentTypeError(
@@ -199,7 +200,7 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
     protocol_upgrade_datetime = datetime.fromtimestamp(
         protocol_upgrade_timestamp, tz=target_timezone)
     protocol_upgrade_formatted = protocol_upgrade_datetime.strftime(
-        '%Y-%m-%d %H:%M:%S %Z%z %A')
+        "%Y-%m-%d %H:%M:%S %Z%z %A")
     print(f"\nVoting date falls into epoch {epoch_T}.")
     print(
         f"Protocol upgrade will happen at the start of epoch {protocol_upgrade_epoch_number}: {protocol_upgrade_formatted}"
@@ -209,19 +210,24 @@ def find_protocol_upgrade_time(voting_date, future_epochs, target_timezone):
 # Main function to run the process
 def main(args):
     latest_block = get_block(args.url, None)
-    next_epoch_id = latest_block['next_epoch_id']
+    next_epoch_id = latest_block["next_epoch_id"]
     current_epoch_first_block = get_block(args.url, next_epoch_id)
-    current_timestamp = int(current_epoch_first_block['timestamp']
+    current_timestamp = int(current_epoch_first_block["timestamp"]
                            )  # Current epoch start timestamp in nanoseconds
 
     # Get epoch lengths and the exponential weighted average
-    epoch_lengths, exponential_weighted_average_epoch_length = get_exponential_weighted_epoch_lengths(
-        args.url, next_epoch_id, args.num_past_epochs, args.decay_rate)
+    epoch_lengths, exponential_weighted_average_epoch_length = (
+        get_exponential_weighted_epoch_lengths(args.url, next_epoch_id,
+                                               args.num_past_epochs,
+                                               args.decay_rate))
 
     # Predict future epoch start dates
     future_epochs = predict_future_epochs(
-        current_timestamp, exponential_weighted_average_epoch_length,
-        args.num_future_epochs, args.timezone)
+        current_timestamp,
+        exponential_weighted_average_epoch_length,
+        args.num_future_epochs,
+        args.timezone,
+    )
 
     if args.voting_date:
         find_protocol_upgrade_time(args.voting_date, future_epochs,
@@ -234,10 +240,10 @@ def main(args):
 class SetURLFromChainID(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
-        if values == 'mainnet':
-            setattr(namespace, 'url', 'https://archival-rpc.mainnet.near.org')
-        elif values == 'testnet':
-            setattr(namespace, 'url', 'https://archival-rpc.testnet.near.org')
+        if values == "mainnet":
+            setattr(namespace, "url", "https://archival-rpc.mainnet.near.org")
+        elif values == "testnet":
+            setattr(namespace, "url", "https://archival-rpc.testnet.near.org")
 
 
 # Set up command-line argument parsing
@@ -249,39 +255,47 @@ if __name__ == "__main__":
     group.add_argument("--url", help="The RPC URL to query.")
     group.add_argument(
         "--chain_id",
-        choices=['mainnet', 'testnet'],
+        choices=["mainnet", "testnet"],
         action=SetURLFromChainID,
         help=
-        "The chain ID (either 'mainnet' or 'testnet'). Sets the corresponding URL."
+        "The chain ID (either 'mainnet' or 'testnet'). Sets the corresponding URL.",
     )
 
-    parser.add_argument("--num_past_epochs",
-                        type=int,
-                        default=4,
-                        help="Number of past epochs to analyze.")
-    parser.add_argument("--decay_rate",
-                        type=float,
-                        default=0.1,
-                        help="Decay rate for exponential weighting.")
-    parser.add_argument("--num_future_epochs",
-                        type=int,
-                        default=10,
-                        help="Number of future epochs to predict.")
+    parser.add_argument(
+        "--num_past_epochs",
+        type=int,
+        default=4,
+        help="Number of past epochs to analyze.",
+    )
+    parser.add_argument(
+        "--decay_rate",
+        type=float,
+        default=0.1,
+        help="Decay rate for exponential weighting.",
+    )
+    parser.add_argument(
+        "--num_future_epochs",
+        type=int,
+        default=10,
+        help="Number of future epochs to predict.",
+    )
     parser.add_argument(
         "--timezone",
         type=valid_timezone,
         default="UTC",
-        help="Time zone to display times in (e.g., 'America/New_York').")
+        help="Time zone to display times in (e.g., 'America/New_York').",
+    )
     # Voting date arguments
     voting_group = parser.add_mutually_exclusive_group()
     voting_group.add_argument(
         "--voting_date",
         type=valid_voting_datetime,
-        help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.")
+        help="Voting date in 'YYYY-MM-DD HH:MM:SS' format.",
+    )
     voting_group.add_argument(
         "--voting_date_day",
         help=
-        "Voting date (day) in 'YYYY-MM-DD' format to find voting hours resulting in upgrade during working hours."
+        "Voting date (day) in 'YYYY-MM-DD' format to find voting hours resulting in upgrade during working hours.",
     )
 
     args = parser.parse_args()

@@ -6,7 +6,7 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
-use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
+use near_dyn_configs::{UpdatableConfigLoader, UpdatableConfigLoaderError, UpdatableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -99,7 +99,7 @@ impl NeardCmd {
             ),
 
             NeardSubCommand::StateViewer(cmd) => {
-                let mode = if cmd.readwrite { Mode::ReadWrite } else { Mode::ReadOnly };
+                let mode = if cmd.read_write { Mode::ReadWrite } else { Mode::ReadOnly };
                 cmd.subcmd.run(&home_dir, genesis_validation, mode, cmd.store_temperature);
             }
 
@@ -158,7 +158,7 @@ pub(super) struct StateViewerCommand {
     /// multiple instances in parallel and be sure that no unintended changes get written to the DB.
     /// In case an operation needs to write to caches, a read-write mode may be needed.
     #[clap(long, short = 'w')]
-    readwrite: bool,
+    read_write: bool,
     /// What store temperature should the state viewer open. Allowed values are hot and cold but
     /// cold is only available when cold_store is configured.
     /// Cold temperature actually means the split store will be used.
@@ -327,7 +327,7 @@ pub(super) struct InitCmd {
 ///
 /// Verifies that when running on mainnet or testnet chain a neard binary built
 /// with `make release` command is used.  That Makefile targets enable
-/// optimisation options which aren’t enabled when building with different
+/// optimization options which aren’t enabled when building with different
 /// methods and is the only officially supported method of building the binary
 /// to run in production.
 ///
@@ -350,7 +350,7 @@ fn check_release_build(chain: &str) {
         );
         warn!(
             target: "neard",
-            "Note that `cargo build --release` builds lack optimisations which \
+            "Note that `cargo build --release` builds lack optimizations which \
              may be needed to run properly on {}",
             chain
         );
@@ -527,7 +527,7 @@ impl RunCmd {
 
         let (tx_crash, mut rx_crash) = broadcast::channel::<()>(16);
         let (tx_config_update, rx_config_update) =
-            broadcast::channel::<Result<UpdateableConfigs, Arc<UpdateableConfigLoaderError>>>(16);
+            broadcast::channel::<Result<UpdatableConfigs, Arc<UpdatableConfigLoaderError>>>(16);
         let sys = actix::System::new();
 
         sys.block_on(async move {
@@ -542,10 +542,10 @@ impl RunCmd {
             .await
             .global();
 
-            let updateable_configs = nearcore::dyn_config::read_updateable_configs(home_dir)
+            let updatable_configs = nearcore::dyn_config::read_updatable_configs(home_dir)
                 .unwrap_or_else(|e| panic!("Error reading dynamic configs: {:#}", e));
-            let mut updateable_config_loader =
-                UpdateableConfigLoader::new(updateable_configs.clone(), tx_config_update);
+            let mut updatable_config_loader =
+                UpdatableConfigLoader::new(updatable_configs.clone(), tx_config_update);
             let config_updater = ConfigUpdater::new(rx_config_update);
 
             let nearcore::NearNode {
@@ -565,9 +565,9 @@ impl RunCmd {
             let sig = loop {
                 let sig = wait_for_interrupt_signal(home_dir, &mut rx_crash).await;
                 if sig == "SIGHUP" {
-                    let maybe_updateable_configs =
-                        nearcore::dyn_config::read_updateable_configs(home_dir);
-                    updateable_config_loader.reload(maybe_updateable_configs);
+                    let maybe_updatable_configs =
+                        nearcore::dyn_config::read_updatable_configs(home_dir);
+                    updatable_config_loader.reload(maybe_updatable_configs);
                 } else {
                     break sig;
                 }
@@ -874,9 +874,9 @@ mod tests {
     #[test]
     fn optional_values() {
         let cmd = NeardCmd::parse_from(&["test", "init", "--chain-id=testid", "--fast"]);
-        if let NeardSubCommand::Init(scmd) = cmd.subcmd {
-            assert_eq!(scmd.chain_id, Some("testid".to_string()));
-            assert!(scmd.fast);
+        if let NeardSubCommand::Init(sub_cmd) = cmd.subcmd {
+            assert_eq!(sub_cmd.chain_id, Some("testid".to_string()));
+            assert!(sub_cmd.fast);
         } else {
             panic!("incorrect subcommand");
         }

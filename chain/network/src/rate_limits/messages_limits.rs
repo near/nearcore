@@ -112,7 +112,7 @@ impl Config {
     pub fn standard_preset() -> Self {
         // TODO(trisfald): make presets for other message types
         let mut config = Self::default();
-        // EpochSyncRequest is a very simple amplication attack vector, as it requires no arguments
+        // EpochSyncRequest is a very simple amplification attack vector, as it requires no arguments
         // and the response is large. So we rate limit it to 1 request per 30 seconds. In practice,
         // a peer should not need to epoch sync except when bootstrapping a node, so a request
         // should be rarely received. We still set it to a reasonable rate limit so a bootstrapping

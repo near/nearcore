@@ -132,7 +132,7 @@ def hard_reset_cmd(args, traffic_generator, nodes):
         WARNING!!!!
         WARNING!!!!
         This will undo all chain state, which will force a restart from the beginning,
-        icluding the genesis state computation which takes several hours.
+        including the genesis state computation which takes several hours.
         Continue? [yes/no]""")
     if sys.stdin.readline().strip() != 'yes':
         return
@@ -626,7 +626,7 @@ if __name__ == '__main__':
         '--gcs-state-sync',
         action='store_true',
         help=
-        """Enable state dumper nodes to sync state to GCS. On localtest, it will dump locally."""
+        """Enable state dumper nodes to sync state to GCS. On localnet, it will dump locally."""
     )
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test_cmd)

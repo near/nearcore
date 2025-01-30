@@ -17,18 +17,18 @@ from retrying import retry
 from rc import gcloud
 
 import cluster
-from configured_logger import logger
-import key
 import transaction
 from branches import _REPO_DIR
+
+from configured_logger import logger
 
 
 class TxContext:
 
-    def __init__(self, act_to_val, nodes):
+    def __init__(self, act_to_val, nodes: typing.List[cluster.BaseNode]):
         self.next_nonce = 2
         self.num_nodes = len(nodes)
-        self.nodes = nodes
+        self.nodes: typing.List[cluster.BaseNode] = nodes
         self.act_to_val = act_to_val
         self.expected_balances = self.get_balances()
         assert len(act_to_val) == self.num_nodes
@@ -80,7 +80,7 @@ class LogTracker:
     """
 
     def __init__(self, node: cluster.BaseNode) -> None:
-        """Initialises the tracker for given local node.
+        """Initializes the tracker for given local node.
 
         Args:
             node: Node to create tracker for.
@@ -239,6 +239,7 @@ def get_near_tempdir(subdir=None, *, clean=False):
 
 
 def load_binary_file(filepath):
+    # cspell:ignore binaryfile
     with open(filepath, "rb") as binaryfile:
         return bytearray(binaryfile.read())
 
@@ -252,6 +253,7 @@ def load_test_contract(
 
 
 def user_name():
+    # cspell:ignore getlogin
     username = os.getlogin()
     if username == 'root':  # digitalocean
         username = gcloud.list()[0].username.replace('_nearprotocol_com', '')

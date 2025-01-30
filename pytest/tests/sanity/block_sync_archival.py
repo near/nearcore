@@ -16,10 +16,10 @@ two stages:
 
 2. The test then restarts Fred so that its in-memory cache is cleared.  It
    finally starts a new observer (let’s call it Barney) and points it at Fred as
-   a boot node.  The test waits for Barney to synchronise with Fred and then
+   a boot node.  The test waits for Barney to synchronies with Fred and then
    verifies that all the blocks have been correctly fetched.
 
-   At this stage, the test verifies that Barney synchronises correctly and that
+   At this stage, the test verifies that Barney synchronies correctly and that
    Fred serves all requests from storage (since it's in-memory cache has been
    cleared).  This is again done through Prometheus metrics and in addition the
    test verifies that data from DBCol::Chunks and DBCol::PartialChunks was used.  This
@@ -162,7 +162,7 @@ def get_all_blocks(node: cluster.BaseNode) -> typing.Sequence[cluster.BlockId]:
 
 def run_test(cluster: Cluster) -> None:
     # Start the validator and the first observer.  Wait until the observer
-    # synchronises a few epoch’s worth of blocks to be generated and then kill
+    # synchronies a few epoch’s worth of blocks to be generated and then kill
     # validator so no more blocks are generated.
     boot = cluster.start_node(0, boot_node=None)
     fred = cluster.start_node(1, boot_node=boot)

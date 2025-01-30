@@ -106,6 +106,7 @@ pub(crate) fn get_validator_online_ratio(
 /// Instead of having a full-blown implementation of `U256`` for `num_integer::Integer`
 /// we wrap the value in a `BigInt` for now.
 /// TODO: Implement `num_integer::Integer` for `U256` and remove this function.
+/// cspell:words bigdenom bignumer
 pub(crate) fn get_sortable_validator_online_ratio(stats: &BlockChunkValidatorStats) -> BigRational {
     let ratio = get_validator_online_ratio(stats, None);
     let mut bytes: [u8; size_of::<U256>()] = [0; size_of::<U256>()];

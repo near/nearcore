@@ -16,7 +16,6 @@ use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, Signe
 use near_primitives::action::{Action, DeleteAccountAction};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
-use near_primitives::challenge::PartialState;
 use near_primitives::congestion_info::{
     BlockCongestionInfo, CongestionControl, CongestionInfo, ExtendedCongestionInfo,
 };
@@ -25,6 +24,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::CodeHash;
 use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
 use near_primitives::transaction::{
@@ -2363,14 +2363,7 @@ fn test_empty_apply() {
     let mut store_update = tries.store_update();
     let root_after =
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
-    if ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
-        assert!(
-            root_before != root_after,
-            "state root not changed - did the bandwidth scheduler run?"
-        );
-    } else {
-        assert_eq!(root_before, root_after, "state root changed for applying empty receipts");
-    }
+    assert!(root_before != root_after, "state root not changed - did the bandwidth scheduler run?");
 }
 
 /// Test that delayed receipts are accounted for in the congestion info of

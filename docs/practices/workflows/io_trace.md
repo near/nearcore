@@ -6,14 +6,14 @@ IO traces can be used to identify slow receipts and to understand why they
 are slow. Or to detect general inefficiencies in how we use the DB.
 
 The results give you counts of DB requests and some useful statistics such as
-trie node cache hits. It will NOT give you time measurements, use Graphana to
+trie node cache hits. It will NOT give you time measurements, use Grafana to
 observe those.
 
 The main use cases in the past were to estimate the performance of new storage
 features (prefetcher, flat state) and to find out why specific contracts produce
 slow receipts.
 
-## Setup 
+## Setup
 
 When compiling neard (or the parameter estimator) with `feature=io_trace` it
 instruments the binary code with fine-grained database operations tracking.
@@ -62,6 +62,7 @@ Once you have collected an IO trace, you can inspect its content manually, or
 use existing tools to extract statistics. Let's start with the manual approach.
 
 ### Simple example trace: Estimator
+
 An estimator trace typically starts something like this:
 
 ```
@@ -99,6 +100,7 @@ cache-missed all 7 of the DB requests it performed to apply this empty chunk.
 
 ### Example trace: Full mainnet node
 
+<!-- cspell:ignore Gxlb -->
 Next let's look at an excerpt of an IO trace from a real node on mainnet.
 
 ```
@@ -173,7 +175,7 @@ but there are DB requests listed further below that belong to these levels but
 not to `apply`.
 
 Inside `apply`, we see 3 transactions being converted to receipts as part of
-this chunk, and one already existing action receipt getting processed. 
+this chunk, and one already existing action receipt getting processed.
 
 Cache hit statistics for each level are also displayed. For example, the first
 transaction has 57 read requests and all of them hit in the shard cache. For
@@ -232,6 +234,7 @@ the predecessor account id, presumably to perform some checks.
 The `sha256` call here is used to shorten implicit account ids.
 ([Link to code for comparison](https://github.com/sweatco/near-sdk-rs/blob/af6ba3cb75e0bbfc26e346e61aa3a0d1d7f5ac7b/near-contract-standards/src/fungible_token/core_impl.rs#L249-L259)).
 
+<!-- cspell:words Sweatcoin -->
 Afterwards, a value with 16 bytes (a `u128`) is fetched from the trie state.
 To serve this, it required reading 30 trie nodes, 19 of them were cached in the
 accounting cache and were not charged the full gas cost. And the remaining 11
@@ -257,7 +260,6 @@ flat state to do some correctness checks.*
 So that is how to read these traces and dig deep. But maybe you
 want aggregated statistics instead? Then please continue reading.
 
-
 ## Evaluating an IO trace
 
 When you collect an IO trace over an hour of mainnet traffic, it can quickly be
@@ -278,7 +280,6 @@ cargo run --profile dev-release -p runtime-params-estimator -- \
 All commands aggregate the information of a trace. Either globally, per chunk,
 or per receipt. For example, below is the output that gives a list of RocksDB
 columns that were accessed and how many times, aggregated by chunk.
-
 
 ```bash
 cargo run --profile dev-release -p runtime-params-estimator -- \

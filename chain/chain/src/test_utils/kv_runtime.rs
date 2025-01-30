@@ -11,7 +11,7 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::{EpochManagerAdapter, RngSeed, ShardInfo};
+use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -50,8 +50,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
-    TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_height, set_genesis_state_roots, DBCol, ShardTries, Store,
+    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use node_runtime::SignedValidPeriodTransactions;
@@ -170,14 +170,15 @@ impl MockEpochManager {
                     })
                     .collect();
 
+                // cspell:ignore coef
                 let validators_per_shard = block_producers.len() / vs.validator_groups as usize;
-                let coef = block_producers.len() / vs.num_shards as usize;
+                let coefficient = block_producers.len() / vs.num_shards as usize;
 
                 let chunk_producers: Vec<Vec<ValidatorStake>> = (0..vs.num_shards)
                     .map(|shard_index| {
                         let shard_index = shard_index as usize;
                         let offset =
-                            shard_index * coef / validators_per_shard * validators_per_shard;
+                            shard_index * coefficient / validators_per_shard * validators_per_shard;
                         block_producers[offset..offset + validators_per_shard].to_vec()
                     })
                     .collect();
@@ -361,7 +362,8 @@ impl KeyValueRuntime {
             shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
-        store_update.commit().expect("Store failed on genesis intialization");
+        set_genesis_height(&mut store_update, &0);
+        store_update.commit().expect("Store failed on genesis initialization");
 
         Arc::new(KeyValueRuntime {
             store,
@@ -451,43 +453,6 @@ impl EpochManagerAdapter for MockEpochManager {
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
         Ok(validators[idx as usize % validators.len()].0.account_id().clone())
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        Ok(account_id_to_shard_id(account_id, self.num_shards))
-    }
-
-    fn account_id_to_shard_info(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardInfo, EpochError> {
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_id = account_id_to_shard_id(account_id, self.num_shards);
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(ShardInfo { shard_index, shard_uid })
-    }
-
-    fn shard_id_to_uid(
-        &self,
-        shard_id: ShardId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardUId, EpochError> {
-        Ok(ShardUId::new(0, shard_id))
-    }
-
-    fn shard_id_to_index(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardIndex, EpochError> {
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.get_shard_index(shard_id)?)
     }
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
@@ -621,7 +586,7 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         prev_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), Error> {
+    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
         let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
         // This is not correct if there was a resharding event in between
         // the previous and current block.
@@ -977,6 +942,30 @@ impl EpochManagerAdapter for MockEpochManager {
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(
             (epoch_valset.1 + 1) % self.validators_by_valset.len(),
+            shard_index,
+        );
+        for validator in chunk_producers {
+            if validator.account_id() == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn cared_about_shard_prev_epoch_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+        account_id: &AccountId,
+        shard_id: ShardId,
+    ) -> Result<bool, EpochError> {
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+        let chunk_producers = self.get_chunk_producers(
+            (epoch_valset.1.wrapping_sub(1)) % self.validators_by_valset.len(),
             shard_index,
         );
         for validator in chunk_producers {

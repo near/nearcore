@@ -213,6 +213,7 @@ mod helper {
             new_segment
         });
 
+        // cspell:ignore qself
         Type::Path(TypePath {
             qself: type_path.qself.clone(),
             path: Path {

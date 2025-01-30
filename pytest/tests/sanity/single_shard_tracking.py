@@ -112,7 +112,7 @@ def main():
     print("nodes started")
     contract = utils.load_test_contract()
 
-    # When localnets are started, there is a period at the beginning
+    # When localnet is started, there is a period at the beginning
     # when there may be a few missed blocks, and the very first block often doesn't have any chunks.
     # In that case congestion control will reject transactions sent right after the network starts
     # because it counts as having missed several chunks in a row for every shard. So wait a bit before

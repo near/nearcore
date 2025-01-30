@@ -7,7 +7,7 @@
 # track).
 #
 # We then kill both nodes, and restart the first node, and do the same
-# requests. We expect it to resond the same way. Before 2916 is fixed, it
+# requests. We expect it to respond the same way. Before 2916 is fixed, it
 # fails to respond to the request it was previously responding to due to
 # incorrect reconstruction of the receipts.
 

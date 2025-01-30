@@ -8,6 +8,7 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::network::PeerId;
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
@@ -286,4 +287,34 @@ fn test_bad_congestion_info_corrupt_allowed_shard() {
 #[test]
 fn test_bad_congestion_info_none() {
     test_bad_congestion_info_impl(BadCongestionInfoMode::None);
+}
+
+// Helper function to check that a block was produced from an optimistic block
+fn check_block_produced_from_optimistic_block(block: &Block, optimistic_block: &OptimisticBlock) {
+    assert_eq!(block.header().height(), optimistic_block.inner.block_height, "height");
+    assert_eq!(
+        block.header().prev_hash(),
+        &optimistic_block.inner.prev_block_hash,
+        "previous hash"
+    );
+    assert_eq!(block.header().raw_timestamp(), optimistic_block.inner.block_timestamp, "timestamp");
+    assert_eq!(block.header().random_value(), &optimistic_block.inner.random_value, "random value");
+}
+
+// Testing the production and application of optimistic blocks
+#[test]
+fn test_process_optimistic_block() {
+    let mut env = TestEnv::default_builder().num_shards(4).mock_epoch_managers().build();
+    let prev_block = env.clients[0].produce_block(1).unwrap().unwrap();
+    env.process_block(0, prev_block, Provenance::PRODUCED);
+    assert!(!env.clients[0].is_optimistic_block_done(2), "Optimistic block should not be ready");
+    let optimistic_block = env.clients[0].produce_optimistic_block_on_head(2).unwrap().unwrap();
+    // Store optimistic block to be used at block production.
+    env.clients[0].save_optimistic_block(&optimistic_block);
+    assert!(env.clients[0].is_optimistic_block_done(2), "Optimistic block should be ready");
+
+    // TODO(#10584): Process chunks with optimistic block
+
+    let block = env.clients[0].produce_block(2).unwrap().unwrap();
+    check_block_produced_from_optimistic_block(&block, &optimistic_block);
 }

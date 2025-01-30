@@ -51,6 +51,7 @@ This is a thing in its category, do check it out:
 
 ## Language Mastery
 
+<!-- cspell:ignore Rustaceans Rustonomicon -->
 * [Rust for Rustaceans](https://nostarch.com/rust-rustaceans) — the book to read
   after "The Book".
 * [Tokio docs](https://tokio.rs/tokio/tutorial) explain asynchronous programming

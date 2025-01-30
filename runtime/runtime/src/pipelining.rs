@@ -120,13 +120,15 @@ impl ReceiptPreparationPipeline {
         }
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
-            ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => return false,
+            ReceiptEnum::GlobalContractDistribution(_)
+            | ReceiptEnum::Data(_)
+            | ReceiptEnum::PromiseResume(_) => return false,
         };
         let mut any_function_calls = false;
         for (action_index, action) in actions.iter().enumerate() {
             let account_id = account_id.clone();
             match action {
-                Action::DeployContract(_) => {
+                Action::DeployContract(_) | Action::UseGlobalContract(_) => {
                     // FIXME: instead of blocking these accounts, move the handling of
                     // deploy action into here, so that the necessary data dependencies can be
                     // established.
@@ -189,7 +191,8 @@ impl ReceiptPreparationPipeline {
                 | Action::Stake(_)
                 | Action::AddKey(_)
                 | Action::DeleteKey(_)
-                | Action::DeleteAccount(_) => {}
+                | Action::DeleteAccount(_)
+                | Action::DeployGlobalContract(_) => {}
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 Action::NonrefundableStorageTransfer(_) => {}
             }
@@ -218,7 +221,9 @@ impl ReceiptPreparationPipeline {
                 .actions
                 .get(action_index)
                 .expect("indexing receipt actions by an action_index failed!"),
-            ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+            ReceiptEnum::GlobalContractDistribution(_)
+            | ReceiptEnum::Data(_)
+            | ReceiptEnum::PromiseResume(_) => {
                 panic!("attempting to get_contract with a non-action receipt!?")
             }
         };

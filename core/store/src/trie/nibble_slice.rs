@@ -20,6 +20,7 @@ use smallvec::SmallVec;
 use std::cmp::*;
 use std::fmt;
 
+/// cspell:words nibbleslice
 /// Nibble-orientated view onto byte-slice, allowing nibble-precision offsets.
 ///
 /// This is an immutable struct. No operations actually change it.
@@ -349,11 +350,11 @@ mod tests {
         let (n, is_leaf_decoded) = NibbleSlice::from_encoded(&encoded);
         assert_eq!(&n.iter().collect::<Vec<_>>(), nibbles);
         assert_eq!(is_leaf_decoded, is_leaf);
-        let reencoded = n.encoded(is_leaf);
-        assert_eq!(&reencoded, &encoded);
-        let mut reencoded2 = vec![];
-        n.encode_to(is_leaf, &mut reencoded2);
-        assert_eq!(&reencoded2, &encoded.to_vec());
+        let re_encoded = n.encoded(is_leaf);
+        assert_eq!(&re_encoded, &encoded);
+        let mut re_encoded2 = vec![];
+        n.encode_to(is_leaf, &mut re_encoded2);
+        assert_eq!(&re_encoded2, &encoded.to_vec());
 
         for i in 0..nibbles.len() {
             let encoded = NibbleSlice::encode_nibbles(&nibbles[..i], is_leaf);

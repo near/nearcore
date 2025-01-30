@@ -585,7 +585,7 @@ impl PeerManagerActor {
     /// Periodically monitor list of peers and:
     ///  - request new peers from connected peers,
     ///  - bootstrap outbound connections from known peers,
-    ///  - unban peers that have been banned for awhile,
+    ///  - un-ban peers that have been banned for awhile,
     ///  - remove expired peers,
     ///
     /// # Arguments:
@@ -829,7 +829,7 @@ impl PeerManagerActor {
                 let mut success = false;
 
                 // The node needs to include its own public address in the request
-                // so that the reponse can be sent over Tier3
+                // so that the response can be sent over Tier3
                 if let Some(addr) = *self.state.my_public_addr.read() {
                     if let Some(peer_id) = self.state.snapshot_hosts.select_host_for_part(
                         &sync_prev_prev_hash,
@@ -1215,7 +1215,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
         ctx.spawn(wrap_future(
             async move {
                 // This node might have become a TIER1 node due to the change of the key set.
-                // If so we should recompute and readvertise the list of proxies.
+                // If so we should recompute and re-advertise the list of proxies.
                 // This is mostly important in case a node is its own proxy. In all other cases
                 // (when proxies are different nodes) the update of the key set happens asynchronously
                 // and this node won't be able to connect to proxies until it happens (and only the

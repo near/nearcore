@@ -190,7 +190,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().clone().iter(DBCol::BlockHeader).map(Result::unwrap) {
+    for (key, _) in chain_store.store().iter(DBCol::BlockHeader).map(Result::unwrap) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -297,7 +297,8 @@ mod test {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {
-                    shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
+                    receipt.send_to_all_shards()
+                        || shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
                 })
                 .cloned()
                 .collect();

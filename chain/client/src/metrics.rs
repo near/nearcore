@@ -14,6 +14,14 @@ pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
+pub(crate) static OPTIMISTIC_BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_optimistic_block_produced_total",
+        "Total number of optimistic blocks produced since starting this node",
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_chunk_produced_total",
@@ -22,10 +30,10 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| 
     .unwrap()
 });
 
-pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT: LazyLock<IntCounterVec> =
+pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DID_NOT_FIT: LazyLock<IntCounterVec> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
-        "near_produced_chunks_some_pool_transactions_didnt_fit",
+        "near_produced_chunks_some_pool_transactions_did_not_fit",
         "Total number of produced chunks where some transactions from the pool didn't fit in the chunk \
         (since starting this node). The limited_by label specifies which limit was hit.",
         &["shard_id", "limited_by"],

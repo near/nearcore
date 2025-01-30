@@ -86,12 +86,8 @@ impl FlatStorageManager {
         }
         let original_value = flat_storages.insert(shard_uid, flat_storage);
         if original_value.is_some() {
-            // Generally speaking this shouldn't happen. It may only happen when
-            // the node is restarted in the middle of resharding.
-            //
-            // TODO(resharding) It would be better to detect when building state
-            // is finished for a shard and skip doing it again after restart. We
-            // can then assert that the flat storage is only created once.
+            // Generally speaking this shouldn't happen. Starting from resharding V3 it shouldn't
+            // happen even if the node is restarted.
             tracing::warn!(target: "store", ?shard_uid, "Creating flat storage for shard that already has flat storage.");
         }
         Ok(())

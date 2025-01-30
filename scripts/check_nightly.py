@@ -31,10 +31,10 @@ import typing
 
 import nayduck
 
-IGNORED_SUBDIRS = ('target', 'target_expensive', 'sandbox')
+IGNORED_SUBDIRS = ("target", "target_expensive", "sandbox")
 
-EXPENSIVE_DIRECTIVE = 'ultra_slow_test_'
-TEST_DIRECTIVE = '#[test]'
+EXPENSIVE_DIRECTIVE = "ultra_slow_test_"
+TEST_DIRECTIVE = "#[test]"
 
 
 def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
@@ -50,7 +50,7 @@ def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
         }
 
     Note that anything more complex in the `cfg_attr` will cause the function
-    not to recognise the test.
+    not to recognize the test.
 
     Args:
         path: Path to the Rust source file.
@@ -65,11 +65,11 @@ def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
             line = line.strip()
             if not line:
                 pass
-            elif line.startswith('#'):
+            elif line.startswith("#"):
                 is_test = is_test or line == TEST_DIRECTIVE
-            elif line.startswith('fn ultra_slow_test_'):
+            elif line.startswith("fn ultra_slow_test_"):
                 if is_test:
-                    match = re.search(r'\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b',
+                    match = re.search(r"\bfn\s+([A-Za-z_][A-Za-z_0-9]*)\b",
                                       line)
                     if match:
                         yield match.group(1)
@@ -85,8 +85,8 @@ def nightly_tests(repo_dir: pathlib.Path) -> typing.Iterable[str]:
         t = test.split()
         try:
             # It's okay to comment out a test intentionally.
-            if t[t[0] == '#'] in ('expensive', '#expensive'):
-                yield t[-1].split('::')[-1]
+            if t[t[0] == "#"] in ("expensive", "#expensive"):
+                yield t[-1].split("::")[-1]
         except IndexError:
             pass
 
@@ -100,16 +100,16 @@ def main() -> typing.Optional[str]:
         ]
         path = pathlib.Path(root)
         for filename in files:
-            if filename.endswith('.rs'):
+            if filename.endswith(".rs"):
                 filepath = path / filename
-                print(f'checking file {filepath}')
+                print(f"checking file {filepath}")
                 for test in expensive_tests_in_file(filepath):
-                    print(f'  expensive test {test}')
+                    print(f"  expensive test {test}")
                     if test not in nightly_txt_tests:
-                        return f'error: file {filepath} test {test} not in nightly.txt'
-    print('all tests in nightly')
+                        return f"error: file {filepath} test {test} not in nightly.txt"
+    print("all tests in nightly")
     return None
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

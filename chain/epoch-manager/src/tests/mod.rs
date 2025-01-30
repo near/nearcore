@@ -1702,7 +1702,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     // Every second chunk is skipped.
     let total_produced_chunks = total_expected_chunks / 2;
 
-    // Chunk producers produce all chunks, but the chuink validator skips
+    // Chunk producers produce all chunks, but the chunk validator skips
     // sending endorsements for every second chunk and does not pass the threshold.
     // Chunk validator validates all chunks, so its performance is determined
     // by the chunk production ratio, which is not enough.
@@ -3786,6 +3786,22 @@ fn test_get_shard_uids_pending_resharding_none() {
     assert_eq!(shard_uids.len(), 0);
 }
 
+/// Test there are no ShardUIds pending resharding when there are no planned
+/// reshardings in the simple nightshade v3 shard layout that is used in prod.
+///
+/// This test checks that when then protocol version is changing but the shard
+/// layout is not, no shard is pending resharding.
+#[test]
+fn test_get_shard_uids_pending_resharding_simple_nightshade() {
+    let v3 = ShardLayout::get_simple_nightshade_layout_v3();
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[v3.clone(), v3]);
+    assert_eq!(shard_uids.len(), 0);
+
+    let v4 = ShardLayout::get_simple_nightshade_layout_v4();
+    let shard_uids = test_get_shard_uids_pending_resharding_base(&[v4.clone(), v4]);
+    assert_eq!(shard_uids.len(), 0);
+}
+
 /// Test that there is only one ShardUId pending resharding during a single
 /// resharding.
 #[test]
@@ -3834,7 +3850,7 @@ fn test_get_shard_uids_pending_resharding_double_different() {
 }
 
 /// Test that only one shard is pending resharding during a double
-/// resharding where the same shard is reshareded twice.
+/// resharding where the same shard is resharded twice.
 #[test]
 fn test_get_shard_uids_pending_resharding_double_same() {
     let version = 3;

@@ -164,7 +164,7 @@ fn test_contract_distribution_call_after_clear_different_accounts() {
 
 /// Executes a test that deploys and calls different contracts to the same account.
 #[test]
-fn test_contract_distribution_deply_and_call_multiple_contracts() {
+fn test_contract_distribution_deploy_and_call_multiple_contracts() {
     init_test_logger();
     // We need 1 more non-validator account to create, deploy-contract, and delete.
     let accounts = make_accounts(NUM_VALIDATORS + 1);
