@@ -486,6 +486,8 @@ impl<'a> ChainUpdate<'a> {
             }
         };
 
+        // Note that block headers are already synced and can be taken
+        // from store on disk.
         let block_header = get_block_header_on_chain_by_height(
             &self.chain_store_update.chain_store(),
             &sync_hash,
