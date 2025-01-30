@@ -165,7 +165,12 @@ pub async fn update_account_nonces(
         let nonce = response?.nonce;
         let account = accounts.get_mut(idx).unwrap();
         if account.nonce != nonce {
-            log::trace!("updating nonce for a user {} ({}->{})", account.id, account.nonce, nonce);
+            tracing::debug!(
+                "updating nonce for a user {} ({}->{})",
+                account.id,
+                account.nonce,
+                nonce
+            );
             account.nonce = nonce;
             if let Some(path) = accounts_path {
                 account.write_to_dir(path)?;
