@@ -53,7 +53,10 @@ use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::shard_tracker::{
+    get_prev_shard_id_from_prev_hash, get_prev_shard_ids, get_shard_layout_from_prev_block,
+    ShardTracker,
+};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Chunks, MaybeNew, Tip};
@@ -2156,8 +2159,10 @@ impl Chain {
         let chunk_header = last_final_block_chunks
             .get(shard_index)
             .ok_or_else(|| Error::InvalidShardId(shard_uid.shard_id()))?;
-        let chunk_shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_shard_layout = get_shard_layout_from_prev_block(
+            self.epoch_manager.as_ref(),
+            chunk_header.prev_block_hash(),
+        )?;
         let chunk_shard_uid =
             ShardUId::from_shard_id_and_layout(chunk_header.shard_id(), &chunk_shard_layout);
 
@@ -3528,7 +3533,7 @@ impl Chain {
         chunk_header: &ShardChunkHeader,
     ) -> Result<ChunkState, Error> {
         let shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(prev_block.hash())?;
+            get_shard_layout_from_prev_block(self.epoch_manager.as_ref(), prev_block.hash())?;
         let shard_id = chunk_header.shard_id();
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let prev_merkle_proofs =
@@ -3909,7 +3914,7 @@ impl Chain {
                 let epoch_height =
                     self.epoch_manager.get_epoch_height_from_prev_block(prev_prev_hash)?;
                 let shard_layout =
-                    &self.epoch_manager.get_shard_layout_from_prev_block(prev_prev_hash)?;
+                    &get_shard_layout_from_prev_block(self.epoch_manager.as_ref(), prev_prev_hash)?;
                 let shard_uids = shard_layout.shard_uids().enumerate().collect();
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
@@ -4457,7 +4462,7 @@ impl Chain {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
         let shard_ids = epoch_manager.shard_ids(&epoch_id)?;
 
-        let prev_shard_ids = epoch_manager.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
+        let prev_shard_ids = get_prev_shard_ids(epoch_manager, prev_block.hash(), shard_ids)?;
         let prev_chunks = prev_block.chunks();
         Ok(prev_shard_ids
             .into_iter()
@@ -4471,7 +4476,7 @@ impl Chain {
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
         let (_, prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id_from_prev_hash(prev_block.hash(), shard_id)?;
+            get_prev_shard_id_from_prev_hash(epoch_manager, prev_block.hash(), shard_id)?;
         Ok(prev_block
             .chunks()
             .get(prev_shard_index)

@@ -18,6 +18,9 @@ use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::{
+    get_prev_shard_id_from_prev_hash, get_shard_layout_from_prev_block,
+};
 use near_epoch_manager::EpochManagerAdapter;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
@@ -182,8 +185,7 @@ fn get_state_witness_block_range(
 
     let initial_prev_hash = *state_witness.chunk_header.prev_block_hash();
     let initial_prev_block = store.get_block(&initial_prev_hash)?;
-    let initial_shard_layout =
-        epoch_manager.get_shard_layout_from_prev_block(&initial_prev_hash)?;
+    let initial_shard_layout = get_shard_layout_from_prev_block(epoch_manager, &initial_prev_hash)?;
     let initial_shard_id = state_witness.chunk_header.shard_id();
     // Check that shard id is present in current epoch.
     // TODO: consider more proper way to validate this.
@@ -212,7 +214,7 @@ fn get_state_witness_block_range(
             implicit_transition_params.push(transition);
         }
         let (prev_shard_layout, prev_shard_id, prev_shard_index) =
-            epoch_manager.get_prev_shard_id_from_prev_hash(prev_hash, position.shard_id)?;
+            get_prev_shard_id_from_prev_hash(epoch_manager, prev_hash, position.shard_id)?;
 
         let new_chunk_seen = block_has_new_chunk(&position.prev_block, prev_shard_index)?;
         let new_chunks_seen_update =
@@ -285,7 +287,7 @@ fn get_resharding_transition(
         return Ok(None);
     }
 
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_header.hash())?;
+    let shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_header.hash())?;
     let prev_epoch_id = epoch_manager.get_prev_epoch_id_from_prev_block(prev_header.hash())?;
     let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
     let block_has_new_shard_layout = epoch_manager.is_next_block_epoch_start(prev_header.hash())?
@@ -553,9 +555,12 @@ fn validate_source_receipt_proofs(
             receipts_to_apply.extend(proof.0.iter().cloned());
         }
 
-        current_target_shard_id = epoch_manager
-            .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), current_target_shard_id)?
-            .1;
+        current_target_shard_id = get_prev_shard_id_from_prev_hash(
+            epoch_manager,
+            block.header().prev_hash(),
+            current_target_shard_id,
+        )?
+        .1;
     }
 
     // Check that there are no extraneous proofs in source_receipt_proofs.

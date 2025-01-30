@@ -11,6 +11,7 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
@@ -563,45 +564,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
     }
 
-    fn get_prev_shard_ids(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_ids: Vec<ShardId>,
-    ) -> Result<Vec<(ShardId, ShardIndex)>, Error> {
-        let mut prev_shard_ids = vec![];
-        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
-        for shard_id in shard_ids {
-            // This is not correct if there was a resharding event in between
-            // the previous and current block.
-            let prev_shard_id = shard_id;
-            let prev_shard_index = shard_layout.get_shard_index(prev_shard_id)?;
-            prev_shard_ids.push((prev_shard_id, prev_shard_index));
-        }
-
-        Ok(prev_shard_ids)
-    }
-
-    fn get_prev_shard_id_from_prev_hash(
-        &self,
-        prev_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<(ShardLayout, ShardId, ShardIndex), EpochError> {
-        let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
-        // This is not correct if there was a resharding event in between
-        // the previous and current block.
-        let prev_shard_id = shard_id;
-        let prev_shard_index = shard_layout.get_shard_index(prev_shard_id)?;
-        Ok((shard_layout, prev_shard_id, prev_shard_index))
-    }
-
-    fn get_shard_layout_from_prev_block(
-        &self,
-        _parent_hash: &CryptoHash,
-    ) -> Result<ShardLayout, EpochError> {
-        #[allow(deprecated)]
-        Ok(ShardLayout::v0(self.num_shards, 0))
-    }
-
     fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         let (epoch_id, _, _) = self.get_epoch_and_valset(*block_hash)?;
         Ok(epoch_id)
@@ -916,7 +878,7 @@ impl EpochManagerAdapter for MockEpochManager {
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let shard_layout = get_shard_layout_from_prev_block(self, parent_hash)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(epoch_valset.1, shard_index);
         for validator in chunk_producers {
@@ -937,34 +899,10 @@ impl EpochManagerAdapter for MockEpochManager {
         //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
         //    the calling function.
         let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
+        let shard_layout = get_shard_layout_from_prev_block(self, parent_hash)?;
         let shard_index = shard_layout.get_shard_index(shard_id)?;
         let chunk_producers = self.get_chunk_producers(
             (epoch_valset.1 + 1) % self.validators_by_valset.len(),
-            shard_index,
-        );
-        for validator in chunk_producers {
-            if validator.account_id() == account_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    fn cared_about_shard_prev_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        // This `unwrap` here tests that in all code paths we check that the epoch exists before
-        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
-        //    the calling function.
-        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
-        let shard_layout = self.get_shard_layout_from_prev_block(parent_hash)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        let chunk_producers = self.get_chunk_producers(
-            (epoch_valset.1.wrapping_sub(1)) % self.validators_by_valset.len(),
             shard_index,
         );
         for validator in chunk_producers {

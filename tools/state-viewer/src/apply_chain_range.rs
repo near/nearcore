@@ -9,6 +9,7 @@ use near_chain::types::{
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
 use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -157,7 +158,7 @@ fn apply_block_from_range(
             .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
             .expect("valid transaction calculation");
         let shard_layout =
-            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
+            get_shard_layout_from_prev_block(epoch_manager, block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 epoch_manager,

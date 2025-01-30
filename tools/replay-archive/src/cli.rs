@@ -21,6 +21,7 @@ use near_chain::{
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -392,8 +393,10 @@ impl ReplayController {
         shard_id: ShardId,
         prev_chunk_height_included: BlockHeight,
     ) -> Result<Vec<Receipt>> {
-        let shard_layout =
-            self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
+        let shard_layout = get_shard_layout_from_prev_block(
+            self.epoch_manager.as_ref(),
+            block_header.prev_hash(),
+        )?;
         let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,

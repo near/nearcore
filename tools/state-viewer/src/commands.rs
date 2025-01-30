@@ -26,6 +26,7 @@ use near_chain::{
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
@@ -84,7 +85,7 @@ pub(crate) fn apply_block(
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
         let chain_store_update = ChainStoreUpdate::new(chain_store);
         let shard_layout =
-            epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
+            get_shard_layout_from_prev_block(epoch_manager, block.header().prev_hash()).unwrap();
         let receipt_proof_response = chain_store_update
             .get_incoming_receipts_for_shard(
                 epoch_manager,
@@ -1280,7 +1281,8 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
         load_trie(store.clone(), home_dir, &near_config);
 
     let block_hash = *block_header.hash();
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+    let shard_layout =
+        get_shard_layout_from_prev_block(epoch_manager.as_ref(), &block_hash).unwrap();
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
     for shard_uid in shard_layout.shard_uids() {

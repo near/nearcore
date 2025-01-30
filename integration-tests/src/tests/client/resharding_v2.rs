@@ -6,6 +6,7 @@ use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::ProcessTxResponse;
 use near_crypto::InMemorySigner;
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
@@ -397,10 +398,11 @@ impl TestReshardingEnv {
                     vec![shard_id]
                 } else {
                     // different shard layout between block and last_block
-                    let shard_layout = client
-                        .epoch_manager
-                        .get_shard_layout_from_prev_block(&last_block_hash)
-                        .unwrap();
+                    let shard_layout = get_shard_layout_from_prev_block(
+                        client.epoch_manager.as_ref(),
+                        &last_block_hash,
+                    )
+                    .unwrap();
 
                     shard_layout.get_children_shards_ids(shard_id).unwrap()
                 };
@@ -429,10 +431,11 @@ impl TestReshardingEnv {
         let head = env.clients[0].chain.head().unwrap();
         let block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
         // check execution outcomes
-        let shard_layout = env.clients[0]
-            .epoch_manager
-            .get_shard_layout_from_prev_block(&head.last_block_hash)
-            .unwrap();
+        let shard_layout = get_shard_layout_from_prev_block(
+            env.clients[0].epoch_manager.as_ref(),
+            &head.last_block_hash,
+        )
+        .unwrap();
         let mut txs_to_check = vec![];
         txs_to_check.extend(&self.init_txs);
         for (_, txs) in self.txs_by_height.iter() {
@@ -521,7 +524,7 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     tracing::trace!(target: "test", ?account_id, block_height=block.header().height(), "checking account");
     let prev_hash = block.header().prev_hash();
     let shard_layout =
-        env.clients[0].epoch_manager.get_shard_layout_from_prev_block(prev_hash).unwrap();
+        get_shard_layout_from_prev_block(env.clients[0].epoch_manager.as_ref(), prev_hash).unwrap();
     let shard_uid = shard_layout.account_id_to_shard_uid(account_id);
     let shard_id = shard_uid.shard_id();
     let shard_index = shard_layout.get_shard_index(shard_id).unwrap();

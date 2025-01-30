@@ -1,6 +1,6 @@
 use near_chain::types::Tip;
 use near_client::Client;
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{shard_tracker::get_shard_layout_from_prev_block, EpochManagerAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -127,7 +127,7 @@ pub fn get_tracked_shards_from_prev_block(
     let signer = client.validator_signer.get();
     let account_id = signer.as_ref().map(|s| s.validator_id());
     let shard_layout =
-        client.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
+        get_shard_layout_from_prev_block(client.epoch_manager.as_ref(), prev_block_hash).unwrap();
     let mut tracked_shards = vec![];
     for shard_uid in shard_layout.shard_uids() {
         if client.shard_tracker.care_about_shard(

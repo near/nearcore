@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use borsh::BorshDeserialize;
 
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, BlockHeader};
@@ -65,7 +66,7 @@ pub fn validate_chunk_proofs(
     } else {
         let shard_layout = {
             let prev_block_hash = chunk.prev_block_hash();
-            epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?
+            get_shard_layout_from_prev_block(epoch_manager, &prev_block_hash)?
         };
         let outgoing_receipts_hashes = Chain::build_receipts_hashes(receipts, &shard_layout);
         let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
@@ -126,7 +127,7 @@ pub fn validate_chunk_with_chunk_extra(
         prev_chunk_height_included,
     )?;
     let outgoing_receipts_hashes = {
-        let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?;
+        let shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_block_hash)?;
         Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
     };
     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);

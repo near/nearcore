@@ -3,7 +3,7 @@ use near_chain::{
     types::EpochManagerAdapter, validate::validate_chunk_proofs, BlockHeader, Chain, ChainStore,
 };
 use near_chunks_primitives::Error;
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::shard_tracker::{get_shard_layout_from_prev_block, ShardTracker};
 use near_primitives::{
     errors::EpochError,
     hash::CryptoHash,
@@ -90,7 +90,7 @@ pub fn make_outgoing_receipts_proofs(
 ) -> Result<Vec<ReceiptProof>, EpochError> {
     let shard_id = chunk_header.shard_id();
     let shard_layout =
-        epoch_manager.get_shard_layout_from_prev_block(chunk_header.prev_block_hash())?;
+        get_shard_layout_from_prev_block(epoch_manager, chunk_header.prev_block_hash())?;
 
     let hashes = Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout);
     let (root, proofs) = merklize(&hashes);

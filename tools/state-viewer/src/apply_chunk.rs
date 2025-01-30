@@ -7,6 +7,7 @@ use near_chain::types::{
 };
 use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
+use near_epoch_manager::shard_tracker::get_shard_layout_from_prev_block;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
@@ -75,7 +76,7 @@ fn get_incoming_receipts(
         receipt_proofs.shuffle(&mut rng);
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
-    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
+    let shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_hash)?;
     responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
         epoch_manager,
         shard_id,
@@ -249,7 +250,7 @@ fn find_tx_or_receipt(
         for receipt in chunk.prev_outgoing_receipts() {
             if &receipt.get_hash() == hash {
                 let shard_layout =
-                    epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
+                    get_shard_layout_from_prev_block(epoch_manager, chunk.prev_block())?;
                 let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                 return Ok(Some((HashType::Receipt, to_shard)));
             }
@@ -442,7 +443,7 @@ fn apply_receipt_in_chunk(
                 for receipt in chunk.prev_outgoing_receipts().iter() {
                     if receipt.get_hash() == *id {
                         let shard_layout =
-                            epoch_manager.get_shard_layout_from_prev_block(chunk.prev_block())?;
+                            get_shard_layout_from_prev_block(epoch_manager, chunk.prev_block())?;
                         let to_shard = shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         to_apply.insert((height, to_shard));
                         println!(

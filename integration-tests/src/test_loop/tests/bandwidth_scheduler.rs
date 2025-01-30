@@ -30,6 +30,7 @@ use near_chain_configs::test_genesis::{
 use near_client::client_actor::ClientActorInner;
 use near_client::Client;
 use near_crypto::Signer;
+use near_epoch_manager::shard_tracker::get_prev_shard_id_from_prev_hash;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::{Action, FunctionCallAction};
@@ -281,10 +282,13 @@ fn analyze_workload_blocks(
             let shard_id = new_chunk.shard_id();
             let shard_index = cur_shard_layout.get_shard_index(shard_id).unwrap();
             let shard_uid = ShardUId::new(cur_shard_layout.version(), shard_id);
-            let prev_shard_index = epoch_manager
-                .get_prev_shard_id_from_prev_hash(block.header().prev_hash(), shard_id)
-                .unwrap()
-                .2;
+            let prev_shard_index = get_prev_shard_id_from_prev_hash(
+                epoch_manager,
+                block.header().prev_hash(),
+                shard_id,
+            )
+            .unwrap()
+            .2;
             let prev_height_included =
                 prev_block.chunks().get(prev_shard_index).unwrap().height_included();
 

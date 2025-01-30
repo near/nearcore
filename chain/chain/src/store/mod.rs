@@ -7,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 
 use near_chain_primitives::error::Error;
+use near_epoch_manager::shard_tracker::{get_prev_shard_ids, get_shard_layout_from_prev_block};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
@@ -243,7 +244,7 @@ pub trait ChainStoreAccess {
             }
 
             let prev_hash = header.prev_hash();
-            let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
+            let prev_shard_layout = get_shard_layout_from_prev_block(epoch_manager, prev_hash)?;
 
             if prev_shard_layout != current_shard_layout {
                 let parent_shard_id = current_shard_layout.get_parent_shard_id(current_shard_id)?;
@@ -362,7 +363,7 @@ pub trait ChainStoreAccess {
             }
             candidate_hash = *block_header.prev_hash();
             (shard_id, shard_index) =
-                epoch_manager.get_prev_shard_ids(&candidate_hash, vec![shard_id])?[0];
+                get_prev_shard_ids(epoch_manager, &candidate_hash, vec![shard_id])?[0];
         }
     }
 
@@ -487,7 +488,7 @@ impl ChainStore {
         shard_id: ShardId,
         last_included_height: BlockHeight,
     ) -> Result<Vec<Receipt>, Error> {
-        let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?;
+        let shard_layout = get_shard_layout_from_prev_block(epoch_manager, &prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
