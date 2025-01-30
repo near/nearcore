@@ -55,10 +55,9 @@ pub struct CreateSubAccountsArgs {
     #[arg(long)]
     /// Acts as upper bound on the number of concurrently open RPC requests.
     pub channel_buffer_size: usize,
-    /// After each tick (in microseconds) a transaction is sent. If the hardware cannot keep up with
-    /// that or if the NEAR node is congested, transactions are sent at a slower rate.
+    /// Upper bound on request rate to the network for transaction (and other auxiliary) calls. The actual rate may be lower in case of congestions.
     #[arg(long)]
-    pub interval_duration_micros: u64,
+    pub requests_per_second: u64,
     /// Directory where created user account data (incl. key and nonce) is stored.
     #[arg(long)]
     pub user_data_dir: PathBuf,
@@ -149,7 +148,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
 
-    let mut interval = time::interval(Duration::from_micros(args.interval_duration_micros));
+    let mut interval = time::interval(Duration::from_micros(1_000_000/args.requests_per_second));
     let timer = Instant::now();
 
     let mut sub_accounts: Vec<Account> =
