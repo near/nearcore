@@ -1717,7 +1717,8 @@ impl ShardsManagerActor {
         let have_all_parts = self.has_all_parts(&prev_block_hash, entry, me)?;
         let have_all_receipts = self.has_all_receipts(&prev_block_hash, entry, me)?;
 
-        let can_reconstruct = entry.parts.len() >= num_chunk_data_parts(self.epoch_manager.as_ref());
+        let can_reconstruct =
+            entry.parts.len() >= num_chunk_data_parts(self.epoch_manager.as_ref());
         let chunk_producer = self
             .epoch_manager
             .get_chunk_producer_info(&ChunkProductionKey {
