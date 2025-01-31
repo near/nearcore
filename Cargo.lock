@@ -4441,7 +4441,6 @@ dependencies = [
  "anyhow",
  "clap",
  "near-test-contracts",
- "tracing",
 ]
 
 [[package]]

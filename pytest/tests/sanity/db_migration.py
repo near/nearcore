@@ -27,10 +27,10 @@ node_config = {
 }
 
 
-def deploy_contract(node):
+def deploy_contract(node, config):
     hash_ = node.get_latest_block().hash_bytes
-    tx = sign_deploy_contract_tx(node.signer_key, utils.load_test_contract(),
-                                 10, hash_)
+    test_contract = utils.load_test_contract(config=config)
+    tx = sign_deploy_contract_tx(node.signer_key, test_contract, 10, hash_)
     node.send_tx_and_wait(tx, timeout=15)
     utils.wait_for_blocks(node, count=3)
 
@@ -113,7 +113,7 @@ def main():
     logging.info("Running the stable node...")
     utils.wait_for_blocks(node, count=EPOCH_LENGTH)
     logging.info("Blocks are being produced, sending some tx...")
-    deploy_contract(node)
+    deploy_contract(node, executables.current.node_config())
     send_some_tx(node)
     unstake_and_stake(nodes[1], node)
 

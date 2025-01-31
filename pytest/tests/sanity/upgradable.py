@@ -166,8 +166,8 @@ def test_upgrade() -> None:
 
     # deploy a contract
     hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_deploy_contract_tx(nodes[0].signer_key,
-                                 utils.load_test_contract(), 1, hash)
+    test_contract = utils.load_test_contract(config=config)
+    tx = sign_deploy_contract_tx(nodes[0].signer_key, test_contract, 1, hash)
     res = nodes[0].send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
