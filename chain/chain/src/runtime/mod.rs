@@ -607,7 +607,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: PrepareTransactionsChunkContext,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
