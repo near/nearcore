@@ -282,7 +282,21 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
-    ) -> Result<Vec<AccountId>, EpochError>;
+    ) -> Result<Vec<AccountId>, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_index)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        Ok(chunk_producers
+            .iter()
+            .map(|index| epoch_info.validator_account_id(*index).clone())
+            .collect())
+    }
 
     /// Returns all validators for a given epoch.
     fn get_epoch_all_validators(
@@ -305,7 +319,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-    ) -> Result<ValidatorStake, EpochError>;
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let validator_id = epoch_info.sample_block_producer(height);
+        Ok(epoch_info.get_validator(validator_id))
+    }
 
     /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
     fn get_chunk_producer_info(
@@ -348,8 +366,12 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<StoreUpdate, EpochError>;
 
     /// Epoch active protocol version.
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId)
-        -> Result<ProtocolVersion, EpochError>;
+    fn get_epoch_protocol_version(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<ProtocolVersion, EpochError> {
+        Ok(self.get_epoch_info(epoch_id)?.protocol_version())
+    }
 
     /// Get protocol version of next epoch.
     fn get_next_epoch_protocol_version(
@@ -618,24 +640,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
     }
 
-    fn get_epoch_chunk_producers_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<Vec<AccountId>, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, shard_id)
-    }
-
-    fn get_block_producer_info(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_block_producer_info(epoch_id, height)?)
-    }
-
     fn get_chunk_producer_info(
         &self,
         key: &ChunkProductionKey,
@@ -670,14 +674,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<StoreUpdate, EpochError> {
         let mut epoch_manager = self.write();
         epoch_manager.add_validator_proposals(block_info, random_value)
-    }
-
-    fn get_epoch_protocol_version(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<ProtocolVersion, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
     }
 
     fn init_after_epoch_sync(
