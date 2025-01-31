@@ -27,6 +27,7 @@ use near_primitives::version::{
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
+use near_store::adapter::StoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;
@@ -1693,9 +1694,7 @@ impl EpochManager {
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store
-                .get_ser(DBCol::EpochInfo, epoch_id.as_ref())?
-                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
+            self.store.epoch().get_epoch_info(epoch_id).map(Arc::new)
         })
     }
 
@@ -1746,16 +1745,9 @@ impl EpochManager {
         }
     }
 
-    /// Get BlockInfo for a block
-    /// # Errors
-    /// EpochError::IOErr if storage returned an error
-    /// EpochError::MissingBlock if block is not in storage
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info.get_or_try_put(*hash, |hash| {
-            self.store
-                .get_ser(DBCol::BlockInfo, hash.as_ref())?
-                .ok_or(EpochError::MissingBlock(*hash))
-        })
+        self.blocks_info
+            .get_or_try_put(*hash, |hash| self.store.epoch().get_block_info(hash).map(Arc::new))
     }
 
     fn save_block_info(
@@ -1781,11 +1773,8 @@ impl EpochManager {
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store
-                .get_ser(DBCol::EpochStart, epoch_id.as_ref())?
-                .ok_or(EpochError::EpochOutOfBounds(*epoch_id))
-        })
+        self.epoch_id_to_start
+            .get_or_try_put(*epoch_id, |epoch_id| self.store.epoch().get_epoch_start(epoch_id))
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`

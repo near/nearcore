@@ -1,6 +1,5 @@
 use crate::client_actor::ClientActorInner;
 use crate::metrics;
-use borsh::BorshDeserialize;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::{CanSend, Handler};
 use near_async::time::Clock;
@@ -18,13 +17,11 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
-use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::epoch_sync::{
     CompressedEpochSyncProof, EpochSyncProof, EpochSyncProofCurrentEpochData,
     EpochSyncProofEpochData, EpochSyncProofLastEpochData, EpochSyncProofV1,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -32,7 +29,8 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{compression::CompressedData, index_to_bytes};
 use near_primitives::version::ProtocolFeature;
-use near_store::{DBCol, Store, FINAL_HEAD_KEY};
+use near_store::adapter::StoreAdapter;
+use near_store::{DBCol, Store};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
@@ -61,11 +59,10 @@ impl EpochSync {
         config: EpochSyncConfig,
         store: &Store,
     ) -> Self {
-        let epoch_sync_proof_we_used_to_bootstrap = store
-            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])
+        let my_own_epoch_sync_boundary_block_header = store
+            .epoch()
+            .get_epoch_sync_proof()
             .expect("IO error querying epoch sync proof")
-            .map(|proof| proof.into_v1());
-        let my_own_epoch_sync_boundary_block_header = epoch_sync_proof_we_used_to_bootstrap
             .map(|proof| proof.current_epoch.first_block_header_in_epoch);
 
         Self {
@@ -100,17 +97,11 @@ impl EpochSync {
         let target_epoch_last_block_hash =
             Self::find_target_epoch_to_produce_proof_for(&store, transaction_validity_period)?;
 
-        let target_epoch_last_block_header = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, target_epoch_last_block_hash.as_bytes())?
-            .ok_or_else(|| Error::Other("Could not find last block of target epoch".to_string()))?;
-        let target_epoch_second_last_block_header = store
-            .get_ser::<BlockHeader>(
-                DBCol::BlockHeader,
-                target_epoch_last_block_header.prev_hash().as_bytes(),
-            )?
-            .ok_or_else(|| {
-                Error::Other("Could not find second last block of target epoch".to_string())
-            })?;
+        let chain_store = store.chain_store();
+        let target_epoch_last_block_header =
+            chain_store.get_block_header(&target_epoch_last_block_hash)?;
+        let target_epoch_second_last_block_header =
+            chain_store.get_block_header(target_epoch_last_block_header.prev_hash())?;
 
         let mut guard = cache.lock().unwrap();
         if let Some((epoch_id, proof)) = &*guard {
@@ -158,29 +149,19 @@ impl EpochSync {
         store: &Store,
         transaction_validity_period: BlockHeightDelta,
     ) -> Result<CryptoHash, Error> {
-        let tip = store
-            .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
-            .ok_or_else(|| Error::Other("Could not find tip".to_string()))?;
-        let current_epoch_start_height = store
-            .get_ser::<BlockHeight>(DBCol::EpochStart, tip.epoch_id.0.as_bytes())?
-            .ok_or(Error::EpochOutOfBounds(tip.epoch_id))?;
+        let chain_store = store.chain_store();
+        let epoch_store = store.epoch();
+
+        let tip = chain_store.final_head()?;
+        let current_epoch_start_height = epoch_store.get_epoch_start(&tip.epoch_id)?;
         let next_next_epoch_id = tip.next_epoch_id;
         // Last block hash of the target epoch is the same as the next next EpochId.
         // That's a general property for Near's epochs.
         let mut target_epoch_last_block_hash = next_next_epoch_id.0;
         Ok(loop {
-            let block_info = store
-                .get_ser::<BlockInfo>(DBCol::BlockInfo, target_epoch_last_block_hash.as_bytes())?
-                .ok_or_else(|| Error::Other("Could not find block info".to_string()))?;
-            let target_epoch_first_block_hash = block_info.epoch_first_block();
-            let target_epoch_first_block_header = store
-                .get_ser::<BlockHeader>(
-                    DBCol::BlockHeader,
-                    target_epoch_first_block_hash.as_bytes(),
-                )?
-                .ok_or_else(|| {
-                    Error::Other("Could not find first block of target epoch".to_string())
-                })?;
+            let block_info = epoch_store.get_block_info(&target_epoch_last_block_hash)?;
+            let target_epoch_first_block_header =
+                chain_store.get_block_header(block_info.epoch_first_block())?;
             // Check that we have enough headers to check for transaction_validity_period.
             // We check this against the current epoch's start height, because when we state
             // sync, we will sync against the current epoch, and starting from the point we
@@ -201,32 +182,22 @@ impl EpochSync {
         store: Store,
         next_block_header_after_last_final_block_of_current_epoch: BlockHeader,
     ) -> Result<EpochSyncProof, Error> {
-        let last_final_block_header_in_current_epoch = store
-            .get_ser::<BlockHeader>(
-                DBCol::BlockHeader,
-                next_block_header_after_last_final_block_of_current_epoch.prev_hash().as_bytes(),
-            )?
-            .ok_or_else(|| Error::Other("Could not find final block header".to_string()))?;
+        let chain_store = store.chain_store();
+        let epoch_store = store.epoch();
 
+        let last_final_block_header_in_current_epoch = chain_store.get_block_header(
+            next_block_header_after_last_final_block_of_current_epoch.prev_hash(),
+        )?;
         let current_epoch = *last_final_block_header_in_current_epoch.epoch_id();
-        let current_epoch_info = store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, current_epoch.0.as_bytes())?
-            .ok_or(Error::EpochOutOfBounds(current_epoch))?;
+        let current_epoch_info = epoch_store.get_epoch_info(&current_epoch)?;
         let next_epoch = *last_final_block_header_in_current_epoch.next_epoch_id();
-        let next_epoch_info = store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, next_epoch.0.as_bytes())?
-            .ok_or(Error::EpochOutOfBounds(next_epoch))?;
-
-        let genesis_epoch_info = store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, EpochId::default().0.as_bytes())?
-            .ok_or_else(|| Error::EpochOutOfBounds(EpochId::default()))?;
+        let next_epoch_info = epoch_store.get_epoch_info(&next_epoch)?;
+        let genesis_epoch_info = epoch_store.get_epoch_info(&EpochId::default())?;
 
         // If we have an existing (possibly and likely outdated) EpochSyncProof stored on disk,
         // the last epoch we have a proof for is the "previous epoch" included in that EpochSyncProof.
         // Otherwise, the last epoch we have a "proof" for is the genesis epoch.
-        let existing_epoch_sync_proof = store
-            .get_ser::<EpochSyncProof>(DBCol::EpochSyncProof, &[])?
-            .map(|proof| proof.into_v1());
+        let existing_epoch_sync_proof = epoch_store.get_epoch_sync_proof()?;
         let last_epoch_we_have_proof_for = existing_epoch_sync_proof
             .as_ref()
             .and_then(|existing_proof| {
@@ -265,73 +236,28 @@ impl EpochSync {
             .unwrap()
             .last_final_block_header
             .epoch_id();
-        let prev_epoch_info = store
-            .get_ser::<EpochInfo>(DBCol::EpochInfo, prev_epoch.0.as_bytes())?
-            .ok_or(Error::EpochOutOfBounds(prev_epoch))?;
-
-        let last_block_of_prev_epoch = store
-            .get_ser::<BlockHeader>(DBCol::BlockHeader, next_epoch.0.as_bytes())?
-            .ok_or_else(|| Error::Other("Could not find last block of target epoch".to_string()))?;
-
-        let last_block_info_of_prev_epoch = store
-            .get_ser::<BlockInfo>(DBCol::BlockInfo, last_block_of_prev_epoch.hash().as_bytes())?
-            .ok_or_else(|| Error::Other("Could not find last block info".to_string()))?;
-
-        let second_last_block_of_prev_epoch = store
-            .get_ser::<BlockHeader>(
-                DBCol::BlockHeader,
-                last_block_of_prev_epoch.prev_hash().as_bytes(),
-            )?
-            .ok_or_else(|| {
-                Error::Other("Could not find second last block of target epoch".to_string())
-            })?;
-
-        let second_last_block_info_of_prev_epoch = store
-            .get_ser::<BlockInfo>(
-                DBCol::BlockInfo,
-                last_block_of_prev_epoch.prev_hash().as_bytes(),
-            )?
-            .ok_or_else(|| Error::Other("Could not find second last block info".to_string()))?;
-
-        let first_block_info_of_prev_epoch = store
-            .get_ser::<BlockInfo>(
-                DBCol::BlockInfo,
-                last_block_info_of_prev_epoch.epoch_first_block().as_bytes(),
-            )?
-            .ok_or_else(|| Error::Other("Could not find first block info".to_string()))?;
-
-        let block_info_for_final_block_of_current_epoch = store
-            .get_ser::<BlockInfo>(
-                DBCol::BlockInfo,
-                last_final_block_header_in_current_epoch.hash().as_bytes(),
-            )?
-            .ok_or_else(|| {
-                Error::Other("Could not find block info for latest final block".to_string())
-            })?;
-
-        let first_block_of_current_epoch = store
-            .get_ser::<BlockHeader>(
-                DBCol::BlockHeader,
-                block_info_for_final_block_of_current_epoch.epoch_first_block().as_bytes(),
-            )?
-            .ok_or_else(|| Error::Other("Could not find first block of next epoch".to_string()))?;
+        let prev_epoch_info = epoch_store.get_epoch_info(&prev_epoch)?;
+        let last_block_of_prev_epoch = chain_store.get_block_header(&next_epoch.0)?;
+        let last_block_info_of_prev_epoch =
+            epoch_store.get_block_info(last_block_of_prev_epoch.hash())?;
+        let second_last_block_of_prev_epoch =
+            chain_store.get_block_header(last_block_of_prev_epoch.prev_hash())?;
+        let second_last_block_info_of_prev_epoch =
+            epoch_store.get_block_info(last_block_of_prev_epoch.prev_hash())?;
+        let first_block_info_of_prev_epoch =
+            epoch_store.get_block_info(last_block_info_of_prev_epoch.epoch_first_block())?;
+        let block_info_for_final_block_of_current_epoch =
+            epoch_store.get_block_info(last_final_block_header_in_current_epoch.hash())?;
+        let first_block_of_current_epoch = chain_store
+            .get_block_header(block_info_for_final_block_of_current_epoch.epoch_first_block())?;
 
         let merkle_proof_for_first_block_of_current_epoch = store
             .compute_past_block_proof_in_merkle_tree_of_later_block(
                 first_block_of_current_epoch.hash(),
                 last_final_block_header_in_current_epoch.hash(),
             )?;
-
-        let partial_merkle_tree_for_first_block_of_current_epoch = store
-            .get_ser::<PartialMerkleTree>(
-                DBCol::BlockMerkleTree,
-                first_block_of_current_epoch.hash().as_bytes(),
-            )?
-            .ok_or_else(|| {
-                Error::Other(
-                    "Could not find partial merkle tree for first block of next epoch".to_string(),
-                )
-            })?;
+        let partial_merkle_tree_for_first_block_of_current_epoch =
+            chain_store.get_block_merkle_tree(first_block_of_current_epoch.hash())?;
 
         let all_epochs_including_old_proof = existing_epoch_sync_proof
             .map(|proof| proof.all_epochs)
@@ -377,22 +303,16 @@ impl EpochSync {
         current_epoch_last_final_block_header: &BlockHeader,
         current_epoch_second_last_block_approvals: Vec<Option<Box<Signature>>>,
     ) -> Result<Vec<EpochSyncProofEpochData>, Error> {
+        let chain_store = store.chain_store();
+        let epoch_store = store.epoch();
+
         // We're going to get all the epochs and then figure out the correct chain of
         // epochs. The reason is that (1) epochs may, in very rare cases, have forks,
         // so we cannot just take all the epochs and assume their heights do not collide;
         // and (2) it is not easy to walk backwards from the last epoch; there's no
         // "give me the previous epoch" query. So instead, we use block header's
         // `next_epoch_id` to establish an epoch chain.
-        let mut all_epoch_infos = HashMap::new();
-        for item in store.iter(DBCol::EpochInfo) {
-            let (key, value) = item?;
-            if key.as_ref() == AGGREGATOR_KEY {
-                continue;
-            }
-            let epoch_id = EpochId::try_from_slice(key.as_ref())?;
-            let epoch_info = EpochInfo::try_from_slice(value.as_ref())?;
-            all_epoch_infos.insert(epoch_id, epoch_info);
-        }
+        let all_epoch_infos = epoch_store.iter_epoch_info().collect::<HashMap<_, _>>();
 
         // Collect the previous-epoch relationship based on block headers.
         // To get block headers for past epochs, we use the fact that the EpochId is the
@@ -405,9 +325,7 @@ impl EpochSync {
             *current_epoch_last_final_block_header.epoch_id(),
         );
         for (epoch_id, _) in &all_epoch_infos {
-            if let Ok(Some(block)) =
-                store.get_ser::<BlockHeader>(DBCol::BlockHeader, epoch_id.0.as_bytes())
-            {
+            if let Ok(block) = chain_store.get_block_header(&epoch_id.0) {
                 epoch_to_prev_epoch.insert(*block.next_epoch_id(), *block.epoch_id());
             }
         }
@@ -433,49 +351,22 @@ impl EpochSync {
                 let epoch_id = epoch_ids[index];
                 let prev_epoch_id = if index == 0 { after_epoch } else { epoch_ids[index - 1] };
 
-                let (last_final_block_header, approvals_for_last_final_block) =
-                    if index + 2 < epoch_ids.len() {
-                        let next_next_epoch_id = epoch_ids[index + 2];
-                        let last_block_header = store
-                            .get_ser::<BlockHeader>(
-                                DBCol::BlockHeader,
-                                next_next_epoch_id.0.as_bytes(),
-                            )?
-                            .ok_or_else(|| {
-                                Error::Other(format!(
-                                    "Could not find last block header for epoch {:?}",
-                                    epoch_id
-                                ))
-                            })?;
-                        let second_last_block_header = store
-                            .get_ser::<BlockHeader>(
-                                DBCol::BlockHeader,
-                                last_block_header.prev_hash().as_bytes(),
-                            )?
-                            .ok_or_else(|| {
-                                Error::Other(format!(
-                                    "Could not find second last block header for epoch {:?}",
-                                    epoch_id
-                                ))
-                            })?;
-                        let third_last_block_header = store
-                            .get_ser::<BlockHeader>(
-                                DBCol::BlockHeader,
-                                second_last_block_header.prev_hash().as_bytes(),
-                            )?
-                            .ok_or_else(|| {
-                                Error::Other(format!(
-                                    "Could not find third last block header for epoch {:?}",
-                                    epoch_id
-                                ))
-                            })?;
-                        (third_last_block_header, second_last_block_header.approvals().to_vec())
-                    } else {
-                        (
-                            current_epoch_last_final_block_header.clone(),
-                            current_epoch_second_last_block_approvals.clone(),
-                        )
-                    };
+                let (last_final_block_header, approvals_for_last_final_block) = if index + 2
+                    < epoch_ids.len()
+                {
+                    let next_next_epoch_id = epoch_ids[index + 2];
+                    let last_block_header = chain_store.get_block_header(&next_next_epoch_id.0)?;
+                    let second_last_block_header =
+                        chain_store.get_block_header(last_block_header.prev_hash())?;
+                    let third_last_block_header =
+                        chain_store.get_block_header(second_last_block_header.prev_hash())?;
+                    (third_last_block_header, second_last_block_header.approvals().to_vec())
+                } else {
+                    (
+                        current_epoch_last_final_block_header.clone(),
+                        current_epoch_second_last_block_approvals.clone(),
+                    )
+                };
                 let prev_epoch_info = all_epoch_infos.get(&prev_epoch_id).ok_or_else(|| {
                     Error::Other(format!("Could not find epoch info for epoch {:?}", prev_epoch_id))
                 })?;

@@ -1,5 +1,6 @@
 pub mod chain_store;
 pub mod chunk_store;
+pub mod epoch_store;
 pub mod flat_store;
 pub mod trie_store;
 
@@ -98,6 +99,10 @@ pub trait StoreAdapter {
 
     fn chunk_store(&self) -> chunk_store::ChunkStoreAdapter {
         chunk_store::ChunkStoreAdapter::new(self.store())
+    }
+
+    fn epoch(&self) -> epoch_store::EpochStoreAdapter {
+        epoch_store::EpochStoreAdapter::new(self.store())
     }
 
     fn flat_store(&self) -> flat_store::FlatStoreAdapter {
