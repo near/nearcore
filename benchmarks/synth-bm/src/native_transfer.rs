@@ -27,10 +27,11 @@ pub struct BenchmarkArgs {
     /// Acts as upper bound on the number of concurrently open RPC requests.
     #[arg(long)]
     pub channel_buffer_size: usize,
-    /// After each tick (in microseconds) a transaction is sent. If the hardware cannot keep up with
-    /// that or if the NEAR node is congested, transactions are sent at a slower rate.
+
+    /// Upper bound on request rate to the network for transaction (and other auxiliary) calls. The actual rate may be lower in case of congestions.
     #[arg(long)]
-    pub interval_duration_micros: u64,
+    pub requests_per_second: u64,
+
     #[arg(long)]
     pub amount: u128,
 }
@@ -39,7 +40,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let mut accounts = accounts_from_dir(&args.user_data_dir)?;
     assert!(accounts.len() >= 2);
 
-    let mut interval = time::interval(Duration::from_micros(args.interval_duration_micros));
+    let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
     let timer = Instant::now();
 
     let between = Uniform::from(0..accounts.len());

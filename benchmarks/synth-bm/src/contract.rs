@@ -31,7 +31,7 @@ pub struct BenchmarkMpcSignArgs {
     /// The number of transactions to send per second. May be lower when reaching hardware limits or
     /// network congestion.
     #[arg(long)]
-    pub transactions_per_second: u64,
+    pub requests_per_second: u64,
     /// The total number of transactions to send.
     #[arg(long)]
     pub num_transactions: u64,
@@ -61,8 +61,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     );
 
     // Pick interval to achieve desired TPS.
-    let mut interval =
-        time::interval(Duration::from_micros(1_000_000 / args.transactions_per_second));
+    let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
 
     let client = JsonRpcClient::connect(&args.rpc_url);
     let block_service = Arc::new(BlockService::new(client.clone()).await);
