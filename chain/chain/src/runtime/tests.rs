@@ -830,7 +830,7 @@ fn test_get_validator_info() {
             let shard_layout = env.epoch_manager.get_shard_layout(&epoch_id).unwrap();
             let shard_id = shard_layout.shard_ids().next().unwrap();
 
-            let em = env.runtime.epoch_manager.read();
+            let em = env.runtime.epoch_manager.clone();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
             let cp_key = ChunkProductionKey { epoch_id, height_created: height, shard_id };
             let cp = em.get_chunk_producer_info(&cp_key).unwrap();

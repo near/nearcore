@@ -109,13 +109,9 @@ impl EpochInfoAggregator {
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let chunk_producer_id = EpochManager::chunk_producer_from_info(
-                epoch_info,
-                shard_layout,
-                shard_id,
-                prev_block_height + 1,
-            )
-            .unwrap();
+            let chunk_producer_id = epoch_info
+                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
+                .unwrap();
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_producer_id)

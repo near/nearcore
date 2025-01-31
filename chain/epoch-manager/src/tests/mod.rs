@@ -24,6 +24,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::AccountInfo;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
@@ -856,7 +857,7 @@ fn test_reward_multiple_shards() {
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
-    let mut epoch_manager = setup_epoch_manager(
+    let epoch_manager = setup_epoch_manager(
         validators,
         epoch_length,
         num_shards,
@@ -865,10 +866,11 @@ fn test_reward_multiple_shards() {
         60,
         0,
         reward_calculator.clone(),
-    );
+    )
+    .into_handle();
     let h = hash_range((2 * epoch_length + 1) as usize);
     record_with_block_info(
-        &mut epoch_manager,
+        &mut epoch_manager.write(),
         block_info(
             h[0],
             0,
@@ -903,7 +905,7 @@ fn test_reward_multiple_shards() {
             })
             .collect();
         record_with_block_info(
-            &mut epoch_manager,
+            &mut epoch_manager.write(),
             block_info(h[i], height, height, h[i - 1], h[i - 1], h[i], chunk_mask, total_supply),
         );
     }
@@ -1102,13 +1104,9 @@ fn test_expected_chunks_prev_block_not_produced() {
         let block_producer = EpochManager::block_producer_from_info(&epoch_info, height);
         let prev_block_info = epoch_manager.get_block_info(&prev_block).unwrap();
         let prev_height = prev_block_info.height();
-        let expected_chunk_producer = EpochManager::chunk_producer_from_info(
-            &epoch_info,
-            &shard_layout,
-            ShardId::new(0),
-            prev_height + 1,
-        )
-        .unwrap();
+        let expected_chunk_producer = epoch_info
+            .sample_chunk_producer(&shard_layout, ShardId::new(0), prev_height + 1)
+            .unwrap();
         // test1 does not produce blocks during first epoch
         if block_producer == 0 && epoch_id == initial_epoch_id {
             expected += 1;
@@ -1510,13 +1508,8 @@ fn test_chunk_producer_kickout() {
                     return true;
                 }
                 let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-                let chunk_producer = EpochManager::chunk_producer_from_info(
-                    &epoch_info,
-                    &shard_layout,
-                    shard_id,
-                    height,
-                )
-                .unwrap();
+                let chunk_producer =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
                 // test1 skips chunks
                 if chunk_producer == 0 {
                     expected += 1;
@@ -3414,11 +3407,12 @@ fn test_possible_epochs_of_height_around_tip() {
     let genesis_epoch = EpochId(CryptoHash::default());
 
     let epoch_length = 5;
-    let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 2, 90, 60);
+    let epoch_manager =
+        setup_default_epoch_manager(validators, epoch_length, 1, 2, 90, 60).into_handle();
 
     // Add the genesis block with height 1000
     let genesis_height = 1000;
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], genesis_height, vec![]);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], genesis_height, vec![]);
 
     let genesis_tip = Tip {
         height: genesis_height,
@@ -3460,7 +3454,7 @@ fn test_possible_epochs_of_height_around_tip() {
     for i in 1..=5 {
         let height = genesis_height + i as BlockHeight;
         tracing::info!(target: "test", height);
-        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3502,7 +3496,7 @@ fn test_possible_epochs_of_height_around_tip() {
     for i in 6..=10 {
         let height = genesis_height + i as BlockHeight;
         tracing::info!(target: "test", height);
-        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3562,7 +3556,7 @@ fn test_possible_epochs_of_height_around_tip() {
             vec![],
             DEFAULT_TOTAL_SUPPLY,
         );
-        epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3625,7 +3619,7 @@ fn test_possible_epochs_of_height_around_tip() {
             vec![],
             DEFAULT_TOTAL_SUPPLY,
         );
-        epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3678,7 +3672,7 @@ fn test_possible_epochs_of_height_around_tip() {
     for i in 27..=31 {
         let height = genesis_height + i as BlockHeight;
         tracing::info!(target: "test", height);
-        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
