@@ -126,6 +126,14 @@ fn check_corrupt_block(
     correct_block: Block,
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
+    macro_rules! process_correct_block {
+        () => {
+            if let Err(e) = env.clients[0].process_block_test(correct_block.into(), Provenance::NONE) {
+                return Err(anyhow::anyhow!("Was unable to process default block after attempting to process default block with {} bit switched. {}", corrupted_bit_idx, e));
+            }
+        };
+    }
+
     if let Ok(mut corrupt_block) = Block::try_from_slice(corrupt_block_vec.as_slice()) {
         let body_hash = corrupt_block.compute_block_body_hash().unwrap();
         corrupt_block.mut_header().set_block_body_hash(body_hash);
@@ -136,6 +144,7 @@ fn check_corrupt_block(
         ));
 
         if !is_breaking_block_change(&correct_block, &corrupt_block) {
+            process_correct_block!();
             return Ok(anyhow::anyhow!(NOT_BREAKING_CHANGE_MSG));
         }
 
@@ -145,17 +154,12 @@ fn check_corrupt_block(
                 corrupted_bit_idx
             )),
             Err(e) => {
-                if let Err(e) =
-                    env.clients[0].process_block_test(correct_block.into(), Provenance::NONE)
-                {
-                    return Err(anyhow::anyhow!("Was unable to process default block after attempting to process default block with {} bit switched. {}",
-                    corrupted_bit_idx, e)
-                    );
-                }
+                process_correct_block!();
                 Ok(e.into())
             }
         }
     } else {
+        process_correct_block!();
         return Ok(anyhow::anyhow!(BLOCK_NOT_PARSED_MSG));
     }
 }
@@ -177,10 +181,10 @@ fn check_corrupt_block(
 /// Returns `Err(reason)` if corrupt block was processed or correct block wasn't processed afterwards.
 fn check_process_flipped_block_fails_on_bit(
     env: &mut TestEnv,
-    last_block_height: BlockHeight,
     corrupted_bit_idx: usize,
 ) -> Result<anyhow::Error, anyhow::Error> {
     let mut last_block = env.clients[0].chain.get_head_block().unwrap();
+    let last_block_height = last_block.header().height();
 
     let mid_height = last_block_height + 3;
     for h in last_block_height + 1..=mid_height {
@@ -254,20 +258,14 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
     };
 
     let mut env = create_env();
-    let mut last_block_height = 0;
 
     loop {
         // Reset env once in a while to avoid excessive memory usage.
         if corrupted_bit_idx % 1_000 == 0 {
             env = create_env();
-            last_block_height = 0;
         }
 
-        let res = check_process_flipped_block_fails_on_bit(
-            &mut env,
-            last_block_height,
-            corrupted_bit_idx,
-        );
+        let res = check_process_flipped_block_fails_on_bit(&mut env, corrupted_bit_idx);
         if let Ok(res) = &res {
             if res.to_string() == "End" {
                 // `corrupted_bit_idx` is out of bounds for correct block length. Should stop iteration.
@@ -279,8 +277,6 @@ fn ultra_slow_test_check_process_flipped_block_fails() {
             Ok(o) => oks.push(o),
         }
         corrupted_bit_idx += 1;
-        // `check_process_flipped_block_fails_on_bit` adds four blocks to the chain.
-        last_block_height += 4;
     }
     tracing::info!("All of the Errors:");
     for err in &errs {
