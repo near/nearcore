@@ -986,16 +986,16 @@ impl EpochSync {
 impl Handler<EpochSyncRequestMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: EpochSyncRequestMessage) {
-        if self.client.epoch_sync.config.ignore_epoch_sync_network_requests {
+        if self.client.sync_handler.epoch_sync.config.ignore_epoch_sync_network_requests {
             // Temporary kill switch for the rare case there were issues with this network request.
             return;
         }
         let store = self.client.chain.chain_store.store();
         let network_adapter = self.client.network_adapter.clone();
         let requester_peer_id = msg.from_peer;
-        let cache = self.client.epoch_sync.last_epoch_sync_response_cache.clone();
+        let cache = self.client.sync_handler.epoch_sync.last_epoch_sync_response_cache.clone();
         let transaction_validity_period = self.client.chain.transaction_validity_period();
-        self.client.epoch_sync.async_computation_spawner.spawn(
+        self.client.sync_handler.epoch_sync.async_computation_spawner.spawn(
             "respond to epoch sync request",
             move || {
                 let proof = match EpochSync::derive_epoch_sync_proof(
@@ -1027,8 +1027,8 @@ impl Handler<EpochSyncResponseMessage> for ClientActorInner {
                 return;
             }
         };
-        if let Err(err) = self.client.epoch_sync.apply_proof(
-            &mut self.client.sync_status,
+        if let Err(err) = self.client.sync_handler.epoch_sync.apply_proof(
+            &mut self.client.sync_handler.sync_status,
             &mut self.client.chain,
             proof,
             msg.from_peer,

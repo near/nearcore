@@ -281,7 +281,7 @@ pub(crate) fn action_function_call(
     if execution_succeeded {
         // Fetch metadata for PromiseYield timeout queue
         let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
-        let initial_promse_yield_indices = promise_yield_indices.clone();
+        let initial_promise_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
@@ -342,7 +342,7 @@ pub(crate) fn action_function_call(
         }));
 
         // Commit metadata for yielded promises queue
-        if promise_yield_indices != initial_promse_yield_indices {
+        if promise_yield_indices != initial_promise_yield_indices {
             set_promise_yield_indices(state_update, &promise_yield_indices);
         }
 
@@ -1516,7 +1516,7 @@ mod tests {
             create_apply_state(signed_delegate_action.delegate_action.max_block_height);
         let mut state_update = setup_account(&sender_id, &sender_pub_key, &access_key);
 
-        // Corrupt receiver_id. Signature verifycation must fail.
+        // Corrupt receiver_id. Signature verification must fail.
         signed_delegate_action.delegate_action.receiver_id = "www.test.near".parse().unwrap();
 
         apply_delegate_action(
@@ -1661,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_doesnt_exist() {
+    fn test_delegate_action_key_does_not_exist() {
         let mut result = ActionResult::default();
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
@@ -1778,7 +1778,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_fncall() {
+    fn test_delegate_action_key_permissions_function_call() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,
@@ -1868,7 +1868,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_fncall_deposit() {
+    fn test_delegate_action_key_permissions_function_call_deposit() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,

@@ -2446,30 +2446,6 @@ impl Chain {
         )
     }
 
-    // TODO(current_epoch_state_sync): move state sync related code to state sync files
-    /// Find the hash that should be used as the reference point when requesting state sync
-    /// headers and parts from other nodes for the epoch the block with hash `block_hash` belongs to.
-    /// If syncing to the state of that epoch (the new way), this block hash might not yet be known,
-    /// in which case this returns None. If syncing to the state of the previous epoch (the old way),
-    /// it's the hash of the first block in that epoch.
-    pub fn get_sync_hash(&self, block_hash: &CryptoHash) -> Result<Option<CryptoHash>, Error> {
-        if block_hash == self.genesis().hash() {
-            // We shouldn't be trying to sync state from before the genesis block
-            return Ok(None);
-        }
-        let header = self.get_block_header(block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        if ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
-            self.chain_store.get_current_epoch_sync_hash(header.epoch_id())
-        } else {
-            // In the first epoch, it doesn't make sense to sync state to the previous epoch.
-            if header.epoch_id() == &EpochId::default() {
-                return Ok(None);
-            }
-            Ok(Some(*self.epoch_manager.get_block_info(block_hash)?.epoch_first_block()))
-        }
-    }
-
     /// This method is called when the state sync is finished for a shard. It
     /// applies the chunks and populates information in the db, most notably for
     /// the chunk, chunk extra and flat storage.
