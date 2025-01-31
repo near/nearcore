@@ -156,7 +156,6 @@ impl ReshardingManager {
     /// Store in the database the mapping of ShardUId from children to the parent shard,
     /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
     /// as a prefix for the database key.
-    // TODO(resharding) add testloop where grandparent ShardUId is used
     fn set_state_shard_uid_mapping(
         &mut self,
         split_shard_event: &ReshardingSplitShardParams,
@@ -164,7 +163,6 @@ impl ReshardingManager {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        // TODO(resharding) No need to set the mapping for children shards that we won't track just after resharding?
         for child_shard_uid in split_shard_event.children_shards() {
             store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
