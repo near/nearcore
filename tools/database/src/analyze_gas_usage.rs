@@ -18,7 +18,7 @@ use crate::block_iterators::{
     make_block_iterator_from_command_args, CommandArgs, LastNBlocksIterator,
 };
 
-/// `Gas` is an u64, but it stil might overflow when analysing a large amount of blocks.
+/// `Gas` is an u64, but it still might overflow when analyzing a large amount of blocks.
 /// 1ms of compute is about 1TGas = 10^12 gas. One epoch takes 43200 seconds (43200000ms).
 /// This means that the amount of gas consumed during a single epoch can reach 43200000 * 10^12 = 4.32 * 10^19
 /// 10^19 doesn't fit in u64, so we need to use u128
@@ -32,21 +32,21 @@ fn display_gas(gas: BigGas) -> String {
 }
 
 #[derive(Parser)]
-pub(crate) struct AnalyseGasUsageCommand {
-    /// Analyse the last N blocks in the blockchain
+pub(crate) struct AnalyzeGasUsageCommand {
+    /// Analyze the last N blocks in the blockchain
     #[arg(long)]
     last_blocks: Option<u64>,
 
-    /// Analyse blocks from the given block height, inclusive
+    /// Analyze blocks from the given block height, inclusive
     #[arg(long)]
     from_block_height: Option<BlockHeight>,
 
-    /// Analyse blocks up to the given block height, inclusive
+    /// Analyze blocks up to the given block height, inclusive
     #[arg(long)]
     to_block_height: Option<BlockHeight>,
 }
 
-impl AnalyseGasUsageCommand {
+impl AnalyzeGasUsageCommand {
     pub(crate) fn run(
         &self,
         home: &PathBuf,
@@ -64,7 +64,7 @@ impl AnalyseGasUsageCommand {
         let epoch_manager =
             EpochManager::new_from_genesis_config(store, &near_config.genesis.config).unwrap();
 
-        // Create an iterator over the blocks that should be analysed
+        // Create an iterator over the blocks that should be analyzed
         let blocks_iter_opt = make_block_iterator_from_command_args(
             CommandArgs {
                 last_blocks: self.last_blocks,
@@ -82,8 +82,8 @@ impl AnalyseGasUsageCommand {
             }
         };
 
-        // Analyse
-        analyse_gas_usage(blocks_iter, &chain_store, &epoch_manager);
+        // Analyze
+        analyze_gas_usage(blocks_iter, &chain_store, &epoch_manager);
 
         Ok(())
     }
@@ -324,24 +324,24 @@ fn display_shard_split_stats<'a>(
     }
 }
 
-fn analyse_gas_usage(
+fn analyze_gas_usage(
     blocks_iter: impl Iterator<Item = Block>,
     chain_store: &ChainStore,
     epoch_manager: &EpochManager,
 ) {
     // Gather statistics about gas usage in all of the blocks
     let mut blocks_count: usize = 0;
-    let mut first_analysed_block: Option<(BlockHeight, CryptoHash)> = None;
-    let mut last_analysed_block: Option<(BlockHeight, CryptoHash)> = None;
+    let mut first_analyzed_block: Option<(BlockHeight, CryptoHash)> = None;
+    let mut last_analyzed_block: Option<(BlockHeight, CryptoHash)> = None;
 
     let mut gas_usage_stats = GasUsageStats::new();
 
     for block in blocks_iter {
         blocks_count += 1;
-        if first_analysed_block.is_none() {
-            first_analysed_block = Some((block.header().height(), *block.hash()));
+        if first_analyzed_block.is_none() {
+            first_analyzed_block = Some((block.header().height(), *block.hash()));
         }
-        last_analysed_block = Some((block.header().height(), *block.hash()));
+        last_analyzed_block = Some((block.header().height(), *block.hash()));
 
         let gas_usage_in_block = get_gas_usage_in_block(&block, chain_store, epoch_manager);
         gas_usage_stats.merge(gas_usage_in_block);
@@ -349,15 +349,15 @@ fn analyse_gas_usage(
 
     // Print out the analysis
     if blocks_count == 0 {
-        println!("No blocks to analyse!");
+        println!("No blocks to analyze!");
         return;
     }
     println!("");
-    println!("Analysed {} blocks between:", blocks_count);
-    if let Some((block_height, block_hash)) = first_analysed_block {
+    println!("Analyzed {} blocks between:", blocks_count);
+    if let Some((block_height, block_hash)) = first_analyzed_block {
         println!("Block: height = {block_height}, hash = {block_hash}");
     }
-    if let Some((block_height, block_hash)) = last_analysed_block {
+    if let Some((block_height, block_hash)) = last_analyzed_block {
         println!("Block: height = {block_height}, hash = {block_hash}");
     }
     let total_gas = gas_usage_stats.used_gas_total();

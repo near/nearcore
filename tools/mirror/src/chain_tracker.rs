@@ -125,7 +125,7 @@ pub(crate) enum SentBatch {
 }
 
 // an access key's account ID and public key, along with the id of the tx or receipt that might
-// have udpated it
+// have updated it
 pub(crate) struct UpdatedKey {
     pub(crate) account_id: AccountId,
     pub(crate) public_key: PublicKey,

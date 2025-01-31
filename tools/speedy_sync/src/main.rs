@@ -165,7 +165,7 @@ fn create_snapshot(create_cmd: CreateCmd) {
     // 'block' - we'll always pick the last block of a given epoch.
     // 'prev_block' - its predecessor
     // 'final_block' - the block with finality (usually 2 blocks behind)
-    // 'first_block' - the first block of this epoch (usualy epoch_length behind).
+    // 'first_block' - the first block of this epoch (usually epoch_length behind).
 
     let block_hash = next_epoch.id.0;
     let block = read_block_checkpoint(&store, &block_hash);

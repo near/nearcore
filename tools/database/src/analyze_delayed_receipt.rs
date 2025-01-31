@@ -24,15 +24,15 @@ use nearcore::open_storage;
 /// Analyze delayed receipts in a piece of history of the blockchain to understand congestion of each shard
 #[derive(Parser)]
 pub(crate) struct AnalyzeDelayedReceiptCommand {
-    /// Analyse the last N blocks in the blockchain
+    /// Analyze the last N blocks in the blockchain
     #[arg(long)]
     last_blocks: Option<u64>,
 
-    /// Analyse blocks from the given block height, inclusive
+    /// Analyze blocks from the given block height, inclusive
     #[arg(long)]
     from_block_height: Option<BlockHeight>,
 
-    /// Analyse blocks up to the given block height, inclusive
+    /// Analyze blocks up to the given block height, inclusive
     #[arg(long)]
     to_block_height: Option<BlockHeight>,
 }
@@ -65,7 +65,7 @@ impl AnalyzeDelayedReceiptCommand {
             FlatStorageManager::new(store.flat_store()),
             StateSnapshotConfig::default(),
         );
-        // Create an iterator over the blocks that should be analysed
+        // Create an iterator over the blocks that should be analyzed
         let blocks_iter_opt = make_block_iterator_from_command_args(
             CommandArgs {
                 last_blocks: self.last_blocks,
@@ -84,16 +84,16 @@ impl AnalyzeDelayedReceiptCommand {
         };
 
         let mut blocks_count: usize = 0;
-        let mut first_analysed_block: Option<(BlockHeight, CryptoHash)> = None;
-        let mut last_analysed_block: Option<(BlockHeight, CryptoHash)> = None;
+        let mut first_analyzed_block: Option<(BlockHeight, CryptoHash)> = None;
+        let mut last_analyzed_block: Option<(BlockHeight, CryptoHash)> = None;
         let mut shard_id_to_congested = HashMap::new();
 
         for block in blocks_iter {
             blocks_count += 1;
-            if first_analysed_block.is_none() {
-                first_analysed_block = Some((block.header().height(), *block.hash()));
+            if first_analyzed_block.is_none() {
+                first_analyzed_block = Some((block.header().height(), *block.hash()));
             }
-            last_analysed_block = Some((block.header().height(), *block.hash()));
+            last_analyzed_block = Some((block.header().height(), *block.hash()));
             let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
             for chunk_header in block.chunks().iter_deprecated() {
@@ -115,11 +115,11 @@ impl AnalyzeDelayedReceiptCommand {
             }
         }
 
-        println!("Analysed {} blocks between:", blocks_count);
-        if let Some((block_height, block_hash)) = first_analysed_block {
+        println!("Analyzed {} blocks between:", blocks_count);
+        if let Some((block_height, block_hash)) = first_analyzed_block {
             println!("Block: height = {block_height}, hash = {block_hash}");
         }
-        if let Some((block_height, block_hash)) = last_analysed_block {
+        if let Some((block_height, block_hash)) = last_analyzed_block {
             println!("Block: height = {block_height}, hash = {block_hash}");
         }
 

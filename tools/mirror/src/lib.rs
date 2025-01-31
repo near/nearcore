@@ -1554,7 +1554,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             }
             tracing::debug!(
-                target: "mirror", "prepared {} transacations for source chain #{} shard {}",
+                target: "mirror", "prepared {} transactions for source chain #{} shard {}",
                 txs.len(), source_height, ch.shard_id
             );
             chunks.push(MappedChunk { txs, shard_id: ch.shard_id });
