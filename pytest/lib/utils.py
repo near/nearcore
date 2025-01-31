@@ -11,12 +11,15 @@ import tempfile
 import time
 import typing
 import requests
+import subprocess
 from prometheus_client.parser import text_string_to_metric_families
 from retrying import retry
 from rc import gcloud
 
 import cluster
 import transaction
+from branches import _REPO_DIR
+
 from configured_logger import logger
 
 
@@ -125,7 +128,7 @@ class LogTracker:
 
 class MetricsTracker:
     """Helper class to collect prometheus metrics from the node.
-    
+
     Usage:
         tracker = MetricsTracker(node)
         assert tracker.get_int_metric_value("near-connections") == 2
@@ -242,16 +245,19 @@ def load_binary_file(filepath):
 
 
 def load_test_contract(
-        filename: str = 'backwards_compatible_rs_contract.wasm') -> bytearray:
-    """Loads a WASM file from near-test-contracts package.
+    filename: str = 'backwards_compatible_rs_contract.wasm',
+    config: cluster.Config = cluster.DEFAULT_CONFIG,
+) -> bytearray:
+    """Loads a WASM file from neard."""
 
-    This is just a convenience function around load_binary_file which loads
-    files from ../runtime/near-test-contracts/res directory.  By default
-    test_contract_rs.wasm is loaded.
-    """
-    repo_dir = pathlib.Path(__file__).resolve().parents[2]
-    path = repo_dir / 'runtime/near-test-contracts/res' / filename
-    return load_binary_file(path)
+    near_root = config['near_root']
+    binary_name = config.get('binary_name', 'neard')
+    binary_path = os.path.join(near_root, binary_name)
+
+    logger.info(f'Loading test contract {filename}')
+    cmd = [binary_path, 'dump-test-contracts', '--contract-name', filename]
+    output = subprocess.check_output(cmd)
+    return output
 
 
 def user_name():

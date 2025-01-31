@@ -56,6 +56,7 @@ near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
+near-dump-test-contract.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
@@ -66,7 +67,10 @@ default = ["json_rpc", "rosetta_rpc"]
 
 performance_stats = ["nearcore/performance_stats"]
 c_memory_stats = ["nearcore/c_memory_stats"]
-test_features = ["nearcore/test_features"]
+test_features = [
+  "nearcore/test_features",
+  "near-dump-test-contract/test_features",
+]
 expensive_tests = ["nearcore/expensive_tests"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
