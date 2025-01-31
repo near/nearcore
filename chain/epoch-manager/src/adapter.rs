@@ -21,6 +21,7 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tracing::warn;
 
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
@@ -86,17 +87,39 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// `is_next_block_epoch_start` works even if we didn't fully process the provided block.
     /// This function works even if we garbage collected `BlockInfo` of the first block of the epoch.
     /// Thus, this function is better suited for use in garbage collection.
-    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError>;
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        match self.get_epoch_info(&EpochId(*hash)) {
+            Ok(_) => Ok(true),
+            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
+            Err(EpochError::MissingBlock(_)) => Ok(false),
+            Err(err) => {
+                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
+                Ok(false)
+            }
+        }
+    }
 
     /// Get epoch id given hash of previous block.
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
-        -> Result<EpochId, EpochError>;
+    fn get_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, EpochError> {
+        if self.is_next_block_epoch_start(parent_hash)? {
+            self.get_next_epoch_id(parent_hash)
+        } else {
+            self.get_epoch_id(parent_hash)
+        }
+    }
 
     /// Get epoch height given hash of previous block.
     fn get_epoch_height_from_prev_block(
         &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochHeight, EpochError>;
+        prev_block_hash: &CryptoHash,
+    ) -> Result<EpochHeight, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        self.get_epoch_info(&epoch_id).map(|info| info.epoch_height())
+    }
 
     /// Get next epoch id given hash of the current block.
     fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError>;
@@ -105,7 +128,14 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_next_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError>;
+    ) -> Result<EpochId, EpochError> {
+        if self.is_next_block_epoch_start(parent_hash)? {
+            // Because we ID epochs based on the last block of T - 2, this is ID for next next epoch.
+            Ok(EpochId(*parent_hash))
+        } else {
+            self.get_next_epoch_id(parent_hash)
+        }
+    }
 
     /// For each `ShardId` in the current block, returns its parent `ShardId`
     /// from previous block.
@@ -186,7 +216,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> ShardLayout;
 
     /// Get [`EpochId`] from a block belonging to the epoch.
-    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError>;
+    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
+        Ok(*self.get_block_info(block_hash)?.epoch_id())
+    }
 
     /// Which of the two epochs is earlier.
     ///
@@ -199,13 +231,24 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<Ordering, EpochError>;
 
     /// Get epoch start from a block belonging to the epoch.
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, EpochError>;
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, EpochError> {
+        let epoch_first_block = *self.get_block_info(block_hash)?.epoch_first_block();
+        Ok(self.get_block_info(&epoch_first_block)?.height())
+    }
 
     /// Get previous epoch id by hash of previous block.
     fn get_prev_epoch_id_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError>;
+    ) -> Result<EpochId, EpochError> {
+        if self.is_next_block_epoch_start(prev_block_hash)? {
+            self.get_epoch_id(prev_block_hash)
+        } else {
+            let block_info = self.get_block_info(prev_block_hash)?;
+            let epoch_first_block_info = self.get_block_info(block_info.epoch_first_block())?;
+            self.get_epoch_id(epoch_first_block_info.prev_hash())
+        }
+    }
 
     /// _If_ the next epoch will use a new protocol version, returns an
     /// estimated block height for when the epoch switch occurs.
@@ -520,39 +563,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.is_next_block_epoch_start(parent_hash)
     }
 
-    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.is_last_block_in_finished_epoch(hash)
-    }
-
-    fn get_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash)
-    }
-
-    fn get_epoch_height_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochHeight, EpochError> {
-        let epoch_manager = self.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height())
-    }
-
     fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_next_epoch_id(block_hash)
-    }
-
-    fn get_next_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash)
     }
 
     fn get_shard_layout_from_protocol_version(
@@ -563,11 +576,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_epoch_config(protocol_version).shard_layout
     }
 
-    fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_id(block_hash)
-    }
-
     fn compare_epoch_id(
         &self,
         epoch_id: &EpochId,
@@ -575,23 +583,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Ordering, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.compare_epoch_id(epoch_id, other_epoch_id).map_err(|e| e.into())
-    }
-
-    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockHeight, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_start_height(block_hash)
-    }
-
-    fn get_prev_epoch_id_from_prev_block(
-        &self,
-        prev_block_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError> {
-        let epoch_manager = self.read();
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
-            epoch_manager.get_epoch_id(prev_block_hash)
-        } else {
-            epoch_manager.get_prev_epoch_id(prev_block_hash)
-        }
     }
 
     fn get_estimated_protocol_upgrade_block_height(
