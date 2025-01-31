@@ -17,7 +17,7 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
+    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
     EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
@@ -1082,6 +1082,48 @@ impl EpochManager {
                 shard_id, height, epoch_id,
             ))
         })
+    }
+
+    pub fn get_all_block_approvers_ordered(
+        &self,
+        parent_hash: &CryptoHash,
+        current_epoch_id: EpochId,
+        next_epoch_id: EpochId,
+    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
+        let mut settlement =
+            self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?.to_vec();
+
+        let settlement_epoch_boundary = settlement.len();
+
+        let block_info = self.get_block_info(parent_hash)?;
+        if self.next_block_need_approvals_from_next_epoch(&block_info)? {
+            settlement.extend(
+                self.get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
+                    .iter()
+                    .cloned(),
+            );
+        }
+
+        let mut result = vec![];
+        let mut validators: HashMap<AccountId, usize> = HashMap::default();
+        for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
+            let account_id = validator_stake.account_id();
+            match validators.get(account_id) {
+                None => {
+                    validators.insert(account_id.clone(), result.len());
+                    result.push((
+                        validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+                        is_slashed,
+                    ));
+                }
+                Some(old_ord) => {
+                    if ord >= settlement_epoch_boundary {
+                        result[*old_ord].0.stake_next_epoch = validator_stake.stake();
+                    };
+                }
+            };
+        }
+        Ok(result)
     }
 
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.

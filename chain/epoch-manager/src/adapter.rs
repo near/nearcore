@@ -19,7 +19,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -708,44 +708,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
         let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-
         let epoch_manager = self.read();
-        let mut settlement = epoch_manager
-            .get_all_block_producers_settlement(&current_epoch_id, parent_hash)?
-            .to_vec();
-
-        let settlement_epoch_boundary = settlement.len();
-
-        let block_info = self.get_block_info(parent_hash)?;
-        if epoch_manager.next_block_need_approvals_from_next_epoch(&block_info)? {
-            settlement.extend(
-                epoch_manager
-                    .get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
-                    .iter()
-                    .cloned(),
-            );
-        }
-
-        let mut result = vec![];
-        let mut validators: HashMap<AccountId, usize> = HashMap::default();
-        for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
-            let account_id = validator_stake.account_id();
-            match validators.get(account_id) {
-                None => {
-                    validators.insert(account_id.clone(), result.len());
-                    result.push((
-                        validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
-                        is_slashed,
-                    ));
-                }
-                Some(old_ord) => {
-                    if ord >= settlement_epoch_boundary {
-                        result[*old_ord].0.stake_next_epoch = validator_stake.stake();
-                    };
-                }
-            };
-        }
-        Ok(result)
+        epoch_manager.get_all_block_approvers_ordered(parent_hash, current_epoch_id, next_epoch_id)
     }
 
     fn get_epoch_chunk_producers(
