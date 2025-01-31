@@ -204,6 +204,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
             </p>
 
             <p>
+                {/* cspell: words didn */}
                 <strong>Unknown</strong> means that we didn&apos;t receive &apos;announce&apos;
                 information about this validator (so we don&apos;t know on which peer it is). This
                 usually means that the validator didn&apos;t connect to the network during current
