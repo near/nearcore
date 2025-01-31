@@ -491,7 +491,7 @@ impl MockNode {
         })
     }
 
-    // listen on the addr passed to MockPeer::new() and wait til someone connects.
+    // listen on the addr passed to MockPeer::new() and wait until someone connects.
     // Then respond to messages indefinitely until an error occurs
     async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
         let head_block = get_head_block(&self.chain, self.network_start_height)?;
