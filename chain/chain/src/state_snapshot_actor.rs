@@ -224,34 +224,28 @@ pub fn get_make_snapshot_callback(
     sender: StateSnapshotSenderForClient,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
-    Arc::new(
-        move |
-              min_chunk_prev_height,
-              epoch_height,
-              shard_indexes_and_uids,
-              block| {
-            let prev_block_hash = *block.header().prev_hash();
-            tracing::info!(
+    Arc::new(move |min_chunk_prev_height, epoch_height, shard_indexes_and_uids, block| {
+        let prev_block_hash = *block.header().prev_hash();
+        tracing::info!(
             target: "state_snapshot",
             ?prev_block_hash,
             ?shard_indexes_and_uids,
             "make_snapshot_callback sends `DeleteAndMaybeCreateSnapshotRequest` to state_snapshot_addr");
-            // We need to stop flat head updates synchronously in the client thread.
-            // Async update in state_snapshot_actor can potentially lead to flat head progressing beyond prev_block_hash
-            // This also prevents post-resharding flat storage catchup from advancing past `prev_block_hash`
-            flat_storage_manager.want_snapshot(min_chunk_prev_height);
-            let create_snapshot_request = CreateSnapshotRequest {
-                prev_block_hash,
-                min_chunk_prev_height,
-                epoch_height,
-                shard_indexes_and_uids,
-                block,
-            };
-            sender.send(DeleteAndMaybeCreateSnapshotRequest {
-                create_snapshot_request: Some(create_snapshot_request),
-            });
-        },
-    )
+        // We need to stop flat head updates synchronously in the client thread.
+        // Async update in state_snapshot_actor can potentially lead to flat head progressing beyond prev_block_hash
+        // This also prevents post-resharding flat storage catchup from advancing past `prev_block_hash`
+        flat_storage_manager.want_snapshot(min_chunk_prev_height);
+        let create_snapshot_request = CreateSnapshotRequest {
+            prev_block_hash,
+            min_chunk_prev_height,
+            epoch_height,
+            shard_indexes_and_uids,
+            block,
+        };
+        sender.send(DeleteAndMaybeCreateSnapshotRequest {
+            create_snapshot_request: Some(create_snapshot_request),
+        });
+    })
 }
 
 /// Sends a request to delete a state snapshot.
