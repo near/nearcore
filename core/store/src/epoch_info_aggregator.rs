@@ -10,8 +10,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
+use near_primitives::version::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
-use near_vm_runner::logic::ProtocolVersion;
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
 #[derive(
