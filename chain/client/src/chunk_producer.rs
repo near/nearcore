@@ -1,6 +1,5 @@
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
-use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{
     PrepareTransactionsChunkContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,

@@ -5,7 +5,6 @@ use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributi
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::chunk_producer::ChunkProducer;
 use crate::debug::BlockProductionTracker;
-use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
@@ -35,7 +34,6 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientCo
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
-use near_client_primitives::debug::ChunkProduction;
 use near_client_primitives::types::{Error, StateSyncStatus};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -70,7 +68,6 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -254,8 +251,6 @@ impl Client {
             resharding_sender.clone(),
         )?;
         chain.init_flat_storage()?;
-        let sharded_tx_pool =
-            ShardedTransactionPool::new(rng_seed, config.transaction_pool_size_limit);
         let epoch_sync = EpochSync::new(
             clock.clone(),
             network_adapter.clone(),
@@ -298,8 +293,6 @@ impl Client {
             false,
         );
         let num_block_producer_seats = config.num_block_producer_seats as usize;
-        let data_parts = epoch_manager.num_data_parts();
-        let parity_parts = epoch_manager.num_total_parts() - data_parts;
 
         let doomslug = Doomslug::new(
             clock.clone(),
