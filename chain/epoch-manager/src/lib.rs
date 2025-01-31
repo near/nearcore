@@ -51,7 +51,7 @@ mod adapter;
 mod metrics;
 mod proposals;
 mod reward_calculator;
-mod shard_assignment;
+pub mod shard_assignment;
 pub mod shard_tracker;
 pub mod test_utils;
 #[cfg(test)]
@@ -1213,18 +1213,6 @@ impl EpochManager {
             .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
-    /// Returns fisherman for given account id for given epoch.
-    pub fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        epoch_info
-            .get_fisherman_by_account(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
-    }
-
     pub fn get_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         Ok(*self.get_block_info(block_hash)?.epoch_id())
     }
@@ -1293,9 +1281,16 @@ impl EpochManager {
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
         if self.will_shard_layout_change(parent_hash)? {
             let shard_layout = self.get_shard_layout(&next_epoch_id)?;
+            // The expect below may be triggered when the protocol version
+            // changes by multiple versions at once and multiple shard layout
+            // changes are captured. In this case the shards from the original
+            // shard layout are not valid parents in the final shard layout.
+            //
+            // This typically occurs in tests that are pegged to start at a
+            // certain protocol version and then upgrade to stable.
             let split_shards = shard_layout
                 .get_children_shards_ids(shard_id)
-                .expect("all shard layouts expect the first one must have a split map");
+                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
             for next_shard_id in split_shards {
                 if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
                     return Ok(true);

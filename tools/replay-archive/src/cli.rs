@@ -16,10 +16,12 @@ use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
 use near_chain::{
-    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+    get_incoming_receipts_for_shard, Block, BlockHeader, Chain, ChainGenesis, ChainStore,
+    ChainStoreAccess, ReceiptFilter,
 };
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -118,7 +120,6 @@ impl ReplayController {
         let genesis_height = near_config.genesis.config.genesis_height;
         let chain_store = ChainStore::new(
             store.clone(),
-            genesis_height,
             false,
             near_config.genesis.config.transaction_validity_period,
         );
@@ -246,9 +247,7 @@ impl ReplayController {
             let prev_chunk_header = &prev_chunk_headers[shard_id];
             let epoch_id = block.header().epoch_id();
             let shard_id: ShardId = shard_id.try_into()?;
-            let shard_uid = self
-                .epoch_manager
-                .shard_id_to_uid(shard_id, epoch_id)
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
                 .context("Failed to get shard UID from shard id")?;
             let replay_output = self
                 .replay_chunk(
@@ -395,7 +394,8 @@ impl ReplayController {
     ) -> Result<Vec<Receipt>> {
         let shard_layout =
             self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
-        let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
+        let receipt_response = get_incoming_receipts_for_shard(
+            &self.chain_store,
             self.epoch_manager.as_ref(),
             shard_id,
             &shard_layout,
@@ -403,7 +403,7 @@ impl ReplayController {
             prev_chunk_height_included,
             ReceiptFilter::TargetShard,
         )?;
-        let receipts = collect_receipts_from_response(receipt_response);
+        let receipts = collect_receipts_from_response(&receipt_response);
         Ok(receipts)
     }
 

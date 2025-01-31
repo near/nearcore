@@ -8,7 +8,8 @@ use near_primitives::transaction::{Action, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_contract_code_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
-use near_store::{DBCol, NibbleSlice, StorageError, Store, Trie, TrieTraversalItem};
+use near_store::trie::ops::iter::TrieTraversalItem;
+use near_store::{DBCol, NibbleSlice, StorageError, Store, Trie};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 type Result<T> = std::result::Result<T, ContractAccountError>;
@@ -128,8 +129,6 @@ pub(crate) enum ActionType {
     DeployContract,
     FunctionCall,
     Transfer,
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    NonrefundableStorageTransfer,
     Stake,
     AddKey,
     DeleteKey,
@@ -339,12 +338,6 @@ fn try_find_actions_spawned_by_receipt(
                                     Action::DeployContract(_) => ActionType::DeployContract,
                                     Action::FunctionCall(_) => ActionType::FunctionCall,
                                     Action::Transfer(_) => ActionType::Transfer,
-                                    #[cfg(
-                                        feature = "protocol_feature_nonrefundable_transfer_nep491"
-                                    )]
-                                    Action::NonrefundableStorageTransfer(_) => {
-                                        ActionType::NonrefundableStorageTransfer
-                                    }
                                     Action::Stake(_) => ActionType::Stake,
                                     Action::AddKey(_) => ActionType::AddKey,
                                     Action::DeleteKey(_) => ActionType::DeleteKey,
@@ -367,6 +360,7 @@ fn try_find_actions_spawned_by_receipt(
                                 .get_or_insert_with(Default::default)
                                 .insert(ActionType::DataReceipt);
                         }
+                        ReceiptEnum::GlobalContractDistribution(_) => {}
                     }
                 }
             }

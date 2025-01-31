@@ -97,7 +97,9 @@ impl TriePrefetcher {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     action_receipt
                 }
-                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                ReceiptEnum::GlobalContractDistribution(_)
+                | ReceiptEnum::Data(_)
+                | ReceiptEnum::PromiseResume(_) => {
                     continue;
                 }
             };

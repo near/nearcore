@@ -35,12 +35,10 @@ expect-test.workspace = true
 [features]
 default = []
 protocol_feature_fix_contract_loading_cost = []
-protocol_feature_nonrefundable_transfer_nep491 = []
 
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_nonrefundable_transfer_nep491",
 ]
 
 nightly_protocol = [

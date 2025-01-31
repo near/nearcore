@@ -310,21 +310,14 @@ impl InfoHelper {
         config_updater: &Option<ConfigUpdater>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
-        let is_syncing = client.sync_status.is_syncing();
+        let is_syncing = client.sync_handler.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
             let num_validators =
                 self.get_num_validators(client.epoch_manager.as_ref(), &head.epoch_id);
             let account_id = signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
-                match client.epoch_manager.get_validator_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
+                client.epoch_manager.get_validator_by_account_id(&head.epoch_id, account_id).is_ok()
             } else {
                 false
             };
@@ -372,7 +365,7 @@ impl InfoHelper {
 
         self.info(
             &head,
-            &client.sync_status,
+            &client.sync_handler.sync_status,
             client.get_catchup_status().unwrap_or_default(),
             node_id,
             network_info,

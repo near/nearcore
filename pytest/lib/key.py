@@ -6,6 +6,7 @@ import typing
 from nacl.signing import SigningKey
 
 
+# cspell:ignore urandom
 class Key:
     account_id: str
     pk: str

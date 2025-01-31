@@ -32,7 +32,7 @@ fn memory_size_alignment_issue() {
 }
 
 #[test]
-fn finite_wasm_gas_was_being_traced_and_thus_slow() {
+fn slow_finite_wasm_gas_was_being_traced_and_thus_slow() {
     test_builder()
         .wat(
             r#"(module

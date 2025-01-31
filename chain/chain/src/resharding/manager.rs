@@ -12,10 +12,10 @@ use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle}
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
-use near_primitives::challenge::PartialState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
+use near_primitives::state::PartialState;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -76,10 +76,13 @@ impl ReshardingManager {
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
-        let next_block_has_new_shard_layout =
-            self.epoch_manager.is_next_block_epoch_start(block_hash)?
-                && shard_layout != next_shard_layout;
-        if !next_block_has_new_shard_layout {
+        let is_next_block_epoch_start = self.epoch_manager.is_next_block_epoch_start(block_hash)?;
+        if !is_next_block_epoch_start {
+            return Ok(());
+        }
+
+        let will_shard_layout_change = shard_layout != next_shard_layout;
+        if !will_shard_layout_change {
             tracing::debug!(target: "resharding", ?prev_hash, "prev block has the same shard layout, skipping");
             return Ok(());
         }

@@ -36,7 +36,6 @@ fn test_undo_block(epoch_length: u64, stop_height: u64) {
 
     let mut chain_store = ChainStore::new(
         store.clone(),
-        genesis.config.genesis_height,
         save_trie_changes,
         genesis.config.transaction_validity_period,
     );

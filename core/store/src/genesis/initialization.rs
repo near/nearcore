@@ -21,8 +21,9 @@ use tracing::{error, info, warn};
 
 use crate::{
     adapter::StoreAdapter, flat::FlatStorageManager, genesis::GenesisStateApplier,
-    get_genesis_hash, get_genesis_state_roots, set_genesis_hash, set_genesis_state_roots,
-    ShardTries, StateSnapshotConfig, Store, TrieConfig,
+    get_genesis_hash, get_genesis_height, get_genesis_state_roots, set_genesis_hash,
+    set_genesis_height, set_genesis_state_roots, ShardTries, StateSnapshotConfig, Store,
+    TrieConfig,
 };
 
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -42,6 +43,17 @@ pub fn initialize_sharded_genesis_state(
         get_genesis_state_roots(&store)
             .expect("Store failed on genesis initialization")
             .expect("Genesis state roots not found in storage");
+        // TODO: with 2.6 release, remove storing genesis height
+        let mut store_update: crate::StoreUpdate = store.store_update();
+        set_genesis_height(&mut store_update, &genesis.config.genesis_height);
+        store_update.commit().expect("Store failed on genesis initialization");
+        let genesis_height = get_genesis_height(&store)
+            .expect("Store failed on genesis initialization")
+            .expect("Genesis height not found in storage");
+        assert_eq!(
+            genesis_height, genesis.config.genesis_height,
+            "Genesis height in store is different from the one in genesis config"
+        );
         return;
     } else {
         let has_dump = home_dir.is_some_and(|dir| dir.join(STATE_DUMP_FILE).exists());
@@ -57,6 +69,7 @@ pub fn initialize_sharded_genesis_state(
         let mut store_update = store.store_update();
         set_genesis_hash(&mut store_update, &genesis_hash);
         set_genesis_state_roots(&mut store_update, &state_roots);
+        set_genesis_height(&mut store_update, &genesis.config.genesis_height);
         store_update.commit().expect("Store failed on genesis initialization");
     }
 

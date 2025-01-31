@@ -543,18 +543,22 @@ impl ShardLayout {
     }
 
     /// Returns the simple nightshade layout, version 4, that will be used in
-    /// production. It adds a new boundary account splitting the "game.hot.tg"
-    /// shard into two smaller shards. This is the first layout used in the
-    /// Instant Resharding and it is the first one where the shard id contiguity
-    /// is broken.
+    /// production. It adds a new boundary account "game.hot.tg".
     ///
-    /// TODO(resharding) Determine the shard layout for v4.
-    /// This layout is provisional, the actual shard layout should be determined
-    /// based on the fresh data before the resharding.
-    #[cfg(test)]
+    /// This is the first layout used in the Resharding V3 and it is the first
+    /// one where the arbitrary shard ids are used.
     pub fn get_simple_nightshade_layout_v4() -> ShardLayout {
-        let v3 = Self::get_simple_nightshade_layout_v3();
-        ShardLayout::derive_shard_layout(&v3, "game.hot.tg-0".parse().unwrap())
+        let base_shard_layout = Self::get_simple_nightshade_layout_v3();
+        let new_boundary_account = "game.hot.tg-0".parse().unwrap();
+        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
+    }
+
+    /// Returns the simple nightshade layout, version 5, that will be used in
+    /// production. It adds a new boundary account "earn.kaiching".
+    pub fn get_simple_nightshade_layout_v5() -> ShardLayout {
+        let base_shard_layout = Self::get_simple_nightshade_layout_v4();
+        let new_boundary_account = "earn.kaiching".parse().unwrap();
+        ShardLayout::derive_shard_layout(&base_shard_layout, new_boundary_account)
     }
 
     /// This layout is used only in resharding tests. It allows testing of any features which were
@@ -1318,6 +1322,7 @@ mod tests {
         let v2 = ShardLayout::get_simple_nightshade_layout_v2();
         let v3 = ShardLayout::get_simple_nightshade_layout_v3();
         let v4 = ShardLayout::get_simple_nightshade_layout_v4();
+        let v5 = ShardLayout::get_simple_nightshade_layout_v5();
 
         insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
         {
@@ -1496,6 +1501,87 @@ mod tests {
               "5": 5,
               "6": 3,
               "7": 3
+            },
+            "version": 3
+          }
+        }
+        "###);
+
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v5).unwrap(), @r###"
+        {
+          "V2": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "earn.kaiching",
+              "game.hot.tg",
+              "game.hot.tg-0",
+              "kkuuue2akv_1630967379.near",
+              "tge-lockup.sweat"
+            ],
+            "shard_ids": [
+              0,
+              1,
+              8,
+              9,
+              6,
+              7,
+              4,
+              5
+            ],
+            "id_to_index_map": {
+              "0": 0,
+              "1": 1,
+              "4": 6,
+              "5": 7,
+              "6": 4,
+              "7": 5,
+              "8": 2,
+              "9": 3
+            },
+            "index_to_id_map": {
+              "0": 0,
+              "1": 1,
+              "2": 8,
+              "3": 9,
+              "4": 6,
+              "5": 7,
+              "6": 4,
+              "7": 5
+            },
+            "shards_split_map": {
+              "0": [
+                0
+              ],
+              "1": [
+                1
+              ],
+              "2": [
+                8,
+                9
+              ],
+              "4": [
+                4
+              ],
+              "5": [
+                5
+              ],
+              "6": [
+                6
+              ],
+              "7": [
+                7
+              ]
+            },
+            "shards_parent_map": {
+              "0": 0,
+              "1": 1,
+              "4": 4,
+              "5": 5,
+              "6": 6,
+              "7": 7,
+              "8": 2,
+              "9": 2
             },
             "version": 3
           }

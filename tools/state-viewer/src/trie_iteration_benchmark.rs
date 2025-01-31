@@ -108,7 +108,6 @@ impl TrieIterationBenchmarkCmd {
         let genesis_config = &near_config.genesis.config;
         let chain_store = ChainStore::new(
             store.clone(),
-            genesis_config.genesis_height,
             near_config.client_config.save_trie_changes,
             genesis_config.transaction_validity_period,
         );
@@ -192,7 +191,7 @@ impl TrieIterationBenchmarkCmd {
 
             stats.borrow_mut().bump_visited(key[0]);
 
-            let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+            let state_record = StateRecord::from_raw_key_value(&key, value);
             let state_record = match state_record {
                 Some(state_record) => state_record,
                 None => {

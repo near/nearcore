@@ -167,9 +167,9 @@ impl Handler<DebugStatus> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
-            DebugStatus::SyncStatus => {
-                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
-            }
+            DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(
+                self.client.sync_handler.sync_status.clone().into(),
+            )),
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
             }
@@ -186,7 +186,7 @@ impl Handler<DebugStatus> for ClientActorInner {
                 Ok(DebugStatusResponse::CatchupStatus(self.client.get_catchup_status()?))
             }
             DebugStatus::RequestedStateParts => Ok(DebugStatusResponse::RequestedStateParts(
-                self.client.chain.get_requested_state_parts(),
+                self.client.chain.state_sync_adapter.get_requested_state_parts(),
             )),
             DebugStatus::ChainProcessingStatus => Ok(DebugStatusResponse::ChainProcessingStatus(
                 self.client.chain.get_chain_processing_info(),
@@ -746,11 +746,9 @@ impl ClientActorInner {
             let mut endorsed_chunk_validators = HashMap::new();
             for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
                 let Some(signature) = signature else { continue };
-                let Ok((validator, _)) = self.client.epoch_manager.get_validator_by_account_id(
-                    &epoch_id,
-                    block.header().prev_hash(),
-                    account_id,
-                ) else {
+                let Ok(validator) =
+                    self.client.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
+                else {
                     continue;
                 };
                 if !ChunkEndorsement::validate_signature(

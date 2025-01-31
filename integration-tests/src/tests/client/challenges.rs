@@ -10,8 +10,7 @@ use near_crypto::InMemorySigner;
 use near_network::types::NetworkRequests;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::challenge::{
-    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, PartialState,
-    TrieValue,
+    BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk,
 };
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
@@ -19,6 +18,7 @@ use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::state::{PartialState, TrieValue};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
@@ -133,7 +133,6 @@ fn test_verify_block_double_sign_challenge() {
             env.clients[1].chain.epoch_manager.as_ref(),
             env.clients[1].chain.runtime_adapter.as_ref(),
             &epoch_id,
-            genesis.hash(),
             &valid_challenge
         )
         .unwrap()
@@ -151,7 +150,6 @@ fn test_verify_block_double_sign_challenge() {
         env.clients[1].chain.epoch_manager.as_ref(),
         env.clients[1].chain.runtime_adapter.as_ref(),
         &epoch_id,
-        genesis.hash(),
         &invalid_challenge,
     )
     .is_err());
@@ -167,7 +165,6 @@ fn test_verify_block_double_sign_challenge() {
         env.clients[1].chain.epoch_manager.as_ref(),
         env.clients[1].chain.runtime_adapter.as_ref(),
         &epoch_id,
-        genesis.hash(),
         &invalid_challenge,
     )
     .is_err());
@@ -330,7 +327,6 @@ fn challenge(
         env.clients[0].chain.epoch_manager.as_ref(),
         env.clients[0].chain.runtime_adapter.as_ref(),
         block.header().epoch_id(),
-        block.header().prev_hash(),
         &valid_challenge,
     )
 }
@@ -493,7 +489,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             client.chain.epoch_manager.as_ref(),
             client.chain.runtime_adapter.as_ref(),
             block.header().epoch_id(),
-            block.header().prev_hash(),
             &challenge,
         )
         .unwrap_err(),

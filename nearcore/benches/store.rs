@@ -39,7 +39,6 @@ fn read_trie_items(bench: &mut Bencher, shard_index: ShardIndex, shard_id: Shard
         .get_hot_store();
         let chain_store = ChainStore::new(
             store.clone(),
-            near_config.genesis.config.genesis_height,
             true,
             near_config.genesis.config.transaction_validity_period,
         );

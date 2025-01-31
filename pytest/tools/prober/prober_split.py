@@ -158,6 +158,7 @@ def main():
     args = parser.parse_args()
 
     logger.setLevel(args.log_level)
+    # cspell:words cloudprober
     # log an empty line for cloudprober nice formatting
     logger.info('')
     logger.info('Running Prober Split')
