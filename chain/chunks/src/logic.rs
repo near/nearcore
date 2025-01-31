@@ -1,3 +1,4 @@
+use near_chain::sharding::{chunk_part_owner, num_chunk_data_parts};
 use near_chain::ChainStoreAccess;
 use near_chain::{
     types::EpochManagerAdapter, validate::validate_chunk_proofs, BlockHeader, Chain, ChainStore,
@@ -34,7 +35,7 @@ pub fn need_part(
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<bool, EpochError> {
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-    Ok(Some(&epoch_manager.get_part_owner(&epoch_id, part_ord)?) == me)
+    Ok(Some(&chunk_part_owner(epoch_manager, &epoch_id, part_ord)?) == me)
 }
 
 pub fn get_shards_cares_about_this_or_next_epoch(
@@ -166,8 +167,9 @@ pub fn decode_encoded_chunk(
         ?chunk_hash)
     .entered();
 
+    let data_parts = num_chunk_data_parts(epoch_manager);
     if let Ok(shard_chunk) = encoded_chunk
-        .decode_chunk(epoch_manager.num_data_parts())
+        .decode_chunk(data_parts)
         .map_err(|err| Error::from(err))
         .and_then(|shard_chunk| {
             if !validate_chunk_proofs(&shard_chunk, epoch_manager)? {

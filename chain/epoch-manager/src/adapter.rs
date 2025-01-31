@@ -38,20 +38,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get the list of shard ids
     fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError>;
 
-    /// Number of Reed-Solomon parts we split each chunk into.
-    ///
-    /// Note: this shouldn't be too large, our Reed-Solomon supports at most 256
-    /// parts.
-    fn num_total_parts(&self) -> usize;
-
-    /// How many Reed-Solomon parts are data parts.
-    ///
-    /// That is, fetching this many parts should be enough to reconstruct a
-    /// chunk, if there are no errors.
-    fn num_data_parts(&self) -> usize;
-
-    /// Returns `account_id` that is supposed to have the `part_id`.
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError>;
+    fn genesis_num_block_producer_seats(&self) -> u64;
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError>;
 
@@ -426,30 +413,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
-    fn num_total_parts(&self) -> usize {
-        let seats = self.read().genesis_num_block_producer_seats;
-        if seats > 1 {
-            seats as usize
-        } else {
-            2
-        }
-    }
-
-    fn num_data_parts(&self) -> usize {
-        let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
-    }
-
-    fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
-        let epoch_manager = self.read();
-        let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
-        let settlement = epoch_info.block_producers_settlement();
-        let validator_id = settlement[part_id as usize % settlement.len()];
-        Ok(epoch_info.get_validator(validator_id).account_id().clone())
+    fn genesis_num_block_producer_seats(&self) -> u64 {
+        self.read().genesis_num_block_producer_seats
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
