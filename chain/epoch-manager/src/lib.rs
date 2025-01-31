@@ -17,7 +17,7 @@ use near_primitives::stateless_validation::validator_assignment::ChunkValidatorA
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
     EpochInfoProvider, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
@@ -372,56 +372,57 @@ impl EpochManager {
     /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
     /// the last block in an epoch in order for the epoch manager to work properly after this function
     /// is called
-    pub fn copy_epoch_info_as_of_block(
-        &mut self,
-        block_hash: &CryptoHash,
-        source_epoch_manager: &EpochManager,
-    ) -> Result<(), EpochError> {
-        let block_info = source_epoch_manager.get_block_info(block_hash)?;
-        let prev_hash = block_info.prev_hash();
-        let epoch_id = &source_epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let next_epoch_id = &source_epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
-        let mut store_update = self.store.store_update();
-        self.save_epoch_info(
-            &mut store_update,
-            epoch_id,
-            source_epoch_manager.get_epoch_info(epoch_id)?,
-        )?;
-        // save next epoch info too
-        self.save_epoch_info(
-            &mut store_update,
-            next_epoch_id,
-            source_epoch_manager.get_epoch_info(next_epoch_id)?,
-        )?;
-        // save next next epoch info if the block is the last block
-        if source_epoch_manager.is_next_block_epoch_start(block_hash)? {
-            let next_next_epoch_id =
-                source_epoch_manager.get_next_epoch_id_from_prev_block(block_hash)?;
-            self.save_epoch_info(
-                &mut store_update,
-                &next_next_epoch_id,
-                source_epoch_manager.get_epoch_info(&next_next_epoch_id)?,
-            )?;
-        }
+    // pub fn copy_epoch_info_as_of_block(
+    //     &mut self,
+    //     block_hash: &CryptoHash,
+    //     source_epoch_manager: &EpochManager,
+    // ) -> Result<(), EpochError> {
+    //     let source_epoch_manager = source_epoch_manager.into_handle();
+    //     let block_info = source_epoch_manager.get_block_info(block_hash)?;
+    //     let prev_hash = block_info.prev_hash();
+    //     let epoch_id = &source_epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+    //     let next_epoch_id = &source_epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
+    //     let mut store_update = self.store.store_update();
+    //     self.save_epoch_info(
+    //         &mut store_update,
+    //         epoch_id,
+    //         source_epoch_manager.get_epoch_info(epoch_id)?,
+    //     )?;
+    //     // save next epoch info too
+    //     self.save_epoch_info(
+    //         &mut store_update,
+    //         next_epoch_id,
+    //         source_epoch_manager.get_epoch_info(next_epoch_id)?,
+    //     )?;
+    //     // save next next epoch info if the block is the last block
+    //     if source_epoch_manager.is_next_block_epoch_start(block_hash)? {
+    //         let next_next_epoch_id =
+    //             source_epoch_manager.get_next_epoch_id_from_prev_block(block_hash)?;
+    //         self.save_epoch_info(
+    //             &mut store_update,
+    //             &next_next_epoch_id,
+    //             source_epoch_manager.get_epoch_info(&next_next_epoch_id)?,
+    //         )?;
+    //     }
 
-        // save block info for the first block in the epoch
-        let epoch_first_block = block_info.epoch_first_block();
-        self.save_block_info(
-            &mut store_update,
-            source_epoch_manager.get_block_info(epoch_first_block)?,
-        )?;
+    //     // save block info for the first block in the epoch
+    //     let epoch_first_block = block_info.epoch_first_block();
+    //     self.save_block_info(
+    //         &mut store_update,
+    //         source_epoch_manager.get_block_info(epoch_first_block)?,
+    //     )?;
 
-        self.save_block_info(&mut store_update, block_info)?;
+    //     self.save_block_info(&mut store_update, block_info)?;
 
-        self.save_epoch_start(
-            &mut store_update,
-            epoch_id,
-            source_epoch_manager.get_epoch_start_from_epoch_id(epoch_id)?,
-        )?;
+    //     self.save_epoch_start(
+    //         &mut store_update,
+    //         epoch_id,
+    //         source_epoch_manager.get_epoch_start_from_epoch_id(epoch_id)?,
+    //     )?;
 
-        store_update.commit()?;
-        Ok(())
-    }
+    //     store_update.commit()?;
+    //     Ok(())
+    // }
 
     pub fn init_after_epoch_sync(
         &mut self,
@@ -1141,48 +1142,48 @@ impl EpochManager {
         })
     }
 
-    pub fn get_all_block_approvers_ordered(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
-        let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+    // pub fn get_all_block_approvers_ordered(
+    //     &self,
+    //     parent_hash: &CryptoHash,
+    // ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
+    //     let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+    //     let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
 
-        let mut settlement =
-            self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?.to_vec();
+    //     let mut settlement =
+    //         self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?.to_vec();
 
-        let settlement_epoch_boundary = settlement.len();
+    //     let settlement_epoch_boundary = settlement.len();
 
-        let block_info = self.get_block_info(parent_hash)?;
-        if self.next_block_need_approvals_from_next_epoch(&block_info)? {
-            settlement.extend(
-                self.get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
-                    .iter()
-                    .cloned(),
-            );
-        }
+    //     let block_info = self.get_block_info(parent_hash)?;
+    //     if self.next_block_need_approvals_from_next_epoch(&block_info)? {
+    //         settlement.extend(
+    //             self.get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
+    //                 .iter()
+    //                 .cloned(),
+    //         );
+    //     }
 
-        let mut result = vec![];
-        let mut validators: HashMap<AccountId, usize> = HashMap::default();
-        for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
-            let account_id = validator_stake.account_id();
-            match validators.get(account_id) {
-                None => {
-                    validators.insert(account_id.clone(), result.len());
-                    result.push((
-                        validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
-                        is_slashed,
-                    ));
-                }
-                Some(old_ord) => {
-                    if ord >= settlement_epoch_boundary {
-                        result[*old_ord].0.stake_next_epoch = validator_stake.stake();
-                    };
-                }
-            };
-        }
-        Ok(result)
-    }
+    //     let mut result = vec![];
+    //     let mut validators: HashMap<AccountId, usize> = HashMap::default();
+    //     for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
+    //         let account_id = validator_stake.account_id();
+    //         match validators.get(account_id) {
+    //             None => {
+    //                 validators.insert(account_id.clone(), result.len());
+    //                 result.push((
+    //                     validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+    //                     is_slashed,
+    //                 ));
+    //             }
+    //             Some(old_ord) => {
+    //                 if ord >= settlement_epoch_boundary {
+    //                     result[*old_ord].0.stake_next_epoch = validator_stake.stake();
+    //                 };
+    //             }
+    //         };
+    //     }
+    //     Ok(result)
+    // }
 
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
@@ -1308,31 +1309,16 @@ impl EpochManager {
         self.is_next_block_in_next_epoch(&block_info)
     }
 
-    /// Relies on the fact that last block hash of an epoch is an EpochId of next next epoch.
-    /// If this block is the last one in some epoch, and we fully processed it, there will be `EpochInfo` record with `hash` key.
-    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        match self.get_epoch_info(&EpochId(*hash)) {
-            Ok(_) => Ok(true),
-            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
-            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
-            Err(EpochError::MissingBlock(_)) => Ok(false),
-            Err(err) => {
-                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
-                Ok(false)
-            }
-        }
-    }
-
-    pub fn get_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError> {
-        if self.is_next_block_epoch_start(parent_hash)? {
-            self.get_next_epoch_id(parent_hash)
-        } else {
-            self.get_epoch_id(parent_hash)
-        }
-    }
+    // pub fn get_epoch_id_from_prev_block(
+    //     &self,
+    //     parent_hash: &CryptoHash,
+    // ) -> Result<EpochId, EpochError> {
+    //     if self.is_next_block_epoch_start(parent_hash)? {
+    //         self.get_next_epoch_id(parent_hash)
+    //     } else {
+    //         self.get_epoch_id(parent_hash)
+    //     }
+    // }
 
     pub fn get_next_epoch_id_from_prev_block(
         &self,

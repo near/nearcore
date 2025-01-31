@@ -19,8 +19,9 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tracing::warn;
 
 /// A trait that abstracts the interface of the EpochManager. The two
 /// implementations are EpochManagerHandle and KeyValueEpochManager. Strongly
@@ -70,11 +71,32 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// `is_next_block_epoch_start` works even if we didn't fully process the provided block.
     /// This function works even if we garbage collected `BlockInfo` of the first block of the epoch.
     /// Thus, this function is better suited for use in garbage collection.
-    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError>;
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        match self.get_epoch_info(&EpochId(*hash)) {
+            Ok(_) => Ok(true),
+            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
+            Err(EpochError::MissingBlock(_)) => Ok(false),
+            Err(err) => {
+                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
+                Ok(false)
+            }
+        }
+    }
 
     /// Get epoch id given hash of previous block.
-    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
-        -> Result<EpochId, EpochError>;
+    fn get_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, EpochError> {
+        if self.is_next_block_epoch_start(parent_hash)? {
+            self.get_next_epoch_id(parent_hash)
+        } else {
+            self.get_epoch_id(parent_hash)
+        }
+    }
+
+    fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError>;
 
     /// Get epoch height given hash of previous block.
     fn get_epoch_height_from_prev_block(
@@ -485,26 +507,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.is_next_block_epoch_start(parent_hash)
     }
 
-    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.is_last_block_in_finished_epoch(hash)
-    }
-
-    fn get_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_id_from_prev_block(parent_hash)
-    }
-
     fn get_epoch_height_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,
     ) -> Result<EpochHeight, EpochError> {
-        let epoch_manager = self.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height())
+        let epoch_id = self.get_epoch_id_from_prev_block(prev_block_hash)?;
+        self.get_epoch_info(&epoch_id).map(|info| info.epoch_height())
+    }
+
+    fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
+        self.read().get_epoch_start_from_epoch_id(epoch_id)
     }
 
     fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
@@ -635,8 +647,46 @@ impl EpochManagerAdapter for EpochManagerHandle {
         &self,
         parent_hash: &CryptoHash,
     ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
+        let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+
         let epoch_manager = self.read();
-        epoch_manager.get_all_block_approvers_ordered(parent_hash)
+        let mut settlement = epoch_manager
+            .get_all_block_producers_settlement(&current_epoch_id, parent_hash)?
+            .to_vec();
+
+        let settlement_epoch_boundary = settlement.len();
+
+        let block_info = self.get_block_info(parent_hash)?;
+        if epoch_manager.next_block_need_approvals_from_next_epoch(&block_info)? {
+            settlement.extend(
+                epoch_manager
+                    .get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
+                    .iter()
+                    .cloned(),
+            );
+        }
+
+        let mut result = vec![];
+        let mut validators: HashMap<AccountId, usize> = HashMap::default();
+        for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
+            let account_id = validator_stake.account_id();
+            match validators.get(account_id) {
+                None => {
+                    validators.insert(account_id.clone(), result.len());
+                    result.push((
+                        validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
+                        is_slashed,
+                    ));
+                }
+                Some(old_ord) => {
+                    if ord >= settlement_epoch_boundary {
+                        result[*old_ord].0.stake_next_epoch = validator_stake.stake();
+                    };
+                }
+            };
+        }
+        Ok(result)
     }
 
     fn get_epoch_chunk_producers(
