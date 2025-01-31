@@ -103,10 +103,7 @@ pub fn validate_chunk_endorsement(
     )? {
         return Ok(false);
     }
-
-    if !epoch_manager.verify_chunk_endorsement_signature(endorsement)? {
-        return Err(Error::InvalidChunkEndorsement);
-    }
+    validate_chunk_endorsement_signature(epoch_manager, endorsement)?;
 
     Ok(true)
 }
@@ -122,9 +119,8 @@ pub fn validate_chunk_contract_accesses(
     if !validate_chunk_relevant_as_validator(epoch_manager, key, signer.validator_id(), store)? {
         return Ok(false);
     }
-    if !epoch_manager.verify_witness_contract_accesses_signature(accesses)? {
-        return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
-    }
+    validate_witness_contract_accesses_signature(epoch_manager, accesses)?;
+
     Ok(true)
 }
 
@@ -138,9 +134,7 @@ pub fn validate_contract_code_request(
     if !validate_chunk_relevant_as_validator(epoch_manager, key, request.requester(), store)? {
         return Ok(false);
     }
-    if !epoch_manager.verify_witness_contract_code_request_signature(request)? {
-        return Err(Error::Other("Invalid witness contract code request signature".to_owned()));
-    }
+    validate_witness_contract_code_request_signature(epoch_manager, request)?;
 
     Ok(true)
 }
@@ -265,4 +259,50 @@ fn validate_exclude_witness_contracts_enabled(
     } else {
         Err(Error::Other(format!("ProtocolFeature::ExcludeContractCodeFromStateWitness is disabled for protocol version {protocol_version}")))
     }
+}
+
+fn validate_chunk_endorsement_signature(
+    epoch_manager: &dyn EpochManagerAdapter,
+    endorsement: &ChunkEndorsement,
+) -> Result<(), Error> {
+    if epoch_manager.should_validate_signatures() {
+        let validator = epoch_manager.get_validator_by_account_id(
+            &endorsement.chunk_production_key().epoch_id,
+            &endorsement.account_id(),
+        )?;
+        if !endorsement.verify(validator.public_key()) {
+            return Err(Error::InvalidChunkEndorsement);
+        }
+    }
+    Ok(())
+}
+
+fn validate_witness_contract_code_request_signature(
+    epoch_manager: &dyn EpochManagerAdapter,
+    request: &ContractCodeRequest,
+) -> Result<(), Error> {
+    if epoch_manager.should_validate_signatures() {
+        let validator = epoch_manager.get_validator_by_account_id(
+            &request.chunk_production_key().epoch_id,
+            &request.requester(),
+        )?;
+        if !request.verify_signature(validator.public_key()) {
+            return Err(Error::Other("Invalid witness contract code request signature".to_owned()));
+        }
+    }
+    Ok(())
+}
+
+fn validate_witness_contract_accesses_signature(
+    epoch_manager: &dyn EpochManagerAdapter,
+    accesses: &ChunkContractAccesses,
+) -> Result<(), Error> {
+    if epoch_manager.should_validate_signatures() {
+        let chunk_producer =
+            epoch_manager.get_chunk_producer_info(accesses.chunk_production_key())?;
+        if !accesses.verify_signature(chunk_producer.public_key()) {
+            return Err(Error::Other("Invalid witness contract accesses signature".to_owned()));
+        }
+    }
+    Ok(())
 }

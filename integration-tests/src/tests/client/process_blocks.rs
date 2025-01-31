@@ -1707,7 +1707,11 @@ fn ultra_slow_test_process_block_after_state_sync() {
         env.clients[0].epoch_manager.get_shard_layout(sync_block.header().epoch_id()).unwrap();
     let shard_id = shard_layout.shard_ids().next().unwrap();
 
-    let header = env.clients[0].chain.compute_state_response_header(shard_id, sync_hash).unwrap();
+    let header = env.clients[0]
+        .chain
+        .state_sync_adapter
+        .compute_state_response_header(shard_id, sync_hash)
+        .unwrap();
     let state_root = header.chunk_prev_state_root();
     let sync_prev_header = env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();
     let sync_prev_prev_hash = sync_prev_header.prev_hash();
@@ -2479,17 +2483,31 @@ fn slow_test_catchup_gas_price_change() {
     let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
     let shard_id = shard_layout.shard_uids().next().unwrap().shard_id();
 
-    let state_sync_header =
-        env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
+    let state_sync_header = env.clients[0]
+        .chain
+        .state_sync_adapter
+        .get_state_response_header(shard_id, sync_hash)
+        .unwrap();
     let num_parts = state_sync_header.num_state_parts();
     let state_sync_parts = (0..num_parts)
-        .map(|i| env.clients[0].chain.get_state_response_part(shard_id, i, sync_hash).unwrap())
+        .map(|i| {
+            env.clients[0]
+                .chain
+                .state_sync_adapter
+                .get_state_response_part(shard_id, i, sync_hash)
+                .unwrap()
+        })
         .collect::<Vec<_>>();
 
-    env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header.clone()).unwrap();
+    env.clients[1]
+        .chain
+        .state_sync_adapter
+        .set_state_header(shard_id, sync_hash, state_sync_header.clone())
+        .unwrap();
     for i in 0..num_parts {
         env.clients[1]
             .chain
+            .state_sync_adapter
             .set_state_part(
                 shard_id,
                 sync_hash,
@@ -3711,8 +3729,11 @@ mod contract_precompilation_tests {
         let epoch_id = *env.clients[0].chain.get_block_header(&sync_hash).unwrap().epoch_id();
         let shard_layout = env.clients[0].epoch_manager.get_shard_layout(&epoch_id).unwrap();
         let shard_id = shard_layout.shard_ids().next().unwrap();
-        let state_sync_header =
-            env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
+        let state_sync_header = env.clients[0]
+            .chain
+            .state_sync_adapter
+            .get_state_response_header(shard_id, sync_hash)
+            .unwrap();
         let state_root = state_sync_header.chunk_prev_state_root();
         let sync_prev_header =
             env.clients[0].chain.get_previous_header(sync_block.header()).unwrap();

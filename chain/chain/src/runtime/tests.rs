@@ -702,13 +702,7 @@ fn test_verify_validator_signature() {
     let signature = signer.sign(&data);
     assert!(env
         .epoch_manager
-        .verify_validator_signature(
-            &env.head.epoch_id,
-            &env.head.last_block_hash,
-            &validators[0],
-            &data,
-            &signature
-        )
+        .verify_validator_signature(&env.head.epoch_id, &validators[0], &data, &signature)
         .unwrap());
 }
 
@@ -1021,6 +1015,7 @@ fn test_get_validator_info() {
     assert_eq!(response.epoch_start_height, 3);
 }
 
+#[ignore = "Ignoring challenge and slashing related tests"]
 #[test]
 fn test_challenges() {
     let mut env =
@@ -1043,16 +1038,16 @@ fn test_challenges() {
     let msg = vec![0, 1, 2];
     let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
-    assert!(!env
-        .epoch_manager
-        .verify_validator_signature(
-            &env.head.epoch_id,
-            &env.head.last_block_hash,
-            &"test2".parse().unwrap(),
-            &msg,
-            &signature,
-        )
-        .unwrap());
+    assert!(
+        !env.epoch_manager
+            .verify_validator_signature(
+                &env.head.epoch_id,
+                &"test2".parse().unwrap(),
+                &msg,
+                &signature,
+            )
+            .unwrap()
+    );
     // Run for 3 epochs, to finalize the given block and make sure that slashed stake actually correctly propagates.
     for _ in 0..6 {
         env.step(vec![vec![]], vec![true], vec![]);
@@ -1061,6 +1056,7 @@ fn test_challenges() {
 
 /// Test that in case of a double sign, not all stake is slashed if the double signed stake is
 /// less than 33% and all stake is slashed if the stake is more than 33%
+#[ignore = "Ignoring challenge and slashing related tests"]
 #[test]
 fn test_double_sign_challenge_not_all_slashed() {
     init_test_logger();
@@ -1099,16 +1095,16 @@ fn test_double_sign_challenge_not_all_slashed() {
     let msg = vec![0, 1, 2];
     let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
-    assert!(!env
-        .epoch_manager
-        .verify_validator_signature(
-            &env.head.epoch_id,
-            &env.head.last_block_hash,
-            &"test2".parse().unwrap(),
-            &msg,
-            &signature,
-        )
-        .unwrap());
+    assert!(
+        !env.epoch_manager
+            .verify_validator_signature(
+                &env.head.epoch_id,
+                &"test2".parse().unwrap(),
+                &msg,
+                &signature,
+            )
+            .unwrap()
+    );
 
     for _ in 2..11 {
         env.step(vec![vec![]], vec![true], vec![]);
@@ -1141,6 +1137,7 @@ fn test_double_sign_challenge_not_all_slashed() {
 }
 
 /// Test that double sign from multiple accounts may result in all of their stake slashed.
+#[ignore = "Ignoring challenge and slashing related tests"]
 #[test]
 fn test_double_sign_challenge_all_slashed() {
     init_test_logger();
@@ -1159,7 +1156,6 @@ fn test_double_sign_challenge_all_slashed() {
             .epoch_manager
             .verify_validator_signature(
                 &env.head.epoch_id,
-                &env.head.last_block_hash,
                 &AccountId::try_from(format!("test{}", i + 1)).unwrap(),
                 &msg,
                 &signature,

@@ -87,7 +87,7 @@ pub(crate) static STATE_SYNC_DUMP_EPOCH_HEIGHT: LazyLock<IntGaugeVec> = LazyLock
     .unwrap()
 });
 
-fn log_trie_item(key: Vec<u8>, value: Vec<u8>) {
+fn log_trie_item(key: &[u8], value: Vec<u8>) {
     if !tracing::level_enabled!(tracing::Level::TRACE) {
         return;
     }
@@ -184,7 +184,7 @@ fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error
             break;
         }
         count += 1;
-        log_trie_item(key, value);
+        log_trie_item(&key, value);
     }
     tracing::trace!(target: "metrics", "trie-stats - postponed receipt count {count}");
     Ok(count)

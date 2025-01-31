@@ -7,6 +7,7 @@ pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThreshold
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use near_chain_primitives::{self, Error};
 pub use near_primitives::receipt::ReceiptResult;
+pub use store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
 pub use store::{
     ChainStore, ChainStoreAccess, ChainStoreUpdate, LatestWitnessesInfo, MerkleProofAccess,
     ReceiptFilter,
@@ -32,7 +33,6 @@ pub mod orphan;
 pub mod resharding;
 pub mod runtime;
 pub mod signature_verification;
-mod state_request_tracker;
 pub mod state_snapshot_actor;
 mod state_sync;
 pub mod stateless_validation;

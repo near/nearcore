@@ -74,7 +74,6 @@ test_features = [
 expensive_tests = ["nearcore/expensive_tests"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
-protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
 
 nightly = [
   "near-chain-configs/nightly",
@@ -95,7 +94,6 @@ nightly = [
   "near-dump-test-contract/nightly",
   "nearcore/nightly",
   "nightly_protocol",
-  "protocol_feature_nonrefundable_transfer_nep491",
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",

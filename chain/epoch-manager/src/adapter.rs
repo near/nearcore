@@ -8,10 +8,6 @@ use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest,
-};
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -229,16 +225,13 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_validator_by_account_id(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError>;
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError>;
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        epoch_info
+            .get_validator_by_account(account_id)
+            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
+    }
 
     /// WARNING: this call may be expensive.
     ///
@@ -305,40 +298,20 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     /// Verify validator signature for the given epoch.
-    /// Note: doesn't account for slashed accounts within given epoch. USE WITH CAUTION.
     fn verify_validator_signature(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> Result<bool, Error>;
-
-    /// Verify signature for validator or fisherman. Used for validating challenges.
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error>;
-
-    fn verify_chunk_endorsement_signature(
-        &self,
-        endorsement: &ChunkEndorsement,
-    ) -> Result<bool, Error>;
-
-    fn verify_witness_contract_accesses_signature(
-        &self,
-        accesses: &ChunkContractAccesses,
-    ) -> Result<bool, Error>;
-
-    fn verify_witness_contract_code_request_signature(
-        &self,
-        request: &ContractCodeRequest,
-    ) -> Result<bool, Error>;
+    ) -> Result<bool, Error> {
+        if self.should_validate_signatures() {
+            let validator = self.get_validator_by_account_id(epoch_id, account_id)?;
+            Ok(signature.verify(data, validator.public_key()))
+        } else {
+            Ok(true)
+        }
+    }
 
     fn cares_about_shard_in_epoch(
         &self,
@@ -717,30 +690,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, height)
     }
 
-    fn get_validator_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
-        let epoch_manager = self.read();
-        let validator = epoch_manager.get_validator_by_account_id(epoch_id, account_id)?;
-        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-        Ok((validator, block_info.slashed().contains_key(account_id)))
-    }
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
-        let epoch_manager = self.read();
-        let fisherman = epoch_manager.get_fisherman_by_account_id(epoch_id, account_id)?;
-        let block_info = epoch_manager.get_block_info(last_known_block_hash)?;
-        Ok((fisherman, block_info.slashed().contains_key(account_id)))
-    }
-
     /// WARNING: this function calls EpochManager::get_epoch_info_aggregator_upto_last
     /// underneath which can be very expensive.
     fn get_validator_info(
@@ -794,80 +743,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
-    }
-
-    fn verify_validator_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error> {
-        let (validator, is_slashed) =
-            self.get_validator_by_account_id(epoch_id, last_known_block_hash, account_id)?;
-        if is_slashed {
-            return Ok(false);
-        }
-        Ok(signature.verify(data, validator.public_key()))
-    }
-
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> Result<bool, Error> {
-        match self.verify_validator_signature(
-            epoch_id,
-            last_known_block_hash,
-            account_id,
-            data,
-            signature,
-        ) {
-            Err(Error::NotAValidator(_)) => {
-                let (fisherman, is_slashed) =
-                    self.get_fisherman_by_account_id(epoch_id, last_known_block_hash, account_id)?;
-                if is_slashed {
-                    return Ok(false);
-                }
-                Ok(signature.verify(data, fisherman.public_key()))
-            }
-            other => other,
-        }
-    }
-
-    fn verify_chunk_endorsement_signature(
-        &self,
-        endorsement: &ChunkEndorsement,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.read();
-        let epoch_id = endorsement.chunk_production_key().epoch_id;
-        let validator =
-            epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id())?;
-        Ok(endorsement.verify(validator.public_key()))
-    }
-
-    fn verify_witness_contract_accesses_signature(
-        &self,
-        accesses: &ChunkContractAccesses,
-    ) -> Result<bool, Error> {
-        let chunk_producer =
-            self.read().get_chunk_producer_info(accesses.chunk_production_key())?;
-        Ok(accesses.verify_signature(chunk_producer.public_key()))
-    }
-
-    fn verify_witness_contract_code_request_signature(
-        &self,
-        request: &ContractCodeRequest,
-    ) -> Result<bool, Error> {
-        let validator = self.read().get_validator_by_account_id(
-            &request.chunk_production_key().epoch_id,
-            request.requester(),
-        )?;
-        Ok(request.verify_signature(validator.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(
