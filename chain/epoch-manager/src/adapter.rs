@@ -340,7 +340,23 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
         account_id: &AccountId,
         shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
+    ) -> Result<bool, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_index)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        for validator_id in chunk_producers.iter() {
+            if epoch_info.validator_account_id(*validator_id) == account_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 
     fn cares_about_shard_from_prev_block(
         &self,
@@ -833,8 +849,8 @@ impl EpochManagerAdapter for EpochManagerHandle {
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        self.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
     }
 
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
@@ -849,8 +865,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
             self.get_prev_shard_id_from_prev_hash(parent_hash, shard_id)?;
         let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(parent_hash)?;
 
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
+        self.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
     }
 
     fn possible_epochs_of_height_around_tip(
@@ -869,15 +884,5 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
-    }
-
-    fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 }
