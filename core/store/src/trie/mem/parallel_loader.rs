@@ -191,7 +191,6 @@ impl ParallelMemTrieLoader {
         arena: &mut impl ArenaMut,
     ) -> Result<MemTrieNodeId, StorageError> {
         // Figure out which range corresponds to the prefix of this subtree.
-        // TODO(resharding) This seems fragile, potentially does not work with mapping.
         let (start, end) = subtree_to_load.to_iter_range(self.shard_uid);
 
         // Load all the keys in this range from the FlatState column.

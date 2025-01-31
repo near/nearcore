@@ -609,7 +609,6 @@ fn slow_test_resharding_v3() {
     test_resharding_v3_base(TestReshardingParametersBuilder::default().build());
 }
 
-// TODO(resharding) Add test with double resharding (not independent) when it is supported.
 #[test]
 fn slow_test_resharding_v3_two_independent_splits() {
     let second_resharding_boundary_account = "account2".parse().unwrap();
