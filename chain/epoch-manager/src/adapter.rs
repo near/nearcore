@@ -363,7 +363,10 @@ pub trait EpochManagerAdapter: Send + Sync {
         parent_hash: &CryptoHash,
         account_id: &AccountId,
         shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
+    ) -> Result<bool, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        self.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
+    }
 
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
     // If shard layout will change next epoch, returns true if it cares about any shard
@@ -398,12 +401,20 @@ pub trait EpochManagerAdapter: Send + Sync {
         }
     }
 
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
     fn cared_about_shard_prev_epoch_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
         shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
+    ) -> Result<bool, EpochError> {
+        let (_layout, parent_shard_id, _index) =
+            self.get_prev_shard_id_from_prev_hash(parent_hash, shard_id)?;
+        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(parent_hash)?;
+
+        self.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
+    }
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
@@ -841,31 +852,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
-    }
-
-    fn cares_about_shard_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        self.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
-    }
-
-    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-    // If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
-    fn cared_about_shard_prev_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let (_layout, parent_shard_id, _index) =
-            self.get_prev_shard_id_from_prev_hash(parent_hash, shard_id)?;
-        let prev_epoch_id = self.get_prev_epoch_id_from_prev_block(parent_hash)?;
-
-        self.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
     }
 
     fn possible_epochs_of_height_around_tip(
