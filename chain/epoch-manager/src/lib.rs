@@ -14,7 +14,6 @@ use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, ChunkStats, EpochId,
@@ -1184,22 +1183,6 @@ impl EpochManager {
         Ok(result)
     }
 
-    /// For given epoch_id, height and shard_id returns validator that is chunk producer.
-    pub fn get_chunk_producer_info(
-        &self,
-        key: &ChunkProductionKey,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
-        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
-        let validator_id = Self::chunk_producer_from_info(
-            &epoch_info,
-            &shard_layout,
-            key.shard_id,
-            key.height_created,
-        )?;
-        Ok(epoch_info.get_validator(validator_id))
-    }
-
     /// Returns validator for given account id for given epoch.
     /// We don't require caller to know about EpochIds. Doesn't account for slashing.
     pub fn get_validator_by_account_id(
@@ -1771,20 +1754,6 @@ impl EpochManager {
         epoch_info.sample_block_producer(height)
     }
 
-    #[inline]
-    pub(crate) fn chunk_producer_from_info(
-        epoch_info: &EpochInfo,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        height: BlockHeight,
-    ) -> Result<ValidatorId, EpochError> {
-        epoch_info.sample_chunk_producer(shard_layout, shard_id, height).ok_or_else(|| {
-            EpochError::ChunkProducerSelectionError(format!(
-                "Invalid shard {shard_id} for height {height}"
-            ))
-        })
-    }
-
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         if block_info.is_genesis() {
@@ -2135,82 +2104,5 @@ impl EpochManager {
         } else {
             Ok(None)
         }
-    }
-
-    pub fn possible_epochs_of_height_around_tip(
-        &self,
-        tip: &Tip,
-        height: BlockHeight,
-    ) -> Result<Vec<EpochId>, EpochError> {
-        // If the tip is at the genesis block, it has to be handled in a special way.
-        // For genesis block, epoch_first_block() is the dummy block (11111...)
-        // with height 0, which could cause issues with estimating the epoch end
-        // if the genesis height is nonzero. It's easier to handle it manually.
-        if tip.prev_block_hash == CryptoHash::default() {
-            if tip.height == height {
-                return Ok(vec![tip.epoch_id]);
-            }
-
-            if height > tip.height {
-                return Ok(vec![tip.next_epoch_id]);
-            }
-
-            return Ok(vec![]);
-        }
-
-        // See if the height is in the current epoch
-        let current_epoch_first_block_hash =
-            *self.get_block_info(&tip.last_block_hash)?.epoch_first_block();
-        let current_epoch_first_block_info =
-            self.get_block_info(&current_epoch_first_block_hash)?;
-
-        let current_epoch_start = current_epoch_first_block_info.height();
-        let current_epoch_length = self
-            .get_epoch_config(self.get_epoch_info(&tip.epoch_id)?.protocol_version())
-            .epoch_length;
-        let current_epoch_estimated_end = current_epoch_start.saturating_add(current_epoch_length);
-
-        // All blocks with height lower than the estimated end are guaranteed to reside in the current epoch.
-        // The situation is clear here.
-        if (current_epoch_start..current_epoch_estimated_end).contains(&height) {
-            return Ok(vec![tip.epoch_id]);
-        }
-
-        // If the height is higher than the current epoch's estimated end, then it's
-        // not clear in which epoch it'll be. Under normal circumstances it would be
-        // in the next epoch, but with missing blocks the current epoch could stretch out
-        // past its estimated end, so the height might end up being in the current epoch,
-        // even though its height is higher than the estimated end.
-        if height >= current_epoch_estimated_end {
-            return Ok(vec![tip.epoch_id, tip.next_epoch_id]);
-        }
-
-        // Finally try the previous epoch.
-        // First and last blocks of the previous epoch are already known, so the situation is clear.
-        let prev_epoch_last_block_hash = current_epoch_first_block_info.prev_hash();
-        let prev_epoch_last_block_info = self.get_block_info(prev_epoch_last_block_hash)?;
-        let prev_epoch_first_block_info =
-            self.get_block_info(prev_epoch_last_block_info.epoch_first_block())?;
-
-        // If the current epoch is the epoch after genesis, then the previous
-        // epoch contains only the genesis block. This case has to be handled separately
-        // because epoch_first_block() points to the dummy block (1111..), which has height 0.
-        if tip.epoch_id == EpochId(CryptoHash::default()) {
-            let genesis_block_info = prev_epoch_last_block_info;
-            if height == genesis_block_info.height() {
-                return Ok(vec![*genesis_block_info.epoch_id()]);
-            } else {
-                return Ok(vec![]);
-            }
-        }
-
-        if (prev_epoch_first_block_info.height()..=prev_epoch_last_block_info.height())
-            .contains(&height)
-        {
-            return Ok(vec![*prev_epoch_last_block_info.epoch_id()]);
-        }
-
-        // The height doesn't belong to any of the epochs around the tip, return an empty Vec.
-        Ok(vec![])
     }
 }
