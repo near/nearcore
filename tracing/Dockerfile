@@ -1,4 +1,4 @@
-FROM rust:1.81-bullseye as builder
+FROM rust:1.84-bullseye as builder
 
 ADD Cargo.toml /build/Cargo.toml
 ADD Cargo.lock /build/Cargo.lock

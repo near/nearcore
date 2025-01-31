@@ -63,7 +63,7 @@ import { EventItem, EventItemCollection } from './events';
 // Suppose two arrows both want to draw the following:
 //    - horizontal line on (ArrowRow 1) from (ArrowColumn 0) to (ArrowColumn 1)
 //    - vertical line on (ArrowColumn 1) from (ArrowRow 1) to (ArrowRow 2)
-//    - horizontal line on (ArrowRow 2) frmo (ArrowColumn 1) to (ArrowColumn 2)
+//    - horizontal line on (ArrowRow 2) from (ArrowColumn 1) to (ArrowColumn 2)
 //
 // then since both arrows draw horizontal lines on ArrowRow1 with overlapping
 // intervals, we assign them a different offset (layer) so that they are in

@@ -304,7 +304,7 @@ fn apply_block_from_range(
     // Ultimately, this has to handle requirements on storage effects from multiple sources --
     // `Benchmark` for example repeatedly applies a single block, so no storage effects are
     // desired, meanwhile other modes can be set to operate on various storage sources, all of
-    // which have their unique propoerties (e.g. flat storage operates on flat_head...)
+    // which have their unique properties (e.g. flat storage operates on flat_head...)
     match (mode, storage) {
         (ApplyRangeMode::Benchmark, _) => {}
         (_, StorageSource::Trie | StorageSource::TrieFree) => {}
