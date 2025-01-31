@@ -1,13 +1,23 @@
 #![doc = include_str!("../README.md")]
 
-use near_chain_configs::{UpdatableClientConfig, UpdatableValidatorSigner};
+use near_chain_configs::UpdatableClientConfig;
 use near_o11y::log_config::LogConfig;
+use near_primitives::validator_signer::ValidatorSigner;
 use near_time::Clock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 
 mod metrics;
+
+#[derive(Clone, Default)]
+pub enum UpdatableValidatorSigner {
+    /// Validator key existence could not be determined.
+    #[default]
+    KeyExistenceNotDetermined,
+    /// The new state of the validator key.
+    MaybeKey(Option<Arc<ValidatorSigner>>),
+}
 
 #[derive(Clone, Default)]
 /// Contains the latest state of configs which can be updated at runtime.
@@ -17,9 +27,7 @@ pub struct UpdatableConfigs {
     /// Contents of the `config.json` corresponding to the mutable fields of `ClientConfig`.
     pub client_config: Option<UpdatableClientConfig>,
     /// Validator key hot loaded from file.
-    /// `None` means that the validator key existence could not be determined.
-    /// `Some(None)` means that it was determined that the validator key does not exist.
-    pub validator_signer: Option<UpdatableValidatorSigner>,
+    pub validator_signer: UpdatableValidatorSigner,
 }
 
 /// Pushes the updates to listeners.

@@ -1,5 +1,5 @@
 use near_chain_configs::UpdatableClientConfig;
-use near_dyn_configs::{UpdatableConfigLoaderError, UpdatableConfigs};
+use near_dyn_configs::{UpdatableConfigLoaderError, UpdatableConfigs, UpdatableValidatorSigner};
 use near_primitives::validator_signer::ValidatorSigner;
 use std::sync::Arc;
 use tokio::sync::broadcast::Receiver;
@@ -44,7 +44,9 @@ impl ConfigUpdater {
                             update_client_config_fn(client_config);
                         tracing::info!(target: "config", "Updated ClientConfig");
                     }
-                    if let Some(validator_signer) = updatable_configs.validator_signer {
+                    if let UpdatableValidatorSigner::MaybeKey(validator_signer) =
+                        updatable_configs.validator_signer
+                    {
                         update_result.validator_signer_updated |=
                             update_validator_signer_fn(validator_signer);
                         tracing::info!(target: "config", "Updated validator key");

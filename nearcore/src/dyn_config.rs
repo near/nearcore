@@ -1,6 +1,6 @@
 use crate::config::Config;
 use near_chain_configs::UpdatableClientConfig;
-use near_dyn_configs::{UpdatableConfigLoaderError, UpdatableConfigs};
+use near_dyn_configs::{UpdatableConfigLoaderError, UpdatableConfigs, UpdatableValidatorSigner};
 use near_o11y::log_config::LogConfig;
 use near_primitives::validator_signer::ValidatorSigner;
 use serde::Deserialize;
@@ -35,14 +35,14 @@ pub fn read_updatable_configs(
 
     let validator_signer = if let Some(config) = config {
         match read_validator_key(home_dir, &config) {
-            Ok(validator_key) => Some(validator_key),
+            Ok(validator_key) => UpdatableValidatorSigner::MaybeKey(validator_key),
             Err(err) => {
                 errs.push(err);
-                None
+                UpdatableValidatorSigner::KeyExistenceNotDetermined
             }
         }
     } else {
-        None
+        UpdatableValidatorSigner::KeyExistenceNotDetermined
     };
 
     if errs.is_empty() {
