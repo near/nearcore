@@ -5,7 +5,8 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
-use crate::client::{CatchupState, ProduceChunkResult};
+use crate::chunk_producer::ProduceChunkResult;
+use crate::client::CatchupState;
 use crate::Client;
 use actix_rt::System;
 use itertools::Itertools;
@@ -145,6 +146,7 @@ fn create_chunk_on_height_for_shard(
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     let signer = client.validator_signer.get();
     client
+        .chunk_producer
         .try_produce_chunk(
             &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
@@ -153,6 +155,7 @@ fn create_chunk_on_height_for_shard(
             next_height,
             shard_id,
             signer.as_ref(),
+            &client.chain.transaction_validity_check(last_block.header().clone()),
         )
         .unwrap()
         .unwrap()
@@ -185,6 +188,7 @@ pub fn create_chunk(
         receipts,
         transactions_storage_proof,
     } = client
+        .chunk_producer
         .try_produce_chunk(
             &last_block,
             last_block.header().epoch_id(),
@@ -192,6 +196,7 @@ pub fn create_chunk(
             next_height,
             ShardId::new(0),
             signer.as_ref(),
+            &client.chain.transaction_validity_check(last_block.header().clone()),
         )
         .unwrap()
         .unwrap();

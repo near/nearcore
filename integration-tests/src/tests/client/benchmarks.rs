@@ -6,7 +6,8 @@
 
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
-use near_client::{ProcessTxResponse, ProduceChunkResult};
+use near_client::ProcessTxResponse;
+use near_client::ProduceChunkResult;
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
