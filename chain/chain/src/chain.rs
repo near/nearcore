@@ -340,12 +340,7 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
-            Chain::compute_bp_hash(
-                epoch_manager,
-                EpochId::default(),
-                EpochId::default(),
-                &CryptoHash::default(),
-            )?,
+            Chain::compute_bp_hash(epoch_manager, EpochId::default(), EpochId::default())?,
         );
         Ok((genesis_block, genesis_chunks))
     }
@@ -613,10 +608,8 @@ impl Chain {
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: EpochId,
         prev_epoch_id: EpochId,
-        last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
-        let bps = epoch_manager.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect_vec();
+        let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         Self::compute_bp_hash_from_validator_stakes(
             &validator_stakes,
@@ -752,11 +745,8 @@ impl Chain {
             }
         };
 
-        let next_block_producers = get_epoch_block_producers_view(
-            final_block_header.next_epoch_id(),
-            header.prev_hash(),
-            epoch_manager,
-        )?;
+        let next_block_producers =
+            get_epoch_block_producers_view(final_block_header.next_epoch_id(), epoch_manager)?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
@@ -997,7 +987,6 @@ impl Chain {
                     self.epoch_manager.as_ref(),
                     *header.next_epoch_id(),
                     *header.epoch_id(),
-                    header.prev_hash(),
                 )?
             {
                 return Err(Error::InvalidNextBPHash);
@@ -1042,7 +1031,7 @@ impl Chain {
                 .epoch_manager
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
-                .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
+                .map(|x| (x.stake_this_epoch, x.stake_next_epoch))
                 .collect::<Vec<_>>();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,

@@ -168,8 +168,8 @@ impl InfoHelper {
             // Don't set the metric in this case.
             client
                 .epoch_manager
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
-                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
+                .get_epoch_block_producers_ordered(&head.epoch_id)
+                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.account_id() == &account_id)))
         }) {
             metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
         }
@@ -979,7 +979,6 @@ mod tests {
     use near_epoch_manager::test_utils::*;
     use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
-    use near_primitives::hash::CryptoHash;
     use near_store::genesis::initialize_genesis_state;
 
     #[test]
@@ -1081,7 +1080,6 @@ mod tests {
             "for this test, make sure number of validators are more than block producer seats"
         );
 
-        let last_block_hash = CryptoHash::default();
         let epoch_id = EpochId::default();
         let epoch_length = 2;
         let num_shards = 2;
@@ -1101,10 +1099,7 @@ mod tests {
         // First check that we have different number of block and chunk producers.
         assert_eq!(
             num_block_producer_seats,
-            epoch_manager_adapter
-                .get_epoch_block_producers_ordered(&epoch_id, &last_block_hash)
-                .unwrap()
-                .len()
+            epoch_manager_adapter.get_epoch_block_producers_ordered(&epoch_id).unwrap().len()
         );
         assert_eq!(
             num_validators,

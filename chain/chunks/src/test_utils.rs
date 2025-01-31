@@ -113,10 +113,10 @@ impl ChunkTestFixture {
             .take_account_id();
         let signer = create_test_signer(mock_chunk_producer.as_str());
         let validators: Vec<_> = epoch_manager
-            .get_epoch_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
+            .get_epoch_block_producers_ordered(&EpochId::default())
             .unwrap()
             .into_iter()
-            .map(|v| v.0.account_id().clone())
+            .map(|v| v.account_id().clone())
             .collect();
         let mock_shard_tracker = validators
             .iter()

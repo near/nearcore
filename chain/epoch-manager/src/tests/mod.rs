@@ -24,6 +24,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::AccountInfo;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
@@ -34,27 +35,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::ShardUId;
 use num_rational::Ratio;
-
-impl EpochManager {
-    /// Returns number of produced and expected blocks by given validator.
-    fn get_num_validator_blocks(
-        &mut self,
-        epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<ValidatorStats, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-        let validator_id = *epoch_info
-            .get_validator_id(account_id)
-            .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))?;
-        let aggregator = self.get_epoch_info_aggregator_upto_last(last_known_block_hash)?;
-        Ok(aggregator
-            .block_tracker
-            .get(&validator_id)
-            .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
-            .clone())
-    }
-}
 
 #[test]
 fn test_stake_validator() {
@@ -240,32 +220,26 @@ fn test_fork_finalization() {
     let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
     let mut bps = epoch_manager
         .read()
-        .get_all_block_producers_ordered(&epoch1, &h[1])
+        .get_all_block_producers_ordered(&epoch1)
         .unwrap()
         .iter()
-        .map(|x| (x.0.account_id().clone(), x.1))
+        .map(|x| x.account_id().clone())
         .collect::<Vec<_>>();
     bps.sort_unstable();
-    assert_eq!(
-        bps,
-        vec![
-            ("test1".parse().unwrap(), false),
-            ("test2".parse().unwrap(), false),
-            ("test3".parse().unwrap(), false)
-        ]
-    );
-
+    let expected_bps: Vec<AccountId> =
+        vec!["test1".parse().unwrap(), "test2".parse().unwrap(), "test3".parse().unwrap()];
+    assert_eq!(bps, expected_bps);
     let last_block = blocks_test2.last().unwrap();
     let epoch2_1 = epoch_manager.get_epoch_id(last_block).unwrap();
     assert_eq!(
         epoch_manager
             .read()
-            .get_all_block_producers_ordered(&epoch2_1, &h[1])
+            .get_all_block_producers_ordered(&epoch2_1)
             .unwrap()
             .iter()
-            .map(|x| (x.0.account_id().clone(), x.1))
+            .map(|x| x.account_id().clone())
             .collect::<Vec<_>>(),
-        vec![("test2".parse().unwrap(), false), ("test4".parse().unwrap(), false)]
+        vec!["test2".parse::<AccountId>().unwrap(), "test4".parse().unwrap()]
     );
 
     let last_block = blocks_test1.last().unwrap();
@@ -273,12 +247,12 @@ fn test_fork_finalization() {
     assert_eq!(
         epoch_manager
             .read()
-            .get_all_block_producers_ordered(&epoch2_2, &h[1])
+            .get_all_block_producers_ordered(&epoch2_2)
             .unwrap()
             .iter()
-            .map(|x| (x.0.account_id().clone(), x.1))
+            .map(|x| x.account_id().clone())
             .collect::<Vec<_>>(),
-        vec![("test1".parse().unwrap(), false), ("test3".parse().unwrap(), false),]
+        vec!["test1".parse::<AccountId>().unwrap(), "test3".parse().unwrap(),]
     );
 
     // Check that if we have a different epoch manager and apply only second branch we get the same results.
@@ -467,13 +441,13 @@ fn test_slashing() {
 
     let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
     let mut bps = epoch_manager
-        .get_all_block_producers_ordered(&epoch_id, &h[1])
+        .get_all_block_producers_ordered(&epoch_id)
         .unwrap()
         .iter()
-        .map(|x| (x.0.account_id().clone(), x.1))
+        .map(|x| x.account_id().clone())
         .collect::<Vec<_>>();
     bps.sort_unstable();
-    assert_eq!(bps, vec![("test1".parse().unwrap(), true), ("test2".parse().unwrap(), false)]);
+    assert_eq!(bps, vec!["test1".parse::<AccountId>().unwrap(), "test2".parse().unwrap()]);
 
     record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
     record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
@@ -1428,7 +1402,7 @@ fn test_epoch_info_aggregator_reorg_beginning_of_epoch() {
 }
 
 fn count_missing_blocks(
-    epoch_manager: &EpochManager,
+    epoch_manager: &dyn EpochManagerAdapter,
     epoch_id: &EpochId,
     height_range: std::ops::Range<u64>,
     produced_heights: &[u64],
@@ -1447,47 +1421,66 @@ fn count_missing_blocks(
     result
 }
 
+fn get_num_validator_blocks(
+    em_handle: &EpochManagerHandle,
+    epoch_id: &EpochId,
+    last_known_block_hash: &CryptoHash,
+    account_id: &AccountId,
+) -> Result<ValidatorStats, EpochError> {
+    let epoch_info = em_handle.get_epoch_info(epoch_id)?;
+    let validator_id = *epoch_info
+        .get_validator_id(account_id)
+        .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))?;
+    let aggregator = em_handle.read().get_epoch_info_aggregator_upto_last(last_known_block_hash)?;
+    Ok(aggregator
+        .block_tracker
+        .get(&validator_id)
+        .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
+        .clone())
+}
+
 #[test]
 fn test_num_missing_blocks() {
     let stake_amount = 1_000_000;
     let validators =
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 2;
-    let mut em =
-        setup_epoch_manager(validators, epoch_length, 1, 2, 10, 10, 0, default_reward_calculator());
+    let em =
+        setup_epoch_manager(validators, epoch_length, 1, 2, 10, 10, 0, default_reward_calculator())
+            .into_handle();
     let h = hash_range(8);
-    record_block(&mut em, Default::default(), h[0], 0, vec![]);
-    record_block(&mut em, h[0], h[1], 1, vec![]);
-    record_block(&mut em, h[1], h[3], 3, vec![]);
+    record_block(&mut em.write(), Default::default(), h[0], 0, vec![]);
+    record_block(&mut em.write(), h[0], h[1], 1, vec![]);
+    record_block(&mut em.write(), h[1], h[3], 3, vec![]);
     let epoch_id = em.get_epoch_id(&h[1]).unwrap();
     assert_eq!(
-        em.get_num_validator_blocks(&epoch_id, &h[3], &"test1".parse().unwrap()).unwrap(),
-        count_missing_blocks(&mut em, &epoch_id, 1..4, &[1, 3], "test1"),
+        get_num_validator_blocks(&em, &epoch_id, &h[3], &"test1".parse().unwrap()).unwrap(),
+        count_missing_blocks(&em, &epoch_id, 1..4, &[1, 3], "test1"),
     );
     assert_eq!(
-        em.get_num_validator_blocks(&epoch_id, &h[3], &"test2".parse().unwrap()).unwrap(),
-        count_missing_blocks(&mut em, &epoch_id, 1..4, &[1, 3], "test2"),
+        get_num_validator_blocks(&em, &epoch_id, &h[3], &"test2".parse().unwrap()).unwrap(),
+        count_missing_blocks(&em, &epoch_id, 1..4, &[1, 3], "test2"),
     );
 
     // Build chain 0 <- x <- x <- x <- ( 4 <- 5 ) <- x <- 7
-    record_block(&mut em, h[0], h[4], 4, vec![]);
+    record_block(&mut em.write(), h[0], h[4], 4, vec![]);
     let epoch_id = em.get_epoch_id(&h[4]).unwrap();
     // Block 4 is first block after genesis and starts new epoch, but we actually count how many missed blocks have happened since block 0.
     assert_eq!(
-        em.get_num_validator_blocks(&epoch_id, &h[4], &"test1".parse().unwrap()).unwrap(),
-        count_missing_blocks(&mut em, &epoch_id, 1..5, &[4], "test1"),
+        get_num_validator_blocks(&em, &epoch_id, &h[4], &"test1".parse().unwrap()).unwrap(),
+        count_missing_blocks(&em, &epoch_id, 1..5, &[4], "test1"),
     );
     assert_eq!(
-        em.get_num_validator_blocks(&epoch_id, &h[4], &"test2".parse().unwrap()).unwrap(),
-        count_missing_blocks(&mut em, &epoch_id, 1..5, &[4], "test2"),
+        get_num_validator_blocks(&em, &epoch_id, &h[4], &"test2".parse().unwrap()).unwrap(),
+        count_missing_blocks(&em, &epoch_id, 1..5, &[4], "test2"),
     );
-    record_block(&mut em, h[4], h[5], 5, vec![]);
-    record_block(&mut em, h[5], h[7], 7, vec![]);
+    record_block(&mut em.write(), h[4], h[5], 5, vec![]);
+    record_block(&mut em.write(), h[5], h[7], 7, vec![]);
     let epoch_id = em.get_epoch_id(&h[7]).unwrap();
     // The next epoch started after 5 with 6, and test2 missed their slot from perspective of block 7.
     assert_eq!(
-        em.get_num_validator_blocks(&epoch_id, &h[7], &"test2".parse().unwrap()).unwrap(),
-        count_missing_blocks(&mut em, &epoch_id, 6..8, &[7], "test2"),
+        get_num_validator_blocks(&em, &epoch_id, &h[7], &"test2".parse().unwrap()).unwrap(),
+        count_missing_blocks(&em, &epoch_id, 6..8, &[7], "test2"),
     );
 }
 
@@ -2520,14 +2513,14 @@ fn test_epoch_validators_cache() {
 
     let epoch_id = EpochId(h[2]);
     let epoch_validators =
-        epoch_manager.get_all_block_producers_settlement(&epoch_id, &h[3]).unwrap().to_vec();
+        epoch_manager.get_all_block_producers_settlement(&epoch_id).unwrap().to_vec();
     assert_eq!(epoch_manager.epoch_validators_ordered.len(), 1);
     let epoch_validators_in_cache = epoch_manager.epoch_validators_ordered.get(&epoch_id).unwrap();
     assert_eq!(*epoch_validators, *epoch_validators_in_cache);
 
     assert_eq!(epoch_manager.epoch_validators_ordered_unique.len(), 0);
     let epoch_validators_unique =
-        epoch_manager.get_all_block_producers_ordered(&epoch_id, &h[3]).unwrap().to_vec();
+        epoch_manager.get_all_block_producers_ordered(&epoch_id).unwrap().to_vec();
     let epoch_validators_unique_in_cache =
         epoch_manager.epoch_validators_ordered_unique.get(&epoch_id).unwrap();
     assert_eq!(*epoch_validators_unique, *epoch_validators_unique_in_cache);
@@ -2557,10 +2550,10 @@ fn test_chunk_producers() {
     let epoch_id = EpochId(h[2]);
 
     let block_producers = epoch_manager
-        .get_all_block_producers_settlement(&epoch_id, &h[4])
+        .get_all_block_producers_settlement(&epoch_id)
         .unwrap()
         .iter()
-        .map(|(stake, _)| stake.account_id().to_string())
+        .map(|stake| stake.account_id().to_string())
         .collect::<Vec<_>>();
     assert_eq!(vec!(String::from("test1"), String::from("test2")), block_producers);
 
@@ -3436,11 +3429,12 @@ fn test_possible_epochs_of_height_around_tip() {
     let genesis_epoch = EpochId(CryptoHash::default());
 
     let epoch_length = 5;
-    let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 2, 90, 60);
+    let epoch_manager =
+        setup_default_epoch_manager(validators, epoch_length, 1, 2, 90, 60).into_handle();
 
     // Add the genesis block with height 1000
     let genesis_height = 1000;
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], genesis_height, vec![]);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], genesis_height, vec![]);
 
     let genesis_tip = Tip {
         height: genesis_height,
@@ -3482,7 +3476,7 @@ fn test_possible_epochs_of_height_around_tip() {
     for i in 1..=5 {
         let height = genesis_height + i as BlockHeight;
         tracing::info!(target: "test", height);
-        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3524,7 +3518,7 @@ fn test_possible_epochs_of_height_around_tip() {
     for i in 6..=10 {
         let height = genesis_height + i as BlockHeight;
         tracing::info!(target: "test", height);
-        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3584,7 +3578,7 @@ fn test_possible_epochs_of_height_around_tip() {
             vec![],
             DEFAULT_TOTAL_SUPPLY,
         );
-        epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3647,7 +3641,7 @@ fn test_possible_epochs_of_height_around_tip() {
             vec![],
             DEFAULT_TOTAL_SUPPLY,
         );
-        epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        epoch_manager.write().record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
         let tip = Tip {
             height,
             last_block_hash: h[i],
@@ -3700,7 +3694,7 @@ fn test_possible_epochs_of_height_around_tip() {
     for i in 27..=31 {
         let height = genesis_height + i as BlockHeight;
         tracing::info!(target: "test", height);
-        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        record_block(&mut epoch_manager.write(), h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
             last_block_hash: h[i],

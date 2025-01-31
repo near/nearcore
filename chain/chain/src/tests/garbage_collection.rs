@@ -55,7 +55,6 @@ fn do_fork(
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).build()
         } else {
-            let prev_hash = prev_block.hash();
             let epoch_id = *prev_block.header().next_epoch_id();
             if verbose {
                 println!(
@@ -64,13 +63,9 @@ fn do_fork(
                     prev_block.header().height() + 1
                 );
             }
-            let next_bp_hash = Chain::compute_bp_hash(
-                chain.epoch_manager.as_ref(),
-                next_epoch_id,
-                epoch_id,
-                &prev_hash,
-            )
-            .unwrap();
+            let next_bp_hash =
+                Chain::compute_bp_hash(chain.epoch_manager.as_ref(), next_epoch_id, epoch_id)
+                    .unwrap();
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)
@@ -740,10 +735,8 @@ fn add_block(
     let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
         TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
     } else {
-        let prev_hash = prev_block.hash();
         let epoch_id = *prev_block.header().next_epoch_id();
-        let next_bp_hash =
-            Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id, &prev_hash).unwrap();
+        let next_bp_hash = Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id).unwrap();
         TestBlockBuilder::new(Clock::real(), &prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)

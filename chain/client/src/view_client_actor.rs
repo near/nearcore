@@ -908,11 +908,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActorInner {
             .with_label_values(&["GetValidatorOrdered"])
             .start_timer();
         Ok(self.maybe_block_id_to_block_header(msg.block_id).and_then(|header| {
-            get_epoch_block_producers_view(
-                header.epoch_id(),
-                header.prev_hash(),
-                self.epoch_manager.as_ref(),
-            )
+            get_epoch_block_producers_view(header.epoch_id(), self.epoch_manager.as_ref())
         })?)
     }
 }

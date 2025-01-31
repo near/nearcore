@@ -189,31 +189,55 @@ pub trait EpochManagerAdapter: Send + Sync {
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError>;
+    ) -> Result<Vec<ValidatorStake>, EpochError>;
 
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError>;
+    ) -> Result<Vec<ApprovalStake>, EpochError>;
 
     /// Returns all the chunk producers for a given epoch.
+    /// Note: overwritten in EpochManagerHandler to apply caching
     fn get_epoch_chunk_producers(
         &self,
         epoch_id: &EpochId,
-    ) -> Result<Vec<ValidatorStake>, EpochError>;
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        let mut producers: HashSet<u64> = HashSet::default();
+        // Collect unique chunk producers.
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        for chunk_producers in epoch_info.chunk_producers_settlement() {
+            producers.extend(chunk_producers);
+        }
+        Ok(producers.iter().map(|producer_id| epoch_info.get_validator(*producer_id)).collect())
+    }
 
+    /// Returns AccountIds of chunk producers that are assigned to a given shard-id in a given epoch.
     fn get_epoch_chunk_producers_for_shard(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
-    ) -> Result<Vec<AccountId>, EpochError>;
+    ) -> Result<Vec<AccountId>, EpochError> {
+        let epoch_info = self.get_epoch_info(&epoch_id)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let shard_index = shard_layout.get_shard_index(shard_id)?;
+
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_index)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        Ok(chunk_producers
+            .iter()
+            .map(|index| epoch_info.validator_account_id(*index).clone())
+            .collect())
+    }
 
     /// Returns all validators for a given epoch.
     fn get_epoch_all_validators(
         &self,
         epoch_id: &EpochId,
-    ) -> Result<Vec<ValidatorStake>, EpochError>;
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
+        Ok(self.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
+    }
 
     /// Block producers for given height for the main block. Return EpochError if outside of known boundaries.
     /// TODO: Deprecate in favour of get_block_producer_info
@@ -221,28 +245,67 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-    ) -> Result<AccountId, EpochError>;
+    ) -> Result<AccountId, EpochError> {
+        self.get_block_producer_info(epoch_id, height).map(|validator| validator.take_account_id())
+    }
 
     /// Block producers and stake for given height for the main block. Return EpochError if outside of known boundaries.
     fn get_block_producer_info(
         &self,
         epoch_id: &EpochId,
         height: BlockHeight,
-    ) -> Result<ValidatorStake, EpochError>;
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let validator_id = epoch_info.sample_block_producer(height);
+        Ok(epoch_info.get_validator(validator_id))
+    }
 
     /// Chunk producer info for given height for given shard. Return EpochError if outside of known boundaries.
     fn get_chunk_producer_info(
         &self,
         key: &ChunkProductionKey,
-    ) -> Result<ValidatorStake, EpochError>;
+    ) -> Result<ValidatorStake, EpochError> {
+        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
+        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
+        let Some(validator_id) =
+            epoch_info.sample_chunk_producer(&shard_layout, key.shard_id, key.height_created)
+        else {
+            return Err(EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {} for height {}",
+                key.shard_id, key.height_created,
+            )));
+        };
+        Ok(epoch_info.get_validator(validator_id))
+    }
 
     /// Gets the chunk validators for a given height and shard.
+    /// Note: overwritten in EpochManagerHandler to apply caching
     fn get_chunk_validator_assignments(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError>;
+    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
+        for (shard_index, chunk_validators) in chunk_validators_per_shard.into_iter().enumerate() {
+            let cur_shard_id = shard_layout.get_shard_id(shard_index)?;
+            if cur_shard_id != shard_id {
+                continue;
+            }
+            let chunk_validators = chunk_validators
+                .into_iter()
+                .map(|(validator_id, assignment_weight)| {
+                    (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
+                })
+                .collect();
+            return Ok(Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
+        }
+        Err(EpochError::ChunkValidatorSelectionError(format!(
+            "Invalid shard ID {shard_id} for height {height}, epoch {epoch_id:?} for chunk validation",
+        )))
+    }
 
     fn get_validator_by_account_id(
         &self,
@@ -261,7 +324,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// it for "production" code.
     fn get_validator_info(
         &self,
-        epoch_id: ValidatorInfoIdentifier,
+        epoch_identifier: ValidatorInfoIdentifier,
     ) -> Result<EpochValidatorInfo, EpochError>;
 
     fn add_validator_proposals(
@@ -271,8 +334,12 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<StoreUpdate, EpochError>;
 
     /// Epoch active protocol version.
-    fn get_epoch_protocol_version(&self, epoch_id: &EpochId)
-        -> Result<ProtocolVersion, EpochError>;
+    fn get_epoch_protocol_version(
+        &self,
+        epoch_id: &EpochId,
+    ) -> Result<ProtocolVersion, EpochError> {
+        self.get_epoch_info(epoch_id).map(|info| info.protocol_version())
+    }
 
     /// Get protocol version of next epoch.
     fn get_next_epoch_protocol_version(
@@ -291,7 +358,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     }
 
     // TODO #3488 this likely to be updated
-
     fn is_chunk_producer_for_epoch(
         &self,
         epoch_id: &EpochId,
@@ -436,7 +502,76 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         tip: &Tip,
         height: BlockHeight,
-    ) -> Result<Vec<EpochId>, EpochError>;
+    ) -> Result<Vec<EpochId>, EpochError> {
+        // If the tip is at the genesis block, it has to be handled in a special way.
+        // For genesis block, epoch_first_block() is the dummy block (11111...)
+        // with height 0, which could cause issues with estimating the epoch end
+        // if the genesis height is nonzero. It's easier to handle it manually.
+        if tip.prev_block_hash == CryptoHash::default() {
+            if tip.height == height {
+                return Ok(vec![tip.epoch_id]);
+            }
+
+            if height > tip.height {
+                return Ok(vec![tip.next_epoch_id]);
+            }
+
+            return Ok(vec![]);
+        }
+
+        // See if the height is in the current epoch
+        let current_epoch_first_block_hash =
+            *self.get_block_info(&tip.last_block_hash)?.epoch_first_block();
+        let current_epoch_first_block_info =
+            self.get_block_info(&current_epoch_first_block_hash)?;
+
+        let current_epoch_start = current_epoch_first_block_info.height();
+        let current_epoch_length = self.get_epoch_config(&tip.epoch_id)?.epoch_length;
+        let current_epoch_estimated_end = current_epoch_start.saturating_add(current_epoch_length);
+
+        // All blocks with height lower than the estimated end are guaranteed to reside in the current epoch.
+        // The situation is clear here.
+        if (current_epoch_start..current_epoch_estimated_end).contains(&height) {
+            return Ok(vec![tip.epoch_id]);
+        }
+
+        // If the height is higher than the current epoch's estimated end, then it's
+        // not clear in which epoch it'll be. Under normal circumstances it would be
+        // in the next epoch, but with missing blocks the current epoch could stretch out
+        // past its estimated end, so the height might end up being in the current epoch,
+        // even though its height is higher than the estimated end.
+        if height >= current_epoch_estimated_end {
+            return Ok(vec![tip.epoch_id, tip.next_epoch_id]);
+        }
+
+        // Finally try the previous epoch.
+        // First and last blocks of the previous epoch are already known, so the situation is clear.
+        let prev_epoch_last_block_hash = current_epoch_first_block_info.prev_hash();
+        let prev_epoch_last_block_info = self.get_block_info(prev_epoch_last_block_hash)?;
+        let prev_epoch_first_block_info =
+            self.get_block_info(prev_epoch_last_block_info.epoch_first_block())?;
+
+        // If the current epoch is the epoch after genesis, then the previous
+        // epoch contains only the genesis block. This case has to be handled separately
+        // because epoch_first_block() points to the dummy block (1111..), which has height 0.
+        if tip.epoch_id == EpochId(CryptoHash::default()) {
+            let genesis_block_info = prev_epoch_last_block_info;
+            if height == genesis_block_info.height() {
+                return Ok(vec![*genesis_block_info.epoch_id()]);
+            } else {
+                return Ok(vec![]);
+            }
+        }
+
+        if (prev_epoch_first_block_info.height()..=prev_epoch_last_block_info.height())
+            .contains(&height)
+        {
+            return Ok(vec![*prev_epoch_last_block_info.epoch_id()]);
+        }
+
+        // The height doesn't belong to any of the epochs around the tip, return an empty Vec.
+        Ok(vec![])
+    }
 
     /// Returns the list of ShardUIds in the current shard layout that will be
     /// resharded in the future within this client. Those shards should be
@@ -696,16 +831,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
-        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id, last_known_block_hash)?.to_vec())
+        Ok(epoch_manager.get_all_block_producers_ordered(epoch_id)?.to_vec())
     }
 
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
         let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
         let epoch_manager = self.read();
@@ -718,39 +852,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_all_chunk_producers(epoch_id)?.to_vec())
-    }
-
-    fn get_epoch_chunk_producers_for_shard(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-    ) -> Result<Vec<AccountId>, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.get_epoch_chunk_producers_for_shard(epoch_id, shard_id)
-    }
-
-    fn get_block_producer(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<AccountId, EpochError> {
-        self.get_block_producer_info(epoch_id, height).map(|validator| validator.take_account_id())
-    }
-
-    fn get_block_producer_info(
-        &self,
-        epoch_id: &EpochId,
-        height: BlockHeight,
-    ) -> Result<ValidatorStake, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_block_producer_info(epoch_id, height)?)
-    }
-
-    fn get_chunk_producer_info(
-        &self,
-        key: &ChunkProductionKey,
-    ) -> Result<ValidatorStake, EpochError> {
-        self.read().get_chunk_producer_info(key)
     }
 
     fn get_chunk_validator_assignments(
@@ -782,14 +883,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.add_validator_proposals(block_info, random_value)
     }
 
-    fn get_epoch_protocol_version(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<ProtocolVersion, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.protocol_version())
-    }
-
     fn init_after_epoch_sync(
         &self,
         store_update: &mut StoreUpdate,
@@ -816,23 +909,5 @@ impl EpochManagerAdapter for EpochManagerHandle {
             next_epoch_id,
             next_epoch_info,
         )
-    }
-
-    fn possible_epochs_of_height_around_tip(
-        &self,
-        tip: &Tip,
-        height: BlockHeight,
-    ) -> Result<Vec<EpochId>, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.possible_epochs_of_height_around_tip(tip, height)
-    }
-
-    /// Returns the set of chunk validators for a given epoch
-    fn get_epoch_all_validators(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<Vec<ValidatorStake>, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.validators_iter().collect::<Vec<_>>())
     }
 }

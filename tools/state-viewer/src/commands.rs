@@ -615,8 +615,7 @@ pub(crate) fn print_chain(
                             println!(
                                 "Epoch {} Validators {:?}",
                                 format_hash(epoch_id.0, show_full_hashes),
-                                epoch_manager
-                                    .get_epoch_block_producers_ordered(&epoch_id, header.hash())
+                                epoch_manager.get_epoch_block_producers_ordered(&epoch_id)
                             );
                         }
                         Err(err) => {

@@ -781,12 +781,8 @@ impl Client {
             .epoch_manager
             .get_epoch_block_approvers_ordered(&prev_hash)?
             .into_iter()
-            .map(|(ApprovalStake { account_id, .. }, is_slashed)| {
-                if is_slashed {
-                    None
-                } else {
-                    approvals_map.remove(&account_id).map(|x| x.0.signature.into())
-                }
+            .map(|ApprovalStake { account_id, .. }| {
+                approvals_map.remove(&account_id).map(|x| x.0.signature.into())
             })
             .collect();
 
@@ -804,12 +800,7 @@ impl Client {
         let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(
-                self.epoch_manager.as_ref(),
-                next_epoch_id,
-                epoch_id,
-                &prev_hash,
-            )?
+            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id, epoch_id)?
         } else {
             prev_next_bp_hash
         };
@@ -2835,10 +2826,7 @@ impl Client {
                     .or_default()
                     .insert(cp.public_key().clone());
             }
-            for (bp, _) in self
-                .epoch_manager
-                .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
-            {
+            for bp in self.epoch_manager.get_epoch_block_producers_ordered(epoch_id)? {
                 account_keys
                     .entry(bp.account_id().clone())
                     .or_default()

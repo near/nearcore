@@ -703,12 +703,12 @@ impl Handler<Status> for ClientActorInner {
         let validators: Vec<ValidatorInfo> = self
             .client
             .epoch_manager
-            .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
+            .get_epoch_block_producers_ordered(&head.epoch_id)
             .into_chain_error()?
             .into_iter()
-            .map(|(validator_stake, is_slashed)| ValidatorInfo {
+            .map(|validator_stake| ValidatorInfo {
                 account_id: validator_stake.take_account_id(),
-                is_slashed,
+                is_slashed: false,
             })
             .collect();
 

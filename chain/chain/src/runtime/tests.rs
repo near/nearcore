@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use crate::types::{ChainConfig, RuntimeStorageConfig};
@@ -506,14 +506,14 @@ fn test_validator_rotation() {
         env.epoch_manager.get_epoch_id_from_prev_block(&env.head.last_block_hash).unwrap();
     assert_eq!(
         env.epoch_manager
-            .get_epoch_block_producers_ordered(&epoch_id, &env.head.last_block_hash)
+            .get_epoch_block_producers_ordered(&epoch_id)
             .unwrap()
             .iter()
-            .map(|x| (x.0.account_id().clone(), x.1))
-            .collect::<HashMap<_, _>>(),
-        vec![("test3".parse().unwrap(), false), ("test1".parse().unwrap(), false)]
+            .map(|x| x.account_id().clone())
+            .collect::<HashSet<_>>(),
+        vec!["test3".parse().unwrap(), "test1".parse().unwrap()]
             .into_iter()
-            .collect::<HashMap<_, _>>()
+            .collect::<HashSet<_>>()
     );
 
     let test1_acc = env.view_account(&"test1".parse().unwrap());
@@ -831,7 +831,7 @@ fn test_get_validator_info() {
             let shard_layout = env.epoch_manager.get_shard_layout(&epoch_id).unwrap();
             let shard_id = shard_layout.shard_ids().next().unwrap();
 
-            let em = env.runtime.epoch_manager.read();
+            let em = env.runtime.epoch_manager.clone();
             let bp = em.get_block_producer_info(&epoch_id, height).unwrap();
             let cp_key = ChunkProductionKey { epoch_id, height_created: height, shard_id };
             let cp = em.get_chunk_producer_info(&cp_key).unwrap();
@@ -1029,13 +1029,14 @@ fn test_challenges() {
     assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, 0);
     let mut bps = env
         .epoch_manager
-        .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+        .get_epoch_block_producers_ordered(&env.head.epoch_id)
         .unwrap()
         .iter()
-        .map(|x| (x.0.account_id().clone(), x.1))
+        .map(|x| x.account_id().clone())
         .collect::<Vec<_>>();
     bps.sort_unstable();
-    assert_eq!(bps, vec![("test1".parse().unwrap(), false), ("test2".parse().unwrap(), true)]);
+    let expected_bps: Vec<AccountId> = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
+    assert_eq!(bps, expected_bps);
     let msg = vec![0, 1, 2];
     let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
@@ -1079,20 +1080,15 @@ fn test_double_sign_challenge_not_all_slashed() {
     assert_eq!(env.view_account(&"test2".parse().unwrap()).locked, TESTING_INIT_STAKE);
     let mut bps = env
         .epoch_manager
-        .get_epoch_block_producers_ordered(&env.head.epoch_id, &env.head.last_block_hash)
+        .get_epoch_block_producers_ordered(&env.head.epoch_id)
         .unwrap()
         .iter()
-        .map(|x| (x.0.account_id().clone(), x.1))
+        .map(|x| x.account_id().clone())
         .collect::<Vec<_>>();
     bps.sort_unstable();
-    assert_eq!(
-        bps,
-        vec![
-            ("test1".parse().unwrap(), false),
-            ("test2".parse().unwrap(), true),
-            ("test3".parse().unwrap(), false)
-        ]
-    );
+    let expected_bps: Vec<AccountId> =
+        vec!["test1".parse().unwrap(), "test2".parse().unwrap(), "test3".parse().unwrap()];
+    assert_eq!(bps, expected_bps);
     let msg = vec![0, 1, 2];
     let signer = InMemorySigner::test_signer(&"test2".parse().unwrap());
     let signature = signer.sign(&msg);
