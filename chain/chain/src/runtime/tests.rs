@@ -7,7 +7,7 @@ use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::{EpochManager, RngSeed};
+use near_epoch_manager::EpochManager;
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
 };
@@ -16,6 +16,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::receipt::{ActionReceipt, ReceiptV1};
 use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::ChunkProductionKey;

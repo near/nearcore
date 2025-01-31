@@ -5,7 +5,6 @@ use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
-use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManagerAdapter;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::types::entity_debug::{
@@ -14,6 +13,7 @@ use near_jsonrpc_primitives::types::entity_debug::{
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::epoch_info_aggregator::EpochInfoAggregator;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};

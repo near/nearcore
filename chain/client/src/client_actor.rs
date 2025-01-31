@@ -48,7 +48,7 @@ use near_client_primitives::types::{
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::{EpochManagerAdapter, RngSeed};
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage, ProcessTxRequest,
     ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponseReceived,
@@ -61,6 +61,7 @@ use near_performance_metrics;
 use near_performance_metrics_macros::perf;
 use near_primitives::block::Tip;
 use near_primitives::block_header::ApprovalType;
+use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, BlockHeight};

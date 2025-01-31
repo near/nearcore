@@ -212,7 +212,7 @@ fn test_fork_finalization() {
             let height = i as u64;
             let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
             let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
-            let block_producer_id = EpochManager::block_producer_from_info(&epoch_info, height);
+            let block_producer_id = epoch_info.sample_block_producer(height);
             let block_producer = epoch_info.get_validator(block_producer_id);
             let account_id = block_producer.account_id();
             if validator_accounts.iter().any(|v| *v == account_id) {
@@ -1033,7 +1033,7 @@ fn test_expected_chunks() {
         let height = i as u64;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
-        let block_producer = EpochManager::block_producer_from_info(&epoch_info, height);
+        let block_producer = epoch_info.sample_block_producer(height);
         // test1 does not produce blocks during first epoch
         if block_producer == 0 && epoch_id == initial_epoch_id {
             expected += 1;
@@ -1099,16 +1099,12 @@ fn test_expected_chunks_prev_block_not_produced() {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        let block_producer = EpochManager::block_producer_from_info(&epoch_info, height);
+        let block_producer = epoch_info.sample_block_producer(height);
         let prev_block_info = epoch_manager.get_block_info(&prev_block).unwrap();
         let prev_height = prev_block_info.height();
-        let expected_chunk_producer = EpochManager::chunk_producer_from_info(
-            &epoch_info,
-            &shard_layout,
-            ShardId::new(0),
-            prev_height + 1,
-        )
-        .unwrap();
+        let expected_chunk_producer = epoch_info
+            .sample_chunk_producer(&shard_layout, ShardId::new(0), prev_height + 1)
+            .unwrap();
         // test1 does not produce blocks during first epoch
         if block_producer == 0 && epoch_id == initial_epoch_id {
             expected += 1;
@@ -1157,11 +1153,11 @@ fn update_tracker(
     produced_heights: &[BlockHeight],
     tracker: &mut HashMap<ValidatorId, ValidatorStats>,
 ) {
-    for h in heights {
-        let block_producer = EpochManager::block_producer_from_info(epoch_info, h);
+    for height in heights {
+        let block_producer = epoch_info.sample_block_producer(height);
         let entry =
             tracker.entry(block_producer).or_insert(ValidatorStats { produced: 0, expected: 0 });
-        if produced_heights.contains(&h) {
+        if produced_heights.contains(&height) {
             entry.produced += 1;
         }
         entry.expected += 1;
@@ -1212,7 +1208,7 @@ fn test_rewards_with_kickouts() {
 
         let epoch_id = em.get_epoch_id_from_prev_block(&prev_hash).unwrap();
         let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
-        let validator_id = EpochManager::block_producer_from_info(&epoch_info, height);
+        let validator_id = epoch_info.sample_block_producer(height);
         let block_producer = epoch_info.validator_account_id(validator_id);
 
         // don't produce blocks for test2 so we can see it in the kickouts
@@ -1510,13 +1506,8 @@ fn test_chunk_producer_kickout() {
                     return true;
                 }
                 let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-                let chunk_producer = EpochManager::chunk_producer_from_info(
-                    &epoch_info,
-                    &shard_layout,
-                    shard_id,
-                    height,
-                )
-                .unwrap();
+                let chunk_producer =
+                    epoch_info.sample_chunk_producer(&shard_layout, shard_id, height).unwrap();
                 // test1 skips chunks
                 if chunk_producer == 0 {
                     expected += 1;
@@ -2148,7 +2139,7 @@ fn test_all_kickout_edge_case() {
         let height = height as u64;
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
         let epoch_info = epoch_manager.get_epoch_info(&epoch_id).unwrap().clone();
-        let block_producer = EpochManager::block_producer_from_info(&epoch_info, height);
+        let block_producer = epoch_info.sample_block_producer(height);
         let block_producer = epoch_info.validator_account_id(block_producer);
         if height < EPOCH_LENGTH {
             // kickout test2 during first epoch
