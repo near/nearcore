@@ -22,7 +22,8 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{
-    Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, ReceiptFilter,
+    get_incoming_receipts_for_shard, Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error,
+    ReceiptFilter,
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -82,19 +83,18 @@ pub(crate) fn apply_block(
     let apply_result = if block.chunks()[shard_index].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_index].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
-        let chain_store_update = ChainStoreUpdate::new(chain_store);
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
-        let receipt_proof_response = chain_store_update
-            .get_incoming_receipts_for_shard(
-                epoch_manager,
-                shard_id,
-                &shard_layout,
-                block_hash,
-                prev_block.chunks()[shard_index].height_included(),
-                ReceiptFilter::TargetShard,
-            )
-            .unwrap();
+        let receipt_proof_response = get_incoming_receipts_for_shard(
+            &chain_store,
+            epoch_manager,
+            shard_id,
+            &shard_layout,
+            block_hash,
+            prev_block.chunks()[shard_index].height_included(),
+            ReceiptFilter::TargetShard,
+        )
+        .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();

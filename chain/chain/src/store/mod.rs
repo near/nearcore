@@ -16,10 +16,9 @@ use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
 use near_primitives::sharding::{
-    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
-    StateSyncInfo,
+    ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, StateSyncInfo,
 };
-use near_primitives::state_sync::{ReceiptProofResponse, StateSyncDumpProgress};
+use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -47,14 +46,15 @@ use near_store::{
     CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
     LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
+use utils::get_block_header_on_chain_by_height;
 
-use crate::byzantine_assert;
 use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
 mod latest_witnesses;
 mod merkle_proof;
+pub mod utils;
 pub use latest_witnesses::LatestWitnessesInfo;
 pub use merkle_proof::MerkleProofAccess;
 
@@ -98,27 +98,6 @@ pub trait ChainStoreAccess {
     fn get_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<ShardChunk>, Error>;
     /// Get partial chunk.
     fn get_partial_chunk(&self, chunk_hash: &ChunkHash) -> Result<Arc<PartialEncodedChunk>, Error>;
-    /// Get full chunk from header, with possible error that contains the header for further retrieval.
-    fn get_chunk_clone_from_header(&self, header: &ShardChunkHeader) -> Result<ShardChunk, Error> {
-        let shard_chunk_result = self.get_chunk(&header.chunk_hash());
-        match shard_chunk_result {
-            Err(_) => {
-                return Err(Error::ChunksMissing(vec![header.clone()]));
-            }
-            Ok(shard_chunk) => {
-                byzantine_assert!(header.height_included() > 0 || header.height_created() == 0);
-                if header.height_included() == 0 && header.height_created() > 0 {
-                    return Err(Error::Other(format!(
-                        "Invalid header: {:?} for chunk {:?}",
-                        header, shard_chunk
-                    )));
-                }
-                let mut shard_chunk_clone = ShardChunk::clone(&shard_chunk);
-                shard_chunk_clone.set_height_included(header.height_included());
-                Ok(shard_chunk_clone)
-            }
-        }
-    }
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Does this chunk exist?
@@ -176,24 +155,6 @@ pub trait ChainStoreAccess {
     ) -> Result<Arc<LightClientBlockView>, Error>;
     /// Returns a number of references for Block with `block_hash`
     fn get_block_refcount(&self, block_hash: &CryptoHash) -> Result<u64, Error>;
-    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
-    fn get_block_header_on_chain_by_height(
-        &self,
-        sync_hash: &CryptoHash,
-        height: BlockHeight,
-    ) -> Result<BlockHeader, Error> {
-        let mut header = self.get_block_header(sync_hash)?;
-        let mut hash = *sync_hash;
-        while header.height() > height {
-            hash = *header.prev_hash();
-            header = self.get_block_header(&hash)?;
-        }
-        let header_height = header.height();
-        if header_height < height {
-            return Err(Error::InvalidBlockHeight(header_height));
-        }
-        self.get_block_header(&hash)
-    }
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &self,
@@ -206,100 +167,6 @@ pub trait ChainStoreAccess {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<Arc<Vec<ReceiptProof>>, Error>;
-
-    /// Collect incoming receipts for shard `shard_id` from
-    /// the block at height `last_chunk_height_included` (non-inclusive) to the
-    /// block `block_hash` (inclusive), leaving only receipts based on the
-    /// `receipts_filter`.
-    /// This is needed because for every empty chunk for the blocks in between,
-    /// receipts from other shards from these blocks still must be propagated.
-    fn get_incoming_receipts_for_shard(
-        &self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        target_shard_id: ShardId,
-        target_shard_layout: &ShardLayout,
-        block_hash: CryptoHash,
-        last_chunk_height_included: BlockHeight,
-        receipts_filter: ReceiptFilter,
-    ) -> Result<Vec<ReceiptProofResponse>, Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "get_incoming_receipts_for_shard", ?target_shard_id, ?block_hash, last_chunk_height_included).entered();
-
-        let mut ret = vec![];
-
-        let mut current_shard_id = target_shard_id;
-        let mut current_block_hash = block_hash;
-        let mut current_shard_layout = target_shard_layout.clone();
-
-        loop {
-            let header = self.get_block_header(&current_block_hash)?;
-
-            if header.height() < last_chunk_height_included {
-                panic!("get_incoming_receipts_for_shard failed");
-            }
-
-            if header.height() == last_chunk_height_included {
-                break;
-            }
-
-            let prev_hash = header.prev_hash();
-            let prev_shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
-
-            if prev_shard_layout != current_shard_layout {
-                let parent_shard_id = current_shard_layout.get_parent_shard_id(current_shard_id)?;
-                tracing::info!(
-                    target: "chain",
-                    version = current_shard_layout.version(),
-                    prev_version = prev_shard_layout.version(),
-                    ?current_shard_id,
-                    ?parent_shard_id,
-                    "crossing epoch boundary with shard layout change, updating shard id"
-                );
-                current_shard_id = parent_shard_id;
-                current_shard_layout = prev_shard_layout;
-            }
-
-            let maybe_receipts_proofs =
-                self.get_incoming_receipts(&current_block_hash, current_shard_id);
-            let receipts_proofs = match maybe_receipts_proofs {
-                Ok(receipts_proofs) => {
-                    tracing::debug!(
-                        target: "chain",
-                        "found receipts from block with missing chunks",
-                    );
-                    receipts_proofs
-                }
-                Err(err) => {
-                    tracing::debug!(
-                        target: "chain",
-                        ?err,
-                        "could not find receipts from block with missing chunks"
-                    );
-
-                    // This can happen when all chunks are missing in a block
-                    // and then we can safely assume that there aren't any
-                    // incoming receipts. It would be nicer to explicitly check
-                    // that condition rather than relying on errors when reading
-                    // from the db.
-                    Arc::new(vec![])
-                }
-            };
-
-            let filtered_receipt_proofs = match receipts_filter {
-                ReceiptFilter::All => receipts_proofs,
-                ReceiptFilter::TargetShard => Arc::new(filter_incoming_receipts_for_shard(
-                    &target_shard_layout,
-                    target_shard_id,
-                    receipts_proofs,
-                )),
-            };
-
-            ret.push(ReceiptProofResponse(current_block_hash, filtered_receipt_proofs));
-            current_block_hash = *prev_hash;
-        }
-
-        Ok(ret)
-    }
 
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&self, hash: &CryptoHash) -> Result<bool, Error>;
@@ -645,9 +512,9 @@ impl ChainStore {
                 Err(InvalidTxError::InvalidChain)
             }
         } else {
-            let header = self
-                .get_block_header_on_chain_by_height(prev_block_header.hash(), base_height)
-                .map_err(|_| InvalidTxError::InvalidChain)?;
+            let header =
+                get_block_header_on_chain_by_height(self, prev_block_header.hash(), base_height)
+                    .map_err(|_| InvalidTxError::InvalidChain)?;
             if header.hash() == base_block_hash {
                 Ok(())
             } else {
@@ -1464,14 +1331,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(Arc::clone(partial_chunk))
         } else {
             self.chain_store.get_partial_chunk(chunk_hash)
-        }
-    }
-
-    fn get_chunk_clone_from_header(&self, header: &ShardChunkHeader) -> Result<ShardChunk, Error> {
-        if let Some(chunk) = self.chain_store_cache_update.chunks.get(&header.chunk_hash()) {
-            Ok(ShardChunk::clone(chunk))
-        } else {
-            self.chain_store.get_chunk_clone_from_header(header)
         }
     }
 
