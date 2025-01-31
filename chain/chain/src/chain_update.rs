@@ -147,6 +147,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_id,
+                    apply_result.stats,
+                );
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -177,6 +182,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.stats,
+                );
             }
         };
         Ok(())

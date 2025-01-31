@@ -4,6 +4,7 @@ use std::num::NonZeroU64;
 use near_primitives::bandwidth_scheduler::{
     BandwidthSchedulerParams, BandwidthSchedulerState, BandwidthSchedulerStateV1,
 };
+use near_primitives::chunk_apply_stats::BandwidthSchedulerStats;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::RuntimeError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -35,11 +36,13 @@ pub fn run_bandwidth_scheduler(
     apply_state: &ApplyState,
     state_update: &mut TrieUpdate,
     epoch_info_provider: &dyn EpochInfoProvider,
+    stats: &mut BandwidthSchedulerStats,
 ) -> Result<Option<BandwidthSchedulerOutput>, RuntimeError> {
     if !ProtocolFeature::BandwidthScheduler.enabled(apply_state.current_protocol_version) {
         return Ok(None);
     }
 
+    let start_time = std::time::Instant::now();
     let _span = tracing::debug_span!(
         target: "runtime",
         "run_bandwidth_scheduler",
@@ -93,6 +96,10 @@ pub fn run_bandwidth_scheduler(
         &apply_state.config,
     );
 
+    // Record stats
+    stats.params = Some(params);
+    stats.set_prev_bandwidth_requests(&apply_state.bandwidth_requests, &params);
+
     // Run the bandwidth scheduler algorithm.
     let granted_bandwidth = BandwidthScheduler::run(
         shard_layout,
@@ -102,6 +109,8 @@ pub fn run_bandwidth_scheduler(
         &shards_status,
         apply_state.prev_block_hash.0,
     );
+
+    stats.granted_bandwidth = granted_bandwidth.granted.clone();
 
     // Hash (some of) the inputs to the scheduler algorithm and save the checksum in the state.
     // This is a sanity check to make sure that all shards run the scheduler with the same inputs.
@@ -121,5 +130,7 @@ pub fn run_bandwidth_scheduler(
     state_update.commit(StateChangeCause::BandwidthSchedulerStateUpdate);
 
     let scheduler_state_hash: CryptoHash = hash(&borsh::to_vec(&scheduler_state).unwrap());
+
+    stats.time_to_run_ms = start_time.elapsed().as_millis();
     Ok(Some(BandwidthSchedulerOutput { granted_bandwidth, params, scheduler_state_hash }))
 }

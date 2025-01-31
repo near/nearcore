@@ -317,6 +317,11 @@ pub enum DBCol {
     /// - *Rows*: `CryptoHash`
     /// - *Column type*: `Vec<u8>`
     StateSyncNewChunks,
+    /// Stores chunk application stats for every applied chunk.
+    /// The stats can be read to analyze what happened during chunk application.
+    /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
+    /// - *Column type*: `ChunkApplyStats`
+    ChunkApplyStats,
 }
 
 /// Defines different logical parts of a db key.
@@ -462,7 +467,8 @@ impl DBCol {
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions
-            | DBCol::StateShardUIdMapping => true,
+            | DBCol::StateShardUIdMapping
+            | DBCol::ChunkApplyStats => true,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -598,6 +604,7 @@ impl DBCol {
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
+            DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }
 }

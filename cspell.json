@@ -349,7 +349,13 @@
         "zadd",
         "zstd",
         "Zulip",
-        "deser"
+        "deser",
+        "deprioritized",
+        "deprioritize",
+        "nocapture",
+        "defence",
+        "syscalls",
+        "contractregistry",
     ],
     "ignoreWords": [],
     "import": []
