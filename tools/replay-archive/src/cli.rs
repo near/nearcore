@@ -16,7 +16,8 @@ use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
 use near_chain::{
-    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+    get_incoming_receipts_for_shard, Block, BlockHeader, Chain, ChainGenesis, ChainStore,
+    ChainStoreAccess, ReceiptFilter,
 };
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
@@ -393,7 +394,8 @@ impl ReplayController {
     ) -> Result<Vec<Receipt>> {
         let shard_layout =
             self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
-        let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
+        let receipt_response = get_incoming_receipts_for_shard(
+            &self.chain_store,
             self.epoch_manager.as_ref(),
             shard_id,
             &shard_layout,
@@ -401,7 +403,7 @@ impl ReplayController {
             prev_chunk_height_included,
             ReceiptFilter::TargetShard,
         )?;
-        let receipts = collect_receipts_from_response(receipt_response);
+        let receipts = collect_receipts_from_response(&receipt_response);
         Ok(receipts)
     }
 

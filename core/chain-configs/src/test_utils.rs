@@ -185,7 +185,7 @@ pub fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.clone(),
-        account: Account::new(amount, staked, 0, code_hash, 0, PROTOCOL_VERSION),
+        account: Account::new(amount, staked, code_hash, 0),
     });
     records.push(StateRecord::AccessKey {
         account_id,

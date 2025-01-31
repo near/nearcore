@@ -110,9 +110,6 @@ json_rpc = ["near-jsonrpc", "near-jsonrpc-primitives"]
 protocol_feature_fix_contract_loading_cost = [
   "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
-protocol_feature_nonrefundable_transfer_nep491 = [
-  "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
-]
 
 nightly = [
   "near-actix-test-utils/nightly",
@@ -139,7 +136,6 @@ nightly = [
   "nightly_protocol",
   "node-runtime/nightly",
   "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
 ]
 nightly_protocol = [

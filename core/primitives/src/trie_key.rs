@@ -556,6 +556,19 @@ pub mod trie_key_parsers {
         }
     }
 
+    pub fn parse_index_from_delayed_receipt_key(raw_key: &[u8]) -> Result<u64, std::io::Error> {
+        // The length of TrieKey::DelayedReceipt { .. } should be 9 since it's a single byte for the
+        // column and then 8 bytes for a u64 index.
+        if raw_key.len() != 9 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unexpected raw key len of {} for delayed receipt index", raw_key.len()),
+            ));
+        }
+        let index = raw_key[1..9].try_into().unwrap();
+        Ok(u64::from_le_bytes(index))
+    }
+
     pub fn parse_account_id_from_contract_code_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
@@ -856,9 +869,10 @@ mod tests {
         let key = TrieKey::DelayedReceiptIndices;
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
-        let key = TrieKey::DelayedReceipt { index: 0 };
+        let key = TrieKey::DelayedReceipt { index: 123 };
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
+        assert_eq!(trie_key_parsers::parse_index_from_delayed_receipt_key(&raw_key).unwrap(), 123);
     }
 
     #[test]

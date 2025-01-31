@@ -442,25 +442,6 @@ pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result
     Ok(())
 }
 
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub(crate) fn action_nonrefundable_storage_transfer(
-    account: &mut Account,
-    deposit: Balance,
-    storage_amount_per_byte: Balance,
-) -> Result<(), StorageError> {
-    let permanent_storage_bytes = (deposit / storage_amount_per_byte) as StorageUsage;
-    account.set_permanent_storage_bytes(
-        account.permanent_storage_bytes().checked_add(permanent_storage_bytes).ok_or_else(
-            || {
-                StorageError::StorageInconsistentState(
-                    "permanent_storage_bytes integer overflow".to_string(),
-                )
-            },
-        )?,
-    );
-    Ok(())
-}
-
 pub(crate) fn action_create_account(
     fee_config: &RuntimeFeesConfig,
     account_creation_config: &AccountCreationConfig,
@@ -469,7 +450,6 @@ pub(crate) fn action_create_account(
     account_id: &AccountId,
     predecessor_id: &AccountId,
     result: &mut ActionResult,
-    protocol_version: ProtocolVersion,
 ) {
     if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
@@ -502,10 +482,8 @@ pub(crate) fn action_create_account(
     *account = Some(Account::new(
         0,
         0,
-        0,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account,
-        protocol_version,
     ));
 }
 
@@ -520,19 +498,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
     deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
-    nonrefundable_storage_transfer: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
 ) {
     *actor_id = account_id.clone();
-
-    let (amount, permanent_storage_bytes) = if nonrefundable_storage_transfer {
-        let permanent_storage_bytes =
-            (deposit / apply_state.config.storage_amount_per_byte()) as StorageUsage;
-        (0, permanent_storage_bytes)
-    } else {
-        (deposit, 0)
-    };
-
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
@@ -551,15 +519,13 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
-                amount,
+                deposit,
                 0,
-                permanent_storage_bytes,
                 CryptoHash::default(),
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
-                current_protocol_version,
             ));
 
             set_access_key(state_update, account_id.clone(), public_key, &access_key);
@@ -580,14 +546,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 let contract_hash = *magic_bytes.hash();
-                *account = Some(Account::new(
-                    amount,
-                    0,
-                    permanent_storage_bytes,
-                    contract_hash,
-                    storage_usage,
-                    current_protocol_version,
-                ));
+                *account = Some(Account::new(deposit, 0, contract_hash, storage_usage));
                 state_update.set_code(account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
@@ -1096,8 +1055,6 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::NonrefundableStorageTransfer(_) => (),
     };
     Ok(())
 }
@@ -1108,11 +1065,6 @@ pub(crate) fn check_account_existence(
     account_id: &AccountId,
     config: &RuntimeConfig,
     implicit_account_creation_eligible: bool,
-    #[cfg_attr(
-        not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
-        allow(unused_variables)
-    )]
-    receipt_starts_with_create_account: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -1149,30 +1101,6 @@ pub(crate) fn check_account_existence(
                     account_id,
                     implicit_account_creation_eligible,
                 );
-            }
-        }
-        // TODO(nonrefundable) Merge with arm above on stabilization.
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::NonrefundableStorageTransfer(_) => {
-            if account.is_none() {
-                return check_transfer_to_nonexisting_account(
-                    config,
-                    account_id,
-                    implicit_account_creation_eligible,
-                );
-            } else if !receipt_starts_with_create_account {
-                // If the account already existed before the current receipt,
-                // non-refundable transfer is not allowed. But for named
-                // accounts, it could be that the account was created in this
-                // receipt which is allowed. Checking for the first action of
-                // the receipt being a `CreateAccount` action serves this
-                // purpose.
-                // For implicit accounts creation with non-refundable storage
-                // we require that this is the only action in the receipt.
-                return Err(ActionErrorKind::NonRefundableTransferToExistingAccount {
-                    account_id: account_id.clone(),
-                }
-                .into());
             }
         }
         Action::DeployContract(_)
@@ -1249,7 +1177,6 @@ mod tests {
     use near_primitives::runtime::migration_data::MigrationFlags;
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::types::{EpochId, StateChangeCause};
-    use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
@@ -1273,7 +1200,6 @@ mod tests {
             &account_id,
             &predecessor_id,
             &mut action_result,
-            PROTOCOL_VERSION,
         );
         if action_result.result.is_ok() {
             assert!(account.is_some());
@@ -1359,8 +1285,7 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account =
-            Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
+        let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(
@@ -1410,8 +1335,7 @@ mod tests {
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
-        let mut account =
-            Account::new(100, 0, 0, CryptoHash::default(), storage_usage, PROTOCOL_VERSION);
+        let mut account = Account::new(100, 0, CryptoHash::default(), storage_usage);
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
@@ -1521,7 +1445,7 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, 0, CryptoHash::default(), 100, PROTOCOL_VERSION);
+        let account = Account::new(100, 0, CryptoHash::default(), 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
@@ -1676,7 +1600,6 @@ mod tests {
                 &mut None,
                 &sender_id,
                 &RuntimeConfig::test(),
-                false,
                 false,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
