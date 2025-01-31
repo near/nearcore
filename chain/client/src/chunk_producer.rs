@@ -48,6 +48,7 @@ pub struct ProduceChunkResult {
     pub transactions_storage_proof: Option<PartialState>,
 }
 
+/// Handles chunk production.
 pub struct ChunkProducer {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
@@ -105,7 +106,7 @@ impl ChunkProducer {
         }
     }
 
-    pub fn try_produce_chunk(
+    pub fn produce_chunk(
         &mut self,
         prev_block: &Block,
         epoch_id: &EpochId,
@@ -138,7 +139,7 @@ impl ChunkProducer {
             return Ok(None);
         }
 
-        self.produce_chunk(
+        self.produce_chunk_internal(
             prev_block,
             epoch_id,
             last_header,
@@ -202,7 +203,7 @@ impl ChunkProducer {
         ?epoch_id,
         chunk_hash = tracing::field::Empty,
     ))]
-    fn produce_chunk(
+    fn produce_chunk_internal(
         &mut self,
         prev_block: &Block,
         epoch_id: &EpochId,
@@ -343,10 +344,9 @@ impl ChunkProducer {
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
-        let Self { sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id();
         let prepared_transactions = if let Some(mut iter) =
-            sharded_tx_pool.get_pool_iterator(shard_uid)
+            self.sharded_tx_pool.get_pool_iterator(shard_uid)
         {
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
@@ -366,7 +366,7 @@ impl ChunkProducer {
                 } else {
                     0
                 };
-            runtime.prepare_transactions(
+            self.runtime_adapter.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext {
                     shard_id,
@@ -383,7 +383,8 @@ impl ChunkProducer {
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let reintroduced_count = sharded_tx_pool
+        let reintroduced_count = self
+            .sharded_tx_pool
             .reintroduce_transactions(shard_uid, &prepared_transactions.transactions);
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");

@@ -147,7 +147,7 @@ fn create_chunk_on_height_for_shard(
     let signer = client.validator_signer.get();
     client
         .chunk_producer
-        .try_produce_chunk(
+        .produce_chunk(
             &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
@@ -189,7 +189,7 @@ pub fn create_chunk(
         transactions_storage_proof,
     } = client
         .chunk_producer
-        .try_produce_chunk(
+        .produce_chunk(
             &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),

@@ -1671,7 +1671,7 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            let result = self.chunk_producer.try_produce_chunk(
+            let result = self.chunk_producer.produce_chunk(
                 block,
                 &epoch_id,
                 last_header.clone(),
