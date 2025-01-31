@@ -3334,13 +3334,7 @@ impl Chain {
                 let shard_uids = shard_layout.shard_uids().enumerate().collect();
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(
-                    *prev_prev_hash,
-                    min_chunk_prev_height,
-                    epoch_height,
-                    shard_uids,
-                    prev_block,
-                );
+                make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
             }
             SnapshotAction::DeleteSnapshot => {
                 let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
