@@ -6,7 +6,7 @@ use near_cache::SyncLruCache;
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
-use near_primitives::epoch_info::EpochInfo;
+use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::{
     AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, AGGREGATOR_KEY,
 };
@@ -28,6 +28,7 @@ use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
 use near_store::adapter::StoreAdapter;
+use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;
@@ -45,7 +46,6 @@ pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
-pub use crate::types::{EpochInfoAggregator, RngSeed};
 pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
@@ -57,7 +57,6 @@ pub mod shard_tracker;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
-pub mod types;
 mod validator_selection;
 mod validator_stats;
 
@@ -958,7 +957,7 @@ impl EpochManager {
         height: BlockHeight,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        let validator_id = Self::block_producer_from_info(&epoch_info, height);
+        let validator_id = epoch_info.sample_block_producer(height);
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -1132,14 +1131,16 @@ impl EpochManager {
         &self,
         key: &ChunkProductionKey,
     ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(&key.epoch_id)?;
-        let shard_layout = self.get_shard_layout(&key.epoch_id)?;
-        let validator_id = Self::chunk_producer_from_info(
-            &epoch_info,
-            &shard_layout,
-            key.shard_id,
-            key.height_created,
-        )?;
+        let ChunkProductionKey { epoch_id, shard_id, height_created } = key;
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let shard_layout = self.get_shard_layout(epoch_id)?;
+        let validator_id = epoch_info
+            .sample_chunk_producer(&shard_layout, *shard_id, *height_created)
+            .ok_or_else(|| {
+                EpochError::ChunkProducerSelectionError(format!(
+                    "Invalid shard {shard_id} for height {height_created}"
+                ))
+            })?;
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -1614,28 +1615,6 @@ impl EpochManager {
 
 /// Private utilities for EpochManager.
 impl EpochManager {
-    #[inline]
-    pub(crate) fn block_producer_from_info(
-        epoch_info: &EpochInfo,
-        height: BlockHeight,
-    ) -> ValidatorId {
-        epoch_info.sample_block_producer(height)
-    }
-
-    #[inline]
-    pub(crate) fn chunk_producer_from_info(
-        epoch_info: &EpochInfo,
-        shard_layout: &ShardLayout,
-        shard_id: ShardId,
-        height: BlockHeight,
-    ) -> Result<ValidatorId, EpochError> {
-        epoch_info.sample_chunk_producer(shard_layout, shard_id, height).ok_or_else(|| {
-            EpochError::ChunkProducerSelectionError(format!(
-                "Invalid shard {shard_id} for height {height}"
-            ))
-        })
-    }
-
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         if block_info.is_genesis() {
