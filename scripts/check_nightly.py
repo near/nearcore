@@ -5,18 +5,16 @@ Scans all Rust source files looking for expensive tests and than makes sure that
 they are all referenced in NayDuck test list files (the nightly/*.txt files).
 Returns with success if that's the case; with failure otherwise.
 
-An expensive test is one which is marked with expensive_tests feature as
-follows:
+An expensive test is one which is marked with `ultra_slow_test_` prefix in the
+function name as follows:
 
     #[test]
-    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-    fn test_gc_random_large() {
+    fn ultra_slow_test_gc_random_large() {
         test_gc_random_common(25);
     }
 
-The `test` and `cfg_attr` annotations can be specified in whatever order but
-note that the script isn’t too smart about parsing Rust files and using
-something more complicated in the `cfg_attr` will confuse it.
+The script isn’t too smart about parsing Rust files and using something more
+complicated in the `cfg_attr` will confuse it.
 
 Expensive tests are not executed when running `cargo test` nor are they run in
 CI and it’s the purpose of this script to make sure that they are listed for
@@ -33,33 +31,27 @@ import nayduck
 
 IGNORED_SUBDIRS = ('target', 'target_expensive', 'sandbox')
 
-EXPENSIVE_DIRECTIVE = 'expensive_tests'
 TEST_DIRECTIVE = '#[test]'
 
 
 def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
     """Yields names of expensive tests found in given Rust file.
 
-    An expensive test is a function annotated with `test` and a conditional
-    `ignore` attributes, specifically:
+    An expensive test is a function annotated with `test` and prefixed with
+    `ultra_slow_test_` in the function name, specifically:
 
         #[test]
-        #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-        fn test_slow() {
+        fn ultra_slow_test_slow() {
             // ...
         }
-
-    Note that anything more complex in the `cfg_attr` will cause the function
-    not to recognise the test.
 
     Args:
         path: Path to the Rust source file.
     Yields:
-        Names of functions defining expensive tests (e.g. `test_slow` in example
-        above).
+        Names of functions defining expensive tests (e.g. `ultra_slow_test_slow`
+        in example above).
     """
     with open(path) as rd:
-        is_expensive = False
         is_test = False
         for line in rd:
             line = line.strip()
@@ -73,7 +65,6 @@ def expensive_tests_in_file(path: pathlib.Path) -> typing.Iterable[str]:
                                       line)
                     if match:
                         yield match.group(1)
-                is_expensive = False
                 is_test = False
 
 
