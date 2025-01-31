@@ -6,7 +6,7 @@ use near_chain::{retrieve_headers, Block, Error};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::raw::{DirectMessage, Listener, Message, RoutedMessage};
+use near_network::raw::{Connection, DirectMessage, Listener, Message, RoutedMessage};
 use near_network::tcp;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_primitives::hash::CryptoHash;
@@ -278,7 +278,6 @@ impl Future for InFlightMessages {
 }
 
 struct MockPeer {
-    listener: Listener,
     chain: ChainStoreAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     current_height: BlockHeight,
@@ -288,51 +287,44 @@ struct MockPeer {
 }
 
 impl MockPeer {
-    async fn new(
+    fn new(
         chain: ChainStoreAdapter,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
-        genesis_hash: CryptoHash,
-        secret_key: SecretKey,
-        listen_addr: tcp::ListenerAddr,
-        chain_id: String,
-        archival: bool,
-        block_production_delay: Duration,
-        shard_layout: ShardLayout,
-        network_start_height: BlockHeight,
         network_config: MockNetworkConfig,
-    ) -> anyhow::Result<Self> {
-        let listener = Listener::bind(
-            listen_addr,
-            secret_key,
-            &chain_id,
-            genesis_hash,
-            network_start_height,
-            shard_layout.shard_ids().collect(),
-            archival,
-            30 * near_time::Duration::SECOND,
-        )
-        .await?;
-        let head_block = get_head_block(&chain, network_start_height)?;
+        block_production_delay: Duration,
+        head_block: Block,
+    ) -> Self {
         let current_height = head_block.header().height();
         let incoming_requests =
             IncomingRequests::new(&network_config.incoming_requests, &chain, head_block);
-
-        Ok(Self {
-            listener,
+        Self {
             chain,
             epoch_manager,
             current_height,
             network_config,
             block_production: tokio::time::interval(block_production_delay),
             incoming_requests,
-        })
+        }
     }
 
+    // Handle the message and return a bool that tells whether we should continue
     fn handle_message(
         &self,
-        message: Message,
+        conn: &Connection,
+        message: std::io::Result<Message>,
         outbound: Pin<&mut InFlightMessages>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
+        let message = match message {
+            Ok(m) => m,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                    tracing::info!("{:?} disconnected", &conn);
+                    return Ok(false);
+                }
+                return Err(e)
+                    .with_context(|| format!("failed receiving message from {:?}", &conn));
+            }
+        };
         tracing::debug!("mock peer received message: {}", &message);
         match message {
             Message::Direct(msg) => {
@@ -384,7 +376,7 @@ impl MockPeer {
                 }
             }
         };
-        Ok(())
+        Ok(true)
     }
 
     // simulate the normal block production of the network by sending out a
@@ -421,20 +413,20 @@ impl MockPeer {
         }
     }
 
-    // listen on the addr passed to MockPeer::new() and wait til someone connects.
-    // Then respond to messages indefinitely until an error occurs
-    async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
-        // TODO: should just keep accepting incoming conns
-        let mut conn = self.listener.accept().await?;
+    async fn serve_peer(
+        mut self,
+        mut conn: Connection,
+        target_height: BlockHeight,
+    ) -> anyhow::Result<()> {
         let messages = InFlightMessages::new(self.network_config.response_delay);
         tokio::pin!(messages);
 
         loop {
             tokio::select! {
                 res = conn.recv() => {
-                    let (msg, _timestamp) = res.with_context(|| format!("failed receiving message from {:?}", &conn))?;
-
-                    self.handle_message(msg, messages.as_mut())?;
+                    if !self.handle_message(&conn, res.map(|m| m.0), messages.as_mut())? {
+                        return Ok(());
+                    }
                 }
                 msg = &mut messages => {
                     tracing::debug!("mock peer sending message {}", &msg);
@@ -448,6 +440,78 @@ impl MockPeer {
                     messages.as_mut().queue_message(msg);
                 }
             }
+        }
+    }
+}
+
+// The mock node accepts from `listener` and starts a new MockPeer to handle
+// each incoming connection
+struct MockNode {
+    listener: Listener,
+    chain: ChainStoreAdapter,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    network_start_height: BlockHeight,
+    network_config: MockNetworkConfig,
+    block_production_delay: Duration,
+}
+
+impl MockNode {
+    async fn new(
+        chain: ChainStoreAdapter,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        genesis_hash: CryptoHash,
+        secret_key: SecretKey,
+        listen_addr: tcp::ListenerAddr,
+        chain_id: String,
+        archival: bool,
+        block_production_delay: Duration,
+        shard_layout: ShardLayout,
+        network_start_height: BlockHeight,
+        network_config: MockNetworkConfig,
+    ) -> anyhow::Result<Self> {
+        let listener = Listener::bind(
+            listen_addr,
+            secret_key,
+            &chain_id,
+            genesis_hash,
+            network_start_height,
+            shard_layout.shard_ids().collect(),
+            archival,
+            30 * near_time::Duration::SECOND,
+        )
+        .await?;
+
+        Ok(Self {
+            listener,
+            chain,
+            epoch_manager,
+            network_start_height,
+            network_config,
+            block_production_delay,
+        })
+    }
+
+    // listen on the addr passed to MockPeer::new() and wait til someone connects.
+    // Then respond to messages indefinitely until an error occurs
+    async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
+        let head_block = get_head_block(&self.chain, self.network_start_height)?;
+
+        loop {
+            let conn = self.listener.accept().await?;
+
+            let peer = MockPeer::new(
+                self.chain.clone(),
+                self.epoch_manager.clone(),
+                self.network_config.clone(),
+                self.block_production_delay,
+                head_block.clone(),
+            );
+
+            actix::spawn(async move {
+                if let Err(e) = peer.serve_peer(conn, target_height).await {
+                    tracing::error!("error serving requests: {:?}", e);
+                }
+            });
         }
     }
 }

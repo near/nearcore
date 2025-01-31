@@ -1,6 +1,6 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
-use crate::{MockNetworkConfig, MockPeer};
+use crate::{MockNetworkConfig, MockNode};
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
@@ -43,7 +43,7 @@ pub(crate) fn setup_mock_peer(
         None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
     };
     let mock_peer = actix::spawn(async move {
-        let mock = MockPeer::new(
+        let mock = MockNode::new(
             ChainStoreAdapter::new(chain.chain_store().store()),
             epoch_manager,
             *chain.genesis().hash(),
