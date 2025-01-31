@@ -1084,49 +1084,6 @@ impl EpochManager {
         })
     }
 
-    // pub fn get_all_block_approvers_ordered(
-    //     &self,
-    //     parent_hash: &CryptoHash,
-    // ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
-    //     let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-    //     let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-
-    //     let mut settlement =
-    //         self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?.to_vec();
-
-    //     let settlement_epoch_boundary = settlement.len();
-
-    //     let block_info = self.get_block_info(parent_hash)?;
-    //     if self.next_block_need_approvals_from_next_epoch(&block_info)? {
-    //         settlement.extend(
-    //             self.get_all_block_producers_settlement(&next_epoch_id, parent_hash)?
-    //                 .iter()
-    //                 .cloned(),
-    //         );
-    //     }
-
-    //     let mut result = vec![];
-    //     let mut validators: HashMap<AccountId, usize> = HashMap::default();
-    //     for (ord, (validator_stake, is_slashed)) in settlement.into_iter().enumerate() {
-    //         let account_id = validator_stake.account_id();
-    //         match validators.get(account_id) {
-    //             None => {
-    //                 validators.insert(account_id.clone(), result.len());
-    //                 result.push((
-    //                     validator_stake.get_approval_stake(ord >= settlement_epoch_boundary),
-    //                     is_slashed,
-    //                 ));
-    //             }
-    //             Some(old_ord) => {
-    //                 if ord >= settlement_epoch_boundary {
-    //                     result[*old_ord].0.stake_next_epoch = validator_stake.stake();
-    //                 };
-    //             }
-    //         };
-    //     }
-    //     Ok(result)
-    // }
-
     /// For given epoch_id, height and shard_id returns validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &self,
@@ -1691,14 +1648,6 @@ impl EpochManager {
         let shard_layout = self.config.for_protocol_version(protocol_version).shard_layout;
         Ok(shard_layout)
     }
-
-    // pub fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-    //     let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-    //     let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-    //     let shard_layout = self.get_shard_layout(&epoch_id)?;
-    //     let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
-    //     Ok(shard_layout != next_shard_layout)
-    // }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
