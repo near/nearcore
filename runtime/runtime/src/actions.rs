@@ -1661,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_doesnt_exist() {
+    fn test_delegate_action_key_does_not_exist() {
         let mut result = ActionResult::default();
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let sender_id = signed_delegate_action.delegate_action.sender_id.clone();
@@ -1778,7 +1778,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_fncall() {
+    fn test_delegate_action_key_permissions_funcall() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,
@@ -1868,7 +1868,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_fncall_deposit() {
+    fn test_delegate_action_key_permissions_funcall_deposit() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,
