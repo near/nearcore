@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use near_chain_primitives::Error;
-use near_primitives::{
-    hash::CryptoHash,
-    merkle::{combine_hash, Direction, MerklePath, MerklePathItem, PartialMerkleTree},
-    types::NumBlocks,
-    utils::index_to_bytes,
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::{
+    combine_hash, Direction, MerklePath, MerklePathItem, PartialMerkleTree,
 };
-use near_store::{DBCol, Store};
+use near_primitives::types::NumBlocks;
+use near_store::adapter::StoreAdapter;
+use near_store::Store;
 
 /// Implement block merkle proof retrieval.
 ///
@@ -124,21 +124,11 @@ impl MerkleProofAccess for Store {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
-        match self.get_ser::<PartialMerkleTree>(
-            DBCol::BlockMerkleTree,
-            &borsh::to_vec(&block_hash).unwrap(),
-        )? {
-            Some(block_merkle_tree) => Ok(Arc::new(block_merkle_tree)),
-            None => {
-                Err(Error::Other(format!("Could not find merkle proof for block {}", block_hash)))
-            }
-        }
+        self.chain_store().get_block_merkle_tree(block_hash).map(Arc::new)
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
-        self.get_ser::<CryptoHash>(DBCol::BlockOrdinal, &index_to_bytes(block_ordinal))?.ok_or_else(
-            || Error::Other(format!("Could not find block hash from ordinal {}", block_ordinal)),
-        )
+        self.chain_store().get_block_hash_from_ordinal(block_ordinal)
     }
 }
 

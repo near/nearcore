@@ -1018,7 +1018,7 @@ impl ChainStoreAccess for ChainStore {
         &self,
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
-        ChainStoreAdapter::get_block_merkle_tree(self, block_hash)
+        ChainStoreAdapter::get_block_merkle_tree(self, block_hash).map(Arc::new)
     }
 
     fn get_block_hash_from_ordinal(&self, block_ordinal: NumBlocks) -> Result<CryptoHash, Error> {
