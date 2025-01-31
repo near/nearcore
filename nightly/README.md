@@ -31,7 +31,7 @@ In the test specification path to the file needs to be given
 passed as arguments to the script.  For example:
 
     pytest sanity/lightclient.py
-    pytest sanity/state_sync_routed.py shreyan 115
+    pytest sanity/state_sync_routed.py manytx 115
 
 Note: NayDuck also handles `mocknet` test category.  It is now
 deprecated and is treated like `pytest` with `--skip-build` flag

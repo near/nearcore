@@ -129,10 +129,6 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     /// Enables rejection of blocks with outdated protocol versions.
     RejectBlocksWithOutdatedProtocolVersions,
-    /// Allows creating an account with a non refundable balance to cover storage costs.
-    /// NEP: <https://github.com/near/NEPs/pull/491>
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    NonrefundableStorage,
     // NEP: https://github.com/near/NEPs/pull/488
     BLS12381,
     RestrictTla,
@@ -271,8 +267,6 @@ impl ProtocolFeature {
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            ProtocolFeature::NonrefundableStorage => 140,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,

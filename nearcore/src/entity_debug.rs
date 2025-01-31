@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context};
 use borsh::BorshDeserialize;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::{Block, BlockHeader};
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManagerAdapter;
 use near_jsonrpc_primitives::errors::RpcError;
@@ -11,7 +12,6 @@ use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery, EntityQueryWithParams,
 };
 use near_primitives::block::Tip;
-use near_primitives::challenge::{PartialState, TrieValue};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
@@ -22,6 +22,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::get_block_shard_uid;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
+use near_primitives::state::{PartialState, TrieValue};
 use near_primitives::state_sync::StateSyncDumpProgress;
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -152,7 +153,7 @@ impl EntityDebugHandlerImpl {
                 let epoch_id =
                     self.epoch_manager.get_epoch_id_from_prev_block(chunk.prev_block())?;
                 let shard_id = chunk.shard_id();
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+                let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
                 let chunk_extra = store
                     .get_ser::<ChunkExtra>(
                         DBCol::ChunkExtra,
@@ -293,8 +294,11 @@ impl EntityDebugHandlerImpl {
                 Ok(serialize_entity(&ReceiptView::from(receipt)))
             }
             EntityQuery::ShardIdByAccountId { account_id, epoch_id } => {
-                let shard_id =
-                    self.epoch_manager.account_id_to_shard_id(&account_id.parse()?, &epoch_id)?;
+                let shard_id = account_id_to_shard_id(
+                    self.epoch_manager.as_ref(),
+                    &account_id.parse()?,
+                    &epoch_id,
+                )?;
                 Ok(serialize_entity(&shard_id))
             }
             EntityQuery::ShardLayoutByEpochId { epoch_id } => {

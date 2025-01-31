@@ -581,8 +581,11 @@ impl StateDumper {
         shard_id: ShardId,
         sync_hash: &CryptoHash,
     ) -> anyhow::Result<(ShardDump, oneshot::Sender<anyhow::Result<()>>)> {
-        let state_header =
-            self.chain.get_state_response_header(shard_id, *sync_hash).with_context(|| {
+        let state_header = self
+            .chain
+            .state_sync_adapter
+            .get_state_response_header(shard_id, *sync_hash)
+            .with_context(|| {
                 format!("Failed getting state response header for {} {}", shard_id, sync_hash)
             })?;
         let state_root = state_header.chunk_prev_state_root();

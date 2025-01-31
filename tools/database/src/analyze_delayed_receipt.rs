@@ -48,7 +48,6 @@ impl AnalyzeDelayedReceiptCommand {
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
             store.clone(),
-            near_config.genesis.config.genesis_height,
             false,
             near_config.genesis.config.transaction_validity_period,
         ));

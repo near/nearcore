@@ -10,8 +10,8 @@ use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
-use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
-use near_epoch_manager::{EpochManagerAdapter, RngSeed, ShardInfo};
+use near_crypto::{KeyType, PublicKey, SecretKey};
+use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -28,10 +28,6 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
-use near_primitives::stateless_validation::contract_distribution::{
-    ChunkContractAccesses, ContractCodeRequest,
-};
 use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::transaction::{
@@ -50,8 +46,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
-    TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_height, set_genesis_state_roots, DBCol, ShardTries, Store,
+    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use node_runtime::SignedValidPeriodTransactions;
@@ -362,6 +358,7 @@ impl KeyValueRuntime {
             shard_layout.shard_ids().map(|_| Trie::EMPTY_ROOT).collect();
         set_genesis_state_roots(&mut store_update, &genesis_roots);
         set_genesis_hash(&mut store_update, &CryptoHash::default());
+        set_genesis_height(&mut store_update, &0);
         store_update.commit().expect("Store failed on genesis initialization");
 
         Arc::new(KeyValueRuntime {
@@ -452,43 +449,6 @@ impl EpochManagerAdapter for MockEpochManager {
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
         Ok(validators[idx as usize % validators.len()].0.account_id().clone())
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        Ok(account_id_to_shard_id(account_id, self.num_shards))
-    }
-
-    fn account_id_to_shard_info(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardInfo, EpochError> {
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_id = account_id_to_shard_id(account_id, self.num_shards);
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-        Ok(ShardInfo { shard_index, shard_uid })
-    }
-
-    fn shard_id_to_uid(
-        &self,
-        shard_id: ShardId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardUId, EpochError> {
-        Ok(ShardUId::new(0, shard_id))
-    }
-
-    fn shard_id_to_index(
-        &self,
-        shard_id: ShardId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardIndex, EpochError> {
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        Ok(shard_layout.get_shard_index(shard_id)?)
     }
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
@@ -802,29 +762,19 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_validator_by_account_id(
         &self,
         epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
         account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
+    ) -> Result<ValidatorStake, EpochError> {
         let validators = &self.validators_by_valset[self.get_valset_for_epoch(epoch_id)?];
         for validator_stake in validators.block_producers.iter() {
             if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
+                return Ok(validator_stake.clone());
             }
         }
         for validator_stake in validators.chunk_producers.iter().flatten() {
             if validator_stake.account_id() == account_id {
-                return Ok((validator_stake.clone(), false));
+                return Ok(validator_stake.clone());
             }
         }
-        Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
-    }
-
-    fn get_fisherman_by_account_id(
-        &self,
-        epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        account_id: &AccountId,
-    ) -> Result<(ValidatorStake, bool), EpochError> {
         Err(EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
@@ -877,49 +827,6 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn should_validate_signatures(&self) -> bool {
         false
-    }
-
-    fn verify_validator_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_validator_or_fisherman_signature(
-        &self,
-        _epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_chunk_endorsement_signature(
-        &self,
-        _endorsement: &ChunkEndorsement,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_witness_contract_accesses_signature(
-        &self,
-        _accesses: &ChunkContractAccesses,
-    ) -> Result<bool, Error> {
-        Ok(true)
-    }
-
-    fn verify_witness_contract_code_request_signature(
-        &self,
-        _request: &ContractCodeRequest,
-    ) -> Result<bool, Error> {
-        Ok(true)
     }
 
     fn cares_about_shard_in_epoch(
@@ -1303,10 +1210,8 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
-                        0,
                         CryptoHash::default(),
                         0,
-                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),
