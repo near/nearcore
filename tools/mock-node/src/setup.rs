@@ -1,6 +1,6 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
-use crate::{MockNetworkConfig, MockPeer};
+use crate::{MockNetworkConfig, MockNode};
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
@@ -9,13 +9,20 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::tcp;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
+use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::StoreAdapter;
+
 use near_time::Clock;
+
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+
 use std::cmp::min;
 use std::path::Path;
+use std::sync::Arc;
 
 pub(crate) fn setup_mock_peer(
     chain: Chain,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     config: NearConfig,
     network_start_height: Option<BlockHeight>,
     network_config: MockNetworkConfig,
@@ -36,8 +43,10 @@ pub(crate) fn setup_mock_peer(
         None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
     };
     let mock_peer = actix::spawn(async move {
-        let mock = MockPeer::new(
-            chain,
+        let mock = MockNode::new(
+            ChainStoreAdapter::new(chain.chain_store().store()),
+            epoch_manager,
+            *chain.genesis().hash(),
             secret_key,
             listen_addr,
             chain_id,
@@ -105,6 +114,7 @@ pub fn setup_mock_node(
 
     Ok(setup_mock_peer(
         chain,
+        epoch_manager,
         near_config,
         network_start_height,
         network_config,

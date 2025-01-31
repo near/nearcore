@@ -48,7 +48,7 @@ for archival storage.
 Run that binary for at least `gc_num_epochs_to_keep`.
 Epochs are larger on testnet/mainnet, so just give it a few days.  
 You can use `sudo systemctl start neard` to run `/home/ubuntu/neard`  
-and `jornalctl -u neard` to check logs.  
+and `journalctl -u neard` to check logs.
 Be careful with what binary is at `/home/ubuntu/neard`.  
 **TODO** some kind of system to maintain a bunch of local binaries.
 

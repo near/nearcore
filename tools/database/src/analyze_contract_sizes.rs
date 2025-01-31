@@ -18,6 +18,7 @@ use std::sync::Arc;
 pub(crate) struct AnalyzeContractSizesCommand {
     /// Show top N contracts by size.
     #[arg(short, long, default_value_t = 50)]
+    // cspell:words topn
     topn: usize,
 
     /// Compress contract code before calculating size.

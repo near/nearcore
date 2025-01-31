@@ -17,13 +17,13 @@ pub use last_blocks::LastNBlocksIterator;
 
 /// Arguments that user can pass to a command to choose some subset of blocks
 pub struct CommandArgs {
-    /// Analyse the last N blocks
+    /// Analyze the last N blocks
     pub last_blocks: Option<u64>,
 
-    /// Analyse blocks from the given block height, inclusive
+    /// Analyze blocks from the given block height, inclusive
     pub from_block_height: Option<BlockHeight>,
 
-    /// Analyse blocks up to the given block height, inclusive
+    /// Analyze blocks up to the given block height, inclusive
     pub to_block_height: Option<BlockHeight>,
 }
 

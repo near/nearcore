@@ -548,6 +548,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(0)
     }
 
+    fn get_epoch_start_from_epoch_id(
+        &self,
+        _epoch_id: &EpochId,
+    ) -> Result<BlockHeight, EpochError> {
+        Ok(0)
+    }
+
     fn get_next_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
         let (_, _, next_epoch_id) = self.get_epoch_and_valset(*block_hash)?;
         Ok(next_epoch_id)

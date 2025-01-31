@@ -600,7 +600,7 @@ mod test {
 
     /// Test that we preserve the validators from the epoch of the state dump.
     #[test]
-    fn test_dump_state_preserve_validators_inmemory() {
+    fn test_dump_state_preserve_validators_in_memory() {
         let epoch_length = 4;
         let (store, genesis, mut env, near_config) = setup(epoch_length, PROTOCOL_VERSION, false);
         let genesis_hash = *env.clients[0].chain.genesis().hash();

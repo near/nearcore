@@ -241,7 +241,7 @@ fn find_tx_or_receipt(
     for (shard_index, chunk_hash) in chunk_hashes.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
-            chain_store.get_chunk(chunk_hash).context("Failed looking up canditate chunk")?;
+            chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;
         for tx in chunk.transactions() {
             if &tx.get_hash() == hash {
                 return Ok(Some((HashType::Tx, shard_id)));

@@ -510,6 +510,7 @@ mod tests {
 
     #[test]
     fn test_three_contract_sizes() {
+        // cspell:words nearx xeno
         let initial = vec![
             contract_tuple("caroline.near", 3),
             contract_tuple("alice.near", 1),
@@ -600,14 +601,11 @@ mod tests {
         let fn_call_outcome = create_execution_outcome(vec![outgoing_receipt_id]);
 
         // Now prepare data to be inserted to DB, separating ref counted data.
-        let store_data = [store_tripple(
-            DBCol::TransactionResultForBlock,
-            &fn_call_receipt_id,
-            &fn_call_outcome,
-        )];
+        let store_data =
+            [store_triple(DBCol::TransactionResultForBlock, &fn_call_receipt_id, &fn_call_outcome)];
         let store_data_rc = [
-            store_tripple(DBCol::Receipts, &fn_call_receipt_id, &fn_call_receipt),
-            store_tripple(DBCol::Receipts, &outgoing_receipt_id, &outgoing_receipt),
+            store_triple(DBCol::Receipts, &fn_call_receipt_id, &fn_call_receipt),
+            store_triple(DBCol::Receipts, &outgoing_receipt_id, &outgoing_receipt),
         ];
 
         let trie_data = vec![contract_tuple("alice.near", 100), contract_tuple("bob.near", 200)];
@@ -698,7 +696,7 @@ mod tests {
     }
 
     /// Convenience fn to create a triple to insert to the store.
-    fn store_tripple(
+    fn store_triple(
         col: DBCol,
         key: &impl BorshSerialize,
         value: &impl BorshSerialize,
