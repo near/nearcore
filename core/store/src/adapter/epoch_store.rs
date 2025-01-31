@@ -56,7 +56,7 @@ impl EpochStoreAdapter {
             .store
             .iter(DBCol::EpochInfo)
             .map(Result::unwrap)
-            .filter(|(key, _)| key.as_ref() == AGGREGATOR_KEY)
+            .filter(|(key, _)| key.as_ref() != AGGREGATOR_KEY)
             .map(|(key, value)| {
                 (
                     EpochId::try_from_slice(key.as_ref()).unwrap(),

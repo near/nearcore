@@ -245,7 +245,7 @@ impl EpochSync {
         let second_last_block_info_of_prev_epoch =
             epoch_store.get_block_info(last_block_of_prev_epoch.prev_hash())?;
         let first_block_info_of_prev_epoch =
-            epoch_store.get_block_info(last_block_of_prev_epoch.prev_hash())?;
+            epoch_store.get_block_info(last_block_info_of_prev_epoch.epoch_first_block())?;
         let block_info_for_final_block_of_current_epoch =
             epoch_store.get_block_info(last_final_block_header_in_current_epoch.hash())?;
         let first_block_of_current_epoch = chain_store
@@ -351,21 +351,22 @@ impl EpochSync {
                 let epoch_id = epoch_ids[index];
                 let prev_epoch_id = if index == 0 { after_epoch } else { epoch_ids[index - 1] };
 
-                let (last_final_block_header, approvals_for_last_final_block) =
-                    if index + 2 < epoch_ids.len() {
-                        let next_next_epoch_id = epoch_ids[index + 2];
-                        let last_block_header = chain_store.get_block_header(&next_next_epoch_id.0)?;
-                        let second_last_block_header =
-                            chain_store.get_block_header(last_block_header.prev_hash())?;
-                        let third_last_block_header =
-                            chain_store.get_block_header(second_last_block_header.prev_hash())?;
-                        (third_last_block_header, second_last_block_header.approvals().to_vec())
-                    } else {
-                        (
-                            current_epoch_last_final_block_header.clone(),
-                            current_epoch_second_last_block_approvals.clone(),
-                        )
-                    };
+                let (last_final_block_header, approvals_for_last_final_block) = if index + 2
+                    < epoch_ids.len()
+                {
+                    let next_next_epoch_id = epoch_ids[index + 2];
+                    let last_block_header = chain_store.get_block_header(&next_next_epoch_id.0)?;
+                    let second_last_block_header =
+                        chain_store.get_block_header(last_block_header.prev_hash())?;
+                    let third_last_block_header =
+                        chain_store.get_block_header(second_last_block_header.prev_hash())?;
+                    (third_last_block_header, second_last_block_header.approvals().to_vec())
+                } else {
+                    (
+                        current_epoch_last_final_block_header.clone(),
+                        current_epoch_second_last_block_approvals.clone(),
+                    )
+                };
                 let prev_epoch_info = all_epoch_infos.get(&prev_epoch_id).ok_or_else(|| {
                     Error::Other(format!("Could not find epoch info for epoch {:?}", prev_epoch_id))
                 })?;
