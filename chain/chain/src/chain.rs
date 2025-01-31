@@ -3909,7 +3909,6 @@ impl Chain {
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(
-                    *prev_prev_hash,
                     min_chunk_prev_height,
                     epoch_height,
                     shard_uids,

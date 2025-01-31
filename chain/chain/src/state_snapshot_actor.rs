@@ -206,7 +206,7 @@ pub struct StateSnapshotSenderForStateSnapshot {
 pub struct StateSnapshotSenderForClient(Sender<DeleteAndMaybeCreateSnapshotRequest>);
 
 type MakeSnapshotCallback = Arc<
-    dyn Fn(CryptoHash, BlockHeight, EpochHeight, Vec<(ShardIndex, ShardUId)>, Block) -> ()
+    dyn Fn(BlockHeight, EpochHeight, Vec<(ShardIndex, ShardUId)>, Block) -> ()
         + Send
         + Sync
         + 'static,
@@ -220,17 +220,17 @@ pub struct SnapshotCallbacks {
 }
 
 /// Sends a request to make a state snapshot.
-// TODO: remove the `prev_block_hash` argument. It's just block.header().prev_hash()
 pub fn get_make_snapshot_callback(
     sender: StateSnapshotSenderForClient,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(
-        move |prev_block_hash,
+        move |
               min_chunk_prev_height,
               epoch_height,
               shard_indexes_and_uids,
               block| {
+            let prev_block_hash = *block.header().prev_hash();
             tracing::info!(
             target: "state_snapshot",
             ?prev_block_hash,
