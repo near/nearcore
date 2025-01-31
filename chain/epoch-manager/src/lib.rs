@@ -7,7 +7,6 @@ use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
-use near_primitives::epoch_info_aggregator::EpochInfoAggregator;
 use near_primitives::epoch_manager::{
     AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, AGGREGATOR_KEY,
 };
@@ -28,6 +27,7 @@ use near_primitives::version::{
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
 };
+use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;

@@ -2,15 +2,16 @@ use std::collections::{BTreeMap, HashMap};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
-use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, BlockHeight, ProtocolVersion, ShardId, ValidatorId};
+use near_primitives::epoch_block_info::BlockInfo;
+use near_primitives::epoch_info::EpochInfo;
+use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::{
+    AccountId, BlockHeight, ChunkStats, EpochId, ShardId, ValidatorId, ValidatorStats,
+};
 use near_schema_checker_lib::ProtocolSchema;
-
-use crate::epoch_block_info::BlockInfo;
-use crate::epoch_info::EpochInfo;
-use crate::shard_layout::ShardLayout;
-use crate::types::validator_stake::ValidatorStake;
-use crate::types::{ChunkStats, EpochId, ValidatorStats};
+use near_vm_runner::logic::ProtocolVersion;
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
 #[derive(

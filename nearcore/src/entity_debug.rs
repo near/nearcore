@@ -13,7 +13,6 @@ use near_jsonrpc_primitives::types::entity_debug::{
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::epoch_info_aggregator::EpochInfoAggregator;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{hash, CryptoHash};
@@ -38,6 +37,7 @@ use near_primitives::views::{
 use near_store::adapter::flat_store::encode_flat_state_db_key;
 use near_store::adapter::StoreAdapter;
 use near_store::db::GENESIS_CONGESTION_INFO_KEY;
+use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{

@@ -12,7 +12,6 @@ use near_epoch_manager::*;
 use near_jsonrpc_primitives::errors::*;
 use near_network::*;
 use near_parameters::*;
-use near_primitives::epoch_info_aggregator::EpochInfoAggregator;
 use near_primitives::*;
 use near_store::*;
 use near_vm_runner::*;
