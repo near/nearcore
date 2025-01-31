@@ -1618,20 +1618,6 @@ impl Chain {
         Ok(chain_header.hash() == header.hash())
     }
 
-    /// Finds first of the given hashes that is known on the main chain.
-    pub fn find_common_header(&self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
-        for hash in hashes {
-            if let Ok(header) = self.get_block_header(hash) {
-                if let Ok(header_at_height) = self.get_block_header_by_height(header.height()) {
-                    if header.hash() == header_at_height.hash() {
-                        return Some(header);
-                    }
-                }
-            }
-        }
-        None
-    }
-
     fn determine_status(&self, head: Option<Tip>, prev_head: Tip) -> BlockStatus {
         let has_head = head.is_some();
         let mut is_next_block = false;
@@ -3799,37 +3785,6 @@ impl Chain {
                 Err(_) => false,
             })
             .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
-    }
-
-    /// Retrieve the up to `max_headers_returned` headers on the main chain
-    /// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
-    ///           more recent blocks. This function will find the first block in `hashes`
-    ///           that is on the main chain and returns the blocks after this block. If none of the
-    ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
-    pub fn retrieve_headers(
-        &self,
-        hashes: Vec<CryptoHash>,
-        max_headers_returned: u64,
-        max_height: Option<BlockHeight>,
-    ) -> Result<Vec<BlockHeader>, Error> {
-        let header = match self.find_common_header(&hashes) {
-            Some(header) => header,
-            None => return Ok(vec![]),
-        };
-
-        let mut headers = vec![];
-        let header_head_height = self.header_head()?.height;
-        let max_height = max_height.unwrap_or(header_head_height);
-        // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.height() + 1..=max_height {
-            if let Ok(header) = self.get_block_header_by_height(h) {
-                headers.push(header.clone());
-                if headers.len() >= max_headers_returned as usize {
-                    break;
-                }
-            }
-        }
-        Ok(headers)
     }
 
     /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`

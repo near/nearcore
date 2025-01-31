@@ -2,19 +2,24 @@
 //! components of the mock network.
 
 use anyhow::{anyhow, Context as AnyhowContext};
-use near_chain::{Block, Chain, ChainStoreAccess, Error};
+use near_chain::{retrieve_headers, Block, Error};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
-use near_network::raw::{DirectMessage, Listener, Message, RoutedMessage};
+use near_epoch_manager::EpochManagerAdapter;
+use near_network::raw::{Connection, DirectMessage, Listener, Message, RoutedMessage};
 use near_network::tcp;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::adapter::chain_store::ChainStoreAdapter;
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
 
@@ -98,15 +103,14 @@ struct IncomingRequests {
 // The lower the height, the better, so that the client will actually do some work on these
 // requests instead of just seeing that the chunk hash is unknown.
 fn retrieve_starting_chunk_hash(
-    chain: &Chain,
+    chain: &ChainStoreAdapter,
     head_height: BlockHeight,
 ) -> anyhow::Result<ChunkHash> {
     let mut last_err = None;
     for height in (chain.tail().context("failed fetching chain tail")? + 1..=head_height).rev() {
         match chain
-            .chain_store()
             .get_block_hash_by_height(height)
-            .and_then(|hash| chain.chain_store().get_block(&hash))
+            .and_then(|hash| chain.get_block(&hash))
             .map(|block| block.chunks().iter_deprecated().next().unwrap().chunk_hash())
         {
             Ok(hash) => return Ok(hash),
@@ -123,54 +127,49 @@ fn retrieve_starting_chunk_hash(
     }
 }
 
-// get some block to serve as the source of unrequested incoming blocks.
-fn retrieve_incoming_block(chain: &Chain, head_height: BlockHeight) -> anyhow::Result<Block> {
-    let mut last_err = None;
-    for height in (chain.tail().context("failed fetching chain tail")? + 1..=head_height).rev() {
-        match chain.get_block_by_height(height) {
-            Ok(b) => return Ok(b),
+// get the block with highest height at most `max_height`
+// we make sure we start at a height that actually exists, because we want self.produce_block()
+// to give the first block immediately. Otherwise the node won't even try asking us for block headers
+// until we give it a block.
+fn get_head_block(chain: &ChainStoreAdapter, max_height: BlockHeight) -> anyhow::Result<Block> {
+    let tail = chain.tail().context("failed fetching chain tail")?;
+    for height in (tail + 1..=max_height).rev() {
+        let hash = match chain.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(Error::DBNotFoundErr(_)) => continue,
             Err(e) => {
-                last_err = Some(e);
+                return Err(e)
+                    .with_context(|| format!("get_block_hash_by_height #{} failed", height))
             }
-        }
+        };
+        return chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash));
     }
-    match last_err {
-        Some(e) => {
-            Err(e).with_context(|| format!("Last error (retrieving block #{})", head_height))
-        }
-        None => Err(anyhow!("given head_height is not after the chain tail?")),
-    }
+    anyhow::bail!("No blocks between tail #{} and head #{}", tail, max_height);
 }
 
 impl IncomingRequests {
     fn new(
         config: &Option<MockIncomingRequestsConfig>,
-        chain: &Chain,
-        head_height: BlockHeight,
+        chain: &ChainStoreAdapter,
+        max_height_block: Block,
     ) -> Self {
+        let max_height = max_height_block.header().height();
         let now = std::time::Instant::now();
         let mut block = None;
         let mut chunk_request = None;
 
         if let Some(config) = config {
             if let Some(block_config) = &config.block {
-                match retrieve_incoming_block(chain, head_height) {
-                    Ok(b) => {
-                        block = Some(PeriodicRequest {
-                            interval: tokio::time::interval_at(
-                                (now + block_config.interval).into(),
-                                block_config.interval,
-                            ),
-                            message: Message::Direct(DirectMessage::Block(b)),
-                        });
-                    }
-                    Err(e) => {
-                        tracing::error!("Can't retrieve block suitable for mock messages: {:?}", e);
-                    }
-                };
+                block = Some(PeriodicRequest {
+                    interval: tokio::time::interval_at(
+                        (now + block_config.interval).into(),
+                        block_config.interval,
+                    ),
+                    message: Message::Direct(DirectMessage::Block(max_height_block)),
+                });
             }
             if let Some(chunk_request_config) = &config.chunk_request {
-                match retrieve_starting_chunk_hash(chain, head_height) {
+                match retrieve_starting_chunk_hash(chain, max_height) {
                     Ok(chunk_hash) => {
                         chunk_request = Some(PeriodicRequest {
                             interval: tokio::time::interval_at(
@@ -279,8 +278,8 @@ impl Future for InFlightMessages {
 }
 
 struct MockPeer {
-    listener: Listener,
-    chain: Chain,
+    chain: ChainStoreAdapter,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     current_height: BlockHeight,
     network_config: MockNetworkConfig,
     block_production: tokio::time::Interval,
@@ -288,78 +287,58 @@ struct MockPeer {
 }
 
 impl MockPeer {
-    async fn new(
-        chain: Chain,
-        secret_key: SecretKey,
-        listen_addr: tcp::ListenerAddr,
-        chain_id: String,
-        archival: bool,
-        block_production_delay: Duration,
-        shard_layout: ShardLayout,
-        network_start_height: BlockHeight,
+    fn new(
+        chain: ChainStoreAdapter,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
         network_config: MockNetworkConfig,
-    ) -> anyhow::Result<Self> {
-        let listener = Listener::bind(
-            listen_addr,
-            secret_key,
-            &chain_id,
-            *chain.genesis().hash(),
-            network_start_height,
-            shard_layout.shard_ids().collect(),
-            archival,
-            30 * near_time::Duration::SECOND,
-        )
-        .await?;
+        block_production_delay: Duration,
+        head_block: Block,
+    ) -> Self {
+        let current_height = head_block.header().height();
         let incoming_requests =
-            IncomingRequests::new(&network_config.incoming_requests, &chain, network_start_height);
-        // make sure we start at a height that actually exists, because we want self.produce_block()
-        // to give the first block immediately. Otherwise the node won't even try asking us for block headers
-        // until we give it a block.
-        let tail = chain.tail().context("failed getting chain tail")?;
-        let mut current_height = None;
-        for height in (tail..=network_start_height).rev() {
-            if chain.get_block_by_height(height).is_ok() {
-                current_height = Some(height);
-                break;
-            }
-        }
-        let current_height = match current_height {
-            Some(h) => h,
-            None => anyhow::bail!(
-                "No block found between tail {} and network start height {}",
-                tail,
-                network_start_height
-            ),
-        };
-        Ok(Self {
-            listener,
+            IncomingRequests::new(&network_config.incoming_requests, &chain, head_block);
+        Self {
             chain,
+            epoch_manager,
             current_height,
             network_config,
             block_production: tokio::time::interval(block_production_delay),
             incoming_requests,
-        })
+        }
     }
 
+    // Handle the message and return a bool that tells whether we should continue
     fn handle_message(
         &self,
-        message: Message,
+        conn: &Connection,
+        message: std::io::Result<Message>,
         outbound: Pin<&mut InFlightMessages>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
+        let message = match message {
+            Ok(m) => m,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                    tracing::info!("{:?} disconnected", &conn);
+                    return Ok(false);
+                }
+                return Err(e)
+                    .with_context(|| format!("failed receiving message from {:?}", &conn));
+            }
+        };
         tracing::debug!("mock peer received message: {}", &message);
         match message {
             Message::Direct(msg) => {
                 match msg {
                     DirectMessage::BlockHeadersRequest(hashes) => {
-                        let headers = self
-                            .chain
-                            .retrieve_headers(hashes, MAX_BLOCK_HEADERS, Some(self.current_height))
-                            .with_context(|| {
-                                format!(
-                                    "failed retrieving block headers up to {}",
-                                    self.current_height
-                                )
-                            })?;
+                        let headers = retrieve_headers(
+                            &self.chain,
+                            hashes,
+                            MAX_BLOCK_HEADERS,
+                            Some(self.current_height),
+                        )
+                        .with_context(|| {
+                            format!("failed retrieving block headers up to {}", self.current_height)
+                        })?;
                         outbound
                             .queue_message(Message::Direct(DirectMessage::BlockHeaders(headers)));
                     }
@@ -376,13 +355,17 @@ impl MockPeer {
             Message::Routed(r) => {
                 match r {
                     RoutedMessage::PartialEncodedChunkRequest(request) => {
-                        let response = retrieve_partial_encoded_chunk(&self.chain, &request)
-                            .with_context(|| {
-                                format!(
-                                    "failed getting partial encoded chunk response for {:?}",
-                                    &request
-                                )
-                            })?;
+                        let response = retrieve_partial_encoded_chunk(
+                            &self.chain,
+                            self.epoch_manager.as_ref(),
+                            &request,
+                        )
+                        .with_context(|| {
+                            format!(
+                                "failed getting partial encoded chunk response for {:?}",
+                                &request
+                            )
+                        })?;
                         outbound.queue_message(Message::Routed(
                             RoutedMessage::PartialEncodedChunkResponse(response),
                         ));
@@ -393,7 +376,7 @@ impl MockPeer {
                 }
             }
         };
-        Ok(())
+        Ok(true)
     }
 
     // simulate the normal block production of the network by sending out a
@@ -401,11 +384,15 @@ impl MockPeer {
     fn produce_block(&mut self) -> anyhow::Result<Option<Block>> {
         let height = self.current_height;
         self.current_height += 1;
-        match self.chain.get_block_by_height(height) {
-            Ok(b) => Ok(Some(b)),
-            Err(near_chain::Error::DBNotFoundErr(_)) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        let hash = match self.chain.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(Error::DBNotFoundErr(_)) => return Ok(None),
+            Err(e) => {
+                return Err(e)
+                    .with_context(|| format!("get_block_hash_by_height #{} failed", height))
+            }
+        };
+        self.chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash)).map(Some)
     }
 
     // returns a message produced by this mock peer. Right now this includes a new block
@@ -426,20 +413,20 @@ impl MockPeer {
         }
     }
 
-    // listen on the addr passed to MockPeer::new() and wait til someone connects.
-    // Then respond to messages indefinitely until an error occurs
-    async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
-        // TODO: should just keep accepting incoming conns
-        let mut conn = self.listener.accept().await?;
+    async fn serve_peer(
+        mut self,
+        mut conn: Connection,
+        target_height: BlockHeight,
+    ) -> anyhow::Result<()> {
         let messages = InFlightMessages::new(self.network_config.response_delay);
         tokio::pin!(messages);
 
         loop {
             tokio::select! {
                 res = conn.recv() => {
-                    let (msg, _timestamp) = res.with_context(|| format!("failed receiving message from {:?}", &conn))?;
-
-                    self.handle_message(msg, messages.as_mut())?;
+                    if !self.handle_message(&conn, res.map(|m| m.0), messages.as_mut())? {
+                        return Ok(());
+                    }
                 }
                 msg = &mut messages => {
                     tracing::debug!("mock peer sending message {}", &msg);
@@ -457,15 +444,88 @@ impl MockPeer {
     }
 }
 
+// The mock node accepts from `listener` and starts a new MockPeer to handle
+// each incoming connection
+struct MockNode {
+    listener: Listener,
+    chain: ChainStoreAdapter,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
+    network_start_height: BlockHeight,
+    network_config: MockNetworkConfig,
+    block_production_delay: Duration,
+}
+
+impl MockNode {
+    async fn new(
+        chain: ChainStoreAdapter,
+        epoch_manager: Arc<dyn EpochManagerAdapter>,
+        genesis_hash: CryptoHash,
+        secret_key: SecretKey,
+        listen_addr: tcp::ListenerAddr,
+        chain_id: String,
+        archival: bool,
+        block_production_delay: Duration,
+        shard_layout: ShardLayout,
+        network_start_height: BlockHeight,
+        network_config: MockNetworkConfig,
+    ) -> anyhow::Result<Self> {
+        let listener = Listener::bind(
+            listen_addr,
+            secret_key,
+            &chain_id,
+            genesis_hash,
+            network_start_height,
+            shard_layout.shard_ids().collect(),
+            archival,
+            30 * near_time::Duration::SECOND,
+        )
+        .await?;
+
+        Ok(Self {
+            listener,
+            chain,
+            epoch_manager,
+            network_start_height,
+            network_config,
+            block_production_delay,
+        })
+    }
+
+    // listen on the addr passed to MockPeer::new() and wait until someone connects.
+    // Then respond to messages indefinitely until an error occurs
+    async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
+        let head_block = get_head_block(&self.chain, self.network_start_height)?;
+
+        loop {
+            let conn = self.listener.accept().await?;
+
+            let peer = MockPeer::new(
+                self.chain.clone(),
+                self.epoch_manager.clone(),
+                self.network_config.clone(),
+                self.block_production_delay,
+                head_block.clone(),
+            );
+
+            actix::spawn(async move {
+                if let Err(e) = peer.serve_peer(conn, target_height).await {
+                    tracing::error!("error serving requests: {:?}", e);
+                }
+            });
+        }
+    }
+}
+
 // TODO: this is not currently correct if we're an archival node and we get
 // asked about an old chunk. In that case it needs to be reconstructed like
 // in ShardsManager::prepare_partial_encoded_chunk_response()
 fn retrieve_partial_encoded_chunk(
-    chain: &Chain,
+    chain: &ChainStoreAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
-    let num_total_parts = chain.epoch_manager.num_total_parts();
-    let partial_chunk = chain.chain_store().get_partial_chunk(&request.chunk_hash)?;
+    let num_total_parts = epoch_manager.num_total_parts();
+    let partial_chunk = chain.get_partial_chunk(&request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
     assert_eq!(
