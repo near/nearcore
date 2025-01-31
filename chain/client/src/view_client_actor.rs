@@ -11,8 +11,8 @@ use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
-    get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-    MerkleProofAccess,
+    get_epoch_block_producers_view, retrieve_headers, Chain, ChainGenesis, ChainStoreAccess,
+    DoomslugThresholdMode, MerkleProofAccess,
 };
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
@@ -647,7 +647,7 @@ impl ViewClientActorInner {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        self.chain.retrieve_headers(hashes, sync::header::MAX_BLOCK_HEADERS, None)
+        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(

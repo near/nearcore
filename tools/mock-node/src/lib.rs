@@ -2,7 +2,7 @@
 //! components of the mock network.
 
 use anyhow::{anyhow, Context as AnyhowContext};
-use near_chain::{Block, Chain, ChainStoreAccess, Error};
+use near_chain::{retrieve_headers, Block, Chain, ChainStoreAccess, Error};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
 use near_network::raw::{DirectMessage, Listener, Message, RoutedMessage};
@@ -351,15 +351,15 @@ impl MockPeer {
             Message::Direct(msg) => {
                 match msg {
                     DirectMessage::BlockHeadersRequest(hashes) => {
-                        let headers = self
-                            .chain
-                            .retrieve_headers(hashes, MAX_BLOCK_HEADERS, Some(self.current_height))
-                            .with_context(|| {
-                                format!(
-                                    "failed retrieving block headers up to {}",
-                                    self.current_height
-                                )
-                            })?;
+                        let headers = retrieve_headers(
+                            self.chain.chain_store(),
+                            hashes,
+                            MAX_BLOCK_HEADERS,
+                            Some(self.current_height),
+                        )
+                        .with_context(|| {
+                            format!("failed retrieving block headers up to {}", self.current_height)
+                        })?;
                         outbound
                             .queue_message(Message::Direct(DirectMessage::BlockHeaders(headers)));
                     }

@@ -153,3 +153,51 @@ pub fn get_incoming_receipts_for_shard(
 
     Ok(ret)
 }
+
+/// Finds first of the given hashes that is known on the main chain.
+fn find_common_header(
+    chain_store: &ChainStoreAdapter,
+    hashes: &[CryptoHash],
+) -> Option<BlockHeader> {
+    for hash in hashes {
+        if let Ok(header) = chain_store.get_block_header(hash) {
+            if let Ok(header_at_height) = chain_store.get_block_header_by_height(header.height()) {
+                if header.hash() == header_at_height.hash() {
+                    return Some(header);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Retrieve the up to `max_headers_returned` headers on the main chain
+/// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
+///           more recent blocks. This function will find the first block in `hashes`
+///           that is on the main chain and returns the blocks after this block. If none of the
+///           blocks in `hashes` are on the main chain, the function returns an empty vector.
+pub fn retrieve_headers(
+    chain_store: &ChainStoreAdapter,
+    hashes: Vec<CryptoHash>,
+    max_headers_returned: u64,
+    max_height: Option<BlockHeight>,
+) -> Result<Vec<BlockHeader>, Error> {
+    let header = match find_common_header(chain_store, &hashes) {
+        Some(header) => header,
+        None => return Ok(vec![]),
+    };
+
+    let mut headers = vec![];
+    let header_head_height = chain_store.header_head()?.height;
+    let max_height = max_height.unwrap_or(header_head_height);
+    // TODO: this may be inefficient if there are a lot of skipped blocks.
+    for h in header.height() + 1..=max_height {
+        if let Ok(header) = chain_store.get_block_header_by_height(h) {
+            headers.push(header.clone());
+            if headers.len() >= max_headers_returned as usize {
+                break;
+            }
+        }
+    }
+    Ok(headers)
+}
