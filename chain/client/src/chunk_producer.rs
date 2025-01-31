@@ -32,6 +32,15 @@ use std::sync::Arc;
 use time::ext::InstantExt as _;
 use tracing::{debug, instrument};
 
+#[cfg(feature = "test_features")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum AdvProduceChunksMode {
+    // Produce chunks as usual.
+    Valid,
+    // Stop producing chunks.
+    StopProduce,
+}
+
 pub struct ProduceChunkResult {
     pub chunk: EncodedShardChunk,
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
@@ -43,18 +52,22 @@ pub struct ChunkProducer {
     /// Adversarial controls - should be enabled only to test disruptive
     /// behavior on chain.
     #[cfg(feature = "test_features")]
+    pub adv_produce_chunks: Option<AdvProduceChunksMode>,
+    #[cfg(feature = "test_features")]
     pub produce_invalid_chunks: bool,
     #[cfg(feature = "test_features")]
     pub produce_invalid_tx_in_chunks: bool,
 
     clock: Clock,
+    /// If present, limits adding transactions from the transaction
+    /// pool to the chunk by certain time.
+    chunk_transactions_time_limit: MutableConfigValue<Option<Duration>>,
     chain: ChainStoreAdapter,
-    produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub sharded_tx_pool: ShardedTransactionPool,
-    /// A ReedSolomon instance to reconstruct shard.
-    rs_for_chunk_production: ReedSolomon,
+    /// A ReedSolomon instance to encode shard chunks.
+    reed_solomon_encoder: ReedSolomon,
     /// Chunk production timing information. Used only for debug purposes.
     pub chunk_production_info: lru::LruCache<(BlockHeight, ShardId), ChunkProduction>,
 }
@@ -62,8 +75,8 @@ pub struct ChunkProducer {
 impl ChunkProducer {
     pub fn new(
         clock: Clock,
+        chunk_transactions_time_limit: MutableConfigValue<Option<Duration>>,
         chain_store: &ChainStoreAdapter,
-        produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         rng_seed: RngSeed,
@@ -74,16 +87,18 @@ impl ChunkProducer {
 
         Self {
             #[cfg(feature = "test_features")]
+            adv_produce_chunks: None,
+            #[cfg(feature = "test_features")]
             produce_invalid_chunks: false,
             #[cfg(feature = "test_features")]
             produce_invalid_tx_in_chunks: false,
             clock,
+            chunk_transactions_time_limit,
             chain: chain_store.clone(),
-            produce_chunk_add_transactions_time_limit,
             epoch_manager,
             runtime_adapter,
             sharded_tx_pool: ShardedTransactionPool::new(rng_seed, transaction_pool_size_limit),
-            rs_for_chunk_production: ReedSolomon::new(data_parts, parity_parts).unwrap(),
+            reed_solomon_encoder: ReedSolomon::new(data_parts, parity_parts).unwrap(),
             chunk_production_info: lru::LruCache::new(
                 NonZeroUsize::new(PRODUCTION_TIMES_CACHE_SIZE).unwrap(),
             ),
@@ -280,7 +295,7 @@ impl ChunkProducer {
             congestion_info,
             chunk_extra.bandwidth_requests().cloned(),
             &*validator_signer,
-            &mut self.rs_for_chunk_production,
+            &mut self.reed_solomon_encoder,
             protocol_version,
         )?;
 
@@ -361,7 +376,7 @@ impl ChunkProducer {
                 prev_block.into(),
                 &mut iter,
                 chain_validate,
-                self.produce_chunk_add_transactions_time_limit.get(),
+                self.chunk_transactions_time_limit.get(),
             )?
         } else {
             PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }

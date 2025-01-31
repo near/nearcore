@@ -1,4 +1,5 @@
-//! Client is responsible for tracking the chain, chunks, and producing them when needed.
+//! Client is responsible for tracking the chain, blocks, chunks, and producing
+//! them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
@@ -10,8 +11,10 @@ use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::block::BlockSync;
+use crate::sync::epoch::EpochSync;
 use crate::sync::handler::SyncHandler;
 use crate::sync::header::HeaderSync;
+use crate::sync::state::chain_requests::ChainSenderForStateSync;
 use crate::sync::state::{StateSync, StateSyncResult};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
@@ -23,6 +26,7 @@ use near_chain::chain::{
     VerifyBlockHashAndSignatureResult,
 };
 use near_chain::orphan::OrphanMissingChunks;
+use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
@@ -32,7 +36,6 @@ use near_chain::{
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
 use near_client_primitives::types::{Error, StateSyncStatus};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
@@ -43,7 +46,6 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
@@ -75,10 +77,7 @@ use std::sync::Arc;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 #[cfg(feature = "test_features")]
-use crate::client_actor::AdvProduceChunksMode;
-use crate::sync::epoch::EpochSync;
-use crate::sync::state::chain_requests::ChainSenderForStateSync;
-use near_chain::resharding::types::ReshardingSender;
+use crate::chunk_producer::AdvProduceChunksMode;
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -113,8 +112,6 @@ pub struct Client {
     /// behavior on chain.
     #[cfg(feature = "test_features")]
     pub adv_produce_blocks: Option<AdvProduceBlocksMode>,
-    #[cfg(feature = "test_features")]
-    pub adv_produce_chunks: Option<AdvProduceChunksMode>,
 
     /// Fast Forward accrued delta height used to calculate fast forwarded timestamps for each block.
     #[cfg(feature = "sandbox")]
@@ -307,8 +304,8 @@ impl Client {
             ChunkEndorsementTracker::new(epoch_manager.clone(), chain.chain_store().store());
         let chunk_producer = ChunkProducer::new(
             clock.clone(),
-            &chain.chain_store(),
             config.produce_chunk_add_transactions_time_limit.clone(),
+            &chain.chain_store(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
             rng_seed,
@@ -325,8 +322,6 @@ impl Client {
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
-            #[cfg(feature = "test_features")]
-            adv_produce_chunks: None,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
             clock: clock.clone(),
@@ -1637,7 +1632,7 @@ impl Client {
         .entered();
 
         #[cfg(feature = "test_features")]
-        match self.adv_produce_chunks {
+        match self.chunk_producer.adv_produce_chunks {
             Some(AdvProduceChunksMode::StopProduce) => {
                 tracing::info!(
                     target: "adversary",

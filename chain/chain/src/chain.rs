@@ -2390,7 +2390,7 @@ impl Chain {
         prev_prev_hash: &CryptoHash,
         prev_hash: &CryptoHash,
     ) -> Result<bool, Error> {
-        Ok(!ChainStore::prev_block_is_caught_up(&self.chain_store, prev_prev_hash, prev_hash)?)
+        Ok(ChainStore::prev_block_is_caught_up(&self.chain_store, prev_prev_hash, prev_hash)?)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
