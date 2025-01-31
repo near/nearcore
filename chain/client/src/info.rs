@@ -310,7 +310,7 @@ impl InfoHelper {
         config_updater: &Option<ConfigUpdater>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
-        let is_syncing = client.sync_status.is_syncing();
+        let is_syncing = client.sync_handler.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
             let num_validators =
@@ -365,7 +365,7 @@ impl InfoHelper {
 
         self.info(
             &head,
-            &client.sync_status,
+            &client.sync_handler.sync_status,
             client.get_catchup_status().unwrap_or_default(),
             node_id,
             network_info,

@@ -274,6 +274,7 @@ near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-time = { path = "core/time" }
 near-undo-block = { path = "tools/undo-block" }
+near-dump-test-contract = { path = "tools/dump-test-contract" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
 near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }

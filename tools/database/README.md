@@ -2,16 +2,16 @@
 
 A set of tools useful when working with the underlying database.
 
-## Analyse data size distribution
+## Analyze data size distribution
 
-The analyse database script provides an efficient way to assess the size distribution
+The analyze database script provides an efficient way to assess the size distribution
 of keys and values within RocksDB.
 
 ### Usage
 
 To run the script, use the following example:
 ```bash
-cargo run --bin neard -- --home /home/ubuntu/.near database analyse-data-size-distribution --column State --top_k 50
+cargo run --bin neard -- --home /home/ubuntu/.near database analyze-data-size-distribution --column State --top_k 50
 ```
 The arguments are as follows:
 
@@ -78,7 +78,7 @@ cargo run --bin neard -- database compact-database
 
 Makes a copy of a DB (hot store only) at a specified location. If the
 destination is within the same filesystem, the copy will be made instantly and
-take no additional disk space due to hardlinking all the files.
+take no additional disk space due to hard-linking all the files.
 
 Example usage:
 ```bash

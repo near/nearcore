@@ -11,8 +11,8 @@ use strum::IntoEnumIterator;
 use crate::utils::{open_rocksdb, resolve_column};
 
 #[derive(Parser)]
-pub(crate) struct AnalyseDataSizeDistributionCommand {
-    /// If specified only this column will be analysed
+pub(crate) struct AnalyzeDataSizeDistributionCommand {
+    /// If specified only this column will be analyzed
     #[arg(short, long)]
     column: Option<String>,
 
@@ -189,7 +189,7 @@ fn get_column_families(input_col: &Option<String>) -> anyhow::Result<Vec<DBCol>>
     }
 }
 
-impl AnalyseDataSizeDistributionCommand {
+impl AnalyzeDataSizeDistributionCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         let db = open_rocksdb(home, near_store::Mode::ReadOnly)?;
         let column_families = get_column_families(&self.column)?;

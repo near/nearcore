@@ -587,6 +587,7 @@ mod test {
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: from_timestamp(Clock::real().now_utc().unix_timestamp_nanos() as u64),
+                // cspell:words rusttestnet
                 chain_id: "rusttestnet".to_string(),
                 genesis_height: 0,
                 num_block_producer_seats: near_chain_configs::NUM_BLOCK_PRODUCER_SEATS,
@@ -694,6 +695,7 @@ mod test {
         }
     }
 
+    // cspell:words SQDK Tsena Hvcnutu
     static TEST_CASES: &[TestCase] = &[
         // first one adds one validator (foo2), bumps up another's balance (foo0), and adds an extra account (extra-account.near)
         TestCase {

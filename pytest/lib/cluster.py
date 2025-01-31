@@ -875,6 +875,7 @@ def init_cluster(
     is_local = config['local']
     near_root = config['near_root']
     binary_name = config.get('binary_name', 'neard')
+    binary_path = os.path.join(near_root, binary_name)
 
     if extra_state_dumper:
         num_observers += 1
@@ -882,7 +883,6 @@ def init_cluster(
     logger.info("Creating %s cluster configuration with %s nodes" %
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
 
-    binary_path = os.path.join(near_root, binary_name)
     process = subprocess.Popen(
         [
             binary_path,

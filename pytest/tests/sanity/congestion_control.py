@@ -52,6 +52,7 @@ logger = new_logger("congestion_control_test", logging.INFO)
 class CongestionControlTest(unittest.TestCase):
 
     def setUp(self):
+        self.config = load_config()
         self.threads = []
 
     def tearDown(self):
@@ -265,7 +266,6 @@ class CongestionControlTest(unittest.TestCase):
     def __setup_node(self) -> BaseNode:
         logger.info("Setting up the node")
         epoch_length = 100
-        config = load_config()
         genesis_config_changes = [
             ("epoch_length", epoch_length),
             ("shard_layout", SHARD_LAYOUT),
@@ -285,12 +285,12 @@ class CongestionControlTest(unittest.TestCase):
             num_nodes=1,
             num_observers=0,
             num_shards=NUM_SHARDS,
-            config=config,
+            config=self.config,
             genesis_config_changes=genesis_config_changes,
             client_config_changes=client_config_changes,
         )
 
-        node = spin_up_node(config, near_root, node_dir, 0)
+        node = spin_up_node(self.config, near_root, node_dir, 0)
 
         # Save a block hash to use for creating transactions. Querying it every
         # time when creating a new transaction is really slow.
@@ -325,7 +325,7 @@ class CongestionControlTest(unittest.TestCase):
     def __deploy_contracts(self, node: BaseNode, accounts: list[Key]):
         logger.info("Deploying contracts")
 
-        contract = load_test_contract('test_contract_rs.wasm')
+        contract = load_test_contract('rs_contract.wasm', self.config)
         deploy_contract_tx_list = list()
         for account in accounts:
             tx_hash = self.__deploy_contract(node, account, contract)
