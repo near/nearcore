@@ -1778,7 +1778,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_funcall() {
+    fn test_delegate_action_key_permissions_function_call() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,
@@ -1868,7 +1868,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_key_permissions_funcall_deposit() {
+    fn test_delegate_action_key_permissions_function_call_deposit() {
         let (_, signed_delegate_action) = create_delegate_action_receipt();
         let access_key = AccessKey {
             nonce: 19000000,
