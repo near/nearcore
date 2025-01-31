@@ -1227,8 +1227,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+        Ok(self.epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {

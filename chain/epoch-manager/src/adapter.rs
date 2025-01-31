@@ -349,12 +349,38 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<bool, EpochError>;
 
+    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
+    // If shard layout will change next epoch, returns true if it cares about any shard
+    // that `shard_id` will split to
     fn cares_about_shard_next_epoch_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
         shard_id: ShardId,
-    ) -> Result<bool, EpochError>;
+    ) -> Result<bool, EpochError> {
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        if self.will_shard_layout_change(parent_hash)? {
+            let shard_layout = self.get_shard_layout(&next_epoch_id)?;
+            // The expect below may be triggered when the protocol version
+            // changes by multiple versions at once and multiple shard layout
+            // changes are captured. In this case the shards from the original
+            // shard layout are not valid parents in the final shard layout.
+            //
+            // This typically occurs in tests that are pegged to start at a
+            // certain protocol version and then upgrade to stable.
+            let split_shards = shard_layout
+                .get_children_shards_ids(shard_id)
+                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
+            for next_shard_id in split_shards {
+                if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        } else {
+            self.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
+        }
+    }
 
     fn cared_about_shard_prev_epoch_from_prev_block(
         &self,
@@ -363,7 +389,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<bool, EpochError>;
 
-    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
+    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+        let shard_layout = self.get_shard_layout(&epoch_id)?;
+        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
+        Ok(shard_layout != next_shard_layout)
+    }
 
     /// Tries to estimate in which epoch the given height would reside.
     /// Looks at the previous, current and next epoch around the tip
@@ -805,20 +837,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
     }
 
-    fn cares_about_shard_next_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.cares_about_shard_next_epoch_from_prev_block(
-            parent_hash,
-            account_id,
-            shard_id,
-        )
-    }
-
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
     // If shard layout changed after the prev epoch, returns true if the account cared about the parent shard
     fn cared_about_shard_prev_epoch_from_prev_block(
@@ -833,11 +851,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
         let epoch_manager = self.read();
         epoch_manager.cares_about_shard_in_epoch(&prev_epoch_id, account_id, parent_shard_id)
-    }
-
-    fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let epoch_manager = self.read();
-        epoch_manager.will_shard_layout_change(parent_hash)
     }
 
     fn possible_epochs_of_height_around_tip(

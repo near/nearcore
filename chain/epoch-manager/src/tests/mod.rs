@@ -2340,6 +2340,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
 
     // Check split shards
     // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
+    let epoch_manager = epoch_manager.into_handle();
     assert_eq!(epoch_manager.will_shard_layout_change(&h[3]).unwrap(), false);
     for i in 4..=5 {
         assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true);

@@ -1273,35 +1273,35 @@ impl EpochManager {
     // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
     // If shard layout will change next epoch, returns true if it cares about any shard
     // that `shard_id` will split to
-    pub fn cares_about_shard_next_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-        if self.will_shard_layout_change(parent_hash)? {
-            let shard_layout = self.get_shard_layout(&next_epoch_id)?;
-            // The expect below may be triggered when the protocol version
-            // changes by multiple versions at once and multiple shard layout
-            // changes are captured. In this case the shards from the original
-            // shard layout are not valid parents in the final shard layout.
-            //
-            // This typically occurs in tests that are pegged to start at a
-            // certain protocol version and then upgrade to stable.
-            let split_shards = shard_layout
-                .get_children_shards_ids(shard_id)
-                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
-            for next_shard_id in split_shards {
-                if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        } else {
-            self.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
-        }
-    }
+    // pub fn cares_about_shard_next_epoch_from_prev_block(
+    //     &self,
+    //     parent_hash: &CryptoHash,
+    //     account_id: &AccountId,
+    //     shard_id: ShardId,
+    // ) -> Result<bool, EpochError> {
+    //     let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+    //     if self.will_shard_layout_change(parent_hash)? {
+    //         let shard_layout = self.get_shard_layout(&next_epoch_id)?;
+    //         // The expect below may be triggered when the protocol version
+    //         // changes by multiple versions at once and multiple shard layout
+    //         // changes are captured. In this case the shards from the original
+    //         // shard layout are not valid parents in the final shard layout.
+    //         //
+    //         // This typically occurs in tests that are pegged to start at a
+    //         // certain protocol version and then upgrade to stable.
+    //         let split_shards = shard_layout
+    //             .get_children_shards_ids(shard_id)
+    //             .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
+    //         for next_shard_id in split_shards {
+    //             if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
+    //                 return Ok(true);
+    //             }
+    //         }
+    //         Ok(false)
+    //     } else {
+    //         self.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
+    //     }
+    // }
 
     /// Returns true if next block after given block hash is in the new epoch.
     pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
@@ -1827,13 +1827,13 @@ impl EpochManager {
         Ok(shard_layout)
     }
 
-    pub fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
-        Ok(shard_layout != next_shard_layout)
-    }
+    // pub fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
+    //     let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
+    //     let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
+    //     let shard_layout = self.get_shard_layout(&epoch_id)?;
+    //     let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
+    //     Ok(shard_layout != next_shard_layout)
+    // }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
