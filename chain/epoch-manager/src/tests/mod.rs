@@ -192,16 +192,16 @@ fn test_fork_finalization() {
         ("test3".parse().unwrap(), amount_staked),
     ];
     let epoch_length = 20;
-    let mut epoch_manager =
-        setup_default_epoch_manager(validators.clone(), epoch_length, 1, 3, 90, 60);
+    let epoch_manager =
+        setup_default_epoch_manager(validators.clone(), epoch_length, 1, 3, 90, 60).into_handle();
 
     let h = hash_range((5 * epoch_length - 1) as usize);
     // Have an alternate set of hashes to use on the other branch to avoid collisions.
     let h2: Vec<CryptoHash> = h.iter().map(|x| hash(x.as_ref())).collect();
 
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], 0, vec![]);
 
-    let build_branch = |epoch_manager: &mut EpochManager,
+    let build_branch = |epoch_manager: EpochManagerHandle,
                         base_block: CryptoHash,
                         hashes: &[CryptoHash],
                         validator_accounts: &[&str]|
@@ -216,7 +216,7 @@ fn test_fork_finalization() {
             let block_producer = epoch_info.get_validator(block_producer_id);
             let account_id = block_producer.account_id();
             if validator_accounts.iter().any(|v| *v == account_id) {
-                record_block(epoch_manager, prev_block, *curr_block, height, vec![]);
+                record_block(&mut epoch_manager.write(), prev_block, *curr_block, height, vec![]);
                 prev_block = *curr_block;
                 branch_blocks.push(*curr_block);
             }
@@ -226,19 +226,20 @@ fn test_fork_finalization() {
 
     // build test2/test4 fork
     record_block(
-        &mut epoch_manager,
+        &mut epoch_manager.write(),
         h[0],
         h[1],
         1,
         vec![stake("test4".parse().unwrap(), amount_staked)],
     );
-    let blocks_test2 = build_branch(&mut epoch_manager, h[1], &h, &["test2", "test4"]);
+    let blocks_test2 = build_branch(epoch_manager.clone(), h[1], &h, &["test2", "test4"]);
 
     // build test1/test3 fork
-    let blocks_test1 = build_branch(&mut epoch_manager, h[0], &h2, &["test1", "test3"]);
+    let blocks_test1 = build_branch(epoch_manager.clone(), h[0], &h2, &["test1", "test3"]);
 
     let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
     let mut bps = epoch_manager
+        .read()
         .get_all_block_producers_ordered(&epoch1, &h[1])
         .unwrap()
         .iter()
@@ -258,6 +259,7 @@ fn test_fork_finalization() {
     let epoch2_1 = epoch_manager.get_epoch_id(last_block).unwrap();
     assert_eq!(
         epoch_manager
+            .read()
             .get_all_block_producers_ordered(&epoch2_1, &h[1])
             .unwrap()
             .iter()
@@ -270,6 +272,7 @@ fn test_fork_finalization() {
     let epoch2_2 = epoch_manager.get_epoch_id(last_block).unwrap();
     assert_eq!(
         epoch_manager
+            .read()
             .get_all_block_producers_ordered(&epoch2_2, &h[1])
             .unwrap()
             .iter()
@@ -279,9 +282,10 @@ fn test_fork_finalization() {
     );
 
     // Check that if we have a different epoch manager and apply only second branch we get the same results.
-    let mut epoch_manager2 = setup_default_epoch_manager(validators, epoch_length, 1, 3, 90, 60);
-    record_block(&mut epoch_manager2, CryptoHash::default(), h[0], 0, vec![]);
-    build_branch(&mut epoch_manager2, h[0], &h2, &["test1", "test3"]);
+    let epoch_manager2 =
+        setup_default_epoch_manager(validators, epoch_length, 1, 3, 90, 60).into_handle();
+    record_block(&mut epoch_manager2.write(), CryptoHash::default(), h[0], 0, vec![]);
+    build_branch(epoch_manager2.clone(), h[0], &h2, &["test1", "test3"]);
     assert_eq!(epoch_manager.get_epoch_info(&epoch2_2), epoch_manager2.get_epoch_info(&epoch2_2));
 }
 
@@ -324,10 +328,11 @@ fn test_validator_kickout() {
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
     let epoch_length = 10;
-    let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 2, 90, 60);
+    let epoch_manager =
+        setup_default_epoch_manager(validators, epoch_length, 1, 2, 90, 60).into_handle();
     let h = hash_range((3 * epoch_length) as usize);
 
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], 0, vec![]);
     let mut prev_block = h[0];
     let mut test2_expected_blocks = 0;
     let init_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
@@ -342,7 +347,7 @@ fn test_validator_kickout() {
             // test1 skips its blocks in subsequent epochs
             ()
         } else {
-            record_block(&mut epoch_manager, prev_block, *curr_block, height, vec![]);
+            record_block(&mut epoch_manager.write(), prev_block, *curr_block, height, vec![]);
             prev_block = *curr_block;
         }
     }
@@ -856,7 +861,7 @@ fn test_reward_multiple_shards() {
         num_seconds_per_year: 1_000_000,
     };
     let num_shards = 2;
-    let mut epoch_manager = setup_epoch_manager(
+    let epoch_manager = setup_epoch_manager(
         validators,
         epoch_length,
         num_shards,
@@ -865,10 +870,11 @@ fn test_reward_multiple_shards() {
         60,
         0,
         reward_calculator.clone(),
-    );
+    )
+    .into_handle();
     let h = hash_range((2 * epoch_length + 1) as usize);
     record_with_block_info(
-        &mut epoch_manager,
+        &mut epoch_manager.write(),
         block_info(
             h[0],
             0,
@@ -903,7 +909,7 @@ fn test_reward_multiple_shards() {
             })
             .collect();
         record_with_block_info(
-            &mut epoch_manager,
+            &mut epoch_manager.write(),
             block_info(h[i], height, height, h[i - 1], h[i - 1], h[i], chunk_mask, total_supply),
         );
     }
@@ -1012,7 +1018,7 @@ fn test_expected_chunks() {
 
     let epoch_config =
         epoch_config_with_production_config(epoch_length, num_shards, 3, 3, 90, 60, 60, false);
-    let mut epoch_manager = EpochManager::new(
+    let epoch_manager = EpochManager::new(
         create_test_store(),
         epoch_config,
         PROTOCOL_VERSION,
@@ -1022,10 +1028,11 @@ fn test_expected_chunks() {
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
     )
-    .unwrap();
+    .unwrap()
+    .into_handle();
     let rng_seed = [0; 32];
     let hashes = hash_range((2 * epoch_length) as usize);
-    record_block(&mut epoch_manager, Default::default(), hashes[0], 0, vec![]);
+    record_block(&mut epoch_manager.write(), Default::default(), hashes[0], 0, vec![]);
     let mut expected = 0;
     let mut prev_block = hashes[0];
     let initial_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
@@ -1041,6 +1048,7 @@ fn test_expected_chunks() {
         }
 
         epoch_manager
+            .write()
             .record_block_info(
                 block_info(
                     *curr_block,
@@ -1086,11 +1094,12 @@ fn test_expected_chunks_prev_block_not_produced() {
     ];
     let epoch_length = 50;
     let total_supply = stake_amount * validators.len() as u128;
-    let mut epoch_manager =
-        setup_epoch_manager(validators, epoch_length, 1, 3, 90, 90, 0, default_reward_calculator());
+    let epoch_manager =
+        setup_epoch_manager(validators, epoch_length, 1, 3, 90, 90, 0, default_reward_calculator())
+            .into_handle();
     let rng_seed = [0; 32];
     let hashes = hash_range((2 * epoch_length) as usize);
-    record_block(&mut epoch_manager, Default::default(), hashes[0], 0, vec![]);
+    record_block(&mut epoch_manager.write(), Default::default(), hashes[0], 0, vec![]);
     let mut expected = 0;
     let mut prev_block = hashes[0];
     let initial_epoch_id = epoch_manager.get_epoch_id_from_prev_block(&prev_block).unwrap();
@@ -1116,6 +1125,7 @@ fn test_expected_chunks_prev_block_not_produced() {
             // test1 also misses all their chunks
             let should_produce_chunk = expected_chunk_producer != 0;
             epoch_manager
+                .write()
                 .record_block_info(
                     block_info(
                         *curr_block,
@@ -1185,18 +1195,19 @@ fn test_rewards_with_kickouts() {
         protocol_treasury_account: "near".parse().unwrap(),
         num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
     };
-    let mut em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator);
+    let em = setup_epoch_manager(validators, epoch_length, 1, 3, 10, 10, 0, reward_calculator)
+        .into_handle();
 
     let mut height: BlockHeight = 0;
     let genesis_hash = hash(height.to_le_bytes().as_ref());
-    record_block(&mut em, Default::default(), genesis_hash, height, vec![]);
+    record_block(&mut em.write(), Default::default(), genesis_hash, height, vec![]);
 
     height += 1;
     let first_hash = hash(height.to_le_bytes().as_ref());
 
     // unstake test3 in the first block so we can see it in the kickouts later
     record_block(
-        &mut em,
+        &mut em.write(),
         genesis_hash,
         first_hash,
         height,
@@ -1217,7 +1228,7 @@ fn test_rewards_with_kickouts() {
 
         // don't produce blocks for test2 so we can see it in the kickouts
         if block_producer.as_str() != "test2" {
-            record_block(&mut em, prev_hash, block_hash, height, vec![]);
+            record_block(&mut em.write(), prev_hash, block_hash, height, vec![]);
             prev_hash = block_hash;
         }
 
@@ -1493,11 +1504,12 @@ fn test_chunk_producer_kickout() {
         vec![("test1".parse().unwrap(), stake_amount), ("test2".parse().unwrap(), stake_amount)];
     let epoch_length = 10;
     let total_supply = stake_amount * validators.len() as u128;
-    let mut em =
-        setup_epoch_manager(validators, epoch_length, 4, 2, 90, 70, 0, default_reward_calculator());
+    let em =
+        setup_epoch_manager(validators, epoch_length, 4, 2, 90, 70, 0, default_reward_calculator())
+            .into_handle();
     let rng_seed = [0; 32];
     let hashes = hash_range((epoch_length + 2) as usize);
-    record_block(&mut em, Default::default(), hashes[0], 0, vec![]);
+    record_block(&mut em.write(), Default::default(), hashes[0], 0, vec![]);
     let mut expected = 0;
     for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
         let height = height as u64;
@@ -1527,20 +1539,21 @@ fn test_chunk_producer_kickout() {
             })
             .collect();
 
-        em.record_block_info(
-            block_info(
-                *curr_block,
-                height,
-                height - 1,
-                *prev_block,
-                *prev_block,
-                epoch_id.0,
-                chunk_mask,
-                total_supply,
-            ),
-            rng_seed,
-        )
-        .unwrap();
+        em.write()
+            .record_block_info(
+                block_info(
+                    *curr_block,
+                    height,
+                    height - 1,
+                    *prev_block,
+                    *prev_block,
+                    epoch_id.0,
+                    chunk_mask,
+                    total_supply,
+                ),
+                rng_seed,
+            )
+            .unwrap();
     }
 
     let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
@@ -1564,7 +1577,7 @@ fn test_chunk_validator_kickout_using_production_stats() {
     let num_shards = 2;
     let epoch_config =
         epoch_config_with_production_config(epoch_length, num_shards, 2, 2, 90, 40, 75, false);
-    let mut em = EpochManager::new(
+    let em = EpochManager::new(
         create_test_store(),
         epoch_config,
         PROTOCOL_VERSION,
@@ -1574,10 +1587,11 @@ fn test_chunk_validator_kickout_using_production_stats() {
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
     )
-    .unwrap();
+    .unwrap()
+    .into_handle();
     let rng_seed = [0; 32];
     let hashes = hash_range((epoch_length + 2) as usize);
-    record_block(&mut em, Default::default(), hashes[0], 0, vec![]);
+    record_block(&mut em.write(), Default::default(), hashes[0], 0, vec![]);
     for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
         let height = height as u64;
         let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
@@ -1586,20 +1600,21 @@ fn test_chunk_validator_kickout_using_production_stats() {
         } else {
             vec![true; num_shards as usize]
         };
-        em.record_block_info(
-            block_info(
-                *curr_block,
-                height,
-                height - 1,
-                *prev_block,
-                *prev_block,
-                epoch_id.0,
-                chunk_mask,
-                total_supply,
-            ),
-            rng_seed,
-        )
-        .unwrap();
+        em.write()
+            .record_block_info(
+                block_info(
+                    *curr_block,
+                    height,
+                    height - 1,
+                    *prev_block,
+                    *prev_block,
+                    epoch_id.0,
+                    chunk_mask,
+                    total_supply,
+                ),
+                rng_seed,
+            )
+            .unwrap();
     }
 
     let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
@@ -1636,7 +1651,7 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
     let num_shards = 2;
     let epoch_config =
         epoch_config_with_production_config(epoch_length, num_shards, 2, 2, 90, 40, 75, false);
-    let mut em = EpochManager::new(
+    let em = EpochManager::new(
         create_test_store(),
         epoch_config,
         PROTOCOL_VERSION,
@@ -1646,10 +1661,11 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
             .map(|(account_id, balance)| stake(account_id.clone(), *balance))
             .collect(),
     )
-    .unwrap();
+    .unwrap()
+    .into_handle();
     let rng_seed = [0; 32];
     let hashes = hash_range((epoch_length + 2) as usize);
-    record_block(&mut em, Default::default(), hashes[0], 0, vec![]);
+    record_block(&mut em.write(), Default::default(), hashes[0], 0, vec![]);
     for (prev_block, (height, curr_block)) in hashes.iter().zip(hashes.iter().enumerate().skip(1)) {
         let height = height as u64;
         let epoch_id = em.get_epoch_id_from_prev_block(prev_block).unwrap();
@@ -1675,26 +1691,27 @@ fn test_chunk_validator_kickout_using_endorsement_stats() {
                     .collect(),
             )
         }
-        em.record_block_info(
-            BlockInfo::V3(BlockInfoV3 {
-                hash: *curr_block,
-                height,
-                last_finalized_height: height - 1,
-                last_final_block_hash: *prev_block,
-                prev_hash: *prev_block,
-                epoch_id: Default::default(),
-                epoch_first_block: epoch_id.0,
-                proposals: vec![],
-                chunk_mask,
-                latest_protocol_version: PROTOCOL_VERSION,
-                slashed: Default::default(),
-                total_supply,
-                timestamp_nanosec: height * NUM_NS_IN_SECOND,
-                chunk_endorsements: bitmap,
-            }),
-            rng_seed,
-        )
-        .unwrap();
+        em.write()
+            .record_block_info(
+                BlockInfo::V3(BlockInfoV3 {
+                    hash: *curr_block,
+                    height,
+                    last_finalized_height: height - 1,
+                    last_final_block_hash: *prev_block,
+                    prev_hash: *prev_block,
+                    epoch_id: Default::default(),
+                    epoch_first_block: epoch_id.0,
+                    proposals: vec![],
+                    chunk_mask,
+                    latest_protocol_version: PROTOCOL_VERSION,
+                    slashed: Default::default(),
+                    total_supply,
+                    timestamp_nanosec: height * NUM_NS_IN_SECOND,
+                    chunk_endorsements: bitmap,
+                }),
+                rng_seed,
+            )
+            .unwrap();
     }
 
     let last_epoch_info = hashes.iter().filter_map(|x| em.get_epoch_info(&EpochId(*x)).ok()).last();
@@ -2139,10 +2156,11 @@ fn test_all_kickout_edge_case() {
         ("test3".parse().unwrap(), stake_amount),
     ];
     const EPOCH_LENGTH: u64 = 10;
-    let mut epoch_manager = setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60);
+    let epoch_manager =
+        setup_default_epoch_manager(validators, EPOCH_LENGTH, 1, 3, 90, 60).into_handle();
     let hashes = hash_range((8 * EPOCH_LENGTH + 1) as usize);
 
-    record_block(&mut epoch_manager, CryptoHash::default(), hashes[0], 0, vec![]);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), hashes[0], 0, vec![]);
     let mut prev_block = hashes[0];
     for (height, curr_block) in hashes.iter().enumerate().skip(1) {
         let height = height as u64;
@@ -2153,12 +2171,18 @@ fn test_all_kickout_edge_case() {
         if height < EPOCH_LENGTH {
             // kickout test2 during first epoch
             if block_producer == "test1" || block_producer == "test3" {
-                record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
+                record_block(
+                    &mut epoch_manager.write(),
+                    prev_block,
+                    *curr_block,
+                    height,
+                    Vec::new(),
+                );
                 prev_block = *curr_block;
             }
         } else if height < 2 * EPOCH_LENGTH {
             // produce blocks as normal during the second epoch
-            record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
+            record_block(&mut epoch_manager.write(), prev_block, *curr_block, height, Vec::new());
             prev_block = *curr_block;
         } else if height < 5 * EPOCH_LENGTH {
             // no one produces blocks during epochs 3, 4, 5
@@ -2166,18 +2190,24 @@ fn test_all_kickout_edge_case() {
             ()
         } else if height < 6 * EPOCH_LENGTH {
             // produce blocks normally during epoch 6
-            record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
+            record_block(&mut epoch_manager.write(), prev_block, *curr_block, height, Vec::new());
             prev_block = *curr_block;
         } else if height < 7 * EPOCH_LENGTH {
             // the validator which was not kicked out in epoch 6 stops producing blocks,
             // but cannot be kicked out now because they are the last validator
             if block_producer != epoch_info.validator_account_id(0) {
-                record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
+                record_block(
+                    &mut epoch_manager.write(),
+                    prev_block,
+                    *curr_block,
+                    height,
+                    Vec::new(),
+                );
                 prev_block = *curr_block;
             }
         } else {
             // produce blocks normally again
-            record_block(&mut epoch_manager, prev_block, *curr_block, height, Vec::new());
+            record_block(&mut epoch_manager.write(), prev_block, *curr_block, height, Vec::new());
             prev_block = *curr_block;
         }
     }
@@ -2310,6 +2340,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
 
     // Check split shards
     // h[5] is the first block of epoch epochs[1] and shard layout will change at epochs[2]
+    let epoch_manager = epoch_manager.into_handle();
     assert_eq!(epoch_manager.will_shard_layout_change(&h[3]).unwrap(), false);
     for i in 4..=5 {
         assert_eq!(epoch_manager.will_shard_layout_change(&h[i]).unwrap(), true);

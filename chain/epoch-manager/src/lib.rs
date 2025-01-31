@@ -366,63 +366,6 @@ impl EpochManager {
         EpochManagerHandle { inner }
     }
 
-    /// Only used in mock node
-    /// Copy the necessary epoch info related to `block_hash` from `source_epoch_manager` to
-    /// the current epoch manager.
-    /// Note that this function doesn't copy info stored in EpochInfoAggregator, so `block_hash` must be
-    /// the last block in an epoch in order for the epoch manager to work properly after this function
-    /// is called
-    pub fn copy_epoch_info_as_of_block(
-        &mut self,
-        block_hash: &CryptoHash,
-        source_epoch_manager: &EpochManager,
-    ) -> Result<(), EpochError> {
-        let block_info = source_epoch_manager.get_block_info(block_hash)?;
-        let prev_hash = block_info.prev_hash();
-        let epoch_id = &source_epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let next_epoch_id = &source_epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
-        let mut store_update = self.store.store_update();
-        self.save_epoch_info(
-            &mut store_update,
-            epoch_id,
-            source_epoch_manager.get_epoch_info(epoch_id)?,
-        )?;
-        // save next epoch info too
-        self.save_epoch_info(
-            &mut store_update,
-            next_epoch_id,
-            source_epoch_manager.get_epoch_info(next_epoch_id)?,
-        )?;
-        // save next next epoch info if the block is the last block
-        if source_epoch_manager.is_next_block_epoch_start(block_hash)? {
-            let next_next_epoch_id =
-                source_epoch_manager.get_next_epoch_id_from_prev_block(block_hash)?;
-            self.save_epoch_info(
-                &mut store_update,
-                &next_next_epoch_id,
-                source_epoch_manager.get_epoch_info(&next_next_epoch_id)?,
-            )?;
-        }
-
-        // save block info for the first block in the epoch
-        let epoch_first_block = block_info.epoch_first_block();
-        self.save_block_info(
-            &mut store_update,
-            source_epoch_manager.get_block_info(epoch_first_block)?,
-        )?;
-
-        self.save_block_info(&mut store_update, block_info)?;
-
-        self.save_epoch_start(
-            &mut store_update,
-            epoch_id,
-            source_epoch_manager.get_epoch_start_from_epoch_id(epoch_id)?,
-        )?;
-
-        store_update.commit()?;
-        Ok(())
-    }
-
     pub fn init_after_epoch_sync(
         &mut self,
         store_update: &mut StoreUpdate,
@@ -1144,10 +1087,9 @@ impl EpochManager {
     pub fn get_all_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
+        current_epoch_id: EpochId,
+        next_epoch_id: EpochId,
     ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
-        let current_epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-
         let mut settlement =
             self.get_all_block_producers_settlement(&current_epoch_id, parent_hash)?.to_vec();
 
@@ -1236,102 +1178,10 @@ impl EpochManager {
         self.get_epoch_info(&epoch_id)
     }
 
-    pub fn cares_about_shard_in_epoch(
-        &self,
-        epoch_id: &EpochId,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?;
-
-        let shard_layout = self.get_shard_layout(epoch_id)?;
-        let shard_index = shard_layout.get_shard_index(shard_id)?;
-
-        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
-        let chunk_producers = chunk_producers_settlement
-            .get(shard_index)
-            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
-        for validator_id in chunk_producers.iter() {
-            if epoch_info.validator_account_id(*validator_id) == account_id {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    pub fn cares_about_shard_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        self.cares_about_shard_in_epoch(&epoch_id, account_id, shard_id)
-    }
-
-    // `shard_id` always refers to a shard in the current epoch that the next block from `parent_hash` belongs
-    // If shard layout will change next epoch, returns true if it cares about any shard
-    // that `shard_id` will split to
-    pub fn cares_about_shard_next_epoch_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-        account_id: &AccountId,
-        shard_id: ShardId,
-    ) -> Result<bool, EpochError> {
-        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-        if self.will_shard_layout_change(parent_hash)? {
-            let shard_layout = self.get_shard_layout(&next_epoch_id)?;
-            // The expect below may be triggered when the protocol version
-            // changes by multiple versions at once and multiple shard layout
-            // changes are captured. In this case the shards from the original
-            // shard layout are not valid parents in the final shard layout.
-            //
-            // This typically occurs in tests that are pegged to start at a
-            // certain protocol version and then upgrade to stable.
-            let split_shards = shard_layout
-                .get_children_shards_ids(shard_id)
-                .unwrap_or_else(|| panic!("all shard layouts expect the first one must have a split map, shard_id={shard_id}, shard_layout={shard_layout:?}"));
-            for next_shard_id in split_shards {
-                if self.cares_about_shard_in_epoch(&next_epoch_id, account_id, next_shard_id)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        } else {
-            self.cares_about_shard_in_epoch(&next_epoch_id, account_id, shard_id)
-        }
-    }
-
     /// Returns true if next block after given block hash is in the new epoch.
     pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let block_info = self.get_block_info(parent_hash)?;
         self.is_next_block_in_next_epoch(&block_info)
-    }
-
-    /// Relies on the fact that last block hash of an epoch is an EpochId of next next epoch.
-    /// If this block is the last one in some epoch, and we fully processed it, there will be `EpochInfo` record with `hash` key.
-    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
-        match self.get_epoch_info(&EpochId(*hash)) {
-            Ok(_) => Ok(true),
-            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
-            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
-            Err(EpochError::MissingBlock(_)) => Ok(false),
-            Err(err) => {
-                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
-                Ok(false)
-            }
-        }
-    }
-
-    pub fn get_epoch_id_from_prev_block(
-        &self,
-        parent_hash: &CryptoHash,
-    ) -> Result<EpochId, EpochError> {
-        if self.is_next_block_epoch_start(parent_hash)? {
-            self.get_next_epoch_id(parent_hash)
-        } else {
-            self.get_epoch_id(parent_hash)
-        }
     }
 
     pub fn get_next_epoch_id_from_prev_block(
@@ -1839,14 +1689,6 @@ impl EpochManager {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
         let shard_layout = self.config.for_protocol_version(protocol_version).shard_layout;
         Ok(shard_layout)
-    }
-
-    pub fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
-        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
-        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
-        let shard_layout = self.get_shard_layout(&epoch_id)?;
-        let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
-        Ok(shard_layout != next_shard_layout)
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
