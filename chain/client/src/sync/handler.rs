@@ -162,9 +162,8 @@ impl SyncHandler {
             &shards_to_sync,
         );
         let state_sync_result = unwrap_and_report_state_sync_result!(state_sync_result);
-        match state_sync_result {
-            StateSyncResult::InProgress => return None,
-            StateSyncResult::Completed => (),
+        if matches!(state_sync_result, StateSyncResult::InProgress) {
+            return None;
         }
 
         tracing::info!(target: "sync", "State sync: all shards are done");
@@ -324,8 +323,6 @@ impl SyncHandler {
     ) -> Result<Vec<(CryptoHash, PeerId)>, near_chain::Error> {
         let now = self.clock.now_utc();
 
-        let mut have_all = true;
-
         let sync_hash = *block_header.hash();
         let prev_hash = *block_header.prev_hash();
 
@@ -339,7 +336,6 @@ impl SyncHandler {
             let (request_block, have_block) =
                 self.sync_block_status(chain, &sync_hash, &hash, now)?;
             tracing::trace!(target: "sync", ?hash, ?request_block, ?have_block, "request_sync_blocks");
-            have_all = have_all && have_block;
 
             if have_block {
                 self.last_time_sync_block_requested.remove(&hash);
@@ -360,7 +356,7 @@ impl SyncHandler {
             blocks_to_request.push((hash, peer_id));
         }
 
-        tracing::trace!(target: "sync", ?have_all, "request_sync_blocks: done");
+        tracing::trace!(target: "sync", num_blocks_to_request = blocks_to_request.len(), "request_sync_blocks: done");
 
         Ok(blocks_to_request)
     }
