@@ -280,7 +280,7 @@ impl DoomslugApprovalsTrackersAtHeight {
     fn process_approval(
         &mut self,
         approval: &Approval,
-        stakes: &[(ApprovalStake, bool)],
+        stakes: &[ApprovalStake],
         threshold_mode: DoomslugThresholdMode,
     ) -> DoomslugBlockProductionReadiness {
         if let Some(last_parent) = self.last_approval_per_account.get(&approval.account_id) {
@@ -300,13 +300,7 @@ impl DoomslugApprovalsTrackersAtHeight {
 
         let account_id_to_stakes = stakes
             .iter()
-            .filter_map(|(x, is_slashed)| {
-                if *is_slashed {
-                    None
-                } else {
-                    Some((x.account_id.clone(), (x.stake_this_epoch, x.stake_next_epoch)))
-                }
-            })
+            .map(|x| (x.account_id.clone(), (x.stake_this_epoch, x.stake_next_epoch)))
             .collect::<HashMap<_, _>>();
 
         assert_eq!(account_id_to_stakes.len(), stakes.len());
@@ -559,27 +553,25 @@ impl Doomslug {
     pub fn can_approved_block_be_produced(
         mode: DoomslugThresholdMode,
         approvals: &[Option<Box<Signature>>],
-        stakes: &[(Balance, Balance, bool)],
+        stakes: &[(Balance, Balance)],
     ) -> bool {
         if mode == DoomslugThresholdMode::NoApprovals {
             return true;
         }
 
-        let threshold1 = stakes.iter().map(|(x, _, _)| x).sum::<Balance>() * 2 / 3;
-        let threshold2 = stakes.iter().map(|(_, x, _)| x).sum::<Balance>() * 2 / 3;
+        let threshold1 = stakes.iter().map(|(x, _)| x).sum::<Balance>() * 2 / 3;
+        let threshold2 = stakes.iter().map(|(_, x)| x).sum::<Balance>() * 2 / 3;
 
         let approved_stake1 = approvals
             .iter()
             .zip(stakes.iter())
-            .filter(|(_, (_, _, is_slashed))| !*is_slashed)
-            .map(|(approval, (stake, _, _))| if approval.is_some() { *stake } else { 0 })
+            .map(|(approval, (stake, _))| if approval.is_some() { *stake } else { 0 })
             .sum::<Balance>();
 
         let approved_stake2 = approvals
             .iter()
             .zip(stakes.iter())
-            .filter(|(_, (_, _, is_slashed))| !*is_slashed)
-            .map(|(approval, (_, stake, _))| if approval.is_some() { *stake } else { 0 })
+            .map(|(approval, (_, stake))| if approval.is_some() { *stake } else { 0 })
             .sum::<Balance>();
 
         (approved_stake1 > threshold1 || threshold1 == 0)
@@ -639,7 +631,7 @@ impl Doomslug {
     fn on_approval_message_internal(
         &mut self,
         approval: &Approval,
-        stakes: &[(ApprovalStake, bool)],
+        stakes: &[ApprovalStake],
     ) -> DoomslugBlockProductionReadiness {
         let threshold_mode = self.threshold_mode;
         let ret = self
@@ -662,7 +654,7 @@ impl Doomslug {
     }
 
     /// Processes single approval
-    pub fn on_approval_message(&mut self, approval: &Approval, stakes: &[(ApprovalStake, bool)]) {
+    pub fn on_approval_message(&mut self, approval: &Approval, stakes: &[ApprovalStake]) {
         if approval.target_height < self.tip.height
             || approval.target_height > self.tip.height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
         {
@@ -935,7 +927,6 @@ mod tests {
                 stake_next_epoch: *stake_next_epoch,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
-            .map(|stake| (stake, false))
             .collect::<Vec<_>>();
         let signers = accounts
             .iter()
@@ -1058,7 +1049,6 @@ mod tests {
                 stake_next_epoch,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
-            .map(|stake| (stake, false))
             .collect::<Vec<_>>();
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut tracker = DoomslugApprovalsTrackersAtHeight::new(clock.clock());

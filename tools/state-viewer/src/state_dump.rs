@@ -41,18 +41,13 @@ pub fn state_dump(
         last_block_header.hash()
     );
     let genesis_height = last_block_header.height() + 1;
-    let block_producers = epoch_manager
-        .get_epoch_block_producers_ordered(last_block_header.epoch_id(), last_block_header.hash())
-        .unwrap();
+    let block_producers =
+        epoch_manager.get_epoch_block_producers_ordered(last_block_header.epoch_id()).unwrap();
     let validators = block_producers
         .into_iter()
-        .filter_map(|(info, is_slashed)| {
-            if !is_slashed {
-                let (account_id, public_key, stake) = info.destructure();
-                Some((account_id, (public_key, stake)))
-            } else {
-                None
-            }
+        .map(|info| {
+            let (account_id, public_key, stake) = info.destructure();
+            (account_id, (public_key, stake))
         })
         .collect::<HashMap<_, _>>();
 
@@ -479,14 +474,11 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
         let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
-        let block_producers = env.clients[0]
-            .epoch_manager
-            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
-            .unwrap();
+        let block_producers =
+            env.clients[0].epoch_manager.get_epoch_block_producers_ordered(&cur_epoch_id).unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|r| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -555,14 +547,11 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
         let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
-        let block_producers = env.clients[0]
-            .epoch_manager
-            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
-            .unwrap();
+        let block_producers =
+            env.clients[0].epoch_manager.get_epoch_block_producers_ordered(&cur_epoch_id).unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|r| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()]),
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -618,14 +607,11 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
         let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
-        let block_producers = env.clients[0]
-            .epoch_manager
-            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
-            .unwrap();
+        let block_producers =
+            env.clients[0].epoch_manager.get_epoch_block_producers_ordered(&cur_epoch_id).unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|r| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -899,14 +885,11 @@ mod test {
         )
         .unwrap();
         let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
-        let block_producers = env.clients[0]
-            .epoch_manager
-            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
-            .unwrap();
+        let block_producers =
+            env.clients[0].epoch_manager.get_epoch_block_producers_ordered(&cur_epoch_id).unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|r| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()])
         );
         let last_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
@@ -952,14 +935,11 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1);
 
         let head = env.clients[0].chain.head().unwrap();
-        let last_block_hash = head.last_block_hash;
         let cur_epoch_id = head.epoch_id;
-        let block_producers = env.clients[0]
-            .epoch_manager
-            .get_epoch_block_producers_ordered(&cur_epoch_id, &last_block_hash)
-            .unwrap();
+        let block_producers =
+            env.clients[0].epoch_manager.get_epoch_block_producers_ordered(&cur_epoch_id).unwrap();
         assert_eq!(
-            block_producers.into_iter().map(|(r, _)| r.take_account_id()).collect::<HashSet<_>>(),
+            block_producers.into_iter().map(|r| r.take_account_id()).collect::<HashSet<_>>(),
             HashSet::from_iter(vec!["test0".parse().unwrap(), "test1".parse().unwrap()]),
         );
 
