@@ -350,7 +350,6 @@ pub fn copy_all_data_to_cold(
                     tracing::debug!(target: "cold_store", "stopping copy_all_data_to_cold");
                     return Ok(CopyAllDataToColdStatus::Interrupted);
                 }
-                // TODO(resharding) Should do mapping here?
                 let (key, value) = result?;
                 transaction.set_and_write_if_full(col, key.to_vec(), value.to_vec())?;
             }
