@@ -29,19 +29,37 @@ enum ClockInner {
 /// it has to be replaced with a fake double, if we want our
 /// tests to be deterministic.
 ///
-/// TODO: add tests.
+/// # Examples
+///
+/// ```
+/// use near_primitives_core::time::Clock;
+///
+/// // In production code, use real clock
+/// let clock = Clock::real();
+///
+/// // In tests, use fake clock
+/// #[cfg(test)]
+/// {
+///     use near_primitives_core::time::FakeClock;
+///     let fake_clock = FakeClock::default();
+///     let clock = fake_clock.clock();
+/// }
+/// ```
 #[derive(Clone)]
 pub struct Clock(ClockInner);
 
 impl Clock {
-    /// Constructor of the real clock. Use it in production code.
-    /// Preferably construct it directly in the main() function,
+    /// Creates a new instance of Clock that uses the real system clock.
+    /// Use this in production code, preferably constructing it directly in the main() function,
     /// so that it can be faked out in every other function.
     pub fn real() -> Clock {
         Clock(ClockInner::Real)
     }
 
-    /// Current time according to the monotone clock.
+    /// Returns the current time according to the monotonic clock.
+    /// 
+    /// The monotonic clock is guaranteed to be always increasing and is not affected
+    /// by system time changes. This should be used for measuring elapsed time and timeouts.
     pub fn now(&self) -> Instant {
         match &self.0 {
             ClockInner::Real => Instant::now(),
@@ -49,7 +67,10 @@ impl Clock {
         }
     }
 
-    /// Current time according to the system/walltime clock.
+    /// Returns the current UTC time according to the system clock.
+    /// 
+    /// This clock can be affected by system time changes and should be used
+    /// when wall-clock time is needed (e.g., for timestamps in logs).
     pub fn now_utc(&self) -> Utc {
         match &self.0 {
             ClockInner::Real => Utc::now_utc(),
@@ -57,7 +78,10 @@ impl Clock {
         }
     }
 
-    /// Cancellable.
+    /// Suspends the current task until the specified deadline is reached.
+    /// 
+    /// If the deadline is `Infinite`, the task will be suspended indefinitely.
+    /// The operation is cancellable - if the future is dropped, the sleep will be cancelled.
     pub async fn sleep_until_deadline(&self, t: Deadline) {
         match t {
             Deadline::Infinite => std::future::pending().await,
@@ -65,7 +89,9 @@ impl Clock {
         }
     }
 
-    /// Cancellable.
+    /// Suspends the current task until the specified instant is reached.
+    /// 
+    /// The operation is cancellable - if the future is dropped, the sleep will be cancelled.
     pub async fn sleep_until(&self, t: Instant) {
         match &self.0 {
             ClockInner::Real => tokio::time::sleep_until(t.into()).await,
@@ -73,7 +99,9 @@ impl Clock {
         }
     }
 
-    /// Cancellable.
+    /// Suspends the current task for the specified duration.
+    /// 
+    /// The operation is cancellable - if the future is dropped, the sleep will be cancelled.
     pub async fn sleep(&self, d: Duration) {
         match &self.0 {
             ClockInner::Real => tokio::time::sleep(d.try_into().unwrap()).await,
@@ -259,5 +287,92 @@ impl Interval {
             // the error along to the user, so we just panic.
             .expect("too much time has elapsed since the interval was supposed to tick"),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration as StdDuration;
+
+    #[test]
+    fn test_real_clock() {
+        let clock = Clock::real();
+        let start = clock.now();
+        std::thread::sleep(StdDuration::from_millis(10));
+        let end = clock.now();
+        assert!(end > start);
+    }
+
+    #[tokio::test]
+    async fn test_fake_clock_sleep() {
+        let fake = FakeClock::default();
+        let clock = fake.clock();
+        let start = clock.now();
+        
+        // Create a task that sleeps
+        let sleep_task = tokio::spawn({
+            let clock = clock.clone();
+            async move {
+                clock.sleep(Duration::seconds(5)).await;
+                clock.now()
+            }
+        });
+
+        // Advance clock by 3 seconds
+        fake.advance(Duration::seconds(3));
+        
+        // Sleep task should still be waiting
+        assert!(!sleep_task.is_finished());
+        
+        // Advance clock by 3 more seconds
+        fake.advance(Duration::seconds(3));
+        
+        // Now sleep task should complete
+        let end = sleep_task.await.unwrap();
+        assert_eq!(end.signed_duration_since(start), Duration::seconds(6));
+    }
+
+    #[tokio::test]
+    async fn test_fake_clock_sleep_until() {
+        let fake = FakeClock::default();
+        let clock = fake.clock();
+        let start = clock.now();
+        let wake_time = start + Duration::seconds(10);
+
+        // Create a task that sleeps until specific time
+        let sleep_task = tokio::spawn({
+            let clock = clock.clone();
+            async move {
+                clock.sleep_until(wake_time).await;
+                clock.now()
+            }
+        });
+
+        // Advance clock to just before wake time
+        fake.advance_until(wake_time - Duration::seconds(1));
+        
+        // Sleep task should still be waiting
+        assert!(!sleep_task.is_finished());
+        
+        // Advance clock past wake time
+        fake.advance_until(wake_time + Duration::seconds(1));
+        
+        // Now sleep task should complete
+        let end = sleep_task.await.unwrap();
+        assert!(end >= wake_time);
+    }
+
+    #[test]
+    fn test_fake_clock_utc() {
+        let fake = FakeClock::default();
+        let clock = fake.clock();
+        let start_utc = clock.now_utc();
+        
+        // Advance clock by 1 hour
+        fake.advance(Duration::hours(1));
+        
+        let end_utc = clock.now_utc();
+        assert_eq!(end_utc.signed_duration_since(start_utc), Duration::hours(1));
     }
 }
