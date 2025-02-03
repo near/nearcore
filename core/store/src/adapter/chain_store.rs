@@ -300,7 +300,7 @@ impl ChainStoreAdapter {
     pub fn get_block_merkle_tree(
         &self,
         block_hash: &CryptoHash,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
+    ) -> Result<PartialMerkleTree, Error> {
         option_to_not_found(
             self.store.get_ser(DBCol::BlockMerkleTree, block_hash.as_ref()),
             format_args!("BLOCK MERKLE TREE: {}", block_hash),
@@ -320,7 +320,7 @@ impl ChainStoreAdapter {
     pub fn get_block_merkle_tree_from_ordinal(
         &self,
         block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
+    ) -> Result<PartialMerkleTree, Error> {
         let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
         self.get_block_merkle_tree(&block_hash)
     }

@@ -243,7 +243,7 @@ pub(crate) fn map_records<P: AsRef<Path>>(
                 records_seq.serialize_element(&r).unwrap();
             }
             StateRecord::DelayedReceipt(receipt) => {
-                map_receipt(receipt, secret.as_ref(), &default_key);
+                map_receipt(&mut receipt.receipt, secret.as_ref(), &default_key);
                 records_seq.serialize_element(&r).unwrap();
             }
         };

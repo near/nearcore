@@ -65,13 +65,15 @@ def main():
     block_height = stable_node.get_latest_block().height
     nonce = block_height * 1_000_000 - 1
 
-    tx = sign_deploy_contract_tx(new_signer_key, utils.load_test_contract(),
-                                 nonce, block_hash)
+    test_contract = utils.load_test_contract(
+        config=executables.current.node_config())
+    tx = sign_deploy_contract_tx(new_signer_key, test_contract, nonce,
+                                 block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 
-    tx = sign_deploy_contract_tx(stable_node.signer_key,
-                                 utils.load_test_contract(), 3, block_hash)
+    tx = sign_deploy_contract_tx(stable_node.signer_key, test_contract, 3,
+                                 block_hash)
     res = stable_node.send_tx_and_wait(tx, timeout=20)
     assert 'error' not in res, res
 

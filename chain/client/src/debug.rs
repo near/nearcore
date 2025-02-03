@@ -167,9 +167,9 @@ impl Handler<DebugStatus> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: DebugStatus) -> Result<DebugStatusResponse, StatusError> {
         match msg {
-            DebugStatus::SyncStatus => {
-                Ok(DebugStatusResponse::SyncStatus(self.client.sync_status.clone().into()))
-            }
+            DebugStatus::SyncStatus => Ok(DebugStatusResponse::SyncStatus(
+                self.client.sync_handler.sync_status.clone().into(),
+            )),
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
             }
@@ -186,7 +186,7 @@ impl Handler<DebugStatus> for ClientActorInner {
                 Ok(DebugStatusResponse::CatchupStatus(self.client.get_catchup_status()?))
             }
             DebugStatus::RequestedStateParts => Ok(DebugStatusResponse::RequestedStateParts(
-                self.client.chain.get_requested_state_parts(),
+                self.client.chain.state_sync_adapter.get_requested_state_parts(),
             )),
             DebugStatus::ChainProcessingStatus => Ok(DebugStatusResponse::ChainProcessingStatus(
                 self.client.chain.get_chain_processing_info(),
@@ -200,17 +200,16 @@ impl ClientActorInner {
     fn get_producers_for_epoch(
         &self,
         epoch_id: &EpochId,
-        last_known_block_hash: &CryptoHash,
     ) -> Result<(Vec<ValidatorInfo>, Vec<String>), Error> {
         let mut block_producers_set = HashSet::new();
         let block_producers: Vec<ValidatorInfo> = self
             .client
             .epoch_manager
-            .get_epoch_block_producers_ordered(epoch_id, last_known_block_hash)?
+            .get_epoch_block_producers_ordered(epoch_id)?
             .into_iter()
-            .map(|(validator_stake, is_slashed)| {
+            .map(|validator_stake| {
                 block_producers_set.insert(validator_stake.account_id().as_str().to_owned());
-                ValidatorInfo { account_id: validator_stake.take_account_id(), is_slashed }
+                ValidatorInfo { account_id: validator_stake.take_account_id(), is_slashed: false }
             })
             .collect();
         let chunk_only_producers = self
@@ -243,8 +242,7 @@ impl ClientActorInner {
         let epoch_id = block.header().epoch_id();
         let shard_layout = self.client.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        let (validators, chunk_only_producers) =
-            self.get_producers_for_epoch(&epoch_id, &current_block)?;
+        let (validators, chunk_only_producers) = self.get_producers_for_epoch(&epoch_id)?;
 
         let shards_size_and_parts: Vec<(u64, u64)> = block
             .chunks()
@@ -338,7 +336,7 @@ impl ClientActorInner {
         let epoch_start_height =
             self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
         let (validators, chunk_only_producers) =
-            self.get_producers_for_epoch(&head.next_epoch_id, &head.last_block_hash)?;
+            self.get_producers_for_epoch(&head.next_epoch_id)?;
 
         Ok(EpochInfoView {
             epoch_height: self
@@ -680,8 +678,8 @@ impl ClientActorInner {
                         .iter()
                         .map(|validator| {
                             (
-                                validator.0.account_id.clone(),
-                                (validator.0.stake_this_epoch / 10u128.pow(24)) as u64,
+                                validator.account_id.clone(),
+                                (validator.stake_this_epoch / 10u128.pow(24)) as u64,
                             )
                         })
                         .collect::<Vec<(AccountId, u64)>>()
@@ -746,11 +744,9 @@ impl ClientActorInner {
             let mut endorsed_chunk_validators = HashMap::new();
             for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
                 let Some(signature) = signature else { continue };
-                let Ok((validator, _)) = self.client.epoch_manager.get_validator_by_account_id(
-                    &epoch_id,
-                    block.header().prev_hash(),
-                    account_id,
-                ) else {
+                let Ok(validator) =
+                    self.client.epoch_manager.get_validator_by_account_id(&epoch_id, account_id)
+                else {
                     continue;
                 };
                 if !ChunkEndorsement::validate_signature(

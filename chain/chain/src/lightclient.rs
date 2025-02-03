@@ -1,7 +1,7 @@
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::hash;
 use near_primitives::types::EpochId;
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{BlockHeaderInnerLiteView, LightClientBlockView};
@@ -10,13 +10,12 @@ use crate::ChainStoreAccess;
 
 pub fn get_epoch_block_producers_view(
     epoch_id: &EpochId,
-    prev_hash: &CryptoHash,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<Vec<ValidatorStakeView>, Error> {
     Ok(epoch_manager
-        .get_epoch_block_producers_ordered(epoch_id, prev_hash)?
+        .get_epoch_block_producers_ordered(epoch_id)?
         .iter()
-        .map(|x| x.0.clone().into())
+        .map(|x| x.clone().into())
         .collect::<Vec<_>>())
 }
 

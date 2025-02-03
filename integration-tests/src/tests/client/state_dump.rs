@@ -248,8 +248,11 @@ fn run_state_sync_with_dumped_parts(
 
     let sync_hash = env.clients[0].chain.get_sync_hash(final_block_hash).unwrap().unwrap();
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let state_sync_header =
-        env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
+    let state_sync_header = env.clients[0]
+        .chain
+        .state_sync_adapter
+        .get_state_response_header(shard_id, sync_hash)
+        .unwrap();
     let state_root = state_sync_header.chunk_prev_state_root();
     let num_parts = state_sync_header.num_state_parts();
 
@@ -287,7 +290,11 @@ fn run_state_sync_with_dumped_parts(
 
     // Simulate state sync by reading the dumped parts from the external storage and applying them to the other node
     tracing::info!("syncing node: simulating state sync..");
-    env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header).unwrap();
+    env.clients[1]
+        .chain
+        .state_sync_adapter
+        .set_state_header(shard_id, sync_hash, state_sync_header)
+        .unwrap();
     let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
     let mut store_update = runtime_client_1.store().store_update();
     assert!(runtime_client_1

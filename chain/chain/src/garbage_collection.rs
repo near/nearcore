@@ -550,7 +550,6 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(())
     }
 
-    // TODO(resharding) Revisit this function, probably it is not needed anymore.
     fn get_shard_uids_to_gc(
         &mut self,
         epoch_manager: &dyn EpochManagerAdapter,

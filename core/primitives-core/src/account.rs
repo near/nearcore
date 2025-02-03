@@ -1,7 +1,6 @@
-use crate::checked_feature;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
-use crate::types::{Balance, Nonce, ProtocolVersion, StorageUsage};
+use crate::types::{Balance, Nonce, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use near_schema_checker_lib::ProtocolSchema;
@@ -62,19 +61,19 @@ pub struct AccountV1 {
     storage_usage: StorageUsage,
 }
 
+#[allow(dead_code)]
 impl AccountV1 {
-    fn to_v2(&self, permanent_storage_bytes: StorageUsage) -> AccountV2 {
+    fn to_v2(&self) -> AccountV2 {
         AccountV2 {
             amount: self.amount,
             locked: self.locked,
             code_hash: self.code_hash,
             storage_usage: self.storage_usage,
-            permanent_storage_bytes,
         }
     }
 }
 
-/// V2 introduces permanent_storage_bytes
+// TODO(global-contract): add new field
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -95,8 +94,6 @@ pub struct AccountV2 {
     code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
-    /// Permanent storage allowance, additional to what storage staking gives.
-    permanent_storage_bytes: StorageUsage,
 }
 
 impl Account {
@@ -108,32 +105,13 @@ impl Account {
     /// differentiate AccountVersion V1 from newer versions.
     const SERIALIZATION_SENTINEL: u128 = u128::MAX;
 
-    // TODO(nonrefundable) Consider using consider some additional new types
-    // or a different way to write down constructor (e.g. builder pattern.)
     pub fn new(
         amount: Balance,
         locked: Balance,
-        permanent_storage_bytes: StorageUsage,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
-        protocol_version: ProtocolVersion,
     ) -> Self {
-        if permanent_storage_bytes > 0 {
-            assert!(checked_feature!(
-                "protocol_feature_nonrefundable_transfer_nep491",
-                NonrefundableStorage,
-                protocol_version
-            ));
-            Self::V2(AccountV2 {
-                amount,
-                locked,
-                permanent_storage_bytes,
-                code_hash,
-                storage_usage,
-            })
-        } else {
-            Self::V1(AccountV1 { amount, locked, code_hash, storage_usage })
-        }
+        Self::V1(AccountV1 { amount, locked, code_hash, storage_usage })
     }
 
     #[inline]
@@ -141,14 +119,6 @@ impl Account {
         match self {
             Self::V1(account) => account.amount,
             Self::V2(account) => account.amount,
-        }
-    }
-
-    #[inline]
-    pub fn permanent_storage_bytes(&self) -> StorageUsage {
-        match self {
-            Self::V1(_) => 0,
-            Self::V2(account) => account.permanent_storage_bytes,
         }
     }
 
@@ -193,16 +163,6 @@ impl Account {
     }
 
     #[inline]
-    pub fn set_permanent_storage_bytes(&mut self, permanent_storage_bytes: StorageUsage) {
-        match self {
-            Self::V1(v1) => {
-                *self = Account::V2(v1.to_v2(permanent_storage_bytes));
-            }
-            Self::V2(v2) => v2.permanent_storage_bytes = permanent_storage_bytes,
-        }
-    }
-
-    #[inline]
     pub fn set_locked(&mut self, locked: Balance) {
         match self {
             Self::V1(account) => account.locked = locked,
@@ -235,8 +195,6 @@ struct SerdeAccount {
     amount: Balance,
     #[serde(with = "dec_format")]
     locked: Balance,
-    #[serde(with = "dec_format", default, skip_serializing_if = "Option::is_none")]
-    permanent_storage_bytes: Option<StorageUsage>,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
     /// Version of Account in re migrations and similar.
@@ -251,33 +209,18 @@ impl<'de> serde::Deserialize<'de> for Account {
     {
         let account_data = SerdeAccount::deserialize(deserializer)?;
         match account_data.version {
-            AccountVersion::V1 => {
-                if account_data.permanent_storage_bytes.is_some() {
-                    return Err(serde::de::Error::custom(
-                        "permanent storage bytes should not be set for V1 account",
-                    ));
-                }
-                Ok(Account::V1(AccountV1 {
-                    amount: account_data.amount,
-                    locked: account_data.locked,
-                    code_hash: account_data.code_hash,
-                    storage_usage: account_data.storage_usage,
-                }))
-            }
-            AccountVersion::V2 => {
-                let Some(permanent_storage_bytes) = account_data.permanent_storage_bytes else {
-                    return Err(serde::de::Error::custom(
-                        "permanent storage bytes is missing for V2",
-                    ));
-                };
-                Ok(Account::V2(AccountV2 {
-                    amount: account_data.amount,
-                    locked: account_data.locked,
-                    permanent_storage_bytes,
-                    code_hash: account_data.code_hash,
-                    storage_usage: account_data.storage_usage,
-                }))
-            }
+            AccountVersion::V1 => Ok(Account::V1(AccountV1 {
+                amount: account_data.amount,
+                locked: account_data.locked,
+                code_hash: account_data.code_hash,
+                storage_usage: account_data.storage_usage,
+            })),
+            AccountVersion::V2 => Ok(Account::V2(AccountV2 {
+                amount: account_data.amount,
+                locked: account_data.locked,
+                code_hash: account_data.code_hash,
+                storage_usage: account_data.storage_usage,
+            })),
         }
     }
 }
@@ -288,14 +231,9 @@ impl serde::Serialize for Account {
         S: serde::Serializer,
     {
         let version = self.version();
-        let permanent_storage_bytes = match version {
-            AccountVersion::V1 => None,
-            AccountVersion::V2 => Some(self.permanent_storage_bytes()),
-        };
         let repr = SerdeAccount {
             amount: self.amount(),
             locked: self.locked(),
-            permanent_storage_bytes,
             code_hash: self.code_hash(),
             storage_usage: self.storage_usage(),
             version,
@@ -445,22 +383,7 @@ pub struct FunctionCallPermission {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    use crate::version::ProtocolFeature;
-
     use super::*;
-
-    #[test]
-    #[should_panic]
-    fn test_v1_account_cannot_have_permanent_storage_bytes() {
-        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-        let protocol_version = crate::version::PROTOCOL_VERSION;
-
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let protocol_version = ProtocolFeature::NonrefundableStorage.protocol_version() - 1;
-
-        Account::new(0, 0, 1, CryptoHash::default(), 0, protocol_version);
-    }
 
     #[test]
     fn test_v1_account_serde_serialization() {
@@ -475,7 +398,6 @@ mod tests {
         let expected_serde_repr = SerdeAccount {
             amount: old_account.amount,
             locked: old_account.locked,
-            permanent_storage_bytes: None,
             code_hash: old_account.code_hash,
             storage_usage: old_account.storage_usage,
             version: AccountVersion::V1,
@@ -515,7 +437,6 @@ mod tests {
         let account_v2 = AccountV2 {
             amount: 10_000_000,
             locked: 100_000,
-            permanent_storage_bytes: 2000,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 1000,
         };
@@ -525,7 +446,6 @@ mod tests {
         let expected_serde_repr = SerdeAccount {
             amount: account_v2.amount,
             locked: account_v2.locked,
-            permanent_storage_bytes: Some(account_v2.permanent_storage_bytes),
             code_hash: account_v2.code_hash,
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
@@ -537,33 +457,11 @@ mod tests {
         assert_eq!(deserialized_account, account);
     }
 
-    /// It is impossible to construct V1 account with permanent_storage_bytes greater than 0.
-    /// So the situation in this test is theoretical.
-    ///
-    /// Serialization of V1 account with permanent_storage_bytes amount greater than 0 would pass without an error,
-    /// but an error would be raised on deserialization of such invalid data.
-    #[test]
-    fn test_account_v2_serde_serialization_invalid_data() {
-        let account = SerdeAccount {
-            amount: 10_000_000,
-            locked: 100_000,
-            permanent_storage_bytes: Some(1),
-            code_hash: CryptoHash::default(),
-            storage_usage: 1000,
-            version: AccountVersion::V1,
-        };
-        let serialized_account = serde_json::to_string(&account).unwrap();
-        let deserialization_result: Result<Account, serde_json::Error> =
-            serde_json::from_str(&serialized_account);
-        assert!(deserialization_result.is_err());
-    }
-
     #[test]
     fn test_account_v2_borsh_serialization() {
         let account_v2 = AccountV2 {
             amount: 10_000_000,
             locked: 100_000,
-            permanent_storage_bytes: 2000,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 1000,
         };

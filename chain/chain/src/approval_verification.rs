@@ -14,7 +14,7 @@ pub fn verify_approval_with_approvers_info(
     prev_block_height: BlockHeight,
     block_height: BlockHeight,
     approvals: &[Option<Box<near_crypto::Signature>>],
-    info: Vec<(ApprovalStake, bool)>,
+    info: Vec<ApprovalStake>,
 ) -> Result<bool, Error> {
     if approvals.len() > info.len() {
         return Ok(false);
@@ -29,9 +29,9 @@ pub fn verify_approval_with_approvers_info(
         block_height,
     );
 
-    for ((validator, is_slashed), may_be_signature) in info.into_iter().zip(approvals.iter()) {
+    for (validator, may_be_signature) in info.into_iter().zip(approvals.iter()) {
         if let Some(signature) = may_be_signature {
-            if is_slashed || !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
+            if !signature.verify(message_to_sign.as_ref(), &validator.public_key) {
                 return Ok(false);
             }
         }
@@ -43,7 +43,7 @@ pub fn verify_approval_with_approvers_info(
 pub fn verify_approvals_and_threshold_orphan(
     can_approved_block_be_produced: &dyn Fn(
         &[Option<Box<Signature>>],
-        &[(Balance, Balance, bool)],
+        &[(Balance, Balance)],
     ) -> bool,
     prev_block_hash: &CryptoHash,
     prev_block_height: BlockHeight,
@@ -70,7 +70,7 @@ pub fn verify_approvals_and_threshold_orphan(
     }
     let stakes = block_approvers
         .iter()
-        .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch, false))
+        .map(|stake| (stake.stake_this_epoch, stake.stake_next_epoch))
         .collect::<Vec<_>>();
     if !can_approved_block_be_produced(approvals, &stakes) {
         Err(Error::NotEnoughApprovals)

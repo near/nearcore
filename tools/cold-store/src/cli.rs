@@ -54,7 +54,7 @@ enum SubCommand {
     /// You can provide maximum depth and/or maximum number of vertices to traverse for each root.
     /// Trie is traversed using DFS with randomly shuffled kids for every node.
     CheckStateRoot(CheckStateRootCmd),
-    /// Modifies cold db from config to be considered not initialised.
+    /// Modifies cold db from config to be considered not initialized.
     /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
     ResetCold(ResetColdCmd),
 }
@@ -361,7 +361,7 @@ impl PrepareHotCmd {
 
         // TODO may be worth doing some simple sanity check that the rpc store
         // and the cold store contain the same chain. Keep in mind that the
-        // responsibility of ensuring that the rpc backupd can be trusted lies
+        // responsibility of ensuring that the rpc backup can be trusted lies
         // with the node owner still. We don't want to do a full check here
         // as it would take too long.
 

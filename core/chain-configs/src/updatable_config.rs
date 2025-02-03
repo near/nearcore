@@ -110,5 +110,4 @@ pub struct UpdatableClientConfig {
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
 
-pub type UpdatableValidatorSigner = Option<Arc<ValidatorSigner>>;
 pub type MutableValidatorSigner = MutableConfigValue<Option<Arc<ValidatorSigner>>>;

@@ -243,7 +243,7 @@ impl GenesisStateApplier {
                     })
                 }
                 StateRecord::DelayedReceipt(receipt) => storage.modify(|state_update| {
-                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt);
+                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt.receipt);
                 }),
             }
         });

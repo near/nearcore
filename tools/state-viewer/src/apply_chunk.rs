@@ -5,7 +5,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter};
+use near_chain::{get_incoming_receipts_for_shard, ChainStore, ChainStoreAccess, ReceiptFilter};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
@@ -31,7 +31,7 @@ use std::sync::Arc;
 use crate::cli::StorageSource;
 use crate::util::{check_apply_block_result, resulting_chunk_extra};
 
-// like ChainStoreUpdate::get_incoming_receipts_for_shard(), but for the case when we don't
+// `get_incoming_receipts_for_shard` implementation for the case when we don't
 // know of a block containing the target chunk
 fn get_incoming_receipts(
     chain_store: &mut ChainStore,
@@ -76,7 +76,8 @@ fn get_incoming_receipts(
     }
     let mut responses = vec![ReceiptProofResponse(CryptoHash::default(), Arc::new(receipt_proofs))];
     let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_hash)?;
-    responses.extend_from_slice(&chain_store.store_update().get_incoming_receipts_for_shard(
+    responses.extend_from_slice(&get_incoming_receipts_for_shard(
+        &chain_store,
         epoch_manager,
         shard_id,
         &shard_layout,
@@ -240,7 +241,7 @@ fn find_tx_or_receipt(
     for (shard_index, chunk_hash) in chunk_hashes.iter().enumerate() {
         let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
         let chunk =
-            chain_store.get_chunk(chunk_hash).context("Failed looking up canditate chunk")?;
+            chain_store.get_chunk(chunk_hash).context("Failed looking up candidate chunk")?;
         for tx in chunk.transactions() {
             if &tx.get_hash() == hash {
                 return Ok(Some((HashType::Tx, shard_id)));

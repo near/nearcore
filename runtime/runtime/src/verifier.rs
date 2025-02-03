@@ -45,12 +45,7 @@ pub fn check_storage_stake(
     runtime_config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageStakingError> {
-    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
     let billable_storage_bytes = account.storage_usage();
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    let billable_storage_bytes =
-        account.storage_usage().saturating_sub(account.permanent_storage_bytes());
-
     let required_amount = Balance::from(billable_storage_bytes)
         .checked_mul(runtime_config.storage_amount_per_byte())
         .ok_or_else(|| {
@@ -443,10 +438,6 @@ pub fn validate_action(
         }
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::NonrefundableStorageTransfer(_) => {
-            check_feature_enabled(ProtocolFeature::NonrefundableStorage, current_protocol_version)
-        }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
@@ -599,21 +590,6 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
     }
 
     Ok(())
-}
-
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-fn check_feature_enabled(
-    feature: ProtocolFeature,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    if feature.protocol_version() <= current_protocol_version {
-        Ok(())
-    } else {
-        Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: format!("{feature:?}"),
-            version: feature.protocol_version(),
-        })
-    }
 }
 
 fn truncate_string(s: &str, limit: usize) -> String {

@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use near_async::time::Duration;
-use near_chain::{ChainStoreAccess, ReceiptFilter};
+use near_chain::{get_incoming_receipts_for_shard, ReceiptFilter};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::block::MaybeNew;
@@ -405,17 +405,16 @@ fn assert_oversized_receipt_occurred(env: &TestLoopEnv) {
                 prev_block.chunks().get(prev_shard_index).unwrap().height_included();
 
             // Fetch incoming receipts for this chunk
-            let incoming_receipts_proofs = chain
-                .chain_store
-                .get_incoming_receipts_for_shard(
-                    epoch_manager,
-                    shard_id,
-                    &cur_shard_layout,
-                    *block.hash(),
-                    prev_height_included,
-                    ReceiptFilter::TargetShard,
-                )
-                .unwrap();
+            let incoming_receipts_proofs = get_incoming_receipts_for_shard(
+                &chain.chain_store,
+                epoch_manager,
+                shard_id,
+                &cur_shard_layout,
+                *block.hash(),
+                prev_height_included,
+                ReceiptFilter::TargetShard,
+            )
+            .unwrap();
 
             // Look for receipt with size above max_receipt_size
             for response in incoming_receipts_proofs {

@@ -191,7 +191,7 @@ impl TrieIterationBenchmarkCmd {
 
             stats.borrow_mut().bump_visited(key[0]);
 
-            let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+            let state_record = StateRecord::from_raw_key_value(&key, value);
             let state_record = match state_record {
                 Some(state_record) => state_record,
                 None => {

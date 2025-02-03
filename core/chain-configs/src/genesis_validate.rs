@@ -200,31 +200,11 @@ mod test {
     use near_crypto::{KeyType, PublicKey};
     use near_primitives::account::{AccessKey, Account};
     use near_primitives::types::AccountInfo;
-    use near_primitives::version::PROTOCOL_VERSION;
 
     const VALID_ED25519_RISTRETTO_KEY: &str = "ed25519:KuTCtARNzxZQ3YvXDeLjx83FDqxv2SdQTSbiq876zR7";
 
     fn create_account() -> Account {
-        Account::new(100, 10, 0, Default::default(), 0, PROTOCOL_VERSION)
-    }
-
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    #[test]
-    fn test_total_supply_does_not_depend_on_permanent_storage_bytes() {
-        let mut config = GenesisConfig::default();
-        config.epoch_length = 42;
-        config.total_supply = 110;
-        config.validators = vec![AccountInfo {
-            account_id: "test".parse().unwrap(),
-            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
-            amount: 10,
-        }];
-        let records = GenesisRecords(vec![StateRecord::Account {
-            account_id: "test".parse().unwrap(),
-            account: Account::new(100, 10, 1, Default::default(), 0, PROTOCOL_VERSION),
-        }]);
-        let genesis = &Genesis::new(config, records).unwrap();
-        validate_genesis(genesis).unwrap();
+        Account::new(100, 10, Default::default(), 0)
     }
 
     #[test]
