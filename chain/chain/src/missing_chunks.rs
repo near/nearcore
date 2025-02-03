@@ -492,6 +492,7 @@ mod missing_chunks_test {
     }
 }
 
+// TODO: tests for adding multiple blocks and reusing chunks.
 #[cfg(test)]
 mod optimistic_block_chunks_pool_test {
     use super::{OptimisticBlock, OptimisticBlockChunksPool, ShardChunkHeader};

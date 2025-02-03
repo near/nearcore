@@ -2160,20 +2160,16 @@ impl Client {
         ) {
             Ok(()) => {
                 info!(
-                    target: "chain",
-                    prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash,
-                    height = block_height,
+                    target: "chain", prev_block_hash = ?prev_block_hash,
+                    hash = ?block_hash, height = block_height,
                     "Processed optimistic block"
                 );
             }
             Err(err) => {
                 warn!(
-                    target: "chain",
-                    err = ?err,
+                    target: "chain", err = ?err,
                     prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash,
-                    height = block_height,
+                    hash = ?block_hash, height = block_height,
                     "Failed to process optimistic block"
                 );
             }
