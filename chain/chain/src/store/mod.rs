@@ -1509,7 +1509,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             // Override block ordinal to hash mapping for blocks in between.
             // At this point block_merkle_tree for header is already saved.
-            let block_ordinal = self.generate_block_merkel_tree(&header_prev_hash)?.size();
+            let block_ordinal = self.generate_block_merkle_tree(&header_prev_hash)?.size();
             self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
@@ -1574,7 +1574,7 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // save block ordinal and height if we need to update header head
-        let block_ordinal = self.generate_block_merkel_tree(&t.prev_block_hash)?.size();
+        let block_ordinal = self.generate_block_merkle_tree(&t.prev_block_hash)?.size();
         self.chain_store_cache_update
             .block_ordinal_to_hash
             .insert(block_ordinal, t.last_block_hash);
@@ -1663,12 +1663,12 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let new_merkle_tree = self.generate_block_merkel_tree(header.prev_hash())?;
+        let new_merkle_tree = self.generate_block_merkle_tree(header.prev_hash())?;
         self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         Ok(())
     }
 
-    fn generate_block_merkel_tree(
+    fn generate_block_merkle_tree(
         &self,
         prev_hash: &CryptoHash,
     ) -> Result<PartialMerkleTree, Error> {
