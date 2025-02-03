@@ -34,7 +34,7 @@ pub enum ValidationError {
     #[error("validator_key.json file issue: {error_message}")]
     ValidatorKeyFileError { error_message: String },
     #[error("cross config files semantic issue: {error_message}")]
-    CrossFileSematicError { error_message: String },
+    CrossFileSemanticError { error_message: String },
 }
 
 /// Used to collect errors on the go.
@@ -78,7 +78,7 @@ impl ValidationErrors {
     }
 
     pub fn push_cross_file_semantics_error(&mut self, error_message: String) {
-        self.0.push(ValidationError::CrossFileSematicError { error_message: error_message })
+        self.0.push(ValidationError::CrossFileSemanticError { error_message: error_message })
     }
 
     /// only to be used in panic_if_errors()
