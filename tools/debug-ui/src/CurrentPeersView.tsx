@@ -287,7 +287,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
                                     )}
                                 </td>
                                 <td>
-                                    <CollapsableValidatorList validators={routedValidator} />
+                                    <CollapsibleValidatorList validators={routedValidator} />
                                 </td>
                             </tr>
                         );
@@ -298,7 +298,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
     );
 };
 
-const CollapsableValidatorList = ({ validators }: { validators: string[] }) => {
+const CollapsibleValidatorList = ({ validators }: { validators: string[] }) => {
     const [showAll, setShowAll] = useState(false);
     const callback = useCallback((e: MouseEvent) => {
         e.preventDefault();
