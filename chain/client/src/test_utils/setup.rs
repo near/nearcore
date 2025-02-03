@@ -1086,6 +1086,7 @@ pub fn setup_client_with_runtime(
         resharding_sender,
         Arc::new(ActixFutureSpawner),
         noop().into_multi_sender(), // state sync ignored for these tests
+        noop().into_multi_sender(), // apply chunks ping not necessary for these tests
         PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();

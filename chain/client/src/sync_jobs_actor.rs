@@ -4,6 +4,7 @@ use near_async::messaging::{self, CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, BlockCatchUpResponse};
 use near_performance_metrics_macros::perf;
+use near_primitives::optimistic_block::BlockToApply;
 
 // Set the mailbox capacity for the SyncJobsActor from default 16 to 100.
 const MAILBOX_CAPACITY: usize = 100;
@@ -43,7 +44,11 @@ impl SyncJobsActor {
 
     pub fn handle_block_catch_up_request(&mut self, msg: BlockCatchUpRequest) {
         tracing::debug!(target: "sync", ?msg);
-        let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
+        let results =
+            do_apply_chunks(BlockToApply::Normal(msg.block_hash), msg.block_height, msg.work)
+                .into_iter()
+                .map(|res| (res.0, res.2))
+                .collect();
 
         self.client_sender.send(BlockCatchUpResponse {
             sync_hash: msg.sync_hash,
