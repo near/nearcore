@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::account::accounts_from_dir;
 use crate::block_service::BlockService;
+use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
 use log::info;
@@ -67,6 +68,12 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
         rpc_response_handler.handle_all_responses().await;
     });
 
+    let transaction_stat_service =
+        TransactionStatisticsService::new(args.rpc_url.clone(), Duration::from_secs(1));
+    let transaction_stat_handle = tokio::spawn(async move {
+        transaction_stat_service.start().await;
+    });
+
     for i in 0..args.num_transfers {
         let idx_sender = usize::try_from(i % u64::try_from(accounts.len()).unwrap()).unwrap();
         let idx_receiver = {
@@ -123,6 +130,9 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
 
     // Ensure all rpc responses are handled.
     response_handler_task.await.expect("response handler tasks should succeed");
+
+    // Ensure transaction stats are collected until all transactions are processed.
+    transaction_stat_handle.await.expect("transaction stat service should succeed");
 
     Ok(())
 }
