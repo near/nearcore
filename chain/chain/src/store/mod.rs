@@ -1435,8 +1435,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
         if let Some(merkle_tree) = self.chain_store_cache_update.block_merkle_tree.get(block_hash) {
-            let store_merkel_tree = self.chain_store.get_block_merkle_tree(block_hash).unwrap();
-            assert_eq!(Arc::clone(merkle_tree), store_merkel_tree);
+            let store_merkle_tree = self.chain_store.get_block_merkle_tree(block_hash).unwrap();
+            assert_eq!(Arc::clone(merkle_tree), store_merkle_tree);
             Ok(Arc::clone(&merkle_tree))
         } else {
             self.chain_store.get_block_merkle_tree(block_hash)
@@ -1509,7 +1509,8 @@ impl<'a> ChainStoreUpdate<'a> {
             }
             // Override block ordinal to hash mapping for blocks in between.
             // At this point block_merkle_tree for header is already saved.
-            let block_ordinal = self.generate_block_merkle_tree(&header_prev_hash)?.size();
+            let block_ordinal =
+                self.get_or_generate_block_merkle_tree(&header_hash, &header_prev_hash)?.size();
             self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
@@ -1574,7 +1575,8 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         // save block ordinal and height if we need to update header head
-        let block_ordinal = self.generate_block_merkle_tree(&t.prev_block_hash)?.size();
+        let block_ordinal =
+            self.get_or_generate_block_merkle_tree(&t.last_block_hash, &t.prev_block_hash)?.size();
         self.chain_store_cache_update
             .block_ordinal_to_hash
             .insert(block_ordinal, t.last_block_hash);
@@ -1666,6 +1668,18 @@ impl<'a> ChainStoreUpdate<'a> {
         let new_merkle_tree = self.generate_block_merkle_tree(header.prev_hash())?;
         self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         Ok(())
+    }
+
+    fn get_or_generate_block_merkle_tree(
+        &self,
+        block_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+    ) -> Result<Arc<PartialMerkleTree>, Error> {
+        if let Ok(merkle_tree) = self.chain_store.get_block_merkle_tree(block_hash) {
+            Ok(merkle_tree)
+        } else {
+            self.generate_block_merkle_tree(prev_hash).map(Arc::new)
+        }
     }
 
     fn generate_block_merkle_tree(
