@@ -337,6 +337,7 @@ impl TrieUpdate {
             return Ok(());
         }
         let trie_key = TrieKey::ContractCode { account_id };
+        // TrieKey::GlobalContractCode { identifier: GlobalContractCodeIdentifier:: }
         let contract_ref = self
             .trie
             .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)

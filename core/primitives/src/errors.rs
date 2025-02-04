@@ -67,6 +67,7 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    GlobalContractError(GlobalContractError),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -76,6 +77,29 @@ impl std::fmt::Display for RuntimeError {
 }
 
 impl std::error::Error for RuntimeError {}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    BorshSerialize,
+    BorshDeserialize,
+    ProtocolSchema,
+)]
+pub enum GlobalContractError {
+    ContractIdentifierNotFound(String),
+}
+
+impl std::fmt::Display for GlobalContractError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(&format!("{:?}", self))
+    }
+}
+
+impl std::error::Error for GlobalContractError {}
 
 /// Contexts in which `StorageError::MissingTrieValue` error might occur.
 #[derive(

@@ -10,12 +10,13 @@ use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, Runtime
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::action::{
-    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
+    DeployGlobalContractAction, GlobalContractDeployMode, UseGlobalContractAction,
 };
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, GlobalContractError, InvalidAccessKeyError, RuntimeError,
+};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
@@ -24,6 +25,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
@@ -33,6 +35,7 @@ use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_primitives_core::account::id::AccountType;
+use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_store::{
     enqueue_promise_yield_timeout, get_access_key, get_promise_yield_indices, remove_access_key,
     remove_account, set_access_key, set_promise_yield_indices, StorageError, TrieUpdate,
@@ -640,12 +643,21 @@ pub(crate) fn action_deploy_global_contract(
 }
 
 pub(crate) fn action_use_global_contract(
-    _state_update: &mut TrieUpdate,
-    _account: &mut Account,
-    _action: &UseGlobalContractAction,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    action: &UseGlobalContractAction,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    // TODO(#12716): implement global contract usage
+    let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
+    if !state_update.contains_key(&key)? {
+        return Err(RuntimeError::GlobalContractError(
+            GlobalContractError::ContractIdentifierNotFound(format!(
+                "Contract identifier {:?} not found",
+                action.contract_identifier
+            )),
+        ));
+    }
+    if account.code_hash() != CryptoHash::default() {}
     Ok(())
 }
 

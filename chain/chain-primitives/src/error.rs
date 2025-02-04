@@ -1,6 +1,6 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState, MaybeEncodedShardChunk};
-use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
+use near_primitives::errors::{ChunkAccessError, EpochError, GlobalContractError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
@@ -251,6 +251,9 @@ pub enum Error {
     /// Invalid chunk header version for protocol version
     #[error(transparent)]
     BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
+    /// Global contract error.
+    #[error("Resharding Error: {0}")]
+    GlobalContractError(#[from] GlobalContractError),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -340,6 +343,7 @@ impl Error {
             | Error::NotAValidator(_)
             | Error::NotAChunkValidator
             | Error::InvalidChallengeRoot
+            | Error::GlobalContractError(_)
             | Error::BadHeaderForProtocolVersion(_) => true,
         }
     }
@@ -424,6 +428,7 @@ impl Error {
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
             Error::ReshardingError(_) => "resharding_error",
+            Error::GlobalContractError(_) => "global_contract_error",
             Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
     }

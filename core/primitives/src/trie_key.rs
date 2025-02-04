@@ -2,6 +2,7 @@ use crate::hash::CryptoHash;
 use crate::types::AccountId;
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
+use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
 use std::mem::size_of;
@@ -121,6 +122,19 @@ impl GlobalContractCodeIdentifier {
 
     pub fn append_into(&self, buf: &mut Vec<u8>) {
         buf.extend(to_vec(self).unwrap());
+    }
+}
+
+impl From<GlobalContractIdentifier> for GlobalContractCodeIdentifier {
+    fn from(identifier: GlobalContractIdentifier) -> Self {
+        match identifier {
+            GlobalContractIdentifier::CodeHash(hash) => {
+                GlobalContractCodeIdentifier::CodeHash(hash)
+            }
+            GlobalContractIdentifier::AccountId(account_id) => {
+                GlobalContractCodeIdentifier::AccountId(account_id)
+            }
+        }
     }
 }
 

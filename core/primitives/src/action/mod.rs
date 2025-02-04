@@ -4,7 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::{
     account::AccessKey,
-    hash::CryptoHash,
+    global_contract::GlobalContractIdentifier,
     serialize::dec_format,
     types::{AccountId, Balance, Gas},
 };
@@ -159,24 +159,6 @@ impl fmt::Debug for DeployGlobalContractAction {
             .field("deploy_mode", &format_args!("{:?}", &self.deploy_mode))
             .finish()
     }
-}
-
-#[serde_as]
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    serde::Serialize,
-    serde::Deserialize,
-    Hash,
-    PartialEq,
-    Eq,
-    Clone,
-    ProtocolSchema,
-    Debug,
-)]
-pub enum GlobalContractIdentifier {
-    CodeHash(CryptoHash),
-    AccountId(AccountId),
 }
 
 /// Use global contract action

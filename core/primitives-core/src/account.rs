@@ -1,3 +1,4 @@
+use crate::global_contract::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, StorageUsage};
@@ -69,6 +70,7 @@ impl AccountV1 {
             locked: self.locked,
             code_hash: self.code_hash,
             storage_usage: self.storage_usage,
+            global_contract_identifier: None,
         }
     }
 }
@@ -94,6 +96,7 @@ pub struct AccountV2 {
     code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
+    global_contract_identifier: Option<GlobalContractIdentifier>,
 }
 
 impl Account {
@@ -155,6 +158,14 @@ impl Account {
     }
 
     #[inline]
+    pub fn global_contract_identifier(&self) -> Option<GlobalContractIdentifier> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(account) => account.global_contract_identifier.clone(),
+        }
+    }
+
+    #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         match self {
             Self::V1(account) => account.amount = amount,
@@ -197,6 +208,7 @@ struct SerdeAccount {
     locked: Balance,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
+    global_contract_identifier: Option<GlobalContractIdentifier>,
     /// Version of Account in re migrations and similar.
     #[serde(default)]
     version: AccountVersion,
@@ -220,6 +232,7 @@ impl<'de> serde::Deserialize<'de> for Account {
                 locked: account_data.locked,
                 code_hash: account_data.code_hash,
                 storage_usage: account_data.storage_usage,
+                global_contract_identifier: account_data.global_contract_identifier,
             })),
         }
     }
@@ -236,6 +249,7 @@ impl serde::Serialize for Account {
             locked: self.locked(),
             code_hash: self.code_hash(),
             storage_usage: self.storage_usage(),
+            global_contract_identifier: self.global_contract_identifier(),
             version,
         };
         repr.serialize(serializer)
@@ -400,6 +414,7 @@ mod tests {
             locked: old_account.locked,
             code_hash: old_account.code_hash,
             storage_usage: old_account.storage_usage,
+            global_contract_identifier: None,
             version: AccountVersion::V1,
         };
         let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
@@ -439,6 +454,9 @@ mod tests {
             locked: 100_000,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 1000,
+            global_contract_identifier: Some(GlobalContractIdentifier::CodeHash(
+                CryptoHash::hash_bytes(&[42, 42, 32]).into(),
+            )),
         };
         let account = Account::V2(account_v2.clone());
 
@@ -448,6 +466,7 @@ mod tests {
             locked: account_v2.locked,
             code_hash: account_v2.code_hash,
             storage_usage: account_v2.storage_usage,
+            global_contract_identifier: account_v2.global_contract_identifier,
             version: AccountVersion::V2,
         };
         let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
@@ -464,6 +483,9 @@ mod tests {
             locked: 100_000,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 1000,
+            global_contract_identifier: Some(GlobalContractIdentifier::CodeHash(
+                CryptoHash::hash_bytes(&[42, 42, 32]).into(),
+            )),
         };
         let account = Account::V2(account_v2);
         let serialized_account = borsh::to_vec(&account).unwrap();

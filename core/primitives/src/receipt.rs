@@ -1,4 +1,4 @@
-use crate::action::{base64, GlobalContractIdentifier};
+use crate::action::base64;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -6,6 +6,7 @@ use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
+use near_primitives_core::global_contract::GlobalContractIdentifier;
 use near_primitives_core::types::{Gas, ProtocolVersion};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;

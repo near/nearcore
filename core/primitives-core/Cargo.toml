@@ -21,6 +21,7 @@ enum-map.workspace = true
 num-rational.workspace = true
 serde.workspace = true
 serde_repr.workspace = true
+serde_with.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 
@@ -36,14 +37,8 @@ expect-test.workspace = true
 default = []
 protocol_feature_fix_contract_loading_cost = []
 
-nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
-]
+nightly = ["nightly_protocol", "protocol_feature_fix_contract_loading_cost"]
 
-nightly_protocol = [
-]
+nightly_protocol = []
 
-protocol_schema = [
-  "near-schema-checker-lib/protocol_schema",
-]
+protocol_schema = ["near-schema-checker-lib/protocol_schema"]
