@@ -6,7 +6,9 @@ use near_chain::{retrieve_headers, Block, Error};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::raw::{Connection, DirectMessage, Listener, Message, RoutedMessage};
+use near_network::raw::{
+    ConnectError, Connection, DirectMessage, Listener, Message, RoutedMessage,
+};
 use near_network::tcp;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_primitives::hash::CryptoHash;
@@ -500,7 +502,16 @@ impl MockNode {
         let head_block = get_head_block(&self.chain, self.network_start_height)?;
 
         loop {
-            let conn = self.listener.accept().await?;
+            let conn = match self.listener.accept().await {
+                Ok(conn) => conn,
+                Err(ConnectError::Accept(e)) => {
+                    return Err(e).context("error accepting from TCP socket")
+                }
+                Err(e) => {
+                    tracing::warn!("Error accepting incoming connection: {:?}", &e);
+                    continue;
+                }
+            };
 
             let peer = MockPeer::new(
                 self.chain.clone(),
