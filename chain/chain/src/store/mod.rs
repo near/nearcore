@@ -1435,8 +1435,8 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
         block_hash: &CryptoHash,
     ) -> Result<Arc<PartialMerkleTree>, Error> {
         if let Some(merkle_tree) = self.chain_store_cache_update.block_merkle_tree.get(block_hash) {
-            let store_merkle_tree = self.chain_store.get_block_merkle_tree(block_hash).unwrap();
-            assert_eq!(Arc::clone(merkle_tree), store_merkle_tree);
+            let store_merkel_tree = self.chain_store.get_block_merkle_tree(block_hash).unwrap();
+            assert_eq!(Arc::clone(merkle_tree), store_merkel_tree);
             Ok(Arc::clone(&merkle_tree))
         } else {
             self.chain_store.get_block_merkle_tree(block_hash)
@@ -1507,7 +1507,10 @@ impl<'a> ChainStoreUpdate<'a> {
             for height in (header_height + 1)..prev_height {
                 self.chain_store_cache_update.height_to_hashes.insert(height, None);
             }
-            self.assert_block_ordinal(&header_hash);
+            // Override block ordinal to hash mapping for blocks in between.
+            // At this point block_merkle_tree for header is already saved.
+            let block_ordinal = self.generate_block_merkle_tree(&header_prev_hash)?.size();
+            self.chain_store_cache_update.block_ordinal_to_hash.insert(block_ordinal, header_hash);
             match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.
@@ -1570,7 +1573,11 @@ impl<'a> ChainStoreUpdate<'a> {
             },
         }
 
-        self.assert_block_ordinal(&t.last_block_hash);
+        // save block ordinal and height if we need to update header head
+        let block_ordinal = self.generate_block_merkle_tree(&t.prev_block_hash)?.size();
+        self.chain_store_cache_update
+            .block_ordinal_to_hash
+            .insert(block_ordinal, t.last_block_hash);
         self.chain_store_cache_update.height_to_hashes.insert(t.height, Some(t.last_block_hash));
         self.chain_store_cache_update
             .next_block_hashes
@@ -1650,41 +1657,29 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: CryptoHash,
         block_merkle_tree: PartialMerkleTree,
     ) {
-        // Save the block ordinal along with the block merkle tree
-        self.chain_store_cache_update
-            .block_ordinal_to_hash
-            .insert(block_merkle_tree.size(), block_hash);
         self.chain_store_cache_update
             .block_merkle_tree
             .insert(block_hash, Arc::new(block_merkle_tree));
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        if header.is_genesis() {
-            self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
-        } else {
-            let prev_hash = header.prev_hash();
-            let old_merkle_tree = self.get_block_merkle_tree(prev_hash)?;
-            let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
-            new_merkle_tree.insert(*prev_hash);
-            self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
-        }
+        let new_merkle_tree = self.generate_block_merkle_tree(header.prev_hash())?;
+        self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         Ok(())
     }
 
-    fn assert_block_ordinal(&self, block_hash: &CryptoHash) {
-        if let Some(merkle_tree) = self.chain_store_cache_update.block_merkle_tree.get(block_hash) {
-            // If merkle tree is in cache, check if the block ordinal is saved as well
-            let ordinal = merkle_tree.size();
-            let stored_hash =
-                self.chain_store_cache_update.block_ordinal_to_hash.get(&ordinal).unwrap();
-            assert_eq!(stored_hash, block_hash);
+    fn generate_block_merkle_tree(
+        &self,
+        prev_hash: &CryptoHash,
+    ) -> Result<PartialMerkleTree, Error> {
+        if prev_hash == &CryptoHash::default() {
+            Ok(PartialMerkleTree::default())
         } else {
-            // If merkle tree is only in store, we should have already written block_hash_from_ordinal
-            let ordinal = self.chain_store.get_block_merkle_tree(block_hash).unwrap().size();
-            let stored_hash = self.chain_store.get_block_hash_from_ordinal(ordinal).unwrap();
-            assert_eq!(&stored_hash, block_hash);
-        };
+            let old_merkle_tree = self.get_block_merkle_tree(prev_hash)?;
+            let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
+            new_merkle_tree.insert(*prev_hash);
+            Ok(new_merkle_tree)
+        }
     }
 
     /// Used only in Epoch Sync finalization
