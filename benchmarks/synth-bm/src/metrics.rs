@@ -133,7 +133,7 @@ impl TransactionStatisticsService {
             }
             let elapsed_secs = self.start_time.elapsed().as_secs();
             if elapsed_secs > 0 {
-                info!("TPS: {}", (num - self.num_start) / elapsed_secs);
+                info!("TPS successfully processed: {}", (num - self.num_start) / elapsed_secs);
             }
         }
     }
