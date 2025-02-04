@@ -40,7 +40,7 @@ use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client_primitives::debug::ChunkProduction;
-use near_client_primitives::types::{Error, StateSyncStatus};
+use near_client_primitives::types::{Error, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -1623,6 +1623,11 @@ impl Client {
         headers: Vec<BlockHeader>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), near_chain::Error> {
+        if matches!(self.sync_handler.sync_status, SyncStatus::EpochSync(_)) {
+            return Err(near_chain::Error::Other(
+                "Cannot sync block headers during an epoch sync".to_owned(),
+            ));
+        };
         let mut challenges = vec![];
         self.chain.sync_block_headers(headers, &mut challenges)?;
         self.send_challenges(challenges, signer);
