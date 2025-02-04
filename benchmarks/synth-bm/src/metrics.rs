@@ -2,10 +2,8 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
 use log::info;
 use reqwest::Client;
-use serde::ser::StdError;
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::Interval;
@@ -97,7 +95,7 @@ impl TransactionStatisticsService {
 
     pub async fn start(mut self) -> JoinHandle<()> {
         // TODO return result from JoinHandle and get rid of unwraps.
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             // Wait for transactions to start.
             let initial_count = self.num_successful_transactions;
             let mut interval_wait_txs_start = time::interval(Duration::from_millis(100));
@@ -126,12 +124,14 @@ impl TransactionStatisticsService {
                 let report = self.get_report().await.unwrap();
                 let metric =
                     get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
-                // TODO refactor `Metric*` to avoid such matching.
                 let num = match metric {
                     MetricValue::SuccessfulTransactions { num } => num,
                 };
                 let last_num = self.num_successful_transactions;
-                self.num_successful_transactions = num;
+                // TODO refactor `Metric*` to avoid such matching.
+                self.num_successful_transactions = match metric {
+                    MetricValue::SuccessfulTransactions { num } => num,
+                };
                 if last_num == self.num_successful_transactions {
                     break;
                 }
@@ -140,8 +140,7 @@ impl TransactionStatisticsService {
                     info!("TPS: {}", (num - self.num_start) / elapsed_secs);
                 }
             }
-        });
-        handle
+        })
     }
 
     /*
