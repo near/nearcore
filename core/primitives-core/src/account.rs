@@ -387,26 +387,27 @@ mod tests {
 
     #[test]
     fn test_v1_account_serde_serialization() {
-        let old_account = AccountV1 {
+        let account_v1 = AccountV1 {
             amount: 1_000_000,
             locked: 1_000_000,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 100,
         };
+        let old_account = Account::V1(account_v1.clone());
 
         let serialized_account = serde_json::to_string(&old_account).unwrap();
         let expected_serde_repr = SerdeAccount {
-            amount: old_account.amount,
-            locked: old_account.locked,
-            code_hash: old_account.code_hash,
-            storage_usage: old_account.storage_usage,
+            amount: account_v1.amount,
+            locked: account_v1.locked,
+            code_hash: account_v1.code_hash,
+            storage_usage: account_v1.storage_usage,
             version: AccountVersion::V1,
         };
         let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(actual_serde_repr, expected_serde_repr);
 
         let new_account: Account = serde_json::from_str(&serialized_account).unwrap();
-        assert_eq!(new_account, Account::V1(old_account));
+        assert_eq!(new_account, old_account);
 
         let new_serialized_account = serde_json::to_string(&new_account).unwrap();
         let deserialized_account: Account = serde_json::from_str(&new_serialized_account).unwrap();
@@ -415,15 +416,15 @@ mod tests {
 
     #[test]
     fn test_v1_account_borsh_serialization() {
-        let old_account = AccountV1 {
+        let old_account = Account::V1(AccountV1 {
             amount: 100,
             locked: 200,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 300,
-        };
+        });
         let old_bytes = borsh::to_vec(&old_account).unwrap();
         let new_account = <Account as BorshDeserialize>::deserialize(&mut &old_bytes[..]).unwrap();
-        assert_eq!(new_account, Account::V1(old_account));
+        assert_eq!(new_account, old_account);
 
         let new_bytes = borsh::to_vec(&new_account).unwrap();
         assert_eq!(new_bytes, old_bytes);
