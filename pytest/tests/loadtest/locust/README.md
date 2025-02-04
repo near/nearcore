@@ -7,11 +7,13 @@ to set up the network under test is outside the scope of this document. This is
 only about generating the load.
 
 ## Install
+
 ```sh
 # Run in nearcore directory. Locust is installed as a part of these dependencies.
 pip3 install -r pytest/requirements.txt
 ```
 
+<!-- cspell:ignore pyopenssl  -->
 *Note: You will need a working python3 / pip3 environment. While the code is
 written in a backwards compatible way, modern OSs with modern python are
 preferred. Completely independent of locust, you may run into problems with
@@ -22,17 +24,20 @@ error messages involving `X509_V_FLAG_CB_ISSUER_CHECK`.*
 
 The load generator needs access to an account key with plenty of tokens.
 For a local test setup, this works just fine.
+
 ```sh
 # This assumes you are running against localnet
 KEY=~/.near/localnet/node0/validator_key.json
 ```
 
 For a quick demo, you can also run a localnet using [nearup](https://github.com/near/nearup).
+
 ```sh
 nearup run localnet --binary-path ../nearcore/target/release/ --num-nodes 4 --num-shards 4 --override
 ```
 
 Then to actually run it, this is the command. (Update ports and IP according to your localnet, nearup will print it.)
+
 ```sh
 cd pytest/tests/loadtest/locust/
 locust -H 127.0.0.1:3030 \
@@ -56,6 +61,7 @@ approaches anything close to 100%, you should use more workers.
 Luckily, Locust has the ability to swarm the load generation across many processes.
 
 The simplest way to do this on a single machine is to use `--processes` argument:
+
 ```sh
 locust -H 127.0.0.1:3030 \
   -f locustfiles/ft.py \
@@ -65,11 +71,11 @@ locust -H 127.0.0.1:3030 \
 
 This will spawn 8 Locust Python processes, each capable of fully utilizing one CPU core.
 According to the current measurements, Locust on a single CPU core can send 500 transactions per
-second, and this number linearly scales with the number of processes. 
+second, and this number linearly scales with the number of processes.
 
 To scale further to multiple machines, start one process with the `--master` argument and as many as
 you like with `--worker`. (If they run on different machines, you also need to provide
-`--master-host` and `--master-port`, if running on the same machine it will work automagically.)
+`--master-host` and `--master-port`, if running on the same machine it will work automatically.)
 
 Start the master:
 
@@ -141,7 +147,7 @@ Currently supported load types:
 | Sweat (normal load) | sweat.py | (`--sweat-wasm $WASM_PATH`) | Creates a single instance of the SWEAT contract. A mix of FT transfers and batch minting with batch sizes comparable to mainnet observations in summer 2023. |
 | Sweat (storage stress test) | sweat.py | `--tags=storage-stress-test` <br> (`--sweat-wasm $WASM_PATH`) | Creates a single instance of the SWEAT contract. Sends maximally large batches to mint more tokens, thereby touching many storage nodes per receipt. This load will take a while to initialize enough Sweat users on chain. |
 | Sweat (claim) | sweat.py | `--tags=claim-test` <br> (`--sweat-wasm $WASM_PATH`) <br> (`--sweat-claim-wasm $WASM_PATH`) | Creates a single instance of the SWEAT and SWEAT.CLAIM contract. Sends deferred batches to mint more tokens, thereby touching many storage nodes per receipt. Then calls balance checks that iterate through populated state. |
-| Minting inscriptions | inscription.py | (`--inscription-wasm $WASM_PATH`) | Creates a single insctance of the inscription contract and spawns multiple users who mint inscriptions using this contract. |
+| Minting inscriptions | inscription.py | (`--inscription-wasm $WASM_PATH`) | Creates a single instance of the inscription contract and spawns multiple users who mint inscriptions using this contract. |
 
 ## Notes on Storage Stress Test
 
@@ -168,7 +174,6 @@ Hence on restart they add new accounts again. And you have to wait again. To
 avoid this, you can stop and restart tests from within the UI. This way, they
 will remember the account list and start the next test immediately, without long
 setup.
-
 
 ### Master Key Requirements
 

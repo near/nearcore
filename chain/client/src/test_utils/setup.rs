@@ -1090,7 +1090,7 @@ pub fn setup_client_with_runtime(
         PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
-    client.sync_status = SyncStatus::NoSync;
+    client.sync_handler.sync_status = SyncStatus::NoSync;
     client
 }
 

@@ -1,7 +1,7 @@
 use crate::{NibbleSlice, PartialStorage, RawTrieNode, RawTrieNodeWithSize};
 use borsh::BorshDeserialize;
-use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
+use near_primitives::state::PartialState;
 use near_primitives::trie_key::col::ALL_COLUMNS_WITH_NAMES;
 use near_primitives::types::AccountId;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -297,10 +297,10 @@ mod trie_recording_tests {
     use crate::{DBCol, KeyLookupMode, PartialStorage, ShardTries, Store, Trie};
     use borsh::BorshDeserialize;
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
-    use near_primitives::challenge::PartialState;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+    use near_primitives::state::PartialState;
     use near_primitives::state::ValueRef;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateRoot;

@@ -274,6 +274,7 @@ near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-time = { path = "core/time" }
 near-undo-block = { path = "tools/undo-block" }
+near-dump-test-contract = { path = "tools/dump-test-contract" }
 near-vm-test-api = { path = "runtime/near-vm/test-api" }
 near-vm-compiler = { path = "runtime/near-vm/compiler" }
 near-vm-compiler-singlepass = { path = "runtime/near-vm/compiler-singlepass" }
@@ -292,7 +293,7 @@ num_cpus = "1.11"
 num-rational = { version = "0.3.1", features = ["serde"] }
 num-traits = "0.2.15"
 once_cell = "1.13.1"
-openssl = { version = "0.10.66", features = ["vendored"] }
+openssl = { version = "0.10.70", features = ["vendored"] }
 openssl-probe = "0.1.4"
 opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
@@ -329,7 +330,7 @@ ripemd = "0.1.1"
 rkyv = "0.8.0"
 rlimit = "0.7"
 rlp = "0.5.2"
-rocksdb = { version = "0.22.0", default-features = false, features = [
+rocksdb = { version = "0.21.0", default-features = false, features = [
     "snappy",
     "lz4",
     "zstd",

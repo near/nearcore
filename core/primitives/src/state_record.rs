@@ -1,11 +1,12 @@
 use crate::account::{AccessKey, Account};
 use crate::hash::{hash, CryptoHash};
-use crate::receipt::{Receipt, ReceivedData};
+use crate::receipt::{Receipt, ReceiptOrStateStoredReceipt, ReceivedData};
 use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
     parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
-    parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
+    parse_data_key_from_contract_data_key, parse_index_from_delayed_receipt_key,
+    parse_public_key_from_access_key_key,
 };
 use crate::trie_key::{col, TrieKey};
 use crate::types::{AccountId, StoreKey, StoreValue};
@@ -14,6 +15,15 @@ use near_crypto::PublicKey;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt::{Display, Formatter};
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct DelayedReceipt {
+    #[serde(skip)]
+    pub index: Option<u64>,
+
+    #[serde(flatten)]
+    pub receipt: Box<Receipt>,
+}
 
 /// Record in the state storage.
 #[serde_as]
@@ -42,7 +52,7 @@ pub enum StateRecord {
     },
     /// Delayed Receipt.
     /// The receipt was delayed because the shard was overwhelmed.
-    DelayedReceipt(Box<Receipt>),
+    DelayedReceipt(DelayedReceipt),
 }
 
 impl StateRecord {
@@ -50,22 +60,22 @@ impl StateRecord {
     /// of `unwrap` and should only be used during `state_dump`.
     /// Most `unwrap()` here are because the implementation of columns and data are internal and
     /// can't be influenced by external calls.
-    pub fn from_raw_key_value(key: Vec<u8>, value: Vec<u8>) -> Option<StateRecord> {
+    pub fn from_raw_key_value(key: &[u8], value: Vec<u8>) -> Option<StateRecord> {
         Self::from_raw_key_value_impl(key, value).unwrap_or(None)
     }
 
     pub fn from_raw_key_value_impl(
-        key: Vec<u8>,
+        key: &[u8],
         value: Vec<u8>,
     ) -> Result<Option<StateRecord>, std::io::Error> {
         Ok(match key[0] {
             col::ACCOUNT => Some(StateRecord::Account {
-                account_id: parse_account_id_from_account_key(&key)?,
+                account_id: parse_account_id_from_account_key(key)?,
                 account: Account::try_from_slice(&value)?,
             }),
             col::CONTRACT_DATA => {
-                let account_id = parse_account_id_from_contract_data_key(&key)?;
-                let data_key = parse_data_key_from_contract_data_key(&key, &account_id)?;
+                let account_id = parse_account_id_from_contract_data_key(key)?;
+                let data_key = parse_data_key_from_contract_data_key(key, &account_id)?;
                 Some(StateRecord::Data {
                     account_id,
                     data_key: data_key.to_vec().into(),
@@ -73,19 +83,19 @@ impl StateRecord {
                 })
             }
             col::CONTRACT_CODE => Some(StateRecord::Contract {
-                account_id: parse_account_id_from_contract_code_key(&key)?,
+                account_id: parse_account_id_from_contract_code_key(key)?,
                 code: value,
             }),
             col::ACCESS_KEY => {
                 let access_key = AccessKey::try_from_slice(&value)?;
-                let account_id = parse_account_id_from_access_key_key(&key)?;
-                let public_key = parse_public_key_from_access_key_key(&key, &account_id)?;
+                let account_id = parse_account_id_from_access_key_key(key)?;
+                let public_key = parse_public_key_from_access_key_key(key, &account_id)?;
                 Some(StateRecord::AccessKey { account_id, public_key, access_key })
             }
             col::RECEIVED_DATA => {
                 let data = ReceivedData::try_from_slice(&value)?.data;
-                let account_id = parse_account_id_from_received_data_key(&key)?;
-                let data_id = parse_data_id_from_received_data_key(&key, &account_id)?;
+                let account_id = parse_account_id_from_received_data_key(key)?;
+                let data_id = parse_data_id_from_received_data_key(key, &account_id)?;
                 Some(StateRecord::ReceivedData { account_id, data_id, data })
             }
             col::POSTPONED_RECEIPT_ID => None,
@@ -100,8 +110,12 @@ impl StateRecord {
                 None
             }
             col::DELAYED_RECEIPT_OR_INDICES => {
-                let receipt = Receipt::try_from_slice(&value)?;
-                Some(StateRecord::DelayedReceipt(Box::new(receipt)))
+                let receipt = ReceiptOrStateStoredReceipt::try_from_slice(&value)?.into_receipt();
+                let index = Some(parse_index_from_delayed_receipt_key(key)?);
+                Some(StateRecord::DelayedReceipt(DelayedReceipt {
+                    index,
+                    receipt: Box::new(receipt),
+                }))
             }
             _ => {
                 println!("key[0]: {} is unreachable", key[0]);
@@ -178,9 +192,8 @@ pub fn state_record_to_account_id(state_record: &StateRecord) -> &AccountId {
         | StateRecord::Contract { account_id, .. }
         | StateRecord::ReceivedData { account_id, .. }
         | StateRecord::Data { account_id, .. } => account_id,
-        StateRecord::PostponedReceipt(receipt) | StateRecord::DelayedReceipt(receipt) => {
-            receipt.receiver_id()
-        }
+        StateRecord::PostponedReceipt(receipt) => receipt.receiver_id(),
+        StateRecord::DelayedReceipt(receipt) => receipt.receipt.receiver_id(),
     }
 }
 

@@ -20,6 +20,7 @@ pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
@@ -36,13 +37,11 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-use near_primitives::transaction::NonrefundableStorageTransferAction;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
     SignedTransaction, TransferAction,
 };
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
@@ -440,8 +439,6 @@ impl Runtime {
         let is_the_only_action = actions.len() == 1;
         let implicit_account_creation_eligible = is_the_only_action && !is_refund;
 
-        let receipt_starts_with_create_account =
-            matches!(actions.get(0), Some(Action::CreateAccount(_)));
         // Account validation
         if let Err(e) = check_account_existence(
             action,
@@ -449,7 +446,6 @@ impl Runtime {
             account_id,
             &apply_state.config,
             implicit_account_creation_eligible,
-            receipt_starts_with_create_account,
         ) {
             result.result = Err(e);
             return Ok(result);
@@ -470,7 +466,6 @@ impl Runtime {
                     receipt.receiver_id(),
                     receipt.predecessor_id(),
                     &mut result,
-                    apply_state.current_protocol_version,
                 );
             }
             Action::DeployContract(deploy_contract) => {
@@ -485,7 +480,7 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
-                action_deploy_global_contract(account_id, deploy_global_contract, &mut result)?;
+                action_deploy_global_contract(account_id, deploy_global_contract, &mut result);
             }
             Action::UseGlobalContract(use_global_contract) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
@@ -522,24 +517,6 @@ impl Runtime {
                 action_transfer_or_implicit_account_creation(
                     account,
                     *deposit,
-                    false,
-                    is_refund,
-                    action_receipt,
-                    receipt,
-                    state_update,
-                    apply_state,
-                    actor_id,
-                    epoch_info_provider,
-                )?;
-            }
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
-                deposit,
-            }) => {
-                action_transfer_or_implicit_account_creation(
-                    account,
-                    *deposit,
-                    true,
                     is_refund,
                     action_receipt,
                     receipt,
@@ -667,8 +644,6 @@ impl Runtime {
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let mut nonrefundable_amount_burnt: Balance = 0;
 
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
@@ -712,14 +687,6 @@ impl Runtime {
             if let Err(ref mut res) = result.result {
                 res.index = Some(action_index as u64);
                 break;
-            }
-
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            if let Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
-                deposit,
-            }) = action
-            {
-                nonrefundable_amount_burnt = safe_add_balance(nonrefundable_amount_burnt, *deposit)?
             }
         }
 
@@ -803,13 +770,6 @@ impl Runtime {
                 state_update.rollback();
             }
         };
-        // If the receipt was successfully applied, we update `other_burnt_amount` statistic with the non-refundable amount burnt.
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        if result.result.is_ok() {
-            stats.other_burnt_amount =
-                safe_add_balance(stats.other_burnt_amount, nonrefundable_amount_burnt)?;
-        }
-
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas =
             if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
@@ -958,6 +918,37 @@ impl Runtime {
                 ))),
             },
         })
+    }
+
+    fn apply_global_contract_distribution_receipt(
+        &self,
+        receipt: &Receipt,
+        state_update: &mut TrieUpdate,
+    ) {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_global_contract_distribution_receipt",
+        )
+        .entered();
+
+        let ReceiptEnum::GlobalContractDistribution(global_contract_data) = receipt.receipt()
+        else {
+            unreachable!("given receipt should be an global contract distribution receipt")
+        };
+
+        let trie_key = TrieKey::GlobalContractCode {
+            identifier: match &global_contract_data.id {
+                GlobalContractIdentifier::CodeHash(hash) => {
+                    GlobalContractCodeIdentifier::CodeHash(*hash)
+                }
+                GlobalContractIdentifier::AccountId(account_id) => {
+                    GlobalContractCodeIdentifier::AccountId(account_id.clone())
+                }
+            },
+        };
+        state_update.set(trie_key, global_contract_data.code.to_vec());
+        state_update
+            .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
     }
 
     fn generate_refund_receipts(
@@ -1231,6 +1222,10 @@ impl Runtime {
                     // ignore all but the first.
                     return Ok(None);
                 }
+            }
+            ReceiptEnum::GlobalContractDistribution(_) => {
+                self.apply_global_contract_distribution_receipt(receipt, state_update);
+                return Ok(None);
             }
         };
         // We didn't trigger execution, so we need to commit the state.
@@ -2288,7 +2283,6 @@ impl ApplyState {
 fn action_transfer_or_implicit_account_creation(
     account: &mut Option<Account>,
     deposit: u128,
-    nonrefundable: bool,
     is_refund: bool,
     action_receipt: &ActionReceipt,
     receipt: &Receipt,
@@ -2298,17 +2292,7 @@ fn action_transfer_or_implicit_account_creation(
     epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
-        if nonrefundable {
-            assert!(cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491"));
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            action_nonrefundable_storage_transfer(
-                account,
-                deposit,
-                apply_state.config.storage_amount_per_byte(),
-            )?;
-        } else {
-            action_transfer(account, deposit)?;
-        }
+        action_transfer(account, deposit)?;
         // Check if this is a gas refund, then try to refund the access key allowance.
         if is_refund && &action_receipt.signer_id == receipt.receiver_id() {
             try_refund_allowance(
@@ -2332,7 +2316,6 @@ fn action_transfer_or_implicit_account_creation(
             deposit,
             apply_state.block_height,
             apply_state.current_protocol_version,
-            nonrefundable,
             epoch_info_provider,
         );
     })
@@ -2754,6 +2737,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                     };
                     return handle_receipt(mgr, state_update, receiver, account_id, &yr);
                 }
+                ReceiptEnum::GlobalContractDistribution(_) => false,
             }
         }
         handle_receipt(pipeline_manager, state_update, &receiver, account_id, peek)

@@ -1,8 +1,7 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
+use {crate::state::PartialState, std::collections::HashMap};
 
 use super::ChunkProductionKey;
-use crate::challenge::PartialState;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};

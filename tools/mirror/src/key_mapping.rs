@@ -1,3 +1,4 @@
+// cspell:words hkdf
 use hkdf::Hkdf;
 use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
 use near_primitives::types::AccountId;

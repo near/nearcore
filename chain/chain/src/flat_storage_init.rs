@@ -1,4 +1,5 @@
 use near_chain_primitives::Error;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_store::flat::{FlatStorageManager, FlatStorageStatus};
@@ -44,7 +45,7 @@ fn init_flat_storage_for_current_epoch(
 
     let shard_ids = epoch_manager.shard_ids(epoch_id)?;
     for shard_id in shard_ids {
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager, shard_id, &chain_head.epoch_id)?;
         let status = flat_storage_manager.get_flat_storage_status(shard_uid);
         match status {
             FlatStorageStatus::Ready(_) => {
@@ -76,7 +77,7 @@ fn init_flat_storage_for_next_epoch(
 
     let shard_ids = epoch_manager.shard_ids(next_epoch_id)?;
     for shard_id in shard_ids {
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, next_epoch_id)?;
+        let shard_uid = shard_id_to_uid(epoch_manager, shard_id, next_epoch_id)?;
         let status = flat_storage_manager.get_flat_storage_status(shard_uid);
         match status {
             FlatStorageStatus::Ready(_) => {

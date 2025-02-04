@@ -12,10 +12,10 @@ use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle}
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
-use near_primitives::challenge::PartialState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
+use near_primitives::state::PartialState;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
@@ -76,10 +76,13 @@ impl ReshardingManager {
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
-        let next_block_has_new_shard_layout =
-            self.epoch_manager.is_next_block_epoch_start(block_hash)?
-                && shard_layout != next_shard_layout;
-        if !next_block_has_new_shard_layout {
+        let is_next_block_epoch_start = self.epoch_manager.is_next_block_epoch_start(block_hash)?;
+        if !is_next_block_epoch_start {
+            return Ok(());
+        }
+
+        let will_shard_layout_change = shard_layout != next_shard_layout;
+        if !will_shard_layout_change {
             tracing::debug!(target: "resharding", ?prev_hash, "prev block has the same shard layout, skipping");
             return Ok(());
         }
@@ -153,7 +156,6 @@ impl ReshardingManager {
     /// Store in the database the mapping of ShardUId from children to the parent shard,
     /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
     /// as a prefix for the database key.
-    // TODO(resharding) add testloop where grandparent ShardUId is used
     fn set_state_shard_uid_mapping(
         &mut self,
         split_shard_event: &ReshardingSplitShardParams,
@@ -161,7 +163,6 @@ impl ReshardingManager {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        // TODO(resharding) No need to set the mapping for children shards that we won't track just after resharding?
         for child_shard_uid in split_shard_event.children_shards() {
             store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }

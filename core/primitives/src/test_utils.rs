@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account::new(amount, 0, 0, code_hash, std::mem::size_of::<Account>() as u64, PROTOCOL_VERSION)
+    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
 }
 
 impl Transaction {

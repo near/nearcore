@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Experiments with deploying gibberish contracts. Specifically,
 # 1. Deploys completely gibberish contracts
-# 2. Gets an existing wasm contract, and tries to arbitrarily pertrurb bytes in it
+# 2. Gets an existing wasm contract, and tries to arbitrarily perturb bytes in it
 
 import sys, time, random
 import base58
@@ -42,6 +42,7 @@ for iter_ in range(10):
     hash_ = nodes[0].get_latest_block().hash_bytes
     logger.info("Deploying perturbed contract #%s" % iter_)
 
+    # cspell:words mething
     new_name = '%s_mething' % iter_
     new_output = '%s_llo' % iter_
 

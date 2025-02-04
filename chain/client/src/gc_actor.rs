@@ -39,12 +39,7 @@ impl GCActor {
         is_archive: bool,
     ) -> Self {
         GCActor {
-            store: ChainStore::new(
-                store,
-                genesis.height,
-                true,
-                genesis.transaction_validity_period,
-            ),
+            store: ChainStore::new(store, true, genesis.transaction_validity_period),
             runtime_adapter,
             gc_config,
             epoch_manager,

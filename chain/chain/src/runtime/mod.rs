@@ -9,6 +9,7 @@ use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
@@ -136,9 +137,8 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
     ) -> Result<ShardUId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let shard_version = epoch_manager.get_shard_layout(&epoch_id)?.version();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_version = self.epoch_manager.get_shard_layout(&epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
@@ -607,7 +607,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: PrepareTransactionsChunkContext,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
@@ -1227,8 +1227,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+        Ok(self.epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
@@ -1378,8 +1377,7 @@ fn congestion_control_accepts_transaction(
         return Ok(true);
     }
     let receiver_id = tx.transaction.receiver_id();
-    let receiving_shard = epoch_manager.account_id_to_shard_id(receiver_id, &epoch_id)?;
-
+    let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);
     let Some(congestion_info) = congestion_info else {
         return Ok(true);

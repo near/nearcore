@@ -12,8 +12,9 @@ use near_schema_checker_lib::ProtocolSchema;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
+use std::sync::Arc;
 
-fn base64(s: &[u8]) -> String {
+pub fn base64(s: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
@@ -146,7 +147,7 @@ pub enum GlobalContractDeployMode {
 pub struct DeployGlobalContractAction {
     /// WebAssembly binary
     #[serde_as(as = "Base64")]
-    pub code: Vec<u8>,
+    pub code: Arc<[u8]>,
 
     pub deploy_mode: GlobalContractDeployMode,
 }
@@ -166,6 +167,7 @@ impl fmt::Debug for DeployGlobalContractAction {
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    Hash,
     PartialEq,
     Eq,
     Clone,
@@ -266,23 +268,6 @@ pub struct TransferAction {
     BorshDeserialize,
     PartialEq,
     Eq,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-    ProtocolSchema,
-)]
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub struct NonrefundableStorageTransferAction {
-    #[serde(with = "dec_format")]
-    pub deposit: Balance,
-}
-
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    PartialEq,
-    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -306,11 +291,6 @@ pub enum Action {
     Delegate(Box<delegate::SignedDelegateAction>),
     DeployGlobalContract(DeployGlobalContractAction),
     UseGlobalContract(Box<UseGlobalContractAction>),
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    /// Makes a non-refundable transfer for storage allowance.
-    /// Only possible during new account creation.
-    /// For implicit account creation, it has to be the only action in the receipt.
-    NonrefundableStorageTransfer(NonrefundableStorageTransferAction),
 }
 
 const _: () = assert!(
@@ -332,8 +312,6 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::NonrefundableStorageTransfer(a) => a.deposit,
             _ => 0,
         }
     }
@@ -366,13 +344,6 @@ impl From<FunctionCallAction> for Action {
 impl From<TransferAction> for Action {
     fn from(transfer_action: TransferAction) -> Self {
         Self::Transfer(transfer_action)
-    }
-}
-
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-impl From<NonrefundableStorageTransferAction> for Action {
-    fn from(nonrefundable_transfer_action: NonrefundableStorageTransferAction) -> Self {
-        Self::NonrefundableStorageTransfer(nonrefundable_transfer_action)
     }
 }
 

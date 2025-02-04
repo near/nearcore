@@ -250,13 +250,11 @@ impl GenesisBuilder {
                 self.epoch_manager.as_ref(),
                 EpochId::default(),
                 EpochId::default(),
-                &CryptoHash::default(),
             )?,
         );
 
         let mut store = ChainStore::new(
             self.store.clone(),
-            self.genesis.config.genesis_height,
             true,
             self.genesis.config.transaction_validity_period,
         );
@@ -341,10 +339,8 @@ impl GenesisBuilder {
         let account = Account::new(
             testing_init_balance,
             testing_init_stake,
-            0,
             self.additional_accounts_code_hash,
             0,
-            self.genesis.config.protocol_version,
         );
         set_account(&mut state_update, account_id.clone(), &account);
         let account_record = StateRecord::Account { account_id: account_id.clone(), account };

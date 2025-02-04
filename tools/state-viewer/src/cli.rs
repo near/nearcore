@@ -189,7 +189,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ViewChain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
@@ -625,7 +625,7 @@ impl EpochInfoCmd {
 
 #[derive(clap::Args)]
 pub struct EpochAnalysisCmd {
-    /// Start height of the epochs to analyse.
+    /// Start height of the epochs to analyze.
     #[clap(long)]
     start_height: EpochHeight,
     /// Epoch analysis mode.
@@ -833,8 +833,8 @@ pub struct ViewChainCmd {
 }
 
 impl ViewChainCmd {
-    pub fn run(self, near_config: NearConfig, store: Store) {
-        view_chain(self.height, self.block, self.chunk, near_config, store);
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_chain(self.height, self.block, self.chunk, home_dir, near_config, store);
     }
 }
 

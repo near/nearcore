@@ -1,9 +1,9 @@
 use crate::adjust_database::ChangeDbKindCommand;
-use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
-use crate::analyse_gas_usage::AnalyseGasUsageCommand;
-use crate::analyse_high_load::HighLoadStatsCommand;
 use crate::analyze_contract_sizes::AnalyzeContractSizesCommand;
+use crate::analyze_data_size_distribution::AnalyzeDataSizeDistributionCommand;
 use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
+use crate::analyze_gas_usage::AnalyzeGasUsageCommand;
+use crate::analyze_high_load::HighLoadStatsCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
@@ -25,11 +25,11 @@ pub struct DatabaseCommand {
 #[derive(Parser)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 enum SubCommand {
-    /// Analyse data size distribution in RocksDB
-    AnalyseDataSizeDistribution(AnalyseDataSizeDistributionCommand),
+    /// Analyze data size distribution in RocksDB
+    AnalyzeDataSizeDistribution(AnalyzeDataSizeDistributionCommand),
 
-    /// Analyse gas usage in a chosen sequnce of blocks
-    AnalyseGasUsage(AnalyseGasUsageCommand),
+    /// Analyze gas usage in a chosen sequence of blocks
+    AnalyzeGasUsage(AnalyzeGasUsageCommand),
 
     /// Change DbKind of hot or cold db.
     ChangeDbKind(ChangeDbKindCommand),
@@ -54,7 +54,7 @@ enum SubCommand {
     LoadMemTrie(LoadMemTrieCommand),
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),
-    /// Outputs stats that are needed to analise high load
+    /// Outputs stats that are needed to analyze high load
     /// for a block range and account.
     HighLoadStats(HighLoadStatsCommand),
     // Analyze congestion through delayed receipts
@@ -73,8 +73,8 @@ impl DatabaseCommand {
         genesis_validation: GenesisValidationMode,
     ) -> anyhow::Result<()> {
         match &self.subcmd {
-            SubCommand::AnalyseDataSizeDistribution(cmd) => cmd.run(home),
-            SubCommand::AnalyseGasUsage(cmd) => cmd.run(home, genesis_validation),
+            SubCommand::AnalyzeDataSizeDistribution(cmd) => cmd.run(home),
+            SubCommand::AnalyzeGasUsage(cmd) => cmd.run(home, genesis_validation),
             SubCommand::ChangeDbKind(cmd) => cmd.run(home, genesis_validation),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
             SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),

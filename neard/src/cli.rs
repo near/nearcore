@@ -6,6 +6,7 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_config_utils::DownloadConfigType;
 use near_database_tool::commands::DatabaseCommand;
+use near_dump_test_contract::DumpTestContractCommand;
 use near_dyn_configs::{UpdatableConfigLoader, UpdatableConfigLoaderError, UpdatableConfigs};
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
@@ -147,6 +148,9 @@ impl NeardCmd {
             NeardSubCommand::ReplayArchive(cmd) => {
                 cmd.run(&home_dir, genesis_validation)?;
             }
+            NeardSubCommand::DumpTestContracts(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
@@ -253,6 +257,9 @@ pub(super) enum NeardSubCommand {
 
     /// Replays the blocks in the chain from an archival node.
     ReplayArchive(ReplayArchiveCommand),
+
+    /// Placeholder for test contracts subcommand
+    DumpTestContracts(DumpTestContractCommand),
 }
 
 #[allow(unused)]

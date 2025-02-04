@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# This test checks the ultimate undercharding scenario where a chunk takes
+# This test checks the ultimate undercharging scenario where a chunk takes
 # long time to apply but consumes little gas. This is to simulate real
-# undercharing in a more controlled manner.
+# undercharging in a more controlled manner.
 
 import sys
 import json
@@ -75,7 +75,7 @@ class SlowChunkTest(unittest.TestCase):
         logger.info("Deploying contract.")
 
         block_hash = node.get_latest_block().hash_bytes
-        contract = load_test_contract('test_contract_rs.wasm')
+        contract = load_test_contract('rs_contract.wasm')
 
         tx = sign_deploy_contract_tx(node.signer_key, contract, 10, block_hash)
         node.send_tx(tx)

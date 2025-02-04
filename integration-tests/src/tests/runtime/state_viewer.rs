@@ -363,7 +363,7 @@ fn test_view_state_too_large() {
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, 0, CryptoHash::default(), 50_001, PROTOCOL_VERSION),
+        &Account::new(0, 0, CryptoHash::default(), 50_001),
     );
     let trie_viewer = TrieViewer::new(Some(50_000), None);
     let result = trie_viewer.view_state(&state_update, &alice_account(), b"", false);
@@ -378,7 +378,7 @@ fn test_view_state_with_large_contract() {
     set_account(
         &mut state_update,
         alice_account(),
-        &Account::new(0, 0, 0, sha256(&contract_code), 50_001, PROTOCOL_VERSION),
+        &Account::new(0, 0, sha256(&contract_code), 50_001),
     );
     state_update.set(TrieKey::ContractCode { account_id: alice_account() }, contract_code);
     let trie_viewer = TrieViewer::new(Some(50_000), None);

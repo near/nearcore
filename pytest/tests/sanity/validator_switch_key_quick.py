@@ -71,7 +71,7 @@ class ValidatorSwitchKeyQuickTest(unittest.TestCase):
 
         new_validator.reset_validator_key(old_validator.validator_key)
         old_validator.kill()
-        new_validator.reload_updateable_config()
+        new_validator.reload_updatable_config()
         new_validator.stop_checking_store()
         wait_for_blocks(other_validator, count=2)
 

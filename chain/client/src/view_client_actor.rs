@@ -11,8 +11,8 @@ use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
-    get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-    MerkleProofAccess,
+    get_epoch_block_producers_view, retrieve_headers, Chain, ChainGenesis, ChainStoreAccess,
+    DoomslugThresholdMode, MerkleProofAccess,
 };
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
@@ -27,6 +27,7 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
     TxStatus, TxStatusError,
 };
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
@@ -370,14 +371,12 @@ impl ViewClientActorInner {
             QueryRequest::CallFunction { account_id, .. } => account_id,
             QueryRequest::ViewCode { account_id, .. } => account_id,
         };
-        let shard_id = self
-            .epoch_manager
-            .account_id_to_shard_id(account_id, header.epoch_id())
-            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
-        let shard_uid = self
-            .epoch_manager
-            .shard_id_to_uid(shard_id, header.epoch_id())
-            .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+        let shard_id =
+            account_id_to_shard_id(self.epoch_manager.as_ref(), account_id, header.epoch_id())
+                .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
+        let shard_uid =
+            shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, header.epoch_id())
+                .map_err(|err| QueryError::InternalError { error_message: err.to_string() })?;
 
         let tip = self.chain.head();
         let chunk_extra =
@@ -560,10 +559,9 @@ impl ViewClientActorInner {
         }
 
         let head = self.chain.head()?;
-        let target_shard_id = self
-            .epoch_manager
-            .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
-            .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
+        let target_shard_id =
+            account_id_to_shard_id(self.epoch_manager.as_ref(), &signer_account_id, &head.epoch_id)
+                .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
         if self.shard_tracker.care_about_shard(
             validator_signer.as_ref().map(|v| v.validator_id()),
@@ -621,10 +619,12 @@ impl ViewClientActorInner {
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
             if self.need_request(tx_hash, &mut request_manager.tx_status_requests) {
-                let target_shard_id = self
-                    .epoch_manager
-                    .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
-                    .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
+                let target_shard_id = account_id_to_shard_id(
+                    self.epoch_manager.as_ref(),
+                    &signer_account_id,
+                    &head.epoch_id,
+                )
+                .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
                 let validator = self
                     .epoch_manager
                     .get_chunk_producer_info(&ChunkProductionKey {
@@ -647,7 +647,7 @@ impl ViewClientActorInner {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        self.chain.retrieve_headers(hashes, sync::header::MAX_BLOCK_HEADERS, None)
+        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(
@@ -655,12 +655,9 @@ impl ViewClientActorInner {
         announce_account: &AnnounceAccount,
     ) -> Result<bool, Error> {
         let announce_hash = announce_account.hash();
-        let head = self.chain.head()?;
-
         self.epoch_manager
             .verify_validator_signature(
                 &announce_account.epoch_id,
-                &head.last_block_hash,
                 &announce_account.account_id,
                 announce_hash.as_ref(),
                 &announce_account.signature,
@@ -693,7 +690,7 @@ impl ViewClientActorInner {
         let header = self.chain.get_block_header(sync_hash)?;
         let prev_header = self.chain.get_block_header(header.prev_hash())?;
         let prev_epoch_id = prev_header.epoch_id();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, prev_epoch_id)?;
+        let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, prev_epoch_id)?;
         let sync_prev_prev_hash = prev_header.prev_hash();
         let status = self
             .runtime
@@ -911,11 +908,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActorInner {
             .with_label_values(&["GetValidatorOrdered"])
             .start_timer();
         Ok(self.maybe_block_id_to_block_header(msg.block_id).and_then(|header| {
-            get_epoch_block_producers_view(
-                header.epoch_id(),
-                header.prev_hash(),
-                self.epoch_manager.as_ref(),
-            )
+            get_epoch_block_producers_view(header.epoch_id(), self.epoch_manager.as_ref())
         })?)
     }
 }
@@ -997,10 +990,11 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
             HashMap::new();
         for state_change_with_cause in state_changes_with_cause_in_block {
             let account_id = state_change_with_cause.value.affected_account_id();
-            let shard_id = match self
-                .epoch_manager
-                .account_id_to_shard_id(account_id, &msg.epoch_id)
-            {
+            let shard_id = match account_id_to_shard_id(
+                self.epoch_manager.as_ref(),
+                account_id,
+                &msg.epoch_id,
+            ) {
                 Ok(shard_id) => shard_id,
                 Err(err) => {
                     return Err(GetStateChangesError::IOError { error_message: err.to_string() })
@@ -1093,10 +1087,9 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                     *self.chain.get_block(&outcome_proof.block_hash)?.header().epoch_id();
                 let shard_layout =
                     self.epoch_manager.get_shard_layout(&epoch_id).into_chain_error()?;
-                let target_shard_id = self
-                    .epoch_manager
-                    .account_id_to_shard_id(&account_id, &epoch_id)
-                    .into_chain_error()?;
+                let target_shard_id =
+                    account_id_to_shard_id(self.epoch_manager.as_ref(), &account_id, &epoch_id)
+                        .into_chain_error()?;
                 let target_shard_index = shard_layout
                     .get_shard_index(target_shard_id)
                     .map_err(Into::into)
@@ -1132,10 +1125,12 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
             }
             Err(near_chain::Error::DBNotFoundErr(_)) => {
                 let head = self.chain.head()?;
-                let target_shard_id = self
-                    .epoch_manager
-                    .account_id_to_shard_id(&account_id, &head.epoch_id)
-                    .into_chain_error()?;
+                let target_shard_id = account_id_to_shard_id(
+                    self.epoch_manager.as_ref(),
+                    &account_id,
+                    &head.epoch_id,
+                )
+                .into_chain_error()?;
                 if self.shard_tracker.care_about_shard(
                     self.validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &head.last_block_hash,
@@ -1356,13 +1351,15 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
             return None;
         }
         let header = match self.chain.check_sync_hash_validity(&sync_hash) {
-            Ok(true) => match self.chain.get_state_response_header(shard_id, sync_hash) {
-                Ok(header) => Some(header),
-                Err(err) => {
-                    error!(target: "sync", ?err, "Cannot build state sync header");
-                    None
+            Ok(true) => {
+                match self.chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash) {
+                    Ok(header) => Some(header),
+                    Err(err) => {
+                        error!(target: "sync", ?err, "Cannot build state sync header");
+                        None
+                    }
                 }
-            },
+            }
             Ok(false) => {
                 warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
                 // Don't respond to the node, because the request is malformed.
@@ -1432,7 +1429,11 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
         let part = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
-                let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
+                let part = match self
+                    .chain
+                    .state_sync_adapter
+                    .get_state_response_part(shard_id, part_id, sync_hash)
+                {
                     Ok(part) => Some((part_id, part)),
                     Err(err) => {
                         error!(target: "sync", ?err, ?sync_hash, ?shard_id, part_id, "Cannot build state part");

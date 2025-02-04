@@ -121,7 +121,7 @@ impl<'a> std::fmt::Display for AbbrBytes<Option<&'a [u8]>> {
 /// A wrapper for bytes slice which tries to guess best way to format it.
 ///
 /// If the slice is exactly 32-byte long, it’s assumed to be a hash and is
-/// converted into base58 and printed surrounded by backtics.  Otherwise,
+/// converted into base58 and printed surrounded by backticks.  Otherwise,
 /// behaves like [`Bytes`] representing the data as string if it contains ASCII
 /// printable bytes only or base64 otherwise.
 ///
@@ -238,6 +238,7 @@ fn truncated_bytes_format(bytes: &[u8], fmt: &mut std::fmt::Formatter<'_>) -> st
     }
 }
 
+// cspell:words Zółw Zvby Ffoo HTBBNBNCLX Ypei rabarbar
 #[cfg(test)]
 macro_rules! do_test_bytes_formatting {
     ($type:ident, $consider_hash:expr, $truncate:expr) => {{
