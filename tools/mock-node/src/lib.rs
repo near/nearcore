@@ -13,6 +13,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -468,6 +469,7 @@ impl MockNode {
         shard_layout: ShardLayout,
         network_start_height: BlockHeight,
         network_config: MockNetworkConfig,
+        handshake_protocol_version: Option<ProtocolVersion>,
     ) -> anyhow::Result<Self> {
         let listener = Listener::bind(
             listen_addr,
@@ -478,6 +480,7 @@ impl MockNode {
             shard_layout.shard_ids().collect(),
             archival,
             30 * near_time::Duration::SECOND,
+            handshake_protocol_version,
         )
         .await?;
 
