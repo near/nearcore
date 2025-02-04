@@ -233,7 +233,7 @@ impl Connection {
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
         tracked_shards: Vec<ShardId>,
-        recv_timeout: Duration,
+        recv_timeout: Option<Duration>,
     ) -> Result<Self, ConnectError> {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
         let my_peer_id = PeerId::new(secret_key.public_key());
@@ -279,7 +279,7 @@ impl Connection {
         head_height: BlockHeight,
         tracked_shards: Vec<ShardId>,
         archival: bool,
-        recv_timeout: Duration,
+        recv_timeout: Option<Duration>,
         protocol_version: Option<ProtocolVersion>,
     ) -> Result<Self, ConnectError> {
         let mut stream = PeerStream::new(stream, recv_timeout);
@@ -541,7 +541,7 @@ enum RecvError {
 struct PeerStream {
     stream: tcp::Stream,
     buf: BytesMut,
-    recv_timeout: Duration,
+    recv_timeout: Option<Duration>,
 }
 
 impl std::fmt::Debug for PeerStream {
@@ -551,7 +551,7 @@ impl std::fmt::Debug for PeerStream {
 }
 
 impl PeerStream {
-    fn new(stream: tcp::Stream, recv_timeout: Duration) -> Self {
+    fn new(stream: tcp::Stream, recv_timeout: Option<Duration>) -> Self {
         Self { stream, buf: BytesMut::with_capacity(1024), recv_timeout }
     }
 
@@ -563,11 +563,13 @@ impl PeerStream {
     }
 
     async fn do_read(&mut self) -> io::Result<()> {
-        let n = tokio::time::timeout(
-            self.recv_timeout.try_into().unwrap(),
-            self.stream.stream.read_buf(&mut self.buf),
-        )
-        .await??;
+        let read = self.stream.stream.read_buf(&mut self.buf);
+        let n = if let Some(recv_timeout) = self.recv_timeout {
+            tokio::time::timeout(recv_timeout.try_into().unwrap(), read).await??
+        } else {
+            read.await?
+        };
+
         tracing::trace!(target: "network", "Read {} bytes from {:?}", n, self.stream.peer_addr);
         if n == 0 {
             return Err(io::Error::new(
@@ -628,7 +630,7 @@ pub struct Listener {
     head_height: BlockHeight,
     tracked_shards: Vec<ShardId>,
     archival: bool,
-    recv_timeout: Duration,
+    recv_timeout: Option<Duration>,
     handshake_protocol_version: Option<ProtocolVersion>,
 }
 
@@ -641,7 +643,7 @@ impl Listener {
         head_height: BlockHeight,
         tracked_shards: Vec<ShardId>,
         archival: bool,
-        recv_timeout: Duration,
+        recv_timeout: Option<Duration>,
         handshake_protocol_version: Option<ProtocolVersion>,
     ) -> io::Result<Self> {
         Ok(Self {

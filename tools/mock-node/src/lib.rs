@@ -479,7 +479,7 @@ impl MockNode {
             network_start_height,
             shard_layout.shard_ids().collect(),
             archival,
-            30 * near_time::Duration::SECOND,
+            None,
             handshake_protocol_version,
         )
         .await?;
