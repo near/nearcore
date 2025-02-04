@@ -2365,13 +2365,7 @@ impl Chain {
         prev_prev_hash: &CryptoHash,
         prev_hash: &CryptoHash,
     ) -> Result<bool, Error> {
-        // Needs to be used with care: for the first block of each epoch the semantic is slightly
-        // different, since the prev_block is in a different epoch. So for all the blocks but the
-        // first one in each epoch this method returns true if the block is ready to have state
-        // applied for the next epoch, while for the first block in a particular epoch this method
-        // returns true if the block is ready to have state applied for the current epoch (and
-        // otherwise should be orphaned)
-        Ok(!self.chain_store.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
+        Ok(ChainStore::prev_block_is_caught_up(&self.chain_store, prev_prev_hash, prev_hash)?)
     }
 
     /// Check if any block with missing chunk is ready to be processed and start processing these blocks
@@ -2598,7 +2592,7 @@ impl Chain {
     pub fn transaction_validity_check<'a>(
         &'a self,
         prev_block_header: BlockHeader,
-    ) -> impl FnMut(&SignedTransaction) -> bool + 'a {
+    ) -> impl Fn(&SignedTransaction) -> bool + 'a {
         move |tx: &SignedTransaction| -> bool {
             self.chain_store()
                 .check_transaction_validity_period(&prev_block_header, tx.transaction.block_hash())

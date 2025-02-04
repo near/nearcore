@@ -6,6 +6,8 @@
 //! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
+use crate::chunk_producer::AdvProduceChunksMode;
+#[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
@@ -383,15 +385,6 @@ impl ClientActorInner {
 
 #[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub enum AdvProduceChunksMode {
-    // Produce chunks as usual.
-    Valid,
-    // Stop producing chunks.
-    StopProduce,
-}
-
-#[cfg(feature = "test_features")]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum AdvProduceBlockHeightSelection {
     /// Place the new block on top of the latest known block. Block's height will be the next
     /// integer.
@@ -495,7 +488,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
             }
             NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
                 info!(target: "adversary", mode=?adv_produce_chunks, "setting adversary produce chunks");
-                self.client.adv_produce_chunks = Some(adv_produce_chunks);
+                self.client.chunk_producer.adv_produce_chunks = Some(adv_produce_chunks);
                 None
             }
         }

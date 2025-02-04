@@ -645,6 +645,7 @@ impl ClientActorInner {
                         production.chunk_production.insert(
                             shard_id,
                             self.client
+                                .chunk_producer
                                 .chunk_production_info
                                 .get(&(height, shard_id))
                                 .cloned()
