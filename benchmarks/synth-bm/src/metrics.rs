@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 
 use log::info;
 use reqwest::Client;
-use tokio::task::JoinHandle;
 use tokio::time;
 use tokio::time::Interval;
 
@@ -93,77 +92,51 @@ impl TransactionStatisticsService {
         }
     }
 
-    pub async fn start(mut self) -> JoinHandle<()> {
-        // TODO return result from JoinHandle and get rid of unwraps.
-        tokio::spawn(async move {
-            // Wait for transactions to start.
-            let initial_count = self.num_successful_transactions;
-            let mut interval_wait_txs_start = time::interval(Duration::from_millis(100));
-            info!("Waiting for transaction processing to start");
-            loop {
-                interval_wait_txs_start.tick().await;
-                let report = self.get_report().await.unwrap();
-                let metric =
-                    get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
-                // TODO refactor `Metric*` to avoid such matching.
-                let num = match metric {
-                    MetricValue::SuccessfulTransactions { num } => num,
-                };
-                info!("observing num = {num}");
-                if num > initial_count {
-                    self.num_start = num;
-                    self.start_time = Instant::now();
-                    info!("Observed successful transactions");
-                    break;
-                }
+    pub async fn start(mut self) {
+        // TODO return result and get rid of unwraps.
+        // Wait for transaction processing to start.
+        let initial_count = self.num_successful_transactions;
+        let mut interval_wait_txs_start = time::interval(Duration::from_millis(100));
+        info!("Waiting for transaction processing to start");
+        loop {
+            interval_wait_txs_start.tick().await;
+            let report = self.get_report().await.unwrap();
+            let metric = get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
+            // TODO refactor `Metric*` to avoid such matching.
+            let num = match metric {
+                MetricValue::SuccessfulTransactions { num } => num,
+            };
+            info!("observing num = {num}");
+            if num > initial_count {
+                self.num_start = num;
+                self.start_time = Instant::now();
+                info!("Observed successful transactions");
+                break;
             }
-
-            // Measure TPS.
-            loop {
-                self.refresh_interval.tick().await;
-                let report = self.get_report().await.unwrap();
-                let metric =
-                    get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
-                let num = match metric {
-                    MetricValue::SuccessfulTransactions { num } => num,
-                };
-                let last_num = self.num_successful_transactions;
-                // TODO refactor `Metric*` to avoid such matching.
-                self.num_successful_transactions = match metric {
-                    MetricValue::SuccessfulTransactions { num } => num,
-                };
-                if last_num == self.num_successful_transactions {
-                    break;
-                }
-                let elapsed_secs = self.start_time.elapsed().as_secs();
-                if elapsed_secs > 0 {
-                    info!("TPS: {}", (num - self.num_start) / elapsed_secs);
-                }
-            }
-        })
-    }
-
-    /*
-    async fn wait_for_transaction_processing(&mut self) -> anyhow::Result<()> {
-            let handle: JoinHandle<anyhow::Result<u64>> = tokio::spawn(async {
-                let initial_count = self.num_successful_transactions;
-                let mut interval = time::interval(Duration::from_millis(500));
-                loop {
-                    interval.tick().await;
-                    let report = self.get_report().await?;
-                    let metric = get_metric(MetricName::SuccessfulTransactions, report.as_ref())?;
-                    // TODO refactor `Metric*` to avoid such matching.
-                    let num = match metric {
-                        MetricValue::SuccessfulTransactions { num } => num,
-                    };
-                    if num > initial_count {
-                        return Ok(num);
-                    }
-                }
-            });
-            Ok(())
         }
-        */
+
+        // Measure TPS.
+        loop {
+            self.refresh_interval.tick().await;
+            let report = self.get_report().await.unwrap();
+            let metric = get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
+            let num = match metric {
+                MetricValue::SuccessfulTransactions { num } => num,
+            };
+            let last_num = self.num_successful_transactions;
+            // TODO refactor `Metric*` to avoid such matching.
+            self.num_successful_transactions = match metric {
+                MetricValue::SuccessfulTransactions { num } => num,
+            };
+            if last_num == self.num_successful_transactions {
+                break;
+            }
+            let elapsed_secs = self.start_time.elapsed().as_secs();
+            if elapsed_secs > 0 {
+                info!("TPS: {}", (num - self.num_start) / elapsed_secs);
+            }
+        }
+    }
 
     async fn get_report(&self) -> anyhow::Result<String> {
         self.http_client.get(&self.metrics_url).send().await?.text().await.map_err(Into::into)
