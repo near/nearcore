@@ -8,8 +8,6 @@ pub use near_client_primitives::types::{
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
-#[cfg(feature = "test_features")]
-pub use crate::chunk_producer::AdvProduceChunksMode;
 pub use crate::client::Client;
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;

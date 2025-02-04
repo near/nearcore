@@ -220,9 +220,11 @@ impl ChunkProducer {
         let prev_block_hash = *prev_block.hash();
         if self.epoch_manager.is_next_block_epoch_start(&prev_block_hash)? {
             let prev_prev_hash = *self.chain.get_block_header(&prev_block_hash)?.prev_hash();
+            // If we are to start new epoch, check if the previous block is
+            // caught up. If it is not the case, we wouldn't be able to
+            // apply block with the new chunk, so we also skip chunk production.
             if !ChainStore::prev_block_is_caught_up(&self.chain, &prev_prev_hash, &prev_block_hash)?
             {
-                // See comment in similar snipped in `produce_block`
                 debug!(target: "client", ?shard_id, next_height, "Produce chunk: prev block is not caught up");
                 return Err(Error::ChunkProducer(
                     "State for the epoch is not downloaded yet, skipping chunk production"
