@@ -60,7 +60,7 @@ impl EpochSync {
         store: &Store,
     ) -> Self {
         let my_own_epoch_sync_boundary_block_header = store
-            .epoch()
+            .epoch_store()
             .get_epoch_sync_proof()
             .expect("IO error querying epoch sync proof")
             .map(|proof| proof.current_epoch.first_block_header_in_epoch);
@@ -150,7 +150,7 @@ impl EpochSync {
         transaction_validity_period: BlockHeightDelta,
     ) -> Result<CryptoHash, Error> {
         let chain_store = store.chain_store();
-        let epoch_store = store.epoch();
+        let epoch_store = store.epoch_store();
 
         let tip = chain_store.final_head()?;
         let current_epoch_start_height = epoch_store.get_epoch_start(&tip.epoch_id)?;
@@ -183,7 +183,7 @@ impl EpochSync {
         next_block_header_after_last_final_block_of_current_epoch: BlockHeader,
     ) -> Result<EpochSyncProof, Error> {
         let chain_store = store.chain_store();
-        let epoch_store = store.epoch();
+        let epoch_store = store.epoch_store();
 
         let last_final_block_header_in_current_epoch = chain_store.get_block_header(
             next_block_header_after_last_final_block_of_current_epoch.prev_hash(),
@@ -304,7 +304,7 @@ impl EpochSync {
         current_epoch_second_last_block_approvals: Vec<Option<Box<Signature>>>,
     ) -> Result<Vec<EpochSyncProofEpochData>, Error> {
         let chain_store = store.chain_store();
-        let epoch_store = store.epoch();
+        let epoch_store = store.epoch_store();
 
         // We're going to get all the epochs and then figure out the correct chain of
         // epochs. The reason is that (1) epochs may, in very rare cases, have forks,
