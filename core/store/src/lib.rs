@@ -51,6 +51,7 @@ mod columns;
 pub mod config;
 pub mod contract;
 pub mod db;
+pub mod epoch_info_aggregator;
 pub mod flat;
 pub mod genesis;
 pub mod metadata;

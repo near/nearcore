@@ -47,6 +47,8 @@ number of rayon threads.
 As of today you need approximately 2TB of disk space for the whole history of `mainnet`, and the most practical way of
 obtaining this whole history is the following:
 
+<!-- cspell:words mhalambek Sandi chefsale -->
+
 * Patch <https://github.com/near/near-ops/pull/591> to define your own GCP instance in project `rpc-prod`.
 * Make sure to change `machine-name` and `role` to something unique.
 * Make a Pull Request and ask Mario (@mhalambek) or Sandi (@chefsale) for review.
@@ -148,7 +150,7 @@ gcloud beta compute ssh --zone "europe-west4-a" "<machine>"  --project "rpc-prod
 ```
 
 Check running instances at <https://console.cloud.google.com/compute/instances?project=rpc-prod> to see the machine
-name and datacenter.
+name and data center.
 
 ### contract-accounts
 
@@ -185,7 +187,8 @@ cargo run -p neard -- view-state contract-accounts \
   > output.log
 ```
 
-And the output may look something like thi:
+And the output may look something like this:
+<!-- cspell:words hipodev mintbase -->
 ```ignore
 ACCOUNT_ID                                                         RCPTS_IN  RCPTS_OUT ACTIONS
 0-0.near                                                                 37         14 Transfer

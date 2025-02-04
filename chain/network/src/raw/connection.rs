@@ -652,6 +652,9 @@ impl Listener {
     }
 
     pub async fn accept(&mut self) -> Result<Connection, ConnectError> {
+        // TODO: get rid of this listener type and make Connection::on_accept() pub. That way
+        // the calling code can just accept in a loop and then call Connection::on_accept() in
+        // different tasks
         let stream = self.listener.accept().await.map_err(ConnectError::IO)?;
         Connection::on_accept(
             stream,

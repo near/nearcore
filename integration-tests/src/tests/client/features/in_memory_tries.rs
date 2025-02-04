@@ -82,10 +82,7 @@ fn slow_test_in_memory_trie_node_consistency() {
     assert_eq!(
         env.clients[0]
             .epoch_manager
-            .get_epoch_block_producers_ordered(
-                &EpochId::default(),
-                &env.clients[0].chain.head().unwrap().last_block_hash
-            )
+            .get_epoch_block_producers_ordered(&EpochId::default())
             .unwrap()
             .len(),
         2
@@ -469,10 +466,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
     assert_eq!(
         env.clients[0]
             .epoch_manager
-            .get_epoch_block_producers_ordered(
-                &EpochId::default(),
-                &env.clients[0].chain.head().unwrap().last_block_hash
-            )
+            .get_epoch_block_producers_ordered(&EpochId::default())
             .unwrap()
             .len(),
         NUM_VALIDATORS

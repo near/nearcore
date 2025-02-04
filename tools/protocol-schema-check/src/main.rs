@@ -16,9 +16,9 @@ use near_primitives::*;
 use near_store::*;
 use near_vm_runner::*;
 
-use near_epoch_manager::types::EpochInfoAggregator;
 use near_schema_checker_lib::{FieldName, FieldTypeInfo, ProtocolSchema, ProtocolSchemaInfo};
 use near_stable_hasher::StableHasher;
+use near_store::epoch_info_aggregator::EpochInfoAggregator;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;

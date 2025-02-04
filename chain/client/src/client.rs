@@ -37,7 +37,7 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
-use near_client_primitives::types::{Error, StateSyncStatus};
+use near_client_primitives::types::{Error, StateSyncStatus, SyncStatus};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -751,12 +751,8 @@ impl Client {
             .epoch_manager
             .get_epoch_block_approvers_ordered(&prev_hash)?
             .into_iter()
-            .map(|(ApprovalStake { account_id, .. }, is_slashed)| {
-                if is_slashed {
-                    None
-                } else {
-                    approvals_map.remove(&account_id).map(|x| x.0.signature.into())
-                }
+            .map(|ApprovalStake { account_id, .. }| {
+                approvals_map.remove(&account_id).map(|x| x.0.signature.into())
             })
             .collect();
 
@@ -774,12 +770,7 @@ impl Client {
         let max_gas_price = self.chain.block_economics_config.max_gas_price(protocol_version);
 
         let next_bp_hash = if prev_epoch_id != epoch_id {
-            Chain::compute_bp_hash(
-                self.epoch_manager.as_ref(),
-                next_epoch_id,
-                epoch_id,
-                &prev_hash,
-            )?
+            Chain::compute_bp_hash(self.epoch_manager.as_ref(), next_epoch_id, epoch_id)?
         } else {
             prev_next_bp_hash
         };
@@ -1335,6 +1326,11 @@ impl Client {
         headers: Vec<BlockHeader>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), near_chain::Error> {
+        if matches!(self.sync_handler.sync_status, SyncStatus::EpochSync(_)) {
+            return Err(near_chain::Error::Other(
+                "Cannot sync block headers during an epoch sync".to_owned(),
+            ));
+        };
         let mut challenges = vec![];
         self.chain.sync_block_headers(headers, &mut challenges)?;
         self.send_challenges(challenges, signer);
@@ -2546,10 +2542,7 @@ impl Client {
                     .or_default()
                     .insert(cp.public_key().clone());
             }
-            for (bp, _) in self
-                .epoch_manager
-                .get_epoch_block_producers_ordered(epoch_id, &tip.last_block_hash)?
-            {
+            for bp in self.epoch_manager.get_epoch_block_producers_ordered(epoch_id)? {
                 account_keys
                     .entry(bp.account_id().clone())
                     .or_default()

@@ -615,8 +615,7 @@ pub(crate) fn print_chain(
                             println!(
                                 "Epoch {} Validators {:?}",
                                 format_hash(epoch_id.0, show_full_hashes),
-                                epoch_manager
-                                    .get_epoch_block_producers_ordered(&epoch_id, header.hash())
+                                epoch_manager.get_epoch_block_producers_ordered(&epoch_id)
                             );
                         }
                         Err(err) => {
@@ -1324,7 +1323,7 @@ fn print_state_stats_for_shard_uid(
 
     let mut state_stats = StateStats::default();
 
-    // iteratate for the first time to get the size statistics
+    // iterate for the first time to get the size statistics
     let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
     let iter = get_state_stats_account_iter(&group_by);
     for state_stats_account in iter {
@@ -1441,7 +1440,7 @@ pub struct StateStats {
     // The account that is in the middle of the state in respect to storage.
     pub middle_account: Option<StateStatsAccount>,
     // The total size of all accounts leading to the middle account.
-    // Can be used to determin how does the middle account split the state.
+    // Can be used to determine how does the middle account split the state.
     pub middle_account_leading_size: Option<ByteSize>,
 
     pub top_accounts: BinaryHeap<StateStatsAccount>,

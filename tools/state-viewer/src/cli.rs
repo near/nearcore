@@ -625,7 +625,7 @@ impl EpochInfoCmd {
 
 #[derive(clap::Args)]
 pub struct EpochAnalysisCmd {
-    /// Start height of the epochs to analyse.
+    /// Start height of the epochs to analyze.
     #[clap(long)]
     start_height: EpochHeight,
     /// Epoch analysis mode.

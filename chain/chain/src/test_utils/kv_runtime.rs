@@ -11,7 +11,7 @@ use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey};
-use near_epoch_manager::{EpochManagerAdapter, RngSeed};
+use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
@@ -20,7 +20,7 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::epoch_info::EpochInfo;
+use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
@@ -443,12 +443,11 @@ impl EpochManagerAdapter for MockEpochManager {
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
-        let validators =
-            &self.get_epoch_block_producers_ordered(epoch_id, &CryptoHash::default())?;
+        let validators = &self.get_epoch_block_producers_ordered(epoch_id)?;
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx = part_id as usize + self.num_data_parts() + self.num_total_parts();
-        Ok(validators[idx as usize % validators.len()].0.account_id().clone())
+        Ok(validators[idx as usize % validators.len()].account_id().clone())
     }
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
@@ -545,6 +544,13 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         _prev_block_hash: &CryptoHash,
     ) -> Result<EpochHeight, EpochError> {
+        Ok(0)
+    }
+
+    fn get_epoch_start_from_epoch_id(
+        &self,
+        _epoch_id: &EpochId,
+    ) -> Result<BlockHeight, EpochError> {
         Ok(0)
     }
 
@@ -652,16 +658,15 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_epoch_block_producers_ordered(
         &self,
         epoch_id: &EpochId,
-        _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(ValidatorStake, bool)>, EpochError> {
+    ) -> Result<Vec<ValidatorStake>, EpochError> {
         let validators = self.get_block_producers(self.get_valset_for_epoch(epoch_id)?);
-        Ok(validators.iter().map(|x| (x.clone(), false)).collect())
+        Ok(validators.iter().map(|x| x.clone()).collect())
     }
 
     fn get_epoch_block_approvers_ordered(
         &self,
         parent_hash: &CryptoHash,
-    ) -> Result<Vec<(ApprovalStake, bool)>, EpochError> {
+    ) -> Result<Vec<ApprovalStake>, EpochError> {
         let (_cur_epoch, cur_valset, next_epoch) = self.get_epoch_and_valset(*parent_hash)?;
         let mut validators = self
             .get_block_producers(cur_valset)
@@ -679,7 +684,7 @@ impl EpochManagerAdapter for MockEpochManager {
                     .map(|x| x.get_approval_stake(true)),
             );
         }
-        let validators = validators.into_iter().map(|stake| (stake, false)).collect::<Vec<_>>();
+        let validators = validators.into_iter().map(|stake| stake).collect::<Vec<_>>();
         Ok(validators)
     }
 

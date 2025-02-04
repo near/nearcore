@@ -250,7 +250,6 @@ impl GenesisBuilder {
                 self.epoch_manager.as_ref(),
                 EpochId::default(),
                 EpochId::default(),
-                &CryptoHash::default(),
             )?,
         );
 

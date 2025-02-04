@@ -43,7 +43,6 @@ fn one_iter(
             stake_next_epoch: 1,
             public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
         })
-        .map(|stake| (stake, false))
         .collect::<Vec<_>>();
     let signers = account_ids
         .iter()

@@ -340,12 +340,7 @@ impl Chain {
             chain_genesis.height,
             chain_genesis.min_gas_price,
             chain_genesis.total_supply,
-            Chain::compute_bp_hash(
-                epoch_manager,
-                EpochId::default(),
-                EpochId::default(),
-                &CryptoHash::default(),
-            )?,
+            Chain::compute_bp_hash(epoch_manager, EpochId::default(), EpochId::default())?,
         );
         Ok((genesis_block, genesis_chunks))
     }
@@ -613,10 +608,8 @@ impl Chain {
         epoch_manager: &dyn EpochManagerAdapter,
         epoch_id: EpochId,
         prev_epoch_id: EpochId,
-        last_known_hash: &CryptoHash,
     ) -> Result<CryptoHash, Error> {
-        let bps = epoch_manager.get_epoch_block_producers_ordered(&epoch_id, last_known_hash)?;
-        let validator_stakes = bps.into_iter().map(|(bp, _)| bp).collect_vec();
+        let validator_stakes = epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&prev_epoch_id)?;
         Self::compute_bp_hash_from_validator_stakes(
             &validator_stakes,
@@ -752,11 +745,8 @@ impl Chain {
             }
         };
 
-        let next_block_producers = get_epoch_block_producers_view(
-            final_block_header.next_epoch_id(),
-            header.prev_hash(),
-            epoch_manager,
-        )?;
+        let next_block_producers =
+            get_epoch_block_producers_view(final_block_header.next_epoch_id(), epoch_manager)?;
 
         create_light_client_block_view(&final_block_header, chain_store, Some(next_block_producers))
     }
@@ -997,7 +987,6 @@ impl Chain {
                     self.epoch_manager.as_ref(),
                     *header.next_epoch_id(),
                     *header.epoch_id(),
-                    header.prev_hash(),
                 )?
             {
                 return Err(Error::InvalidNextBPHash);
@@ -1042,7 +1031,7 @@ impl Chain {
                 .epoch_manager
                 .get_epoch_block_approvers_ordered(header.prev_hash())?
                 .iter()
-                .map(|(x, is_slashed)| (x.stake_this_epoch, x.stake_next_epoch, *is_slashed))
+                .map(|x| (x.stake_this_epoch, x.stake_next_epoch))
                 .collect::<Vec<_>>();
             if !Doomslug::can_approved_block_be_produced(
                 self.doomslug_threshold_mode,
@@ -1616,20 +1605,6 @@ impl Chain {
     fn is_on_current_chain(&self, header: &BlockHeader) -> Result<bool, Error> {
         let chain_header = self.get_block_header_by_height(header.height())?;
         Ok(chain_header.hash() == header.hash())
-    }
-
-    /// Finds first of the given hashes that is known on the main chain.
-    pub fn find_common_header(&self, hashes: &[CryptoHash]) -> Option<BlockHeader> {
-        for hash in hashes {
-            if let Ok(header) = self.get_block_header(hash) {
-                if let Ok(header_at_height) = self.get_block_header_by_height(header.height()) {
-                    if header.hash() == header_at_height.hash() {
-                        return Some(header);
-                    }
-                }
-            }
-        }
-        None
     }
 
     fn determine_status(&self, head: Option<Tip>, prev_head: Tip) -> BlockStatus {
@@ -3328,13 +3303,7 @@ impl Chain {
                 let shard_uids = shard_layout.shard_uids().enumerate().collect();
 
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(
-                    *prev_prev_hash,
-                    min_chunk_prev_height,
-                    epoch_height,
-                    shard_uids,
-                    prev_block,
-                );
+                make_snapshot_callback(min_chunk_prev_height, epoch_height, shard_uids, prev_block);
             }
             SnapshotAction::DeleteSnapshot => {
                 let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
@@ -3799,37 +3768,6 @@ impl Chain {
                 Err(_) => false,
             })
             .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
-    }
-
-    /// Retrieve the up to `max_headers_returned` headers on the main chain
-    /// `hashes`: a list of block "locators". `hashes` should be ordered from older blocks to
-    ///           more recent blocks. This function will find the first block in `hashes`
-    ///           that is on the main chain and returns the blocks after this block. If none of the
-    ///           blocks in `hashes` are on the main chain, the function returns an empty vector.
-    pub fn retrieve_headers(
-        &self,
-        hashes: Vec<CryptoHash>,
-        max_headers_returned: u64,
-        max_height: Option<BlockHeight>,
-    ) -> Result<Vec<BlockHeader>, Error> {
-        let header = match self.find_common_header(&hashes) {
-            Some(header) => header,
-            None => return Ok(vec![]),
-        };
-
-        let mut headers = vec![];
-        let header_head_height = self.header_head()?.height;
-        let max_height = max_height.unwrap_or(header_head_height);
-        // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.height() + 1..=max_height {
-            if let Ok(header) = self.get_block_header_by_height(h) {
-                headers.push(header.clone());
-                if headers.len() >= max_headers_returned as usize {
-                    break;
-                }
-            }
-        }
-        Ok(headers)
     }
 
     /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
