@@ -5,6 +5,7 @@
 use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::chunk_producer::ChunkProducer;
+use crate::client_actor::ClientSenderForClient;
 use crate::debug::BlockProductionTracker;
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement::ChunkEndorsementTracker;
@@ -143,6 +144,8 @@ pub struct Client {
     state_sync_future_spawner: Arc<dyn FutureSpawner>,
     /// Sender for catchup state sync requests.
     chain_sender_for_state_sync: ChainSenderForStateSync,
+    // Sender to be able to send a message to myself.
+    pub myself_sender: ClientSenderForClient,
     /// List of currently accumulated challenges.
     pub challenges: HashMap<CryptoHash, Challenge>,
     /// Blocks that have been re-broadcast recently. They should not be broadcast again.
@@ -222,6 +225,7 @@ impl Client {
         resharding_sender: ReshardingSender,
         state_sync_future_spawner: Arc<dyn FutureSpawner>,
         chain_sender_for_state_sync: ChainSenderForStateSync,
+        myself_sender: ClientSenderForClient,
         upgrade_schedule: ProtocolUpgradeVotingSchedule,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
@@ -348,6 +352,7 @@ impl Client {
             catchup_state_syncs: HashMap::new(),
             state_sync_future_spawner,
             chain_sender_for_state_sync,
+            myself_sender,
             challenges: Default::default(),
             rebroadcasted_blocks: lru::LruCache::new(
                 NonZeroUsize::new(NUM_REBROADCAST_BLOCKS).unwrap(),
@@ -1026,6 +1031,13 @@ impl Client {
         res
     }
 
+    #[allow(unused)]
+    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock) {
+        let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
+        self.chain.optimistic_block_chunks.add_block(block);
+        self.maybe_process_optimistic_block();
+    }
+
     /// To protect ourselves from spamming, we do some pre-check on block height before we do any
     /// processing. This function returns true if the block height is valid.
     fn check_block_height(
@@ -1307,8 +1319,10 @@ impl Client {
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
+        self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender, &signer);
+        self.maybe_process_optimistic_block();
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1820,6 +1834,42 @@ impl Client {
             apply_chunks_done_sender,
         );
         self.process_block_processing_artifact(blocks_processing_artifacts, signer);
+    }
+
+    pub fn maybe_process_optimistic_block(&mut self) {
+        let Some((block, chunks)) = self.chain.optimistic_block_chunks.take_latest_ready_block()
+        else {
+            return;
+        };
+
+        let signer = self.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id());
+        let prev_block_hash = *block.prev_block_hash();
+        let block_hash = *block.hash();
+        let block_height = block.height();
+        let apply_chunks_done_sender = self.myself_sender.apply_chunks_done.clone();
+        match self.chain.process_optimistic_block(
+            &me.map(|x| x.clone()),
+            block,
+            chunks,
+            apply_chunks_done_sender,
+        ) {
+            Ok(()) => {
+                info!(
+                    target: "chain", prev_block_hash = ?prev_block_hash,
+                    hash = ?block_hash, height = block_height,
+                    "Processed optimistic block"
+                );
+            }
+            Err(err) => {
+                warn!(
+                    target: "chain", err = ?err,
+                    prev_block_hash = ?prev_block_hash,
+                    hash = ?block_hash, height = block_height,
+                    "Failed to process optimistic block"
+                );
+            }
+        }
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, signer: &Option<Arc<ValidatorSigner>>) -> bool {

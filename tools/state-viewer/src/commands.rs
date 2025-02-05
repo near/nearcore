@@ -206,6 +206,7 @@ pub(crate) fn apply_block_at_height(
     let result = maybe_save_trie_changes(
         write_store.clone(),
         &near_config.genesis.config,
+        block_hash,
         apply_result,
         height,
         shard_id,
@@ -1285,6 +1286,7 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
 pub(crate) fn maybe_save_trie_changes(
     store: Option<Store>,
     genesis_config: &near_chain_configs::GenesisConfig,
+    block_hash: CryptoHash,
     apply_result: ApplyChunkResult,
     block_height: u64,
     shard_id: ShardId,
@@ -1293,7 +1295,7 @@ pub(crate) fn maybe_save_trie_changes(
         let mut chain_store =
             ChainStore::new(store, false, genesis_config.transaction_validity_period);
         let mut chain_store_update = chain_store.store_update();
-        chain_store_update.save_trie_changes(apply_result.trie_changes);
+        chain_store_update.save_trie_changes(block_hash, apply_result.trie_changes);
         chain_store_update.commit()?;
         tracing::debug!("Trie changes persisted for block {block_height}, shard {shard_id}");
     }

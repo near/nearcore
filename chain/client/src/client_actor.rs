@@ -149,6 +149,7 @@ pub fn start_client(
     wait_until_genesis(&chain_genesis.time);
 
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
+    let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -167,6 +168,7 @@ pub fn start_client(
         resharding_sender,
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
+        client_sender_for_client.as_multi_sender(),
         PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
@@ -176,13 +178,10 @@ pub fn start_client(
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
     let sync_jobs_actor_addr = sync_jobs_actor.spawn_actix_actor();
 
-    let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
-    let client_sender_for_client_clone = client_sender_for_client.clone();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
         let client_actor_inner = ClientActorInner::new(
             clock,
             client,
-            client_sender_for_client_clone.as_multi_sender(),
             node_id,
             network_adapter,
             telemetry_sender,
@@ -225,8 +224,6 @@ pub struct ClientActorInner {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
 
-    // Sender to be able to send a message to myself.
-    myself_sender: ClientSenderForClient,
     pub client: Client,
     network_adapter: PeerManagerAdapter,
     network_info: NetworkInfo,
@@ -332,7 +329,6 @@ impl ClientActorInner {
     pub fn new(
         clock: Clock,
         client: Client,
-        myself_sender: ClientSenderForClient,
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
@@ -351,7 +347,6 @@ impl ClientActorInner {
         Ok(ClientActorInner {
             clock,
             adv,
-            myself_sender,
             client,
             network_adapter,
             node_id,
@@ -523,7 +518,7 @@ impl Handler<BlockResponse> for ClientActorInner {
                 block,
                 peer_id,
                 was_requested,
-                Some(self.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.apply_chunks_done.clone()),
                 &signer,
             );
         } else {
@@ -1276,7 +1271,7 @@ impl ClientActorInner {
     fn try_process_unfinished_blocks(&mut self, signer: &Option<Arc<ValidatorSigner>>) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
             true,
             signer,
         );
@@ -1348,7 +1343,7 @@ impl ClientActorInner {
         let res = self.client.start_process_block(
             block,
             Provenance::PRODUCED,
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
             signer,
         );
         let Err(error) = res else {
@@ -1392,6 +1387,8 @@ impl ClientActorInner {
 
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
+        self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
+        self.client.maybe_process_optimistic_block();
 
         Ok(())
     }
@@ -1572,7 +1569,7 @@ impl ClientActorInner {
             if let Err(err) = self.client.run_catchup(
                 &self.network_info.highest_height_peers,
                 &self.sync_jobs_sender.block_catch_up,
-                Some(self.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.apply_chunks_done.clone()),
                 &validator_signer,
             ) {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", validator_signer.as_ref().map(|vs| vs.validator_id()), err);
@@ -1686,7 +1683,7 @@ impl ClientActorInner {
             highest_height,
             &self.network_info.highest_height_peers,
             signer,
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
         );
         let Some(sync_step_result) = sync_step_result else {
             return;
@@ -1866,7 +1863,7 @@ impl ClientActorInner {
             let _ = self.client.start_process_block(
                 block.into(),
                 Provenance::PRODUCED,
-                Some(self.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.apply_chunks_done.clone()),
                 &signer,
             );
             blocks_produced += 1;
@@ -1903,7 +1900,7 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
-                    Some(self.myself_sender.apply_chunks_done.clone()),
+                    Some(self.client.myself_sender.apply_chunks_done.clone()),
                     &signer,
                 );
             }

@@ -606,12 +606,12 @@ impl ShardTries {
     }
 }
 
+#[derive(Clone)]
 pub struct WrappedTrieChanges {
     tries: ShardTries,
     shard_uid: ShardUId,
     trie_changes: TrieChanges,
     state_changes: Vec<RawStateChangesWithTrieKey>,
-    block_hash: CryptoHash,
     block_height: BlockHeight,
 }
 
@@ -624,7 +624,6 @@ impl std::fmt::Debug for WrappedTrieChanges {
             .field("shard_uid", &self.shard_uid)
             .field("trie_changes", &"<not shown>")
             .field("state_changes", &"<not shown>")
-            .field("block_hash", &self.block_hash)
             .field("block_height", &self.block_height)
             .finish()
     }
@@ -636,17 +635,9 @@ impl WrappedTrieChanges {
         shard_uid: ShardUId,
         trie_changes: TrieChanges,
         state_changes: Vec<RawStateChangesWithTrieKey>,
-        block_hash: CryptoHash,
         block_height: BlockHeight,
     ) -> Self {
-        WrappedTrieChanges {
-            tries,
-            shard_uid,
-            trie_changes,
-            state_changes,
-            block_hash,
-            block_height,
-        }
+        WrappedTrieChanges { tries, shard_uid, trie_changes, state_changes, block_height }
     }
 
     pub fn state_changes(&self) -> &[RawStateChangesWithTrieKey] {
@@ -677,7 +668,11 @@ impl WrappedTrieChanges {
         fields(num_state_changes = self.state_changes.len(), shard_id = ?self.shard_uid.shard_id()),
         skip_all,
     )]
-    pub fn state_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {
+    pub fn state_changes_into(
+        &mut self,
+        block_hash: &CryptoHash,
+        store_update: &mut TrieStoreUpdateAdapter,
+    ) {
         for mut change_with_trie_key in self.state_changes.drain(..) {
             assert!(
                 !change_with_trie_key.changes.iter().any(|RawStateChange { cause, .. }| matches!(
@@ -699,15 +694,12 @@ impl WrappedTrieChanges {
             let storage_key = match change_with_trie_key.trie_key.get_account_id() {
                 // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
                 None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
-                    &self.block_hash,
+                    block_hash,
                     &change_with_trie_key.trie_key,
                     &self.shard_uid,
                 ),
                 // TrieKey has enough information to identify the shard it comes from.
-                _ => KeyForStateChanges::from_trie_key(
-                    &self.block_hash,
-                    &change_with_trie_key.trie_key,
-                ),
+                _ => KeyForStateChanges::from_trie_key(block_hash, &change_with_trie_key.trie_key),
             };
 
             store_update.set_state_changes(storage_key, &change_with_trie_key);
@@ -720,8 +712,12 @@ impl WrappedTrieChanges {
         "ShardTries::trie_changes_into",
         skip_all
     )]
-    pub fn trie_changes_into(&mut self, store_update: &mut TrieStoreUpdateAdapter) {
-        store_update.set_trie_changes(self.shard_uid, &self.block_hash, &self.trie_changes)
+    pub fn trie_changes_into(
+        &mut self,
+        block_hash: &CryptoHash,
+        store_update: &mut TrieStoreUpdateAdapter,
+    ) {
+        store_update.set_trie_changes(self.shard_uid, block_hash, &self.trie_changes)
     }
 }
 

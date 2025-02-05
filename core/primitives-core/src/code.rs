@@ -2,6 +2,7 @@ use std::fmt::{Debug, Formatter};
 
 use crate::hash::{hash as sha256, CryptoHash};
 
+#[derive(Clone)]
 pub struct ContractCode {
     code: Vec<u8>,
     hash: CryptoHash,

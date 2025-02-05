@@ -19,6 +19,7 @@ use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
@@ -313,10 +314,11 @@ pub fn run_catchup(
         client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
-            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work)
-                .into_iter()
-                .map(|res| res.1)
-                .collect_vec();
+            let results =
+                do_apply_chunks(BlockToApply::Normal(msg.block_hash), msg.block_height, msg.work)
+                    .into_iter()
+                    .map(|res| res.2)
+                    .collect_vec();
             if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
