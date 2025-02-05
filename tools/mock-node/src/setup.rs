@@ -30,6 +30,7 @@ pub(crate) fn setup_mock_peer(
     target_height: BlockHeight,
     shard_layout: ShardLayout,
     handshake_protocol_version: Option<ProtocolVersion>,
+    archival: bool,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     let network_start_height = match network_start_height {
         None => target_height,
@@ -39,7 +40,6 @@ pub(crate) fn setup_mock_peer(
     let secret_key = config.network_config.node_key;
     let chain_id = config.genesis.config.chain_id;
     let block_production_delay = config.client_config.min_block_production_delay;
-    let archival = config.client_config.archive;
     let listen_addr = match config.network_config.node_addr {
         Some(a) => a,
         None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
@@ -76,6 +76,7 @@ pub fn setup_mock_node(
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
     handshake_protocol_version: Option<ProtocolVersion>,
+    archival: bool,
 ) -> anyhow::Result<tokio::task::JoinHandle<anyhow::Result<()>>> {
     let near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
         .context("Error loading config")?;
@@ -125,5 +126,6 @@ pub fn setup_mock_node(
         target_height,
         shard_layout,
         handshake_protocol_version,
+        archival,
     ))
 }

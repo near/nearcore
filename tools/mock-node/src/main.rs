@@ -41,6 +41,9 @@ struct Cli {
     /// Protocol version to advertise in handshakes
     #[clap(long)]
     handshake_protocol_version: Option<ProtocolVersion>,
+    /// If set, advertise that the node is archival in the handshake
+    #[clap(long)]
+    archival: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -68,6 +71,7 @@ fn main() -> anyhow::Result<()> {
             args.network_height,
             args.target_height,
             args.handshake_protocol_version,
+            args.archival,
         )
         .context("failed setting up mock node")?;
 
