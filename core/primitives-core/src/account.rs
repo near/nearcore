@@ -96,9 +96,9 @@ impl From<AccountContractType> for CryptoHash {
     fn from(contract: AccountContractType) -> Self {
         match contract {
             AccountContractType::None => CryptoHash::default(),
-            AccountContractType::LocalContract(hash) => hash,
-            AccountContractType::GlobalContract(hash) => hash,
-            AccountContractType::GlobalContractByAccount(_, hash) => hash,
+            AccountContractType::LocalContract(hash)
+            | AccountContractType::GlobalContract(hash)
+            | AccountContractType::GlobalContractByAccount(_, hash) => hash,
         }
     }
 }
