@@ -215,14 +215,6 @@ impl Account {
     }
 
     #[inline]
-    pub fn account_contract(&self) -> AccountContractType {
-        match self {
-            Self::V1(account) => convert_code_hash(account.code_hash),
-            Self::V2(account) => account.account_contract.clone(),
-        }
-    }
-
-    #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         match self {
             Self::V1(account) => account.amount = amount,
