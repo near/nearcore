@@ -598,7 +598,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_code_hash(*code.hash());
+    account.set_local_code_hash(*code.hash());
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
