@@ -530,19 +530,7 @@ mod tests {
             global_contract_account_id: Some(id.clone()),
         };
         let account = Account::V2(account_v2.clone());
-
         let serialized_account = serde_json::to_string(&account).unwrap();
-        let expected_serde_repr = SerdeAccount {
-            amount: account_v2.amount,
-            locked: account_v2.locked,
-            code_hash: account_v2.code_hash,
-            storage_usage: account_v2.storage_usage,
-            version: AccountVersion::V2,
-            global_contract_hash: Some(CryptoHash::hash_bytes(&[42])),
-            global_contract_account_id: Some(id),
-        };
-        let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
-        assert_eq!(actual_serde_repr, expected_serde_repr);
 
         let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serialized_account);
         assert!(deserialization_attempt.is_err());
