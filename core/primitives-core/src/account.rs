@@ -3,6 +3,7 @@ use crate::serialize::dec_format;
 use crate::types::{Balance, Nonce, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
+use near_account_id::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
 use std::io;
 
@@ -69,6 +70,8 @@ impl AccountV1 {
             locked: self.locked,
             code_hash: self.code_hash,
             storage_usage: self.storage_usage,
+            global_contract_hash: None,
+            global_contract_account_id: None,
         }
     }
 }
@@ -94,6 +97,9 @@ pub struct AccountV2 {
     code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
+    /// Global contracts fields
+    global_contract_hash: Option<CryptoHash>,
+    global_contract_account_id: Option<AccountId>,
 }
 
 impl Account {
@@ -155,6 +161,22 @@ impl Account {
     }
 
     #[inline]
+    pub fn global_contract_hash(&self) -> Option<CryptoHash> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(account) => account.global_contract_hash,
+        }
+    }
+
+    #[inline]
+    pub fn global_contract_account_id(&self) -> Option<AccountId> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(account) => account.global_contract_account_id.clone(),
+        }
+    }
+
+    #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         match self {
             Self::V1(account) => account.amount = amount,
@@ -200,6 +222,9 @@ struct SerdeAccount {
     /// Version of Account in re migrations and similar.
     #[serde(default)]
     version: AccountVersion,
+    /// Global contracts fields
+    global_contract_hash: Option<CryptoHash>,
+    global_contract_account_id: Option<AccountId>,
 }
 
 impl<'de> serde::Deserialize<'de> for Account {
@@ -208,6 +233,15 @@ impl<'de> serde::Deserialize<'de> for Account {
         D: serde::Deserializer<'de>,
     {
         let account_data = SerdeAccount::deserialize(deserializer)?;
+        if account_data.code_hash != CryptoHash::default()
+            && (account_data.global_contract_hash.is_some()
+                || account_data.global_contract_account_id.is_some())
+        {
+            return Err(serde::de::Error::custom(
+                "An Account can't contain both a local and global contract",
+            ));
+        }
+
         match account_data.version {
             AccountVersion::V1 => Ok(Account::V1(AccountV1 {
                 amount: account_data.amount,
@@ -220,6 +254,8 @@ impl<'de> serde::Deserialize<'de> for Account {
                 locked: account_data.locked,
                 code_hash: account_data.code_hash,
                 storage_usage: account_data.storage_usage,
+                global_contract_hash: account_data.global_contract_hash,
+                global_contract_account_id: account_data.global_contract_account_id,
             })),
         }
     }
@@ -237,6 +273,8 @@ impl serde::Serialize for Account {
             code_hash: self.code_hash(),
             storage_usage: self.storage_usage(),
             version,
+            global_contract_hash: self.global_contract_hash(),
+            global_contract_account_id: self.global_contract_account_id(),
         };
         repr.serialize(serializer)
     }
@@ -401,6 +439,8 @@ mod tests {
             code_hash: old_account.code_hash,
             storage_usage: old_account.storage_usage,
             version: AccountVersion::V1,
+            global_contract_hash: None,
+            global_contract_account_id: None,
         };
         let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(actual_serde_repr, expected_serde_repr);
@@ -439,6 +479,8 @@ mod tests {
             locked: 100_000,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 1000,
+            global_contract_hash: None,
+            global_contract_account_id: None,
         };
         let account = Account::V2(account_v2.clone());
 
@@ -449,6 +491,8 @@ mod tests {
             code_hash: account_v2.code_hash,
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
+            global_contract_hash: None,
+            global_contract_account_id: None,
         };
         let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(actual_serde_repr, expected_serde_repr);
@@ -464,11 +508,43 @@ mod tests {
             locked: 100_000,
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 1000,
+            global_contract_hash: None,
+            global_contract_account_id: None,
         };
         let account = Account::V2(account_v2);
         let serialized_account = borsh::to_vec(&account).unwrap();
         let deserialized_account =
             <Account as BorshDeserialize>::deserialize(&mut &serialized_account[..]).unwrap();
         assert_eq!(deserialized_account, account);
+    }
+
+    #[test]
+    fn test_account_v2_serde_deserialization_cannot_have_both_local_and_global_contract() {
+        let id = AccountId::try_from("test.near".to_string()).unwrap();
+        let account_v2 = AccountV2 {
+            amount: 10_000_000,
+            locked: 100_000,
+            code_hash: CryptoHash::hash_bytes(&[42]),
+            storage_usage: 1000,
+            global_contract_hash: Some(CryptoHash::hash_bytes(&[42])),
+            global_contract_account_id: Some(id.clone()),
+        };
+        let account = Account::V2(account_v2.clone());
+
+        let serialized_account = serde_json::to_string(&account).unwrap();
+        let expected_serde_repr = SerdeAccount {
+            amount: account_v2.amount,
+            locked: account_v2.locked,
+            code_hash: account_v2.code_hash,
+            storage_usage: account_v2.storage_usage,
+            version: AccountVersion::V2,
+            global_contract_hash: Some(CryptoHash::hash_bytes(&[42])),
+            global_contract_account_id: Some(id),
+        };
+        let actual_serde_repr: SerdeAccount = serde_json::from_str(&serialized_account).unwrap();
+        assert_eq!(actual_serde_repr, expected_serde_repr);
+
+        let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serialized_account);
+        assert!(deserialization_attempt.is_err());
     }
 }
