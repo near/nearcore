@@ -103,20 +103,44 @@ impl TrieUpdate {
         mode: KeyLookupMode,
     ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_deref().map(TrieUpdateValuePtr::MemoryRef));
-            }
+        if let Some(value_ref) = self.get_ref_from_updates(&key) {
+            return Ok(value_ref);
         }
 
         let result = self
             .trie
             .get_optimized_ref(&key, mode)?
             .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
+        Ok(result)
+    }
+
+    pub fn get_ref_no_side_effects(
+        &self,
+        key: &TrieKey,
+        mode: KeyLookupMode,
+    ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
+        let key = key.to_vec();
+        if let Some(value_ref) = self.get_ref_from_updates(&key) {
+            return Ok(value_ref);
+        }
+
+        let result = self
+            .trie
+            .get_optimized_ref_no_side_effects(&key, mode)?
+            .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
 
         Ok(result)
+    }
+
+    fn get_ref_from_updates(&self, key: &[u8]) -> Option<Option<TrieUpdateValuePtr<'_>>> {
+        if let Some(key_value) = self.prospective.get(key) {
+            return Some(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
+        } else if let Some(changes_with_trie_key) = self.committed.get(key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Some(data.as_deref().map(TrieUpdateValuePtr::MemoryRef));
+            }
+        }
+        None
     }
 
     pub fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
