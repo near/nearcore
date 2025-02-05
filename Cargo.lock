@@ -4008,12 +4008,9 @@ dependencies = [
 name = "mock-node"
 version = "0.0.0"
 dependencies = [
- "actix",
- "actix-rt",
  "anyhow",
  "clap",
  "futures",
- "near-actix-test-utils",
  "near-chain",
  "near-chain-configs",
  "near-chunks",

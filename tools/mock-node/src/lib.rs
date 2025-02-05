@@ -510,7 +510,7 @@ impl MockNode {
                 head_block.clone(),
             );
 
-            actix::spawn(async move {
+            tokio::spawn(async move {
                 if let Err(e) = peer.serve_peer(conn, target_height).await {
                     tracing::error!("error serving requests: {:?}", e);
                 }
