@@ -1175,7 +1175,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 ShardUId::new(0, shard_id),
                 TrieChanges::empty(state_root),
                 Default::default(),
-                block.block_hash,
                 block.height,
             ),
             new_root: state_root,

@@ -299,7 +299,9 @@ impl TestEnv {
         let flat_state_changes =
             FlatStateChanges::from_state_changes(&apply_result.trie_changes.state_changes());
         apply_result.trie_changes.insertions_into(&mut store_update.trie_store_update());
-        apply_result.trie_changes.state_changes_into(&mut store_update.trie_store_update());
+        apply_result
+            .trie_changes
+            .state_changes_into(&new_block_hash, &mut store_update.trie_store_update());
 
         let prev_block_hash = self.head.last_block_hash;
         let epoch_id =

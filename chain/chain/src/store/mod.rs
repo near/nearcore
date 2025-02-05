@@ -1104,7 +1104,7 @@ pub struct ChainStoreUpdate<'a> {
     header_head: Option<Tip>,
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
-    trie_changes: Vec<WrappedTrieChanges>,
+    trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
@@ -1718,8 +1718,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }
 
-    pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
-        self.trie_changes.push(trie_changes);
+    pub fn save_trie_changes(&mut self, block_hash: CryptoHash, trie_changes: WrappedTrieChanges) {
+        self.trie_changes.push((block_hash, trie_changes));
     }
 
     pub fn save_state_transition_data(
@@ -2082,14 +2082,16 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
             let mut deletions_store_update = self.store().trie_store().store_update();
-            for mut wrapped_trie_changes in self.trie_changes.drain(..) {
+            for (block_hash, mut wrapped_trie_changes) in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
                 wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes.state_changes_into(&mut store_update.trie_store_update());
+                wrapped_trie_changes
+                    .state_changes_into(&block_hash, &mut store_update.trie_store_update());
 
                 if self.chain_store.save_trie_changes {
-                    wrapped_trie_changes.trie_changes_into(&mut store_update.trie_store_update());
+                    wrapped_trie_changes
+                        .trie_changes_into(&block_hash, &mut store_update.trie_store_update());
                 }
             }
 

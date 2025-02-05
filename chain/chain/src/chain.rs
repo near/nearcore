@@ -1564,7 +1564,9 @@ impl Chain {
             let shard_id = shard_layout.get_shard_id(shard_index)?;
             let block_context = ApplyChunkBlockContext {
                 height: block_height,
-                block_hash: *block.hash(),
+                // TODO: consider removing this field completely to avoid
+                // confusion with real block hash.
+                block_hash: CryptoHash::default(),
                 prev_block_hash: *block.prev_block_hash(),
                 block_timestamp: block.block_timestamp(),
                 gas_price: prev_block.header().next_gas_price(),
