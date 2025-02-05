@@ -182,6 +182,7 @@ async fn test_listener() {
         vec![ShardId::new(0)],
         false,
         time::Duration::SECOND,
+        None,
     )
     .await
     .unwrap();

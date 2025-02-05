@@ -9,6 +9,7 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::tcp;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::StoreAdapter;
 
@@ -28,6 +29,7 @@ pub(crate) fn setup_mock_peer(
     network_config: MockNetworkConfig,
     target_height: BlockHeight,
     shard_layout: ShardLayout,
+    handshake_protocol_version: Option<ProtocolVersion>,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     let network_start_height = match network_start_height {
         None => target_height,
@@ -55,6 +57,7 @@ pub(crate) fn setup_mock_peer(
             shard_layout,
             network_start_height,
             network_config,
+            handshake_protocol_version,
         )
         .await?;
         mock.run(target_height).await
@@ -72,6 +75,7 @@ pub fn setup_mock_node(
     network_config: MockNetworkConfig,
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
+    handshake_protocol_version: Option<ProtocolVersion>,
 ) -> anyhow::Result<tokio::task::JoinHandle<anyhow::Result<()>>> {
     let near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
         .context("Error loading config")?;
@@ -120,5 +124,6 @@ pub fn setup_mock_node(
         network_config,
         target_height,
         shard_layout,
+        handshake_protocol_version,
     ))
 }
