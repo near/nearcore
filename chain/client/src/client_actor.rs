@@ -407,6 +407,7 @@ pub enum AdvProduceBlockHeightSelection {
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
+    AdvInsertInvalidTransactions(bool),
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
@@ -484,6 +485,11 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
             NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
                 info!(target: "adversary", mode=?adv_produce_chunks, "setting adversary produce chunks");
                 self.client.chunk_producer.adv_produce_chunks = Some(adv_produce_chunks);
+                None
+            }
+            NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
+                info!(target: "adversary", on, "invalid transactions");
+                self.client.produce_invalid_tx_in_chunks = on;
                 None
             }
         }
