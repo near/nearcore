@@ -527,9 +527,9 @@ mod tests {
             code_hash: CryptoHash::hash_bytes(&[42]),
             storage_usage: 1000,
             global_contract_hash: Some(CryptoHash::hash_bytes(&[42])),
-            global_contract_account_id: Some(id.clone()),
+            global_contract_account_id: Some(id),
         };
-        let account = Account::V2(account_v2.clone());
+        let account = Account::V2(account_v2);
         let serialized_account = serde_json::to_string(&account).unwrap();
 
         let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serialized_account);
