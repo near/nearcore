@@ -117,7 +117,7 @@ fn test_eth_implicit_account_creation() {
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
             assert_eq!(view.amount, 0);
-            assert_eq!(view.account_contract.local_code(), *magic_bytes.hash());
+            assert_eq!(view.account_contract.local_code().unwrap_or_default(), *magic_bytes.hash());
             assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
         }
         _ => panic!("wrong query response"),

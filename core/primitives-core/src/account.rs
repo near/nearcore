@@ -93,10 +93,12 @@ pub enum AccountContract {
 }
 
 impl AccountContract {
-    pub fn local_code(&self) -> CryptoHash {
+    pub fn local_code(&self) -> Option<CryptoHash> {
         match self {
-            AccountContract::None | AccountContract::GlobalByAccount(_) => CryptoHash::default(),
-            AccountContract::Local(hash) | AccountContract::Global(hash) => *hash,
+            AccountContract::None
+            | AccountContract::GlobalByAccount(_)
+            | AccountContract::Global(_) => None,
+            AccountContract::Local(hash) => Some(*hash),
         }
     }
 
@@ -241,7 +243,7 @@ impl Account {
         match self {
             Self::V1(account) => match contract {
                 AccountContract::None | AccountContract::Local(_) => {
-                    account.code_hash = contract.local_code();
+                    account.code_hash = contract.local_code().unwrap_or_default();
                 }
                 _ => {
                     let mut account_v2 = account.to_v2();
@@ -564,7 +566,7 @@ mod tests {
         let expected_serde_repr = SerdeAccount {
             amount: account_v2.amount,
             locked: account_v2.locked,
-            code_hash: account_v2.account_contract.local_code(),
+            code_hash: account_v2.account_contract.local_code().unwrap_or_default(),
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
             global_contract_hash: None,
