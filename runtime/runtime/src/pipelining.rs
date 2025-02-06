@@ -137,7 +137,8 @@ impl ReceiptPreparationPipeline {
                 Action::FunctionCall(function_call) => {
                     let Some(account) = &**account else { continue };
                     let Some(code_hash) = account.contract().local_code() else {
-                        todo!("#12884: global contracts pipelining support")
+                        // TODO(#12884): support global contracts pipelining
+                        continue;
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
