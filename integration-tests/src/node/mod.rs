@@ -171,7 +171,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
             if let StateRecord::Account { account_id, account } = record {
                 if account_id == &seed {
                     found_account_record = true;
-                    account.set_code_hash(*ContractCode::new(code.to_vec(), None).hash());
+                    account.set_local_code_hash(*ContractCode::new(code.to_vec(), None).hash());
                 }
             }
         }

@@ -73,7 +73,7 @@ impl AccountRecords {
                 // records. Set the storage usage to reflect whatever's in the original records, and at the
                 // end we will add to the storage usage with any extra keys added for this account
                 account.set_storage_usage(existing.storage_usage());
-                account.set_code_hash(existing.code_hash());
+                account.set_local_code_hash(existing.code_hash());
                 if self.amount_needed {
                     set_total_balance(account, existing);
                 }
