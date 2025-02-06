@@ -334,6 +334,22 @@ impl ChainStore {
             .collect()
     }
 
+    pub fn get_outgoing_receipts_for_shard(
+        &self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        prev_block_hash: CryptoHash,
+        shard_id: ShardId,
+        last_included_height: BlockHeight,
+    ) -> Result<Vec<Receipt>, Error> {
+        Self::get_outgoing_receipts_for_shard_from_store(
+            &self.chain_store(),
+            epoch_manager,
+            prev_block_hash,
+            shard_id,
+            last_included_height,
+        )
+    }
+
     /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
     /// is `prev_block_hash`
     /// Note that the meaning of outgoing receipts here are slightly different from
@@ -352,8 +368,8 @@ impl ChainStore {
     /// But we need to implement a more theoretically correct algorithm if shard layouts will change
     /// more often in the future
     /// <https://github.com/near/nearcore/issues/4877>
-    pub fn get_outgoing_receipts_for_shard(
-        &self,
+    pub fn get_outgoing_receipts_for_shard_from_store(
+        chain_store: &ChainStoreAdapter,
         epoch_manager: &dyn EpochManagerAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
@@ -362,7 +378,7 @@ impl ChainStore {
         let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
-            let block_header = self.get_block_header(&receipts_block_hash)?;
+            let block_header = chain_store.get_block_header(&receipts_block_hash)?;
 
             if block_header.height() != last_included_height {
                 receipts_block_hash = *block_header.prev_hash();
@@ -377,7 +393,7 @@ impl ChainStore {
                 shard_id
             };
 
-            let mut receipts = self
+            let mut receipts = chain_store
                 .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
                 .map(|v| v.to_vec())
                 .unwrap_or_default();
@@ -849,6 +865,20 @@ impl ChainStore {
         }
         store_update.commit().map_err(|err| err.into())
     }
+
+    pub fn prev_block_is_caught_up(
+        chain_store: &ChainStoreAdapter,
+        prev_prev_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
+        // Needs to be used with care: for the first block of each epoch the semantic is slightly
+        // different, since the prev_block is in a different epoch. So for all the blocks but the
+        // first one in each epoch this method returns true if the block is ready to have state
+        // applied for the next epoch, while for the first block in a particular epoch this method
+        // returns true if the block is ready to have state applied for the current epoch (and
+        // otherwise should be orphaned)
+        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
+    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -1074,7 +1104,7 @@ pub struct ChainStoreUpdate<'a> {
     header_head: Option<Tip>,
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
-    trie_changes: Vec<WrappedTrieChanges>,
+    trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
@@ -1688,8 +1718,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }
 
-    pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
-        self.trie_changes.push(trie_changes);
+    pub fn save_trie_changes(&mut self, block_hash: CryptoHash, trie_changes: WrappedTrieChanges) {
+        self.trie_changes.push((block_hash, trie_changes));
     }
 
     pub fn save_state_transition_data(
@@ -2052,14 +2082,16 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
             let mut deletions_store_update = self.store().trie_store().store_update();
-            for mut wrapped_trie_changes in self.trie_changes.drain(..) {
+            for (block_hash, mut wrapped_trie_changes) in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
                 wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes.state_changes_into(&mut store_update.trie_store_update());
+                wrapped_trie_changes
+                    .state_changes_into(&block_hash, &mut store_update.trie_store_update());
 
                 if self.chain_store.save_trie_changes {
-                    wrapped_trie_changes.trie_changes_into(&mut store_update.trie_store_update());
+                    wrapped_trie_changes
+                        .trie_changes_into(&block_hash, &mut store_update.trie_store_update());
                 }
             }
 

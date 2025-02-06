@@ -36,6 +36,7 @@ use near_o11y::WithSpanContextExt;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
+use near_primitives::block::GenesisId;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
@@ -1887,6 +1888,56 @@ fn test_not_resync_old_blocks() {
         assert_matches!(res, Err(x) if matches!(x, Error::Orphan));
         assert_eq!(env.clients[0].chain.orphans_len(), 0);
     }
+}
+
+#[test]
+fn test_reject_block_headers_during_epoch_sync() {
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let epoch_length = 2;
+    genesis.config.epoch_length = epoch_length;
+    let mut env =
+        TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
+
+    let mut blocks = vec![];
+    for i in 1..=epoch_length + 1 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block);
+    }
+
+    let sync_client = &mut env.clients[1];
+    let status = &mut sync_client.sync_handler.sync_status;
+    let chain = &sync_client.chain;
+    let highest_height = sync_client.config.epoch_sync.epoch_sync_horizon + 1;
+    let highest_height_peers = vec![HighestHeightPeerInfo {
+        archival: false,
+        genesis_id: GenesisId::default(),
+        highest_block_hash: *blocks.last().unwrap().hash(),
+        highest_block_height: blocks.len() as u64,
+        tracked_shards: vec![],
+        peer_info: PeerInfo::random(),
+    }];
+
+    // Running epoch sync, sets SyncStatus::EpochSync
+    assert_matches!(
+        sync_client.sync_handler.epoch_sync.run(
+            status,
+            chain,
+            highest_height,
+            &highest_height_peers
+        ),
+        Ok(()),
+        "Epoch sync failure"
+    );
+
+    let headers = blocks.iter().map(|b| b.header().clone()).collect::<Vec<_>>();
+    let signer = sync_client.validator_signer.get();
+    // actual attempt to sync headers during ongoing epoch sync
+    assert_matches!(
+        sync_client.sync_block_headers(headers, &signer),
+        Err(_),
+        "Block headers accepted during epoch sync"
+    );
 }
 
 #[test]

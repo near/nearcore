@@ -343,6 +343,7 @@ fn apply_block_from_range(
             if let Err(err) = maybe_save_trie_changes(
                 write_store,
                 &genesis.config,
+                block_hash,
                 apply_result,
                 height,
                 shard_id,

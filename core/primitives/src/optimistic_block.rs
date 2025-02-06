@@ -1,10 +1,12 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::Signature;
-use near_schema_checker_lib::ProtocolSchema;
-
 use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{BlockHeight, SignatureDifferentiator};
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::{InMemorySigner, Signature};
+use near_primitives_core::types::AccountId;
+use near_schema_checker_lib::ProtocolSchema;
+use std::fmt::Debug;
+use std::str::FromStr;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, ProtocolSchema)]
 pub struct OptimisticBlockInner {
@@ -65,5 +67,74 @@ impl OptimisticBlock {
     /// Recompute the hash after deserialization.
     pub fn init(&mut self) {
         self.hash = hash(&borsh::to_vec(&self.inner).expect("Failed to serialize"));
+    }
+
+    pub fn height(&self) -> BlockHeight {
+        self.inner.block_height
+    }
+
+    pub fn hash(&self) -> &CryptoHash {
+        &self.hash
+    }
+
+    pub fn prev_block_hash(&self) -> &CryptoHash {
+        &self.inner.prev_block_hash
+    }
+
+    pub fn block_timestamp(&self) -> u64 {
+        self.inner.block_timestamp
+    }
+
+    pub fn random_value(&self) -> &CryptoHash {
+        &self.inner.random_value
+    }
+
+    pub fn new_dummy(height: BlockHeight, prev_hash: CryptoHash) -> Self {
+        let signer = InMemorySigner::test_signer(&AccountId::from_str("test".into()).unwrap());
+        let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(Default::default());
+        Self {
+            inner: OptimisticBlockInner {
+                block_height: height,
+                prev_block_hash: prev_hash,
+                block_timestamp: 0,
+                random_value: Default::default(),
+                vrf_value,
+                vrf_proof,
+                signature_differentiator: "test".to_string(),
+            },
+            signature: Default::default(),
+            hash: Default::default(),
+        }
+    }
+}
+
+/// Optimistic block fields which are enough to define unique context for
+/// applying chunks in that block. Thus hash of this struct can be used to
+/// cache *valid* optimistic blocks.
+///
+/// This struct is created just so that we can conveniently derive and use
+/// `borsh` serialization for it.
+#[derive(BorshSerialize)]
+pub struct OptimisticBlockKeySource {
+    pub height: BlockHeight,
+    pub prev_block_hash: CryptoHash,
+    pub block_timestamp: u64,
+    pub random_seed: CryptoHash,
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockToApply {
+    Normal(CryptoHash),
+    Optimistic(CryptoHash),
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
+pub struct CachedShardUpdateKey(CryptoHash);
+
+impl CachedShardUpdateKey {
+    /// Explicit constructor to minimize the risk of using hashes of other
+    /// entities accidentally.
+    pub fn new(hash: CryptoHash) -> Self {
+        Self(hash)
     }
 }

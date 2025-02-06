@@ -650,6 +650,7 @@ impl TestLoopBuilder {
             resharding_sender.as_multi_sender(),
             Arc::new(self.test_loop.future_spawner()),
             client_adapter.as_multi_sender(),
+            client_adapter.as_multi_sender(),
             self.upgrade_schedule.clone(),
         )
         .unwrap();
@@ -713,7 +714,6 @@ impl TestLoopBuilder {
         let client_actor = ClientActorInner::new(
             self.test_loop.clock(),
             client,
-            client_adapter.as_multi_sender(),
             peer_id.clone(),
             network_adapter.as_multi_sender(),
             noop().into_sender(),

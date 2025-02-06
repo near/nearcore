@@ -1605,7 +1605,7 @@ impl EpochManager {
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store.epoch().get_epoch_info(epoch_id).map(Arc::new)
+            self.store.epoch_store().get_epoch_info(epoch_id).map(Arc::new)
         })
     }
 
@@ -1657,8 +1657,9 @@ impl EpochManager {
     }
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info
-            .get_or_try_put(*hash, |hash| self.store.epoch().get_block_info(hash).map(Arc::new))
+        self.blocks_info.get_or_try_put(*hash, |hash| {
+            self.store.epoch_store().get_block_info(hash).map(Arc::new)
+        })
     }
 
     fn save_block_info(
@@ -1684,8 +1685,9 @@ impl EpochManager {
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start
-            .get_or_try_put(*epoch_id, |epoch_id| self.store.epoch().get_epoch_start(epoch_id))
+        self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
+            self.store.epoch_store().get_epoch_start(epoch_id)
+        })
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`

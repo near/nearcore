@@ -125,7 +125,7 @@ impl<'a> ChainUpdate<'a> {
                 )?;
                 self.chain_store_update.merge(store_update.into());
 
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     block_hash,
                     shard_id,
@@ -167,7 +167,7 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 if should_save_state_transition_data {
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
@@ -580,7 +580,7 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         let chunk_extra = ChunkExtra::new(
             protocol_version,
@@ -683,7 +683,7 @@ impl<'a> ChainUpdate<'a> {
             apply_result.trie_changes.state_changes(),
         )?;
         self.chain_store_update.merge(store_update.into());
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         // The chunk is missing but some fields may need to be updated
         // anyway. Prepare a chunk extra as a copy of the old chunk

@@ -1011,7 +1011,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        _chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         _time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
@@ -1175,7 +1175,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 ShardUId::new(0, shard_id),
                 TrieChanges::empty(state_root),
                 Default::default(),
-                block.block_hash,
                 block.height,
             ),
             new_root: state_root,

@@ -280,6 +280,7 @@ impl Connection {
         tracked_shards: Vec<ShardId>,
         archival: bool,
         recv_timeout: Duration,
+        protocol_version: Option<ProtocolVersion>,
     ) -> Result<Self, ConnectError> {
         let mut stream = PeerStream::new(stream, recv_timeout);
         let mut borsh_message_expected = true;
@@ -293,9 +294,11 @@ impl Connection {
             Err(RecvError::IO(e)) => return Err(ConnectError::IO(e)),
         };
 
-        let (peer_id, nonce) = match message {
+        let (peer_id, nonce, handshake_protocol_version) = match message {
             // TODO: maybe check the handshake for sanity
-            PeerMessage::Tier2Handshake(h) => (h.sender_peer_id, h.partial_edge_info.nonce),
+            PeerMessage::Tier2Handshake(h) => {
+                (h.sender_peer_id, h.partial_edge_info.nonce, h.protocol_version)
+            }
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
                 return Err(ConnectError::HandshakeFailure(reason))
             }
@@ -309,7 +312,7 @@ impl Connection {
             &peer_id,
             stream.stream.local_addr.port(),
             nonce,
-            PROTOCOL_VERSION,
+            protocol_version.unwrap_or(handshake_protocol_version),
             chain_id,
             genesis_hash,
             head_height,
@@ -626,6 +629,7 @@ pub struct Listener {
     tracked_shards: Vec<ShardId>,
     archival: bool,
     recv_timeout: Duration,
+    handshake_protocol_version: Option<ProtocolVersion>,
 }
 
 impl Listener {
@@ -638,6 +642,7 @@ impl Listener {
         tracked_shards: Vec<ShardId>,
         archival: bool,
         recv_timeout: Duration,
+        handshake_protocol_version: Option<ProtocolVersion>,
     ) -> io::Result<Self> {
         Ok(Self {
             listener: addr.listener()?,
@@ -648,6 +653,7 @@ impl Listener {
             tracked_shards,
             archival,
             recv_timeout,
+            handshake_protocol_version,
         })
     }
 
@@ -665,6 +671,7 @@ impl Listener {
             self.tracked_shards.clone(),
             self.archival,
             self.recv_timeout,
+            self.handshake_protocol_version,
         )
         .await
     }

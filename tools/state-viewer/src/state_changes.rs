@@ -200,11 +200,10 @@ fn apply_state_changes(
                 shard_uid,
                 trie_update,
                 state_changes,
-                *block_hash,
                 block_height,
             );
             let mut store_update = chain_store.store_update();
-            store_update.save_trie_changes(wrapped_trie_changes);
+            store_update.save_trie_changes(*block_hash, wrapped_trie_changes);
             store_update.commit().unwrap();
         }
     }

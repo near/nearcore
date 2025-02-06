@@ -87,7 +87,7 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -453,7 +453,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chunk: PrepareTransactionsChunkContext,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
 
