@@ -27,8 +27,8 @@ pub struct ChunkApplyStatsV0 {
     pub height: BlockHeight,
     /// Shard ID of the chunk
     pub shard_id: ShardId,
-    /// Was the chunk applied as a missing chunk (apply_old_chunk)
-    pub is_chunk_missing: bool,
+    /// Was this chunk applied as a new (non-missing) chunk or a missing one (apply_old_chunk)?
+    pub is_new_chunk: bool,
     /// Number of new transactions in this chunk
     pub transactions_num: u64,
     /// Number of incoming receipts to this chunk
@@ -47,7 +47,7 @@ impl ChunkApplyStatsV0 {
         ChunkApplyStatsV0 {
             height: height,
             shard_id: shard_id,
-            is_chunk_missing: false,
+            is_new_chunk: false,
             transactions_num: 0,
             incoming_receipts_num: 0,
             bandwidth_scheduler: Default::default(),
@@ -69,7 +69,7 @@ impl ChunkApplyStatsV0 {
         ChunkApplyStatsV0 {
             height: 0,
             shard_id: ShardId::new(0),
-            is_chunk_missing: false,
+            is_new_chunk: false,
             transactions_num: 0,
             incoming_receipts_num: 0,
             bandwidth_scheduler: Default::default(),

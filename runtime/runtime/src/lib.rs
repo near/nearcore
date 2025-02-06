@@ -1463,7 +1463,7 @@ impl Runtime {
         processing_state.stats.transactions_num =
             transactions.transactions.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
-        processing_state.stats.is_chunk_missing = !apply_state.is_new_chunk;
+        processing_state.stats.is_new_chunk = !apply_state.is_new_chunk;
 
         if let Some(prefetcher) = &mut processing_state.prefetcher {
             // Prefetcher is allowed to fail
