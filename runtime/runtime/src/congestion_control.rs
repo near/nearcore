@@ -658,6 +658,11 @@ impl ReceiptSinkV2 {
                 self.stats.is_outgoing_metadata_ready.insert(shard, true);
             }
 
+            // If the outgoing buffer metadata is fully initialized, record the total size and gas
+            // of the receipts in the buffer. Otherwise, record the number of receipts in the buffer
+            // and set the total size and gas to 0. See
+            // `get_receipt_group_sizes_for_buffer_to_shard` for more information about the metadata
+            // initialization.
             match self.outgoing_metadatas.get_metadata_for_shard(&shard) {
                 Some(metadata) if metadata.total_receipts_num() == buffer.len() => {
                     self.stats.final_outgoing_buffers.insert(
