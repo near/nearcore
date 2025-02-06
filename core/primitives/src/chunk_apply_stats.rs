@@ -182,9 +182,9 @@ pub struct OutgoingLimitStats {
 pub struct ReceiptsStats {
     /// Number of receipts
     pub num: u64,
-    /// Total (congestion) size of receipts
+    /// Total size of receipts, as calculated by `congestion_control::compute_receipt_size`.
     pub total_size: u64,
-    /// Total (congestion) gas of receipts
+    /// Total gas of receipts, as calculated by `compute_receipt_congestion_gas`.
     pub total_gas: u128,
 }
 
