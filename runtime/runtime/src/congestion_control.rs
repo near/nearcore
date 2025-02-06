@@ -656,6 +656,7 @@ impl ReceiptSinkV2 {
                     .final_outgoing_buffers
                     .insert(shard, ReceiptsStats { num: 0, total_size: 0, total_gas: 0 });
                 self.stats.is_outgoing_metadata_ready.insert(shard, true);
+                continue;
             }
 
             // If the outgoing buffer metadata is fully initialized, record the total size and gas
