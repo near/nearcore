@@ -854,7 +854,7 @@ impl ForkNetworkCommand {
             new_validator_accounts.push(validator_account.clone());
             storage_mutator.set_account(
                 &validator_account.account_id,
-                Account::new(
+                Account::new_v1(
                     liquid_balance,
                     validator_account.amount,
                     CryptoHash::default(),

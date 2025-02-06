@@ -93,7 +93,7 @@ pub enum AccountContract {
 }
 
 impl AccountContract {
-    pub fn to_code_hash(&self) -> CryptoHash {
+    pub fn local_code(&self) -> CryptoHash {
         match self {
             AccountContract::None | AccountContract::GlobalByAccount(_) => CryptoHash::default(),
             AccountContract::Local(hash) | AccountContract::Global(hash) => *hash,
@@ -140,13 +140,22 @@ impl Account {
     /// differentiate AccountVersion V1 from newer versions.
     const SERIALIZATION_SENTINEL: u128 = u128::MAX;
 
-    pub fn new(
+    pub fn new_v1(
         amount: Balance,
         locked: Balance,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
     ) -> Self {
         Self::V1(AccountV1 { amount, locked, code_hash, storage_usage })
+    }
+
+    pub fn new_v2(
+        amount: Balance,
+        locked: Balance,
+        account_contract: AccountContract,
+        storage_usage: StorageUsage,
+    ) -> Self {
+        Self::V2(AccountV2 { amount, locked, storage_usage, account_contract })
     }
 
     #[inline]
@@ -230,15 +239,16 @@ impl Account {
     #[inline]
     pub fn set_contract(&mut self, contract: AccountContract) {
         match self {
-            Self::V1(_) => {
-                let account_v2 = AccountV2 {
-                    amount: self.amount(),
-                    locked: self.locked(),
-                    storage_usage: self.storage_usage(),
-                    account_contract: contract,
-                };
-                *self = Self::V2(account_v2);
-            }
+            Self::V1(account) => match contract {
+                AccountContract::None | AccountContract::Local(_) => {
+                    account.code_hash = contract.local_code();
+                }
+                _ => {
+                    let mut account_v2 = account.to_v2();
+                    account_v2.account_contract = contract;
+                    *self = Self::V2(account_v2);
+                }
+            },
             Self::V2(account) => {
                 account.account_contract = contract;
             }
@@ -554,7 +564,7 @@ mod tests {
         let expected_serde_repr = SerdeAccount {
             amount: account_v2.amount,
             locked: account_v2.locked,
-            code_hash: account_v2.account_contract.to_code_hash(),
+            code_hash: account_v2.account_contract.local_code(),
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
             global_contract_hash: None,
@@ -613,5 +623,27 @@ mod tests {
         let serde_string = serde_json::to_string(&serde_repr).unwrap();
         let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serde_string);
         assert!(deserialization_attempt.is_err());
+    }
+
+    #[test]
+    fn test_account_version_upgrade_behaviour() {
+        let account_v1 = AccountV1 {
+            amount: 100,
+            locked: 200,
+            code_hash: CryptoHash::hash_bytes(&[42]),
+            storage_usage: 300,
+        };
+        let mut account = Account::V1(account_v1);
+        let contract = AccountContract::Local(CryptoHash::hash_bytes(&[42]));
+        account.set_contract(contract);
+        assert!(matches!(account, Account::V1(_)));
+
+        let contract = AccountContract::None;
+        account.set_contract(contract);
+        assert!(matches!(account, Account::V1(_)));
+
+        let contract = AccountContract::Global(CryptoHash::hash_bytes(&[42]));
+        account.set_contract(contract);
+        assert!(matches!(account, Account::V2(_)));
     }
 }

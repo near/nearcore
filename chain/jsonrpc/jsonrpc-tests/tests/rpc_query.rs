@@ -13,7 +13,7 @@ use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;
 use near_o11y::testonly::init_test_logger;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::account::{AccessKey, AccessKeyPermission, AccountContract};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockId, BlockReference, EpochId, ShardId, SyncCheckpoint};
 use near_primitives::views::QueryRequest;
@@ -147,7 +147,7 @@ fn test_query_by_path_account() {
             panic!("queried account, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(account_info.amount, 0);
-        assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+        assert_eq!(account_info.account_contract, AccountContract::None);
         assert_eq!(account_info.locked, 0);
         assert_eq!(account_info.storage_paid_at, 0);
         assert_eq!(account_info.storage_usage, 0);
@@ -192,7 +192,7 @@ fn test_query_account() {
                 panic!("queried account, but received something else: {:?}", query_response.kind);
             };
             assert_eq!(account_info.amount, 0);
-            assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+            assert_eq!(account_info.account_contract, AccountContract::None);
             assert_eq!(account_info.locked, 0);
             assert_eq!(account_info.storage_paid_at, 0);
             assert_eq!(account_info.storage_usage, 0);

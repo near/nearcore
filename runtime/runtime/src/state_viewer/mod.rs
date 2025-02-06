@@ -92,7 +92,7 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        state_update.get_code(account_id.clone(), account.contract().to_code_hash())?.ok_or_else(
+        state_update.get_code(account_id.clone(), account.contract().local_code())?.ok_or_else(
             || errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
             },
@@ -150,7 +150,7 @@ impl TrieViewer {
         match get_account(state_update, account_id)? {
             Some(account) => {
                 let code_len = state_update
-                    .get_code_len(account_id.clone(), account.contract().to_code_hash())?
+                    .get_code_len(account_id.clone(), account.contract().local_code())?
                     .unwrap_or_default() as u64;
                 if let Some(limit) = self.state_size_limit {
                     if account.storage_usage().saturating_sub(code_len) > limit {
@@ -257,7 +257,7 @@ impl TrieViewer {
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
         let contract = pipeline.get_contract(
             &receipt,
-            account.contract().to_code_hash(),
+            account.contract().local_code(),
             0,
             view_config.clone(),
         );

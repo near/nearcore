@@ -1208,7 +1208,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         match request {
             QueryRequest::ViewAccount { account_id, .. } => Ok(QueryResponse {
                 kind: QueryResponseKind::ViewAccount(
-                    Account::new(
+                    Account::new_v1(
                         self.state.read().unwrap().get(state_root).map_or_else(
                             || 0,
                             |state| *state.amounts.get(account_id).unwrap_or(&0),

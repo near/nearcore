@@ -33,6 +33,7 @@ near-jsonrpc-primitives.workspace = true
 
 [dev-dependencies]
 near-actix-test-utils.workspace = true
+near-primitives-core.workspace = true
 
 [features]
 test_features = ["near-jsonrpc/test_features"]

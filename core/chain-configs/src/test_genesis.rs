@@ -444,7 +444,7 @@ impl TestGenesisBuilder {
             total_supply += user_account.balance;
             records.push(StateRecord::Account {
                 account_id: user_account.account_id.clone(),
-                account: Account::new(
+                account: Account::new_v1(
                     user_account.balance,
                     validator_stake.remove(&user_account.account_id).unwrap_or(0),
                     CryptoHash::default(),
@@ -465,7 +465,7 @@ impl TestGenesisBuilder {
         for (account_id, balance) in validator_stake {
             records.push(StateRecord::Account {
                 account_id,
-                account: Account::new(0, balance, CryptoHash::default(), 0),
+                account: Account::new_v1(0, balance, CryptoHash::default(), 0),
             });
         }
 

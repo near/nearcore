@@ -369,7 +369,7 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account::new(0, 0, Default::default(), 0).into(),
+                near_primitives::account::Account::new_v1(0, 0, Default::default(), 0).into(),
             ),
             Err(err) => return Err(err.into()),
         };

@@ -47,6 +47,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::account::AccountContract;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -65,7 +66,7 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "dec_format")]
     pub locked: Balance,
-    pub code_hash: CryptoHash,
+    pub account_contract: AccountContract,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
     #[serde(default)]
@@ -87,7 +88,7 @@ impl From<&Account> for AccountView {
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
-            code_hash: account.contract().to_code_hash(),
+            account_contract: account.contract(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
         }
@@ -102,7 +103,20 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
+        match view.account_contract {
+            AccountContract::None => {
+                Account::new_v1(view.amount, view.locked, CryptoHash::default(), view.storage_usage)
+            }
+            AccountContract::Local(hash) => {
+                Account::new_v1(view.amount, view.locked, hash, view.storage_usage)
+            }
+            _ => Account::new_v2(
+                view.amount,
+                view.locked,
+                view.account_contract.clone(),
+                view.storage_usage,
+            ),
+        }
     }
 }
 
