@@ -116,6 +116,7 @@ pub struct ApplyChunkResult {
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
     pub contract_updates: ContractUpdates,
+    /// Extra information gathered during chunk application.
     pub stats: ChunkApplyStatsV0,
 }
 
