@@ -66,11 +66,15 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "dec_format")]
     pub locked: Balance,
-    pub account_contract: AccountContract,
+    pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_contract_hash: Option<CryptoHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_contract_account_id: Option<AccountId>,
 }
 
 /// A view of the contract code.
@@ -85,12 +89,19 @@ pub struct ContractCodeView {
 
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
+        let (global_contract_hash, global_contract_account_id) = match account.contract() {
+            AccountContract::Global(contract) => (Some(contract), None),
+            AccountContract::GlobalByAccount(account_id) => (None, Some(account_id)),
+            _ => (None, None),
+        };
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
-            account_contract: account.contract(),
+            code_hash: account.contract().local_code().unwrap_or_default(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
+            global_contract_hash,
+            global_contract_account_id,
         }
     }
 }
@@ -103,20 +114,14 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        match view.account_contract {
-            AccountContract::None => {
-                Account::new_v1(view.amount, view.locked, CryptoHash::default(), view.storage_usage)
-            }
-            AccountContract::Local(hash) => {
-                Account::new_v1(view.amount, view.locked, hash, view.storage_usage)
-            }
-            _ => Account::new_v2(
-                view.amount,
-                view.locked,
-                view.account_contract.clone(),
-                view.storage_usage,
-            ),
-        }
+        let account_contract = match &view.global_contract_account_id {
+            Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
+            None => match view.global_contract_hash {
+                Some(hash) => AccountContract::Global(hash),
+                None => AccountContract::from_local_code_hash(view.code_hash),
+            },
+        };
+        Account::new(view.amount, view.locked, account_contract, view.storage_usage)
     }
 }
 

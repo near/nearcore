@@ -3,7 +3,6 @@ use anyhow::Context;
 use near_chain_configs::{Genesis, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
 use near_primitives::account::AccountContract;
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, AccountInfo};
@@ -63,7 +62,7 @@ impl AccountRecords {
 
     fn set_account(&mut self, amount: Balance, locked: Balance, num_bytes_account: u64) {
         assert!(self.account.is_none());
-        let account = Account::new_v1(amount, locked, CryptoHash::default(), num_bytes_account);
+        let account = Account::new(amount, locked, AccountContract::None, num_bytes_account);
         self.account = Some(account);
     }
 
@@ -407,7 +406,7 @@ pub fn amend_genesis(
 mod test {
     use anyhow::Context;
     use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
-    use near_primitives::hash::CryptoHash;
+    use near_primitives::account::AccountContract;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
     use near_primitives::types::{AccountId, AccountInfo};
@@ -460,7 +459,7 @@ mod test {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
                     let account =
-                        Account::new_v1(*amount, *locked, CryptoHash::default(), *storage_usage);
+                        Account::new(*amount, *locked, AccountContract::None, *storage_usage);
                     StateRecord::Account { account_id: account_id.parse().unwrap(), account }
                 }
                 Self::AccessKey { account_id, public_key } => StateRecord::AccessKey {

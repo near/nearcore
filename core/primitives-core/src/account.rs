@@ -102,7 +102,7 @@ impl AccountContract {
         }
     }
 
-    fn from_local_code_hash(code_hash: CryptoHash) -> AccountContract {
+    pub fn from_local_code_hash(code_hash: CryptoHash) -> AccountContract {
         if code_hash == CryptoHash::default() {
             AccountContract::None
         } else {
@@ -142,22 +142,24 @@ impl Account {
     /// differentiate AccountVersion V1 from newer versions.
     const SERIALIZATION_SENTINEL: u128 = u128::MAX;
 
-    pub fn new_v1(
-        amount: Balance,
-        locked: Balance,
-        code_hash: CryptoHash,
-        storage_usage: StorageUsage,
-    ) -> Self {
-        Self::V1(AccountV1 { amount, locked, code_hash, storage_usage })
-    }
-
-    pub fn new_v2(
+    pub fn new(
         amount: Balance,
         locked: Balance,
         account_contract: AccountContract,
         storage_usage: StorageUsage,
     ) -> Self {
-        Self::V2(AccountV2 { amount, locked, storage_usage, account_contract })
+        match account_contract {
+            AccountContract::None => Self::V1(AccountV1 {
+                amount,
+                locked,
+                code_hash: CryptoHash::default(),
+                storage_usage,
+            }),
+            AccountContract::Local(code_hash) => {
+                Self::V1(AccountV1 { amount, locked, code_hash, storage_usage })
+            }
+            _ => Self::V2(AccountV2 { amount, locked, storage_usage, account_contract }),
+        }
     }
 
     #[inline]

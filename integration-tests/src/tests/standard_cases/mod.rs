@@ -284,7 +284,7 @@ pub fn test_upload_contract(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let account = node_user.view_account(&eve_dot_alice_account()).unwrap();
-    assert_eq!(account.account_contract.local_code().unwrap_or_default(), hash(wasm_binary));
+    assert_eq!(account.code_hash, hash(wasm_binary));
 
     let code = node_user.view_contract_code(&eve_dot_alice_account()).unwrap();
     assert_eq!(code.code, wasm_binary.to_vec());
@@ -302,7 +302,7 @@ pub fn test_redeploy_contract(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.account_contract.local_code().unwrap_or_default(), hash(test_binary));
+    assert_eq!(account.code_hash, hash(test_binary));
 }
 
 pub fn test_send_money(node: impl Node) {

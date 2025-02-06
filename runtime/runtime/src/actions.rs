@@ -479,10 +479,10 @@ pub(crate) fn action_create_account(
     }
 
     *actor_id = account_id.clone();
-    *account = Some(Account::new_v1(
+    *account = Some(Account::new(
         0,
         0,
-        CryptoHash::default(),
+        AccountContract::None,
         fee_config.storage_usage_config.num_bytes_account,
     ));
 }
@@ -518,10 +518,10 @@ pub(crate) fn action_implicit_account_creation_transfer(
             // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
-            *account = Some(Account::new_v1(
+            *account = Some(Account::new(
                 deposit,
                 0,
-                CryptoHash::default(),
+                AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
@@ -546,7 +546,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 let contract_hash = *magic_bytes.hash();
-                *account = Some(Account::new_v1(deposit, 0, contract_hash, storage_usage));
+                *account = Some(Account::new(
+                    deposit,
+                    0,
+                    AccountContract::from_local_code_hash(contract_hash),
+                    storage_usage,
+                ));
                 state_update.set_code(account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
@@ -1285,7 +1290,12 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account = Some(Account::new_v1(100, 0, *code_hash, storage_usage));
+        let mut account = Some(Account::new(
+            100,
+            0,
+            AccountContract::from_local_code_hash(*code_hash),
+            storage_usage,
+        ));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(
@@ -1335,7 +1345,7 @@ mod tests {
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
-        let mut account = Account::new_v1(100, 0, CryptoHash::default(), storage_usage);
+        let mut account = Account::new(100, 0, AccountContract::None, storage_usage);
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
@@ -1445,7 +1455,7 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new_v1(100, 0, CryptoHash::default(), 100);
+        let account = Account::new(100, 0, AccountContract::None, 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
