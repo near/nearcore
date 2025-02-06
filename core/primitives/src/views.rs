@@ -87,7 +87,7 @@ impl From<&Account> for AccountView {
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
-            code_hash: account.code_hash(),
+            code_hash: account.contract().to_code_hash(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
         }

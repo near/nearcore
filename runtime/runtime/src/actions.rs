@@ -7,7 +7,7 @@ use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::action::{
     DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
@@ -584,7 +584,7 @@ pub(crate) fn action_deploy_contract(
     let prev_code_len = get_code_len_or_default(
         state_update,
         account_id.clone(),
-        account.code_hash(),
+        account.contract().to_code_hash(),
         current_protocol_version,
     )?;
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
@@ -598,7 +598,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_local_code_hash(*code.hash());
+    account.set_contract(AccountContract::Local(*code.hash()));
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
@@ -665,7 +665,7 @@ pub(crate) fn action_delete_account(
         let code_len = get_code_len_or_default(
             state_update,
             account_id.clone(),
-            account.code_hash(),
+            account.contract().to_code_hash(),
             current_protocol_version,
         )?;
         debug_assert!(code_len == 0 || account_storage_usage > code_len,
@@ -1349,7 +1349,7 @@ mod tests {
         assert!(res.is_ok());
         test_delete_large_account(
             &account_id,
-            &account.code_hash(),
+            &account.contract().to_code_hash(),
             storage_usage,
             &mut state_update,
         )

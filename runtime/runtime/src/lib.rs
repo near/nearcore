@@ -490,7 +490,7 @@ impl Runtime {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let contract = preparation_pipeline.get_contract(
                     receipt,
-                    account.code_hash(),
+                    account.contract().to_code_hash(),
                     action_index,
                     None,
                 );
@@ -506,7 +506,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
-                    account.code_hash(),
+                    account.contract().to_code_hash(),
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
@@ -1587,7 +1587,7 @@ impl Runtime {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     state_update.set_code(account_id, &code);
-                    assert_eq!(*code.hash(), acc.code_hash());
+                    assert_eq!(*code.hash(), acc.contract().to_code_hash());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);

@@ -39,7 +39,7 @@ pub fn add_contract(genesis: &mut Genesis, account_id: &AccountId, code: Vec<u8>
         if let StateRecord::Account { account_id: record_account_id, ref mut account } = record {
             if record_account_id == account_id {
                 is_account_record_found = true;
-                account.set_local_code_hash(hash);
+                account.set_contract(near_primitives::account::AccountContract::Local(hash));
             }
         }
     }

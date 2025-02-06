@@ -714,7 +714,8 @@ mod tests {
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
-                initial_account.set_local_code_hash(code_hash);
+                initial_account
+                    .set_contract(near_primitives::account::AccountContract::Local(code_hash));
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );

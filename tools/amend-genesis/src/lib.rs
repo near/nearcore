@@ -2,6 +2,7 @@ use anyhow::Context;
 
 use near_chain_configs::{Genesis, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
+use near_primitives::account::AccountContract;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -73,7 +74,7 @@ impl AccountRecords {
                 // records. Set the storage usage to reflect whatever's in the original records, and at the
                 // end we will add to the storage usage with any extra keys added for this account
                 account.set_storage_usage(existing.storage_usage());
-                account.set_local_code_hash(existing.code_hash());
+                account.set_contract(existing.contract());
                 if self.amount_needed {
                     set_total_balance(account, existing);
                 }
@@ -171,7 +172,7 @@ fn parse_extra_records(
     near_chain_configs::stream_records_from_file(reader, |r| {
         match r {
             StateRecord::Account { account_id, account } => {
-                if account.code_hash() != CryptoHash::default() {
+                if account.contract() != AccountContract::None {
                     result = Err(anyhow::anyhow!(
                         "FIXME: accounts in --extra-records with code_hash set not supported"
                     ));
@@ -517,7 +518,7 @@ mod test {
                             (
                                 account.amount(),
                                 account.locked(),
-                                account.code_hash(),
+                                account.contract(),
                                 account.storage_usage(),
                             ),
                         )
@@ -555,7 +556,7 @@ mod test {
                         (
                             account.amount(),
                             account.locked(),
-                            account.code_hash(),
+                            account.contract(),
                             account.storage_usage(),
                         ),
                     );

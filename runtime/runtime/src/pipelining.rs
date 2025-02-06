@@ -136,7 +136,7 @@ impl ReceiptPreparationPipeline {
                 }
                 Action::FunctionCall(function_call) => {
                     let Some(account) = &**account else { continue };
-                    let code_hash = account.code_hash();
+                    let code_hash = account.contract().to_code_hash();
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
                     let entry = match self.map.entry(key) {

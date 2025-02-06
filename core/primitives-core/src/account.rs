@@ -69,7 +69,7 @@ impl AccountV1 {
             amount: self.amount,
             locked: self.locked,
             storage_usage: self.storage_usage,
-            account_contract: convert_code_hash(self.code_hash),
+            account_contract: AccountContract::from_local_code_hash(self.code_hash),
         }
     }
 }
@@ -85,29 +85,27 @@ impl AccountV1 {
     Clone,
     ProtocolSchema,
 )]
-pub enum AccountContractType {
+pub enum AccountContract {
     None,
-    LocalContract(CryptoHash),
-    GlobalContract(CryptoHash),
-    GlobalContractByAccount(AccountId, CryptoHash),
+    Local(CryptoHash),
+    Global(CryptoHash),
+    GlobalByAccount(AccountId),
 }
 
-impl From<AccountContractType> for CryptoHash {
-    fn from(contract: AccountContractType) -> Self {
-        match contract {
-            AccountContractType::None => CryptoHash::default(),
-            AccountContractType::LocalContract(hash)
-            | AccountContractType::GlobalContract(hash)
-            | AccountContractType::GlobalContractByAccount(_, hash) => hash,
+impl AccountContract {
+    pub fn to_code_hash(&self) -> CryptoHash {
+        match self {
+            AccountContract::None | AccountContract::GlobalByAccount(_) => CryptoHash::default(),
+            AccountContract::Local(hash) | AccountContract::Global(hash) => *hash,
         }
     }
-}
 
-fn convert_code_hash(code_hash: CryptoHash) -> AccountContractType {
-    if code_hash == CryptoHash::default() {
-        AccountContractType::None
-    } else {
-        AccountContractType::LocalContract(code_hash)
+    fn from_local_code_hash(code_hash: CryptoHash) -> AccountContract {
+        if code_hash == CryptoHash::default() {
+            AccountContract::None
+        } else {
+            AccountContract::Local(code_hash)
+        }
     }
 }
 
@@ -130,7 +128,7 @@ pub struct AccountV2 {
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
     /// Type of contract deployed to this account, if any.
-    account_contract: AccountContractType,
+    account_contract: AccountContract,
 }
 
 impl Account {
@@ -168,10 +166,10 @@ impl Account {
     }
 
     #[inline]
-    pub fn code_hash(&self) -> CryptoHash {
+    pub fn contract(&self) -> AccountContract {
         match self {
-            Self::V1(account) => account.code_hash,
-            Self::V2(account) => account.account_contract.clone().into(),
+            Self::V1(account) => AccountContract::from_local_code_hash(account.code_hash),
+            Self::V2(account) => account.account_contract.clone(),
         }
     }
 
@@ -196,19 +194,18 @@ impl Account {
         match self {
             Self::V1(_) => None,
             Self::V2(account) => match account.account_contract.clone() {
-                AccountContractType::GlobalContract(hash)
-                | AccountContractType::GlobalContractByAccount(_, hash) => Some(hash),
+                AccountContract::Global(hash) => Some(hash),
                 _ => None,
             },
         }
     }
 
     #[inline]
-    pub fn global_contract_account_id(&self) -> Option<AccountId> {
+    pub fn global_contract_account_id(&self) -> Option<&AccountId> {
         match self {
             Self::V1(_) => None,
-            Self::V2(account) => match account.account_contract.clone() {
-                AccountContractType::GlobalContractByAccount(account_id, _) => Some(account_id),
+            Self::V2(account) => match &account.account_contract {
+                AccountContract::GlobalByAccount(account_id) => Some(account_id),
                 _ => None,
             },
         }
@@ -231,15 +228,20 @@ impl Account {
     }
 
     #[inline]
-    pub fn set_local_code_hash(&mut self, code_hash: CryptoHash) {
+    pub fn set_contract(&mut self, contract: AccountContract) {
         match self {
-            Self::V1(account) => account.code_hash = code_hash,
-            Self::V2(account) => match account.account_contract {
-                AccountContractType::None | AccountContractType::LocalContract(_) => {
-                    account.account_contract = AccountContractType::LocalContract(code_hash)
-                }
-                _ => panic!("Cannot set local code hash for a global contract"),
-            },
+            Self::V1(_) => {
+                let account_v2 = AccountV2 {
+                    amount: self.amount(),
+                    locked: self.locked(),
+                    storage_usage: self.storage_usage(),
+                    account_contract: contract,
+                };
+                *self = Self::V2(account_v2);
+            }
+            Self::V2(account) => {
+                account.account_contract = contract;
+            }
         }
     }
 
@@ -266,7 +268,9 @@ struct SerdeAccount {
     #[serde(default)]
     version: AccountVersion,
     /// Global contracts fields
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     global_contract_hash: Option<CryptoHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     global_contract_account_id: Option<AccountId>,
 }
 
@@ -284,6 +288,13 @@ impl<'de> serde::Deserialize<'de> for Account {
                 "An Account can't contain both a local and global contract",
             ));
         }
+        if account_data.global_contract_hash.is_some()
+            && account_data.global_contract_account_id.is_some()
+        {
+            return Err(serde::de::Error::custom(
+                "An Account can't contain both types of global contracts",
+            ));
+        }
 
         match account_data.version {
             AccountVersion::V1 => Ok(Account::V1(AccountV1 {
@@ -293,17 +304,13 @@ impl<'de> serde::Deserialize<'de> for Account {
                 storage_usage: account_data.storage_usage,
             })),
             AccountVersion::V2 => {
-                let account_contract = account_data.global_contract_hash.map_or_else(
-                    || convert_code_hash(account_data.code_hash),
-                    |hash| {
-                        account_data.global_contract_account_id.map_or(
-                            AccountContractType::GlobalContract(hash),
-                            |account_id| {
-                                AccountContractType::GlobalContractByAccount(account_id, hash)
-                            },
-                        )
+                let account_contract = match account_data.global_contract_account_id {
+                    Some(account_id) => AccountContract::GlobalByAccount(account_id),
+                    None => match account_data.global_contract_hash {
+                        Some(hash) => AccountContract::Global(hash),
+                        None => AccountContract::from_local_code_hash(account_data.code_hash),
                     },
-                );
+                };
 
                 Ok(Account::V2(AccountV2 {
                     amount: account_data.amount,
@@ -325,11 +332,11 @@ impl serde::Serialize for Account {
         let repr = SerdeAccount {
             amount: self.amount(),
             locked: self.locked(),
-            code_hash: self.code_hash(),
+            code_hash: self.contract().to_code_hash(),
             storage_usage: self.storage_usage(),
             version,
             global_contract_hash: self.global_contract_hash(),
-            global_contract_account_id: self.global_contract_account_id(),
+            global_contract_account_id: self.global_contract_account_id().cloned(),
         };
         repr.serialize(serializer)
     }
@@ -533,7 +540,7 @@ mod tests {
             amount: 10_000_000,
             locked: 100_000,
             storage_usage: 1000,
-            account_contract: AccountContractType::LocalContract(CryptoHash::hash_bytes(&[42])),
+            account_contract: AccountContract::Local(CryptoHash::hash_bytes(&[42])),
         };
         let account = Account::V2(account_v2.clone());
 
@@ -541,7 +548,7 @@ mod tests {
         let expected_serde_repr = SerdeAccount {
             amount: account_v2.amount,
             locked: account_v2.locked,
-            code_hash: account_v2.account_contract.into(),
+            code_hash: account_v2.account_contract.to_code_hash(),
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
             global_contract_hash: None,
@@ -560,7 +567,7 @@ mod tests {
             amount: 10_000_000,
             locked: 100_000,
             storage_usage: 1000,
-            account_contract: AccountContractType::GlobalContract(CryptoHash::hash_bytes(&[42])),
+            account_contract: AccountContract::Global(CryptoHash::hash_bytes(&[42])),
         };
         let account = Account::V2(account_v2);
         let serialized_account = borsh::to_vec(&account).unwrap();
@@ -570,21 +577,35 @@ mod tests {
     }
 
     #[test]
-    fn test_account_v2_serde_deserialization_cannot_have_both_local_and_global_contract() {
+    fn test_account_v2_serde_deserialization_fails() {
         let id = AccountId::try_from("test.near".to_string()).unwrap();
-        let account_v2 = AccountV2 {
+        let code_hash = CryptoHash::hash_bytes(&[42]);
+
+        let mut serde_repr = SerdeAccount {
             amount: 10_000_000,
             locked: 100_000,
+            code_hash,
             storage_usage: 1000,
-            account_contract: AccountContractType::GlobalContractByAccount(
-                id,
-                CryptoHash::hash_bytes(&[42]),
-            ),
+            version: AccountVersion::V2,
+            global_contract_hash: None,
+            global_contract_account_id: Some(id.clone()),
         };
-        let account = Account::V2(account_v2);
-        let serialized_account = serde_json::to_string(&account).unwrap();
 
-        let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serialized_account);
+        let serde_string = serde_json::to_string(&serde_repr).unwrap();
+        let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serde_string);
+        assert!(deserialization_attempt.is_err());
+
+        serde_repr.global_contract_hash = Some(code_hash);
+        serde_repr.global_contract_account_id = None;
+        let serde_string = serde_json::to_string(&serde_repr).unwrap();
+        let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serde_string);
+        assert!(deserialization_attempt.is_err());
+
+        serde_repr.code_hash = CryptoHash::default();
+        serde_repr.global_contract_hash = Some(code_hash);
+        serde_repr.global_contract_account_id = Some(id);
+        let serde_string = serde_json::to_string(&serde_repr).unwrap();
+        let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serde_string);
         assert!(deserialization_attempt.is_err());
     }
 }
