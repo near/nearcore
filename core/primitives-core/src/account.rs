@@ -329,10 +329,16 @@ impl serde::Serialize for Account {
         S: serde::Serializer,
     {
         let version = self.version();
+        let code_hash = match self.contract() {
+            AccountContract::None
+            | AccountContract::Global(_)
+            | AccountContract::GlobalByAccount(_) => CryptoHash::default(),
+            AccountContract::Local(code_hash) => code_hash,
+        };
         let repr = SerdeAccount {
             amount: self.amount(),
             locked: self.locked(),
-            code_hash: self.contract().to_code_hash(),
+            code_hash,
             storage_usage: self.storage_usage(),
             version,
             global_contract_hash: self.global_contract_hash(),
