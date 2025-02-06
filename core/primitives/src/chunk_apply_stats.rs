@@ -104,16 +104,12 @@ impl BandwidthSchedulerStats {
         params: &BandwidthSchedulerParams,
     ) {
         for (from_shard, shard_requests) in &requests.shards_bandwidth_requests {
-            match shard_requests {
-                BandwidthRequests::V1(requests_v1) => {
-                    for request in &requests_v1.requests {
-                        self.prev_bandwidth_requests.insert(
-                            (*from_shard, request.to_shard.into()),
-                            get_requested_values(request, params),
-                        );
-                    }
-                }
-            }
+            Self::add_requests_to_map(
+                shard_requests,
+                &mut self.prev_bandwidth_requests,
+                *from_shard,
+                params,
+            );
         }
         self.prev_bandwidth_requests_num = self.prev_bandwidth_requests.len().try_into().unwrap();
     }
@@ -125,10 +121,20 @@ impl BandwidthSchedulerStats {
         requests: &BandwidthRequests,
         params: &BandwidthSchedulerParams,
     ) {
+        Self::add_requests_to_map(requests, &mut self.new_bandwidth_requests, from_shard, params);
+    }
+
+    /// Convert bandwidth requests to the target representation and add to the given map.
+    fn add_requests_to_map(
+        requests: &BandwidthRequests,
+        map: &mut BTreeMap<(ShardId, ShardId), Vec<u64>>,
+        from_shard: ShardId,
+        params: &BandwidthSchedulerParams,
+    ) {
         match requests {
             BandwidthRequests::V1(requests_v1) => {
                 for request in &requests_v1.requests {
-                    self.new_bandwidth_requests.insert(
+                    map.insert(
                         (from_shard, request.to_shard.into()),
                         get_requested_values(request, params),
                     );
