@@ -68,12 +68,27 @@ where
     result.map_err(|err| anyhow::anyhow!("Failed to parse at end of line: {:?}", err))
 }
 
+#[derive(Debug, Copy, Clone)]
+struct SuccessfulTxsData {
+    num: u64,
+    time: Instant,
+}
+
+impl SuccessfulTxsData {
+    fn new_now(num: u64) -> Self {
+        Self { num, time: Instant::now() }
+    }
+}
+
 pub struct TransactionStatisticsService {
     refresh_interval: Interval,
     metrics_url: String,
-    start_time: Instant,
-    num_start: u64,
-    num_successful_transactions: u64,
+    /// Data for the beginning of the observed interval.
+    data_t0: SuccessfulTxsData,
+    /// Last observed data.
+    data_t1: SuccessfulTxsData,
+    /// Data at the end of the observed interval.
+    data_t2: SuccessfulTxsData,
     http_client: Client,
 }
 
@@ -82,12 +97,13 @@ impl TransactionStatisticsService {
     pub fn new(rpc_url: String, refresh_interval: Duration) -> Self {
         let mut metrics_url = rpc_url;
         metrics_url.push_str("/metrics");
+
         Self {
             refresh_interval: time::interval(refresh_interval),
             metrics_url,
-            start_time: Instant::now(),
-            num_start: 0,
-            num_successful_transactions: 0,
+            data_t0: SuccessfulTxsData::new_now(0),
+            data_t1: SuccessfulTxsData::new_now(0),
+            data_t2: SuccessfulTxsData::new_now(0),
             http_client: Client::new(),
         }
     }
@@ -95,7 +111,7 @@ impl TransactionStatisticsService {
     pub async fn start(mut self) {
         // TODO return result and get rid of unwraps.
         // Wait for transaction processing to start.
-        let initial_count = self.num_successful_transactions;
+        let initial_count = self.data_t0.num;
         let mut interval_wait_txs_start = time::interval(Duration::from_millis(100));
         info!("Waiting for transaction processing to start");
         loop {
@@ -106,40 +122,55 @@ impl TransactionStatisticsService {
             let num = match metric {
                 MetricValue::SuccessfulTransactions { num } => num,
             };
-            info!("observing num = {num}");
             if num > initial_count {
-                self.num_start = num;
-                self.start_time = Instant::now();
+                self.data_t0 = SuccessfulTxsData::new_now(num);
                 info!("Observed successful transactions");
                 break;
             }
         }
 
         // Measure TPS.
+        // The first interval tick fires immediately, but we just started observing transactions.
+        // So start measuring TPS only with the next tick, after some time passed.
+        self.refresh_interval.tick().await;
         loop {
             self.refresh_interval.tick().await;
             let report = self.get_report().await.unwrap();
             let metric = get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
-            let num = match metric {
-                MetricValue::SuccessfulTransactions { num } => num,
-            };
-            let last_num = self.num_successful_transactions;
             // TODO refactor `Metric*` to avoid such matching.
-            self.num_successful_transactions = match metric {
-                MetricValue::SuccessfulTransactions { num } => num,
+            let new_num = match metric {
+                MetricValue::SuccessfulTransactions { num } => SuccessfulTxsData::new_now(num),
             };
-            if last_num == self.num_successful_transactions {
+            if !(new_num.num > self.data_t2.num) {
                 break;
             }
-            let elapsed_secs = self.start_time.elapsed().as_secs();
-            if elapsed_secs > 0 {
-                info!("TPS successfully processed: {}", (num - self.num_start) / elapsed_secs);
-            }
+            self.data_t1 = self.data_t2;
+            self.data_t2 = new_num;
+            self.log_tps();
         }
+
+        info!(
+            r#"Tx statistics cut off a small time from the observation period.
+            Done to avoid statistic services slowing down the system.
+            So statistics miss a few successful txs, but adjust the observation period.
+            Hence for workloads running more than a few secs, TPS are representative.
+        "#
+        );
     }
 
     async fn get_report(&self) -> anyhow::Result<String> {
         self.http_client.get(&self.metrics_url).send().await?.text().await.map_err(Into::into)
+    }
+
+    fn log_tps(&self) -> u64 {
+        let elapsed_secs = (self.data_t1.time - self.data_t0.time).as_secs();
+        if !(elapsed_secs > 0) {
+            return 0;
+        }
+        let num = self.data_t1.num - self.data_t0.num;
+        let tps = num / elapsed_secs;
+        info!("Observed {num} successful txs in {elapsed_secs} seconds => {tps} TPS");
+        tps
     }
 }
 
