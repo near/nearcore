@@ -614,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_account_v2_serde_deserialization_fails() {
+    fn test_account_v2_serde_deserialization_fails_with_local_hash_and_global_account_id() {
         let id = AccountId::try_from("test.near".to_string()).unwrap();
         let code_hash = CryptoHash::hash_bytes(&[42]);
 
@@ -626,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn test_account_v2_serde_deserialization_fails_with_local_and_global_contracts() {
+    fn test_account_v2_serde_deserialization_fails_with_local_and_global_hashes() {
         let code_hash = CryptoHash::hash_bytes(&[42]);
 
         let serde_repr = create_serde_account(code_hash, Some(code_hash), None);
