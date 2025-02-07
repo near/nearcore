@@ -69,7 +69,7 @@ impl AccountV1 {
             amount: self.amount,
             locked: self.locked,
             storage_usage: self.storage_usage,
-            account_contract: AccountContract::from_local_code_hash(self.code_hash),
+            contract: AccountContract::from_local_code_hash(self.code_hash),
         }
     }
 }
@@ -130,7 +130,7 @@ pub struct AccountV2 {
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
     /// Type of contract deployed to this account, if any.
-    account_contract: AccountContract,
+    contract: AccountContract,
 }
 
 impl Account {
@@ -145,10 +145,10 @@ impl Account {
     pub fn new(
         amount: Balance,
         locked: Balance,
-        account_contract: AccountContract,
+        contract: AccountContract,
         storage_usage: StorageUsage,
     ) -> Self {
-        match account_contract {
+        match contract {
             AccountContract::None => Self::V1(AccountV1 {
                 amount,
                 locked,
@@ -158,7 +158,7 @@ impl Account {
             AccountContract::Local(code_hash) => {
                 Self::V1(AccountV1 { amount, locked, code_hash, storage_usage })
             }
-            _ => Self::V2(AccountV2 { amount, locked, storage_usage, account_contract }),
+            _ => Self::V2(AccountV2 { amount, locked, storage_usage, contract }),
         }
     }
 
@@ -182,7 +182,7 @@ impl Account {
     pub fn contract(&self) -> AccountContract {
         match self {
             Self::V1(account) => AccountContract::from_local_code_hash(account.code_hash),
-            Self::V2(account) => account.account_contract.clone(),
+            Self::V2(account) => account.contract.clone(),
         }
     }
 
@@ -205,22 +205,18 @@ impl Account {
     #[inline]
     pub fn global_contract_hash(&self) -> Option<CryptoHash> {
         match self {
-            Self::V1(_) => None,
-            Self::V2(account) => match account.account_contract.clone() {
-                AccountContract::Global(hash) => Some(hash),
-                _ => None,
-            },
+            Self::V2(AccountV2 { contract: AccountContract::Global(hash), .. }) => Some(*hash),
+            Self::V1(_) | Self::V2(_) => None,
         }
     }
 
     #[inline]
     pub fn global_contract_account_id(&self) -> Option<&AccountId> {
         match self {
-            Self::V1(_) => None,
-            Self::V2(account) => match &account.account_contract {
-                AccountContract::GlobalByAccount(account_id) => Some(account_id),
-                _ => None,
-            },
+            Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(account), .. }) => {
+                Some(account)
+            }
+            Self::V1(_) | Self::V2(_) => None,
         }
     }
 
@@ -249,12 +245,12 @@ impl Account {
                 }
                 _ => {
                     let mut account_v2 = account.to_v2();
-                    account_v2.account_contract = contract;
+                    account_v2.contract = contract;
                     *self = Self::V2(account_v2);
                 }
             },
             Self::V2(account) => {
-                account.account_contract = contract;
+                account.contract = contract;
             }
         }
     }
@@ -318,7 +314,7 @@ impl<'de> serde::Deserialize<'de> for Account {
                 storage_usage: account_data.storage_usage,
             })),
             AccountVersion::V2 => {
-                let account_contract = match account_data.global_contract_account_id {
+                let contract = match account_data.global_contract_account_id {
                     Some(account_id) => AccountContract::GlobalByAccount(account_id),
                     None => match account_data.global_contract_hash {
                         Some(hash) => AccountContract::Global(hash),
@@ -330,7 +326,7 @@ impl<'de> serde::Deserialize<'de> for Account {
                     amount: account_data.amount,
                     locked: account_data.locked,
                     storage_usage: account_data.storage_usage,
-                    account_contract,
+                    contract,
                 }))
             }
         }
@@ -505,6 +501,22 @@ pub struct FunctionCallPermission {
 mod tests {
     use super::*;
 
+    fn create_serde_account(
+        code_hash: CryptoHash,
+        global_contract_hash: Option<CryptoHash>,
+        global_contract_account_id: Option<AccountId>,
+    ) -> SerdeAccount {
+        SerdeAccount {
+            amount: 10_000_000,
+            locked: 100_000,
+            code_hash,
+            storage_usage: 1000,
+            version: AccountVersion::V2,
+            global_contract_hash,
+            global_contract_account_id,
+        }
+    }
+
     #[test]
     fn test_v1_account_serde_serialization() {
         let old_account = AccountV1 {
@@ -560,7 +572,7 @@ mod tests {
             amount: 10_000_000,
             locked: 100_000,
             storage_usage: 1000,
-            account_contract: AccountContract::Local(CryptoHash::hash_bytes(&[42])),
+            contract: AccountContract::Local(CryptoHash::hash_bytes(&[42])),
         };
         let account = Account::V2(account_v2.clone());
 
@@ -568,7 +580,7 @@ mod tests {
         let expected_serde_repr = SerdeAccount {
             amount: account_v2.amount,
             locked: account_v2.locked,
-            code_hash: account_v2.account_contract.local_code().unwrap_or_default(),
+            code_hash: account_v2.contract.local_code().unwrap_or_default(),
             storage_usage: account_v2.storage_usage,
             version: AccountVersion::V2,
             global_contract_hash: None,
@@ -587,7 +599,7 @@ mod tests {
             amount: 10_000_000,
             locked: 100_000,
             storage_usage: 1000,
-            account_contract: AccountContract::Global(CryptoHash::hash_bytes(&[42])),
+            contract: AccountContract::Global(CryptoHash::hash_bytes(&[42])),
         };
         let account = Account::V2(account_v2);
         let serialized_account = borsh::to_vec(&account).unwrap();
@@ -601,29 +613,33 @@ mod tests {
         let id = AccountId::try_from("test.near".to_string()).unwrap();
         let code_hash = CryptoHash::hash_bytes(&[42]);
 
-        let mut serde_repr = SerdeAccount {
-            amount: 10_000_000,
-            locked: 100_000,
-            code_hash,
-            storage_usage: 1000,
-            version: AccountVersion::V2,
-            global_contract_hash: None,
-            global_contract_account_id: Some(id.clone()),
-        };
+        let serde_repr = create_serde_account(code_hash, None, Some(id));
 
         let serde_string = serde_json::to_string(&serde_repr).unwrap();
         let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serde_string);
         assert!(deserialization_attempt.is_err());
+    }
 
-        serde_repr.global_contract_hash = Some(code_hash);
-        serde_repr.global_contract_account_id = None;
+    #[test]
+    fn test_account_v2_serde_deserialization_fails_with_local_and_global_contracts() {
+        let code_hash = CryptoHash::hash_bytes(&[42]);
+
+        let serde_repr = create_serde_account(code_hash, Some(code_hash), None);
+
         let serde_string = serde_json::to_string(&serde_repr).unwrap();
         let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serde_string);
         assert!(deserialization_attempt.is_err());
+    }
 
-        serde_repr.code_hash = CryptoHash::default();
-        serde_repr.global_contract_hash = Some(code_hash);
-        serde_repr.global_contract_account_id = Some(id);
+    #[test]
+    fn test_account_v2_serde_deserialization_fails_if_both_types_of_global_contract_are_present() {
+        let id = AccountId::try_from("test.near".to_string()).unwrap();
+        let serde_repr = create_serde_account(
+            CryptoHash::default(),
+            Some(CryptoHash::hash_bytes(&[42])),
+            Some(id),
+        );
+
         let serde_string = serde_json::to_string(&serde_repr).unwrap();
         let deserialization_attempt: Result<Account, _> = serde_json::from_str(&serde_string);
         assert!(deserialization_attempt.is_err());

@@ -208,7 +208,7 @@ mod test {
             }
         }
         fn hash(chunk: &[u8]) -> String {
-            crate::CryptoHash::try_from(chunk).unwrap().to_string()
+            crate::CryptoHash::from(chunk.try_into().unwrap()).to_string()
         }
         match key.len() {
             8 => chunk(key),

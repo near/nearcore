@@ -114,14 +114,14 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        let account_contract = match &view.global_contract_account_id {
+        let contract = match &view.global_contract_account_id {
             Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
             None => match view.global_contract_hash {
                 Some(hash) => AccountContract::Global(hash),
                 None => AccountContract::from_local_code_hash(view.code_hash),
             },
         };
-        Account::new(view.amount, view.locked, account_contract, view.storage_usage)
+        Account::new(view.amount, view.locked, contract, view.storage_usage)
     }
 }
 
