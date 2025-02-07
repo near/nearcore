@@ -15,7 +15,9 @@ use near_primitives::action::{
 };
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, GlobalContractError, InvalidAccessKeyError, RuntimeError,
+};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
@@ -24,6 +26,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
@@ -645,12 +648,18 @@ pub(crate) fn action_deploy_global_contract(
 }
 
 pub(crate) fn action_use_global_contract(
-    _state_update: &mut TrieUpdate,
-    _account: &mut Account,
-    _action: &UseGlobalContractAction,
+    state_update: &mut TrieUpdate,
+    account: &mut Account,
+    action: &UseGlobalContractAction,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    // TODO(#12716): implement global contract usage
+    let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
+    if !state_update.contains_key(&key)? {
+        return Err(RuntimeError::GlobalContractError(GlobalContractError::IdentifierNotFound(
+            action.contract_identifier.clone(),
+        )));
+    }
+    if account.contract() != AccountContract::None {}
     Ok(())
 }
 

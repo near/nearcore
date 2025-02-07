@@ -1,3 +1,4 @@
+use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
@@ -67,6 +68,8 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
+    /// Global contract errors.
+    GlobalContractError(GlobalContractError),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -933,6 +936,11 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
         }
     }
+}
+
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub enum GlobalContractError {
+    IdentifierNotFound(GlobalContractIdentifier),
 }
 
 #[derive(Eq, PartialEq, Clone)]
