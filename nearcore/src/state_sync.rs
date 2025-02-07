@@ -262,6 +262,14 @@ impl DumpState {
             }
         }
     }
+
+    pub fn cancel(&self) {
+        self.canceled.store(true, Ordering::Relaxed);
+        for (_shard_id, d) in self.dump_state.iter() {
+            // Set it to -1 to tell the existing tasks not to set the metrics anymore
+            d.parts_dumped.store(-1, Ordering::SeqCst);
+        }
+    }
 }
 
 // Represents the state of the current epoch's state part dump
@@ -951,11 +959,7 @@ impl StateDumper {
                     target: "state_sync_dump", "Canceling existing dump of state for epoch {} upon new epoch {}",
                     &dump.epoch_id.0, &sync_header.epoch_id().0,
                 );
-                dump.canceled.store(true, Ordering::Relaxed);
-                for (_shard_id, d) in dump.dump_state.iter() {
-                    // Set it to -1 to tell the existing tasks not to set the metrics anymore
-                    d.parts_dumped.store(-1, Ordering::SeqCst);
-                }
+                dump.cancel();
             }
             CurrentDump::Done(epoch_id) => {
                 if epoch_id == sync_header.epoch_id() {
@@ -1034,6 +1038,10 @@ async fn state_sync_dump(
         }
     }
 
+    tracing::debug!(target: "state_sync_dump", "Stopping state dump thread");
+    if let CurrentDump::InProgress(dump) = dumper.current_dump {
+        dump.cancel();
+    }
     tracing::debug!(target: "state_sync_dump", "Stopped state dump thread");
     Ok(())
 }
