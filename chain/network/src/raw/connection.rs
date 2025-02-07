@@ -178,6 +178,8 @@ pub enum ConnectError {
     UnexpectedFirstMessage(Box<PeerMessage>),
     #[error(transparent)]
     TcpConnect(anyhow::Error),
+    #[error(transparent)]
+    Accept(std::io::Error),
 }
 
 impl From<RecvError> for ConnectError {
@@ -663,7 +665,7 @@ impl Listener {
         // TODO: get rid of this listener type and make Connection::on_accept() pub. That way
         // the calling code can just accept in a loop and then call Connection::on_accept() in
         // different tasks
-        let stream = self.listener.accept().await.map_err(ConnectError::IO)?;
+        let stream = self.listener.accept().await.map_err(ConnectError::Accept)?;
         Connection::on_accept(
             stream,
             self.secret_key.clone(),
