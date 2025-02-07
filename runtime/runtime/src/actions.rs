@@ -606,6 +606,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
+    // TODO: handle GlobalContract
     account.set_contract(AccountContract::Local(*code.hash()));
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
@@ -649,8 +650,12 @@ pub(crate) fn action_deploy_global_contract(
 
 pub(crate) fn action_use_global_contract(
     state_update: &mut TrieUpdate,
+    account_id: &AccountId,
     account: &mut Account,
     action: &UseGlobalContractAction,
+    config: Arc<near_parameters::vm::Config>,
+    cache: Option<&dyn ContractRuntimeCache>,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
@@ -659,7 +664,26 @@ pub(crate) fn action_use_global_contract(
             action.contract_identifier.clone(),
         )));
     }
-    if account.contract() != AccountContract::None {}
+    if account.contract() != AccountContract::None {
+        let code = state_update
+            .get_global_code(action.contract_identifier.clone())?
+            .ok_or_else(|| {
+                RuntimeError::GlobalContractError(GlobalContractError::CodeNotFound(
+                    action.contract_identifier.clone(),
+                ))
+            })?
+            .into_code();
+        let action = DeployContractAction { code };
+        action_deploy_contract(
+            state_update,
+            account,
+            account_id,
+            &action,
+            config,
+            cache,
+            current_protocol_version,
+        )?;
+    }
     Ok(())
 }
 

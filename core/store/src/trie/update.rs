@@ -5,6 +5,7 @@ use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
 use crate::StorageError;
+use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
@@ -162,6 +163,14 @@ impl TrieUpdate {
     ) -> Result<Option<ContractCode>, StorageError> {
         let key = TrieKey::ContractCode { account_id };
         self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
+    }
+
+    pub fn get_global_code(
+        &self,
+        identifier: GlobalContractIdentifier,
+    ) -> Result<Option<ContractCode>, StorageError> {
+        let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
+        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, None)))
     }
 
     /// Returns the size (in num bytes) of the contract code for the given account.

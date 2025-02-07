@@ -484,7 +484,15 @@ impl Runtime {
             }
             Action::UseGlobalContract(use_global_contract) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                action_use_global_contract(state_update, account, use_global_contract)?;
+                action_use_global_contract(
+                    state_update,
+                    account_id,
+                    account,
+                    use_global_contract,
+                    Arc::clone(&apply_state.config.wasm_config),
+                    apply_state.cache.as_deref(),
+                    apply_state.current_protocol_version,
+                )?;
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);

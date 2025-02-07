@@ -941,6 +941,7 @@ impl Display for ActionErrorKind {
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum GlobalContractError {
     IdentifierNotFound(GlobalContractIdentifier),
+    CodeNotFound(GlobalContractIdentifier),
 }
 
 #[derive(Eq, PartialEq, Clone)]
