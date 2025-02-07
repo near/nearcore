@@ -40,6 +40,7 @@ use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use rand::Rng;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -1070,28 +1071,34 @@ impl PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitness(validator_witness_tuple) => {
-                for (chunk_validator, partial_witness) in validator_witness_tuple {
-                    self.state.send_message_to_account(
-                        &self.clock,
-                        &chunk_validator,
-                        RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
-                    );
-                }
+                let arbiter = actix::Arbiter::current();
+                validator_witness_tuple.into_par_iter().for_each(
+                    |(chunk_validator, partial_witness)| {
+                        self.state.send_message_to_account_with_arbiter(
+                            &self.clock,
+                            &chunk_validator,
+                            RoutedMessageBody::PartialEncodedStateWitness(partial_witness),
+                            arbiter.clone(),
+                        );
+                    },
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::PartialEncodedStateWitnessForward(
                 chunk_validators,
                 partial_witness,
             ) => {
-                for chunk_validator in chunk_validators {
-                    self.state.send_message_to_account(
+                let arbiter = actix::Arbiter::current();
+                chunk_validators.into_par_iter().for_each(|chunk_validator| {
+                    self.state.send_message_to_account_with_arbiter(
                         &self.clock,
                         &chunk_validator,
                         RoutedMessageBody::PartialEncodedStateWitnessForward(
                             partial_witness.clone(),
                         ),
+                        arbiter.clone(),
                     );
-                }
+                });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::EpochSyncRequest { peer_id } => {
