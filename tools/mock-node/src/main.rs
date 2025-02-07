@@ -6,7 +6,6 @@
 use anyhow::Context;
 use mock_node::setup::setup_mock_node;
 use mock_node::MockNetworkConfig;
-use near_actix_test_utils::{block_on_interruptible, setup_actix};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolVersion;
@@ -60,8 +59,8 @@ fn main() -> anyhow::Result<()> {
         network_config.response_delay = Duration::from_millis(delay);
     }
 
-    let sys = setup_actix();
-    let res = block_on_interruptible(&sys, async move {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let res = runtime.block_on(async move {
         let mock_peer = setup_mock_node(
             home_dir,
             network_config,
