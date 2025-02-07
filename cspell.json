@@ -351,6 +351,11 @@
         "Zulip",
         "deser"
     ],
-    "ignoreWords": [],
+    "ignoreWords": [
+        "euxo",
+        "pipefail",
+        "pushd",
+        "popd",
+    ],
     "import": []
 }
