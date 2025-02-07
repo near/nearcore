@@ -477,6 +477,7 @@ impl Runtime {
                     Arc::clone(&apply_state.config.wasm_config),
                     apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
+                    None,
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {

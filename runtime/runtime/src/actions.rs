@@ -587,6 +587,7 @@ pub(crate) fn action_deploy_contract(
     config: Arc<near_parameters::vm::Config>,
     cache: Option<&dyn ContractRuntimeCache>,
     current_protocol_version: ProtocolVersion,
+    global_contract_identifier: Option<GlobalContractIdentifier>,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let prev_code_len = get_code_len_or_default(
@@ -606,8 +607,17 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    // TODO: handle GlobalContract
-    account.set_contract(AccountContract::Local(*code.hash()));
+    match global_contract_identifier {
+        Some(GlobalContractIdentifier::CodeHash(hash)) => {
+            account.set_contract(AccountContract::Global(hash));
+        }
+        Some(GlobalContractIdentifier::AccountId(id)) => {
+            account.set_contract(AccountContract::GlobalByAccount(id));
+        }
+        None => {
+            account.set_contract(AccountContract::from_local_code_hash(*code.hash()));
+        }
+    };
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
@@ -664,26 +674,25 @@ pub(crate) fn action_use_global_contract(
             action.contract_identifier.clone(),
         )));
     }
-    if account.contract() != AccountContract::None {
-        let code = state_update
-            .get_global_code(action.contract_identifier.clone())?
-            .ok_or_else(|| {
-                RuntimeError::GlobalContractError(GlobalContractError::CodeNotFound(
-                    action.contract_identifier.clone(),
-                ))
-            })?
-            .into_code();
-        let action = DeployContractAction { code };
-        action_deploy_contract(
-            state_update,
-            account,
-            account_id,
-            &action,
-            config,
-            cache,
-            current_protocol_version,
-        )?;
-    }
+    let code = state_update
+        .get_global_code(action.contract_identifier.clone())?
+        .ok_or_else(|| {
+            RuntimeError::GlobalContractError(GlobalContractError::CodeNotFound(
+                action.contract_identifier.clone(),
+            ))
+        })?
+        .into_code();
+    let deploy_action = DeployContractAction { code };
+    action_deploy_contract(
+        state_update,
+        account,
+        account_id,
+        &deploy_action,
+        config,
+        cache,
+        current_protocol_version,
+        Some(action.contract_identifier.clone()),
+    )?;
     Ok(())
 }
 
@@ -1388,6 +1397,7 @@ mod tests {
             Arc::clone(&apply_state.config.wasm_config),
             None,
             apply_state.current_protocol_version,
+            None,
         );
         assert!(res.is_ok());
         test_delete_large_account(
