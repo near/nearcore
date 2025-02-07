@@ -18,6 +18,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
@@ -1191,6 +1192,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             bandwidth_scheduler_state_hash: CryptoHash::default(),
             contract_updates: Default::default(),
+            stats: ChunkApplyStatsV0::dummy(),
         })
     }
 
