@@ -569,6 +569,10 @@ pub struct ClientConfig {
     /// which can cause extra load on the database. This option is not recommended for production use,
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
+    /// TODO(#10584): Temporary flag to enable optimistic block production.
+    pub produce_optimistic_block: bool,
+    /// TODO(#10584): Temporary flag to enable optimistic block processing.
+    pub process_optimistic_block: bool,
 }
 
 impl ClientConfig {
@@ -658,6 +662,8 @@ impl ClientConfig {
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             save_latest_witnesses: false,
+            produce_optimistic_block: true,
+            process_optimistic_block: true,
         }
     }
 }
