@@ -592,7 +592,7 @@ pub(crate) fn action_deploy_contract(
     let prev_code_len = get_code_len_or_default(
         state_update,
         account_id.clone(),
-        account.contract().local_code().unwrap_or_default(),
+        account.local_contract_hash().unwrap_or_default(),
         current_protocol_version,
     )?;
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
@@ -679,7 +679,7 @@ pub(crate) fn action_delete_account(
         let code_len = get_code_len_or_default(
             state_update,
             account_id.clone(),
-            account.contract().local_code().unwrap_or_default(),
+            account.local_contract_hash().unwrap_or_default(),
             current_protocol_version,
         )?;
         debug_assert!(code_len == 0 || account_storage_usage > code_len,
@@ -1368,7 +1368,7 @@ mod tests {
         assert!(res.is_ok());
         test_delete_large_account(
             &account_id,
-            &account.contract().local_code().unwrap_or_default(),
+            &account.local_contract_hash().unwrap_or_default(),
             storage_usage,
             &mut state_update,
         )

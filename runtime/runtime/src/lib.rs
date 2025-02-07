@@ -488,7 +488,7 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let code_hash = account.contract().local_code().unwrap_or_default();
+                let code_hash = account.local_contract_hash().unwrap_or_default();
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();

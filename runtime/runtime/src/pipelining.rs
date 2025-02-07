@@ -136,7 +136,7 @@ impl ReceiptPreparationPipeline {
                 }
                 Action::FunctionCall(function_call) => {
                     let Some(account) = &**account else { continue };
-                    let Some(code_hash) = account.contract().local_code() else {
+                    let Some(code_hash) = account.local_contract_hash() else {
                         // TODO(#12884): support global contracts pipelining
                         continue;
                     };
