@@ -80,14 +80,15 @@ impl SuccessfulTxsData {
     }
 }
 
+/// Provides information regarding the status of transactions.
 pub struct TransactionStatisticsService {
     refresh_interval: Interval,
     metrics_url: String,
     /// Data for the beginning of the observed interval.
     data_t0: SuccessfulTxsData,
-    /// Last observed data.
+    /// Data at time `t1`, where transaction processing was still ongoing after `t1` .
     data_t1: SuccessfulTxsData,
-    /// Data at the end of the observed interval.
+    /// Data at time `t2`. Transaction processing might have stopped in the interval `[t1, t2]`.
     data_t2: SuccessfulTxsData,
     http_client: Client,
 }
@@ -108,6 +109,10 @@ impl TransactionStatisticsService {
         }
     }
 
+    /// Measures and reports statistics related to the number of successfully processed
+    /// transactions.
+    ///
+    /// Should be called inside a tokio task, as it waits for transaction processing to end.
     pub async fn start(mut self) {
         // TODO return result and get rid of unwraps.
         // Wait for transaction processing to start.
@@ -124,6 +129,7 @@ impl TransactionStatisticsService {
             };
             if num > initial_count {
                 self.data_t0 = SuccessfulTxsData::new_now(num);
+                self.data_t1 = SuccessfulTxsData::new_now(num);
                 info!("Observed successful transactions");
                 break;
             }
@@ -141,9 +147,13 @@ impl TransactionStatisticsService {
             let new_num = match metric {
                 MetricValue::SuccessfulTransactions { num } => SuccessfulTxsData::new_now(num),
             };
+
             if !(new_num.num > self.data_t2.num) {
+                // No progress since the last observation, so assuming the workload is finished.
                 break;
             }
+
+            // More transactions were processed, so update data points and print latest TPS.
             self.data_t1 = self.data_t2;
             self.data_t2 = new_num;
             self.log_tps();
@@ -162,7 +172,11 @@ impl TransactionStatisticsService {
         self.http_client.get(&self.metrics_url).send().await?.text().await.map_err(Into::into)
     }
 
+    /// Calculates and logs successfully processed transactions per second (TPS) observed during
+    /// the lifetime of `self`. Reports TPS of zero if the observation period is less than 1 second.
     fn log_tps(&self) -> u64 {
+        // Using `data_t1` as transaction processing was still ongoing at `t1`.
+        // Don't use `t2` as processing might have stopped before `t2`, see the fields doc comments.
         let elapsed_secs = (self.data_t1.time - self.data_t0.time).as_secs();
         if !(elapsed_secs > 0) {
             return 0;
