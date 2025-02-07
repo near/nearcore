@@ -45,6 +45,7 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle}
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
+use near_client_primitives::debug;
 use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
@@ -52,7 +53,9 @@ use near_client_primitives::types::{
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage, OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponseReceived
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
+    OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
+    StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -506,6 +509,10 @@ impl Handler<OptimisticBlockMessage> for ClientActorInner {
     fn handle(&mut self, msg: OptimisticBlockMessage) {
         let OptimisticBlockMessage { optimistic_block, from_peer } = msg;
         debug!(target: "client", block_height = optimistic_block.inner.block_height, prev_block_hash = ?optimistic_block.inner.prev_block_hash, ?from_peer, "OptimisticBlockMessage");
+        if !self.client.config.process_optimistic_block {
+            debug!(target: "client", "Optimistic block processing is disabled");
+            return;
+        }
         todo!("Record optimistic block.");
     }
 }
