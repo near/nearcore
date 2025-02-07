@@ -6,7 +6,7 @@
 //! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
-use crate::chunk_producer::AdvProduceChunksMode;
+pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
@@ -489,7 +489,7 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
             }
             NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
                 info!(target: "adversary", on, "invalid transactions");
-                self.client.produce_invalid_tx_in_chunks = on;
+                self.client.chunk_producer.produce_invalid_tx_in_chunks = on;
                 None
             }
         }

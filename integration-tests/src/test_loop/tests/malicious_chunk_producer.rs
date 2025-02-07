@@ -51,7 +51,7 @@ fn test_producer_with_expired_transactions() {
     // than the transactions are valid for.
     let chunk_producer = &node_datas[0];
     let data_clone = node_datas.clone();
-    test_loop.send_adhoc_event(format!("set chunk production without transactions"), move |_| {
+    test_loop.send_adhoc_event("set chunk production without transactions".into(), move |_| {
         data_clone[0].client_sender.send(NetworkAdversarialMessage::AdvProduceChunks(
             AdvProduceChunksMode::ProduceWithoutTx,
         ));
@@ -60,7 +60,7 @@ fn test_producer_with_expired_transactions() {
         let chunk_producer = chunk_producer.clone();
         let sender = account.clone();
         let receiver = accounts[0].clone();
-        test_loop.send_adhoc_event(format!("transaction"), move |data| {
+        test_loop.send_adhoc_event("transaction".into(), move |data| {
             let signer = create_user_test_signer(&sender);
             let clients = vec![&data.get(&chunk_producer.client_sender.actor_handle()).client];
             let response = clients.runtime_query(
@@ -109,7 +109,7 @@ fn test_producer_with_expired_transactions() {
     // For a good measure insert some invalid transactions that may be invalid in other ways than
     // them having been expired.
     let data_clone = node_datas.clone();
-    test_loop.send_adhoc_event(format!("produce chunks without validity checks"), move |_| {
+    test_loop.send_adhoc_event("produce chunks without validity checks".into(), move |_| {
         data_clone[0]
             .client_sender
             .send(NetworkAdversarialMessage::AdvInsertInvalidTransactions(true));
@@ -138,5 +138,16 @@ fn test_producer_with_expired_transactions() {
         let actual = clients.query_balance(account);
         assert_eq!(actual, 1000000 * ONE_NEAR, "no transfers should have happened");
     }
+
+    let Some(applied_tx_metric) = near_o11y::metrics::prometheus::gather()
+        .into_iter()
+        .find(|m| m.get_name() == "near_transaction_applied_total")
+    else {
+        panic!("no applied transactions metric found");
+    };
+    let [metric] = applied_tx_metric.get_metric() else { panic!("unexpected metric shape") };
+    let applied_txs = metric.get_counter().get_value();
+    assert_eq!(applied_txs, 70.0, "should have applied the submitted transactions");
+
     test_loop_env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

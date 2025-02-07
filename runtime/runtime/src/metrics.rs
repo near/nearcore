@@ -23,6 +23,14 @@ pub static ACTION_CALLED_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+pub static TRANSACTION_APPLIED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_transaction_applied_total",
+        "The number of transactions that have reached the transaction runtime's apply",
+    )
+    .unwrap()
+});
+
 pub static TRANSACTION_PROCESSED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_transaction_processed_total",
