@@ -92,7 +92,7 @@ impl From<&Account> for AccountView {
         let (global_contract_hash, global_contract_account_id) = match account.contract() {
             AccountContract::Global(contract) => (Some(contract), None),
             AccountContract::GlobalByAccount(account_id) => (None, Some(account_id)),
-            _ => (None, None),
+            AccountContract::Local(_) | AccountContract::None => (None, None),
         };
         AccountView {
             amount: account.amount(),

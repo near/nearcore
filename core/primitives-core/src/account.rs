@@ -222,11 +222,12 @@ impl Account {
 
     #[inline]
     pub fn local_contract_hash(&self) -> Option<CryptoHash> {
-        match self.contract() {
-            AccountContract::None
-            | AccountContract::Global(_)
-            | AccountContract::GlobalByAccount(_) => None,
-            AccountContract::Local(code_hash) => Some(code_hash),
+        match self {
+            Self::V1(account) => Some(account.code_hash),
+            Self::V2(AccountV2 { contract: AccountContract::Local(hash), .. }) => Some(*hash),
+            Self::V2(AccountV2 { contract: AccountContract::None, .. })
+            | Self::V2(AccountV2 { contract: AccountContract::Global(_), .. })
+            | Self::V2(AccountV2 { contract: AccountContract::GlobalByAccount(_), .. }) => None,
         }
     }
 
