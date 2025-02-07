@@ -221,6 +221,16 @@ impl Account {
     }
 
     #[inline]
+    pub fn local_contract_hash(&self) -> Option<CryptoHash> {
+        match self.contract() {
+            AccountContract::None
+            | AccountContract::Global(_)
+            | AccountContract::GlobalByAccount(_) => None,
+            AccountContract::Local(code_hash) => Some(code_hash),
+        }
+    }
+
+    #[inline]
     pub fn set_amount(&mut self, amount: Balance) {
         match self {
             Self::V1(account) => account.amount = amount,
@@ -339,12 +349,7 @@ impl serde::Serialize for Account {
         S: serde::Serializer,
     {
         let version = self.version();
-        let code_hash = match self.contract() {
-            AccountContract::None
-            | AccountContract::Global(_)
-            | AccountContract::GlobalByAccount(_) => CryptoHash::default(),
-            AccountContract::Local(code_hash) => code_hash,
-        };
+        let code_hash = self.local_contract_hash().unwrap_or_default();
         let repr = SerdeAccount {
             amount: self.amount(),
             locked: self.locked(),

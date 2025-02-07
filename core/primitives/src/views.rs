@@ -97,7 +97,7 @@ impl From<&Account> for AccountView {
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
-            code_hash: account.contract().local_code().unwrap_or_default(),
+            code_hash: account.local_contract_hash().unwrap_or_default(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
             global_contract_hash,
