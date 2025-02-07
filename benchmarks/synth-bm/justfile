@@ -18,7 +18,7 @@ create_sub_accounts:
         --num-sub-accounts 100 \
         --deposit 953060601875000000010000 \
         --channel-buffer-size 1200 \
-        --interval-duration-micros 800 \
+        --requests-per-second 1250 \
         --user-data-dir user-data
 
 benchmark_native_transfers:
@@ -28,7 +28,7 @@ benchmark_native_transfers:
         --user-data-dir user-data/ \
         --num-transfers 200 \
         --channel-buffer-size 30000 \
-        --interval-duration-micros 550 \
+        --requests-per-second 2000 \
         --amount 1
 
 benchmark_mpc_sign:
@@ -37,7 +37,7 @@ benchmark_mpc_sign:
         --rpc-url {{rpc_url}} \
         --user-data-dir user-data/ \
         --num-transactions 500 \
-        --transactions-per-second 100 \
+        --requests-per-second 100 \
         --receiver-id 'v1.signer-dev.testnet' \
         --key-version 0 \
         --channel-buffer-size 500 \
