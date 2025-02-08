@@ -128,7 +128,7 @@ impl EpochConfig {
         }
     }
 
-    /// Mignimal config for testing.
+    /// Minimal config for testing.
     pub fn minimal() -> Self {
         Self {
             epoch_length: 0,
@@ -362,7 +362,7 @@ impl AllEpochConfig {
         // ProtocolFeature::ShuffleShardAssignments. (see config_validator_selection function).
         // For pre-release environment such as mocknet, which uses features between production and nightly
         // (eg. stateless validation) we enable it by default with stateless validation in order to exercise
-        // the codepaths for state sync more often.
+        // the codepath for state sync more often.
         // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
         // also remove this temporary code and always rely on ShuffleShardAssignments.
         config.shuffle_shard_assignment_for_chunk_producers = true;
@@ -378,14 +378,13 @@ impl AllEpochConfig {
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
-        // Unlike the other checks, this one is for strict equality. The testonly nightshade layout
-        // is specifically used in resharding tests, not for any other protocol versions.
-        #[cfg(feature = "nightly")]
-        if protocol_version == ProtocolFeature::SimpleNightshadeTestonly.protocol_version() {
-            Self::config_nightshade_impl(
-                config,
-                ShardLayout::get_simple_nightshade_layout_testonly(),
-            );
+        if checked_feature!("stable", SimpleNightshadeV5, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v5());
+            return;
+        }
+
+        if checked_feature!("stable", SimpleNightshadeV4, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v4());
             return;
         }
 
@@ -533,8 +532,8 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("mainnet", 70, "70.json"),
     include_config!("mainnet", 71, "71.json"),
     include_config!("mainnet", 72, "72.json"),
-    include_config!("mainnet", 100, "100.json"),
-    include_config!("mainnet", 101, "101.json"),
+    include_config!("mainnet", 75, "75.json"),
+    include_config!("mainnet", 76, "76.json"),
     include_config!("mainnet", 143, "143.json"),
     // Epoch configs for testnet (genesis protocol version is 29).
     include_config!("testnet", 29, "29.json"),
@@ -546,8 +545,8 @@ static CONFIGS: &[(&str, ProtocolVersion, &str)] = &[
     include_config!("testnet", 70, "70.json"),
     include_config!("testnet", 71, "71.json"),
     include_config!("testnet", 72, "72.json"),
-    include_config!("testnet", 100, "100.json"),
-    include_config!("testnet", 101, "101.json"),
+    include_config!("testnet", 75, "75.json"),
+    include_config!("testnet", 76, "76.json"),
     include_config!("testnet", 143, "143.json"),
 ];
 
@@ -707,11 +706,15 @@ mod tests {
         for protocol_version in genesis_protocol_version..=PROTOCOL_VERSION {
             let stored_config = config_store.get_config(protocol_version);
             let expected_config = all_epoch_config.generate_epoch_config(protocol_version);
-            assert_eq!(
-                *stored_config.as_ref(),
-                expected_config,
-                "Mismatch for protocol version {protocol_version}"
-            );
+            if stored_config.as_ref() != &expected_config {
+                println!(
+                    "Mismatching epoch configs for protocol version {protocol_version}.
+                    Please update the appropriate <version>.json file."
+                );
+                println!("stored\n{:#?}", stored_config);
+                println!("expected\n{:#?}", expected_config);
+                panic!("Mismatch for protocol version {protocol_version}");
+            }
         }
     }
 
@@ -765,7 +768,7 @@ mod tests {
         assert!(dumped_files.contains(&String::from("64.json")));
         assert!(dumped_files.contains(&String::from("65.json")));
 
-        // Check if 55.json is equal to 48.json from res/epcoh_configs/mainnet.
+        // Check if 55.json is equal to 48.json from res/epoch_configs/mainnet.
         let contents_55 = fs::read_to_string(tmp_dir.path().join("55.json")).unwrap();
         let epoch_config_55: EpochConfig = serde_json::from_str(&contents_55).unwrap();
         let epoch_config_48 = parse_config_file("mainnet", 48).unwrap();

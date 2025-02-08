@@ -7,6 +7,7 @@ reworked.
 
 A new version is available for experimental use. This version gets state parts
 from external storage. The following kinds of external storage are supported:
+
 * Local filesystem
 * Google Cloud Storage
 * Amazon S3
@@ -23,6 +24,7 @@ storage and configures it to get state parts from a location managed by Pagoda.
 
 Note: to obtain the reference configuration file, download it by running the
 following command:
+
 ```shell
 neard init --chain-id <testnet or mainnet> --download-config --download-genesis
 ```
@@ -58,6 +60,7 @@ your `config.json` file:
 ```
 
 Then run the `neard` binary and it will access GCS anonymously:
+
 ```shell
 ./neard run
 ```
@@ -68,7 +71,7 @@ The options suggested above will most likely work fine.
 
 * `num_concurrent_requests` determines the number of state parts across all
 shards that can be downloaded in parallel during state sync.
-* `num_concurrent_requests_during_catchup` determines the number of state parts 
+* `num_concurrent_requests_during_catchup` determines the number of state parts
 across all shards that can be downloaded in parallel during catchup. Generally,
 this number should not be higher than `num_concurrent_requests`. Keep it
 reasonably low to allow the node to process chunks of other shards.
@@ -98,6 +101,7 @@ You may add the other mentioned options too.
 ```
 
 Then run the `neard` binary and it will access Amazon S3 anonymously:
+
 ```shell
 ./neard run
 ```
@@ -123,6 +127,7 @@ You may add the other mentioned options too.
 ```
 
 Then run the `neard` binary:
+
 ```shell
 ./neard run
 ```

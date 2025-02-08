@@ -1,5 +1,4 @@
 use self::accounting_cache::TrieAccountingCache;
-use self::iterator::DiskTrieIterator;
 use self::mem::flexible_data::value::ValueView;
 use self::trie_storage::TrieMemoryPartialStorage;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
@@ -7,7 +6,6 @@ pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
-use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
@@ -18,11 +16,13 @@ pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
-use mem::mem_trie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
-use mem::mem_tries::MemTries;
-use near_primitives::challenge::PartialState;
+use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
+use itertools::Itertools;
+use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
+use mem::memtries::MemTries;
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::state::PartialState;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
@@ -37,7 +37,7 @@ use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::ops::DerefMut;
@@ -72,7 +72,6 @@ pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-/// For fraud proofs
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PartialStorage {
     pub nodes: PartialState,
@@ -84,7 +83,7 @@ pub(crate) struct StorageHandle(usize);
 /// Stores index of value in the array of new values and its length for memory
 /// counting.
 #[derive(Clone, Hash, Debug, Copy)]
-pub(crate) struct StorageValueHandle(usize, usize);
+pub struct StorageValueHandle(usize, usize);
 
 pub struct TrieCosts {
     pub byte_of_key: u64,
@@ -101,30 +100,8 @@ pub enum KeyLookupMode {
 
 const TRIE_COSTS: TrieCosts = TrieCosts { byte_of_key: 2, byte_of_value: 1, node_cost: 50 };
 
-// TODO(#12361): replace with `RawTrieNodeWithSize` fields.
-#[derive(Clone, Hash)]
-enum NodeHandle {
-    Hash(CryptoHash),
-}
-
-impl NodeHandle {
-    fn unwrap_hash(&self) -> &CryptoHash {
-        match self {
-            Self::Hash(hash) => hash,
-        }
-    }
-}
-
-impl std::fmt::Debug for NodeHandle {
-    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Hash(hash) => write!(fmtr, "{hash}"),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Hash)]
-pub(crate) enum ValueHandle {
+pub enum ValueHandle {
     InMemory(StorageValueHandle),
     HashAndSize(ValueRef),
 }
@@ -134,58 +111,6 @@ impl std::fmt::Debug for ValueHandle {
         match self {
             Self::HashAndSize(value) => write!(fmtr, "{value:?}"),
             Self::InMemory(StorageValueHandle(num, _)) => write!(fmtr, "@{num}"),
-        }
-    }
-}
-
-// TODO(#12361): replace with `RawTrieNode`.
-#[derive(Clone, Hash)]
-enum TrieNode {
-    /// Null trie node. Could be an empty root or an empty branch entry.
-    Empty,
-    /// Key and value of the leaf node.
-    Leaf(Vec<u8>, ValueHandle),
-    /// Branch of 16 possible children and value if key ends here.
-    Branch(Box<Children<NodeHandle>>, Option<ValueHandle>),
-    /// Key and child of extension.
-    Extension(Vec<u8>, NodeHandle),
-}
-
-// TODO(#12361): replace with `RawTrieNodeWithSize`.
-#[derive(Clone, Debug)]
-pub struct TrieNodeWithSize {
-    node: TrieNode,
-    memory_usage: u64,
-}
-
-impl TrieNodeWithSize {
-    fn from_raw(rc_node: RawTrieNodeWithSize) -> TrieNodeWithSize {
-        TrieNodeWithSize::new(TrieNode::new(rc_node.node), rc_node.memory_usage)
-    }
-
-    fn new(node: TrieNode, memory_usage: u64) -> TrieNodeWithSize {
-        TrieNodeWithSize { node, memory_usage }
-    }
-
-    fn empty() -> TrieNodeWithSize {
-        TrieNodeWithSize { node: TrieNode::Empty, memory_usage: 0 }
-    }
-}
-
-impl TrieNode {
-    fn new(rc_node: RawTrieNode) -> TrieNode {
-        fn new_branch(children: Children, value: Option<ValueRef>) -> TrieNode {
-            let children = children.0.map(|el| el.map(NodeHandle::Hash));
-            let children = Box::new(Children(children));
-            let value = value.map(ValueHandle::HashAndSize);
-            TrieNode::Branch(children, value)
-        }
-
-        match rc_node {
-            RawTrieNode::Leaf(key, value) => TrieNode::Leaf(key, ValueHandle::HashAndSize(value)),
-            RawTrieNode::BranchNoValue(children) => new_branch(children, None),
-            RawTrieNode::BranchWithValue(value, children) => new_branch(children, Some(value)),
-            RawTrieNode::Extension(key, child) => TrieNode::Extension(key, NodeHandle::Hash(child)),
         }
     }
 }
@@ -261,89 +186,13 @@ impl UpdatedTrieStorageNodeWithSize {
     }
 }
 
-impl TrieNode {
-    pub fn has_value(&self) -> bool {
-        match self {
-            Self::Branch(_, Some(_)) | Self::Leaf(_, _) => true,
-            _ => false,
-        }
-    }
-
-    fn memory_usage_for_value_length(value_length: u64) -> u64 {
-        value_length * TRIE_COSTS.byte_of_value + TRIE_COSTS.node_cost
-    }
-
-    fn memory_usage_value(value: &ValueHandle) -> u64 {
-        let value_length = match value {
-            ValueHandle::InMemory(_) => {
-                panic!("InMemory nodes exist, but storage is not provided")
-            }
-            ValueHandle::HashAndSize(value) => u64::from(value.length),
-        };
-        Self::memory_usage_for_value_length(value_length)
-    }
-
-    /// TODO(#12361): in particular, consider replacing with
-    /// `GenericUpdatedTrieNode::memory_usage_direct`.
-    fn memory_usage_direct(&self) -> u64 {
-        match self {
-            TrieNode::Empty => {
-                // DEVNOTE: empty nodes don't exist in storage.
-                // In the in-memory implementation Some(TrieNode::Empty) and None are interchangeable as
-                // children of branch nodes which means cost has to be 0
-                0
-            }
-            TrieNode::Leaf(key, value) => {
-                TRIE_COSTS.node_cost
-                    + (key.len() as u64) * TRIE_COSTS.byte_of_key
-                    + Self::memory_usage_value(value)
-            }
-            TrieNode::Branch(_children, value) => {
-                TRIE_COSTS.node_cost
-                    + value.as_ref().map_or(0, |value| Self::memory_usage_value(value))
-            }
-            TrieNode::Extension(key, _child) => {
-                TRIE_COSTS.node_cost + (key.len() as u64) * TRIE_COSTS.byte_of_key
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for TrieNode {
-    /// Formats single trie node.
-    ///
-    /// Width can be used to specify indentation.
-    fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let empty = "";
-        let indent = fmtr.width().unwrap_or(0);
-        match self {
-            TrieNode::Empty => write!(fmtr, "{empty:indent$}Empty"),
-            TrieNode::Leaf(key, value) => write!(
-                fmtr,
-                "{empty:indent$}Leaf({:?}, {value:?})",
-                NibbleSlice::from_encoded(key).0
-            ),
-            TrieNode::Branch(children, value) => {
-                match value {
-                    Some(value) => write!(fmtr, "{empty:indent$}Branch({value:?}):"),
-                    None => write!(fmtr, "{empty:indent$}Branch:"),
-                }?;
-                for (idx, child) in children.iter() {
-                    write!(fmtr, "\n{empty:indent$} {idx:x}: {child:?}")?;
-                }
-                Ok(())
-            }
-            TrieNode::Extension(key, child) => {
-                let key = NibbleSlice::from_encoded(key).0;
-                write!(fmtr, "{empty:indent$}Extension({key:?}, {child:?})")
-            }
-        }
-    }
-}
-
 pub struct Trie {
     storage: Arc<dyn TrieStorage>,
     memtries: Option<Arc<RwLock<MemTries>>>,
+    /// In super rare cases it's possible that we see forks close to the resharding boundary.
+    /// We would like to apply the same set of trie changes to the child memtrie to keep
+    /// a consistent view across forks.
+    children_memtries: HashMap<ShardUId, Arc<RwLock<MemTries>>>,
     root: StateRoot,
     /// If present, flat storage is used to look up keys (if asked for).
     /// Otherwise, we would crawl through the trie.
@@ -569,7 +418,12 @@ pub struct TrieChanges {
     deletions: Vec<TrieRefcountSubtraction>,
     // If Some, in-memory changes are applied as well.
     #[borsh(skip)]
-    pub mem_trie_changes: Option<MemTrieChanges>,
+    pub memtrie_changes: Option<MemTrieChanges>,
+    // In super rare cases it's possible that we see forks close to the resharding boundary.
+    // We would like to apply the same set of trie changes to the child memtrie to keep
+    // a consistent view across forks.
+    #[borsh(skip)]
+    pub children_memtrie_changes: HashMap<ShardUId, MemTrieChanges>,
 }
 
 impl TrieChanges {
@@ -579,7 +433,8 @@ impl TrieChanges {
             new_root: old_root,
             insertions: vec![],
             deletions: vec![],
-            mem_trie_changes: Default::default(),
+            memtrie_changes: Default::default(),
+            children_memtrie_changes: Default::default(),
         }
     }
 
@@ -604,7 +459,7 @@ pub struct ApplyStatePartResult {
 
 enum NodeOrValue {
     Node,
-    Value(std::sync::Arc<[u8]>),
+    Value(Arc<[u8]>),
 }
 
 /// Like a ValueRef, but allows for optimized retrieval of the value if the
@@ -678,12 +533,13 @@ impl Trie {
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
-        Self::new_with_memtries(storage, None, root, flat_storage_chunk_view)
+        Self::new_with_memtries(storage, None, Default::default(), root, flat_storage_chunk_view)
     }
 
     pub fn new_with_memtries(
         storage: Arc<dyn TrieStorage>,
         memtries: Option<Arc<RwLock<MemTries>>>,
+        children_memtries: HashMap<ShardUId, Arc<RwLock<MemTries>>>,
         root: StateRoot,
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
@@ -702,6 +558,7 @@ impl Trie {
         Trie {
             storage,
             memtries,
+            children_memtries,
             root,
             charge_gas_for_trie_node_access,
             flat_storage_chunk_view,
@@ -739,6 +596,7 @@ impl Trie {
         let mut trie = Self::new_with_memtries(
             self.storage.clone(),
             self.memtries.clone(),
+            self.children_memtries.clone(),
             self.root,
             self.flat_storage_chunk_view.clone(),
         );
@@ -1049,7 +907,7 @@ impl Trie {
                 Ok(value) => String::from(value),
                 Err(_) => " ".repeat(key.len()),
             };
-            let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+            let state_record = StateRecord::from_raw_key_value(&key, value);
 
             limit -= 1;
             writeln!(f, "{} {state_record:?}", key_string).expect("write failed");
@@ -1157,7 +1015,7 @@ impl Trie {
                 assert!(remainder.is_empty());
 
                 if !Self::should_prune_view_trie(&leaf_key, record_type, from, to) {
-                    let state_record = StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
+                    let state_record = StateRecord::from_raw_key_value(&leaf_key, bytes.to_vec());
 
                     writeln!(
                         f,
@@ -1244,12 +1102,13 @@ impl Trie {
         Ok(())
     }
 
+    /// Retrieves decoded raw node alongside with its raw bytes representation.
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
         use_accounting_cache: bool,
         side_effects: bool,
-    ) -> Result<Option<(std::sync::Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
+    ) -> Result<Option<(Arc<[u8]>, RawTrieNodeWithSize)>, StorageError> {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
@@ -1287,22 +1146,6 @@ impl Trie {
                 trie_update.refcount_changes.subtract(*hash, 1);
                 Ok(result)
             }
-        }
-    }
-
-    /// Retrieves decoded node alongside with its raw bytes representation.
-    ///
-    /// Note that because Empty nodes (those which are referenced by
-    /// [`Self::EMPTY_ROOT`] hash) aren’t stored in the database, they don’t
-    /// have a bytes representation.  For those nodes the first return value
-    /// will be `None`.
-    fn retrieve_node(
-        &self,
-        hash: &CryptoHash,
-    ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {
-        match self.retrieve_raw_node(hash, true, true)? {
-            None => Ok((None, TrieNodeWithSize::empty())),
-            Some((bytes, node)) => Ok((Some(bytes), TrieNodeWithSize::from_raw(node))),
         }
     }
 
@@ -1681,74 +1524,122 @@ impl Trie {
             let _ = self.get(&trie_key.to_vec());
         }
 
-        match &self.memtries {
-            Some(memtries) => {
-                let guard = memtries.read().unwrap();
-                let mut recorder = self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
-                let tracking_mode = match &mut recorder {
-                    Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
-                    None => TrackingMode::Refcounts,
-                };
+        if self.memtries.is_some() {
+            self.update_with_memtrie(changes)
+        } else {
+            self.update_with_trie_storage(changes)
+        }
+    }
 
-                let mut trie_update = guard.update(self.root, tracking_mode)?;
-                for (key, value) in changes {
-                    match value {
-                        Some(arr) => trie_update.insert(&key, arr)?,
-                        None => trie_update.generic_delete(0, &key)?,
+    fn update_with_memtrie<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
+    where
+        I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
+    {
+        // Get trie_update for memtrie
+        let guard = self.memtries.as_ref().unwrap().read().unwrap();
+        let mut recorder = self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
+        let tracking_mode = match &mut recorder {
+            Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
+            None => TrackingMode::Refcounts,
+        };
+        let mut trie_update = guard.update(self.root, tracking_mode)?;
+
+        // Get trie_update for all child memtries
+        let child_guards = self
+            .children_memtries
+            .iter()
+            .map(|(shard_uid, memtrie)| (shard_uid, memtrie.read().unwrap()))
+            .collect_vec();
+        let mut child_updates = child_guards
+            .iter()
+            .map(|(shard_uid, memtrie)| {
+                // It's fine to use tracking mode as None here because the recording is handled by
+                // the parent memtrie and doesn't need to be tracked for children.
+                (shard_uid, memtrie.update(self.root, TrackingMode::None).unwrap())
+            })
+            .collect_vec();
+
+        // Insert key, value into both the child memtries as well as the main memtrie
+        for (key, value) in changes {
+            match value {
+                Some(arr) => {
+                    // Update all child memtries. This is a rare case where parent shard has forks
+                    // at the resharding epoch boundary.
+                    // It is fine to clone the value here as this is a very rare occurrence.
+                    for trie_update in &mut child_updates {
+                        trie_update.1.insert(&key, arr.clone())?;
                     }
+                    trie_update.insert(&key, arr)?;
                 }
-
-                Ok(trie_update.to_trie_changes())
-            }
-            None => {
-                let mut trie_update = TrieStorageUpdate::new(&self);
-                let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
-                for (key, value) in changes {
-                    match value {
-                        Some(arr) => trie_update.generic_insert(
-                            root_node.0,
-                            &key,
-                            GenericTrieValue::MemtrieAndDisk(arr),
-                        )?,
-                        None => trie_update.generic_delete(0, &key)?,
-                    };
+                None => {
+                    // Update all child memtries. This is a rare case where parent shard
+                    // has forks after resharding.
+                    for trie_update in &mut child_updates {
+                        trie_update.1.generic_delete(0, &key)?;
+                    }
+                    trie_update.generic_delete(0, &key)?;
                 }
-
-                #[cfg(test)]
-                {
-                    self.memory_usage_verify(
-                        &trie_update,
-                        GenericNodeOrIndex::Updated(root_node.0),
-                    );
-                }
-
-                trie_update.flatten_nodes(&self.root, root_node.0)
             }
         }
+
+        let mut trie_changes = trie_update.to_trie_changes();
+        for (shard_uid, trie_update) in child_updates {
+            trie_changes
+                .children_memtrie_changes
+                .insert(**shard_uid, trie_update.to_memtrie_changes_only());
+        }
+
+        Ok(trie_changes)
+    }
+
+    fn update_with_trie_storage<I>(&self, changes: I) -> Result<TrieChanges, StorageError>
+    where
+        I: IntoIterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
+    {
+        let mut trie_update = TrieStorageUpdate::new(&self);
+        let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
+        for (key, value) in changes {
+            match value {
+                Some(arr) => trie_update.generic_insert(
+                    root_node.0,
+                    &key,
+                    GenericTrieValue::MemtrieAndDisk(arr),
+                )?,
+                None => trie_update.generic_delete(0, &key)?,
+            };
+        }
+
+        #[cfg(test)]
+        {
+            self.memory_usage_verify(&trie_update, GenericNodeOrIndex::Updated(root_node.0));
+        }
+
+        trie_update.flatten_nodes(&self.root, root_node.0)
     }
 
     /// Returns an iterator that can be used to traverse any range in the trie.
     /// This only uses the on-disk trie. If memtrie iteration is desired, see
     /// `lock_for_iter`.
-    pub fn disk_iter(&self) -> Result<DiskTrieIterator<'_>, StorageError> {
-        DiskTrieIterator::new(self, None)
+    #[inline]
+    pub fn disk_iter(&self) -> Result<DiskTrieIterator, StorageError> {
+        self.disk_iter_with_prune_condition(None)
     }
 
-    pub fn disk_iter_with_max_depth<'a>(
-        &'a self,
+    #[cfg(test)]
+    pub(crate) fn disk_iter_with_max_depth(
+        &self,
         max_depth: usize,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(
-            self,
-            Some(Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth)),
-        )
+    ) -> Result<DiskTrieIterator, StorageError> {
+        let prune_condition = Box::new(move |key_nibbles: &Vec<u8>| key_nibbles.len() > max_depth);
+        self.disk_iter_with_prune_condition(Some(prune_condition))
     }
 
-    pub fn disk_iter_with_prune_condition<'a>(
-        &'a self,
+    #[inline]
+    pub fn disk_iter_with_prune_condition(
+        &self,
         prune_condition: Option<Box<dyn Fn(&Vec<u8>) -> bool>>,
-    ) -> Result<DiskTrieIterator<'a>, StorageError> {
-        DiskTrieIterator::new(self, prune_condition)
+    ) -> Result<DiskTrieIterator, StorageError> {
+        DiskTrieIterator::new(DiskTrieIteratorInner::new(self), prune_condition)
     }
 
     /// Grabs a read lock on the trie, so that a memtrie iterator can be
@@ -1797,7 +1688,10 @@ impl<'a> TrieWithReadLock<'a> {
     pub fn iter(&self) -> Result<TrieIterator<'_>, StorageError> {
         match &self.memtries {
             Some(memtries) => Ok(TrieIterator::Memtrie(memtries.get_iter(self.trie)?)),
-            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(self.trie, None)?)),
+            None => Ok(TrieIterator::Disk(DiskTrieIterator::new(
+                DiskTrieIteratorInner::new(&self.trie),
+                None,
+            )?)),
         }
     }
 }
@@ -1875,6 +1769,7 @@ pub mod estimator {
 
 #[cfg(test)]
 mod tests {
+    // cspell:ignore cataa catbb docu dogaa dogax dogbb
     use assert_matches::assert_matches;
     use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;
@@ -2389,7 +2284,8 @@ mod borsh_compatibility_test {
                     hash(b"e"),
                     std::num::NonZeroU32::new(2).unwrap(),
                 )],
-                mem_trie_changes: None,
+                memtrie_changes: None,
+                children_memtrie_changes: Default::default(),
             }
         );
     }

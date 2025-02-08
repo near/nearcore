@@ -22,16 +22,16 @@ import nayduck
 # test but rather helper scripts and libraries.  The entire mocknet/ directory
 # is covered here as well since those tests are not run on NayDuck any more.
 HELPER_SCRIPTS = [
-    'delete_remote_nodes.py',
-    'loadtest/*',
-    'mocknet/*',
-    'shardnet/*',
-    'stress/hundred_nodes/*',
-    'loadtest/*',
-    'replay/*',
+    "delete_remote_nodes.py",
+    "loadtest/*",
+    "mocknet/*",
+    "shardnet/*",
+    "stress/hundred_nodes/*",
+    "loadtest/*",
+    "replay/*",
 ]
 
-PYTEST_TESTS_DIRECTORY = pathlib.Path('pytest/tests')
+PYTEST_TESTS_DIRECTORY = pathlib.Path("pytest/tests")
 NIGHTLY_TESTS_FILE = pathlib.Path(nayduck.DEFAULT_TEST_FILE)
 
 # TODO: this should read ci.yml and fetch the list of tests from there
@@ -47,21 +47,21 @@ GHA_TESTS = [
 StrGenerator = typing.Generator[str, None, None]
 
 
-def list_test_files(topdir: pathlib.Path) -> StrGenerator:
+def list_test_files(top_dir: pathlib.Path) -> StrGenerator:
     """Yields all *.py files in a given directory traversing it recursively.
 
     Args:
-        topdir: Path to the directory to traverse.  Directory is traversed
+        top_dir: Path to the directory to traverse.  Directory is traversed
             recursively.
     Yields:
         Paths (as str objects) to all the Python source files in the directory
         relative to the top directory.  __init__.py files (and in fact any files
         starting with __) are ignored.
     """
-    for dirname, _, filenames in os.walk(topdir):
-        dirpath = pathlib.Path(dirname).relative_to(topdir)
+    for dirname, _, filenames in os.walk(top_dir):
+        dirpath = pathlib.Path(dirname).relative_to(top_dir)
         for filename in filenames:
-            if not filename.startswith('__') and filename.endswith('.py'):
+            if not filename.startswith("__") and filename.endswith(".py"):
                 yield str(dirpath / filename)
 
 
@@ -80,23 +80,23 @@ def read_nayduck_tests(path: pathlib.Path) -> StrGenerator:
 
     def extract_name(line: str) -> StrGenerator:
         tokens = line.split()
-        idx = 1 + (tokens[0] == '#')
-        while idx < len(tokens) and tokens[idx].startswith('--'):
+        idx = 1 + (tokens[0] == "#")
+        while idx < len(tokens) and tokens[idx].startswith("--"):
             idx += 1
         if idx < len(tokens):
             yield tokens[idx]
 
     found_todo = False
     for line in nayduck.read_tests_from_file(path, include_comments=True):
-        line = re.sub(r'\s+', ' ', line.strip())
-        if re.search(r'^(?:pytest|mocknet) ', line):
+        line = re.sub(r"\s+", " ", line.strip())
+        if re.search(r"^(?:pytest|mocknet) ", line):
             found_todo = False
             yield from extract_name(line)
-        elif found_todo and re.search(r'^# ?(?:pytest|mocknet) ', line):
+        elif found_todo and re.search(r"^# ?(?:pytest|mocknet) ", line):
             yield from extract_name(line)
-        elif re.search('^# ?TODO.*#[0-9]{4,}', line):
+        elif re.search("^# ?TODO.*#[0-9]{4,}", line):
             found_todo = True
-        elif not line.strip().startswith('#'):
+        elif not line.strip().startswith("#"):
             found_todo = False
 
 
@@ -104,11 +104,11 @@ def print_error(missing: typing.Collection[str]) -> None:
     """Formats and outputs an error message listing missing tests."""
     this_file = os.path.relpath(__file__)
     example = random.sample(tuple(missing), 1)[0]
-    if example.startswith('mocknet/'):
-        example = 'mocknet ' + example
+    if example.startswith("mocknet/"):
+        example = "mocknet " + example
     else:
-        example = 'pytest ' + example
-    msg = '''\
+        example = "pytest " + example
+    msg = """\
 Found {count} pytest file{s} (i.e. Python file{s} in pytest/tests directory)
 which are not included in any of the nightly/*.txt files:
 
@@ -129,15 +129,15 @@ contain a #<number> string).
 
 If the file is not a test but a helper library, consider moving it out
 of the pytest/tests directory to pytest/lib or add it to HELPER_SCRIPTS
-list at the top of {this_file} file.'''.format(
+list at the top of {this_file} file.""".format(
         count=len(missing),
-        s='' if len(missing) == 1 else 's',
-        missing='\n'.join(
-            ' -  pytest/tests/' + name for name in sorted(missing)),
+        s="" if len(missing) == 1 else "s",
+        missing="\n".join(
+            " -  pytest/tests/" + name for name in sorted(missing)),
         example=example,
         this_file=this_file,
-        todo='TO'
-        'DO',
+        todo="TO"
+        "DO",
     )
     print(msg, file=sys.stderr)
 
@@ -154,9 +154,9 @@ def main() -> int:
     if missing:
         print_error(missing)
         return 1
-    print(f'All {count} tests included')
+    print(f"All {count} tests included")
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

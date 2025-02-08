@@ -250,17 +250,19 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let trie_metrics_arbiter = spawn_trie_metrics_loop(
-        config.clone(),
-        storage.get_hot_store(),
-        config.client_config.log_summary_period,
-    )?;
-
     let epoch_manager = EpochManager::new_arc_handle(
         storage.get_hot_store(),
         &config.genesis.config,
         Some(home_dir),
     );
+
+    let trie_metrics_arbiter = spawn_trie_metrics_loop(
+        config.clone(),
+        storage.get_hot_store(),
+        config.client_config.log_summary_period,
+        epoch_manager.clone(),
+    )?;
+
     let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
@@ -372,19 +374,22 @@ pub fn start_with_config_and_synchronization(
             epoch_manager.clone(),
             runtime.clone(),
             Arc::new(RayonAsyncComputationSpawner),
+            Arc::new(RayonAsyncComputationSpawner),
         ));
 
     let (_gc_actor, gc_arbiter) = spawn_actix_actor(GCActor::new(
         runtime.store().clone(),
-        chain_genesis.height,
+        &chain_genesis,
         runtime.clone(),
         epoch_manager.clone(),
+        shard_tracker.clone(),
+        config.validator_signer.clone(),
         config.client_config.gc.clone(),
         config.client_config.archive,
     ));
 
     let (resharding_sender_addr, _) =
-        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), chain_genesis.height));
+        spawn_actix_actor(ReshardingActor::new(runtime.store().clone(), &chain_genesis));
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
     let state_sync_runtime =
         Arc::new(tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());

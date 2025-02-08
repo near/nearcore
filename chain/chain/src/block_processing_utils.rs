@@ -6,6 +6,7 @@ use near_async::time::Instant;
 use near_primitives::block::Block;
 use near_primitives::challenge::{ChallengeBody, ChallengesResult};
 use near_primitives::hash::CryptoHash;
+use near_primitives::optimistic_block::{BlockToApply, OptimisticBlock};
 use near_primitives::sharding::{ReceiptProof, ShardChunkHeader, StateSyncInfo};
 use near_primitives::types::ShardId;
 use std::collections::HashMap;
@@ -40,10 +41,20 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) block_start_processing_time: Instant,
 }
 
+pub(crate) struct OptimisticBlockInfo {
+    /// Used to get notified when the applying chunks of a block finishes.
+    #[allow(unused)]
+    pub(crate) apply_chunks_done_waiter: ApplyChunksDoneWaiter,
+    /// This is used to calculate block processing time metric
+    #[allow(unused)]
+    pub(crate) block_start_processing_time: Instant,
+}
+
 /// Blocks which finished pre-processing and are now being applied asynchronously
 pub(crate) struct BlocksInProcessing {
     // A map that stores all blocks in processing
     preprocessed_blocks: HashMap<CryptoHash, (Block, BlockPreprocessInfo)>,
+    optimistic_blocks: HashMap<CryptoHash, (OptimisticBlock, OptimisticBlockInfo)>,
 }
 
 #[derive(Debug)]
@@ -81,11 +92,14 @@ pub struct BlockNotInPoolError;
 
 impl BlocksInProcessing {
     pub(crate) fn new() -> Self {
-        BlocksInProcessing { preprocessed_blocks: HashMap::new() }
+        BlocksInProcessing {
+            preprocessed_blocks: HashMap::new(),
+            optimistic_blocks: HashMap::new(),
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.preprocessed_blocks.len()
+        self.preprocessed_blocks.len() + self.optimistic_blocks.len()
     }
 
     /// Add a preprocessed block to the pool. Return Error::ExceedingPoolSize if the pool already
@@ -95,14 +109,28 @@ impl BlocksInProcessing {
         block: Block,
         preprocess_info: BlockPreprocessInfo,
     ) -> Result<(), AddError> {
-        self.add_dry_run(block.hash())?;
+        self.add_dry_run(&BlockToApply::Normal(*block.hash()))?;
 
         self.preprocessed_blocks.insert(*block.hash(), (block, preprocess_info));
         Ok(())
     }
 
-    pub(crate) fn contains(&self, block_hash: &CryptoHash) -> bool {
-        self.preprocessed_blocks.contains_key(block_hash)
+    pub(crate) fn add_optimistic(
+        &mut self,
+        block: OptimisticBlock,
+        preprocess_info: OptimisticBlockInfo,
+    ) -> Result<(), AddError> {
+        self.add_dry_run(&BlockToApply::Optimistic(*block.hash()))?;
+
+        self.optimistic_blocks.insert(*block.hash(), (block, preprocess_info));
+        Ok(())
+    }
+
+    pub(crate) fn contains(&self, block_to_apply: &BlockToApply) -> bool {
+        match block_to_apply {
+            BlockToApply::Normal(block_hash) => self.preprocessed_blocks.contains_key(block_hash),
+            BlockToApply::Optimistic(block_hash) => self.optimistic_blocks.contains_key(block_hash),
+        }
     }
 
     pub(crate) fn remove(
@@ -112,15 +140,22 @@ impl BlocksInProcessing {
         self.preprocessed_blocks.remove(block_hash)
     }
 
+    pub(crate) fn remove_optimistic(
+        &mut self,
+        optimistic_block_hash: &CryptoHash,
+    ) -> Option<(OptimisticBlock, OptimisticBlockInfo)> {
+        self.optimistic_blocks.remove(optimistic_block_hash)
+    }
+
     /// This function does NOT add the block, it simply checks if the block can be added
-    pub(crate) fn add_dry_run(&self, block_hash: &CryptoHash) -> Result<(), AddError> {
+    pub(crate) fn add_dry_run(&self, block_to_apply: &BlockToApply) -> Result<(), AddError> {
         // We set a limit to the max number of blocks that we will be processing at the same time.
         // Since processing a block requires that the its previous block is processed, this limit
         // is likely never hit, unless there are many forks in the chain.
         // In this case, we will simply drop the block.
-        if self.preprocessed_blocks.len() >= MAX_PROCESSING_BLOCKS {
+        if self.len() >= MAX_PROCESSING_BLOCKS {
             Err(AddError::ExceedingPoolSize)
-        } else if self.preprocessed_blocks.contains_key(block_hash) {
+        } else if self.contains(block_to_apply) {
             Err(AddError::BlockAlreadyInPool)
         } else {
             Ok(())

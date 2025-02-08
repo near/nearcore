@@ -3,7 +3,6 @@
 extern crate core;
 
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
-pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
     estimator, resharding_v2, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
@@ -16,7 +15,7 @@ use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use config::ArchivalConfig;
-use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY};
+use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
@@ -52,6 +51,7 @@ mod columns;
 pub mod config;
 pub mod contract;
 pub mod db;
+pub mod epoch_info_aggregator;
 pub mod flat;
 pub mod genesis;
 pub mod metadata;
@@ -123,7 +123,7 @@ impl StoreAdapter for Store {
 }
 
 impl NodeStorage {
-    /// Initialises a new opener with given home directory and hot and cold
+    /// Initializes a new opener with given home directory and hot and cold
     /// store config.
     pub fn opener<'a>(
         home_dir: &std::path::Path,
@@ -150,7 +150,7 @@ impl NodeStorage {
         Self { hot_storage, cold_storage: cold_db }
     }
 
-    /// Initialises an opener for a new temporary test store.
+    /// Initializes an opener for a new temporary test store.
     ///
     /// As per the name, this is meant for tests only.  The created store will
     /// use test configuration (which may differ slightly from default config).
@@ -348,7 +348,7 @@ impl Store {
     ///
     /// Practically, this means that for rc columns rc is included in the value.
     /// This method is a deliberate escape hatch, and shouldn't be used outside
-    /// of auxilary code like migrations which wants to hack on the database
+    /// of auxiliary code like migrations which wants to hack on the database
     /// directly.
     pub fn iter_raw_bytes<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
         self.storage.iter_raw_bytes(col)
@@ -597,7 +597,7 @@ impl StoreUpdate {
     /// for ref counts.
     ///
     /// This method is a deliberate escape hatch, and shouldn't be used outside
-    /// of auxilary code like migrations which wants to hack on the database
+    /// of auxiliary code like migrations which wants to hack on the database
     /// directly.
     pub fn set_raw_bytes(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
         self.transaction.set(column, key.to_vec(), value.to_vec())
@@ -617,10 +617,11 @@ impl StoreUpdate {
         self.transaction.delete_all(column);
     }
 
-    /// Deletes the given key range from the database including `from`
-    /// and excluding `to` keys.
+    /// Deletes the given key range from the database including `from` and excluding `to` keys.
+    ///
+    /// Be aware when using with `DBCol::State`! Keys prefixed with a `ShardUId` might be used
+    /// by a descendant shard. See `DBCol::StateShardUIdMapping` for more context.
     pub fn delete_range(&mut self, column: DBCol, from: &[u8], to: &[u8]) {
-        assert!(column != DBCol::State, "can't range delete State column");
         self.transaction.delete_range(column, from.to_vec(), to.to_vec());
     }
 
@@ -1105,6 +1106,16 @@ pub fn set_genesis_congestion_infos(
 ) {
     store_update
         .set_ser(DBCol::BlockMisc, GENESIS_CONGESTION_INFO_KEY, &congestion_infos)
+        .expect("Borsh cannot fail");
+}
+
+pub fn get_genesis_height(store: &Store) -> io::Result<Option<BlockHeight>> {
+    store.get_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY)
+}
+
+pub fn set_genesis_height(store_update: &mut StoreUpdate, genesis_height: &BlockHeight) {
+    store_update
+        .set_ser::<BlockHeight>(DBCol::BlockMisc, GENESIS_HEIGHT_KEY, genesis_height)
         .expect("Borsh cannot fail");
 }
 

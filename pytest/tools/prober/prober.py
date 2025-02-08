@@ -22,6 +22,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 
 def main():
+    # cspell:words cloudprober
     # log an empty line for cloudprober nice formatting
     logger.info('')
     logger.info('Running Prober')

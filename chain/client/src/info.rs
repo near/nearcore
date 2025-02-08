@@ -168,8 +168,8 @@ impl InfoHelper {
             // Don't set the metric in this case.
             client
                 .epoch_manager
-                .get_epoch_block_producers_ordered(&head.epoch_id, &head.last_block_hash)
-                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.0.account_id() == &account_id)))
+                .get_epoch_block_producers_ordered(&head.epoch_id)
+                .map_or(None, |bp| Some(bp.iter().any(|bp| bp.account_id() == &account_id)))
         }) {
             metrics::IS_BLOCK_PRODUCER.set(if is_bp { 1 } else { 0 });
         }
@@ -310,21 +310,14 @@ impl InfoHelper {
         config_updater: &Option<ConfigUpdater>,
         signer: &Option<Arc<ValidatorSigner>>,
     ) {
-        let is_syncing = client.sync_status.is_syncing();
+        let is_syncing = client.sync_handler.sync_status.is_syncing();
         let head = unwrap_or_return!(client.chain.head());
         let validator_info = if !is_syncing {
             let num_validators =
                 self.get_num_validators(client.epoch_manager.as_ref(), &head.epoch_id);
             let account_id = signer.as_ref().map(|x| x.validator_id());
             let is_validator = if let Some(account_id) = account_id {
-                match client.epoch_manager.get_validator_by_account_id(
-                    &head.epoch_id,
-                    &head.last_block_hash,
-                    account_id,
-                ) {
-                    Ok((_, is_slashed)) => !is_slashed,
-                    Err(_) => false,
-                }
+                client.epoch_manager.get_validator_by_account_id(&head.epoch_id, account_id).is_ok()
             } else {
                 false
             };
@@ -339,7 +332,7 @@ impl InfoHelper {
             // adapter calls) is expensive when node is syncing so we’re simply
             // not collecting the statistics.  The statistics are used to update
             // a few Prometheus metrics only so we prefer to leave the metrics
-            // unset until node finishes synchronising.  TODO(#6763): If we
+            // unset until node finishes synchronizing.  TODO(#6763): If we
             // manage to get get_validator_info fasts again (or return an error
             // if computation would be too slow), remove the ‘if is_syncing’
             // check.
@@ -372,7 +365,7 @@ impl InfoHelper {
 
         self.info(
             &head,
-            &client.sync_status,
+            &client.sync_handler.sync_status,
             client.get_catchup_status().unwrap_or_default(),
             node_id,
             network_info,
@@ -873,6 +866,7 @@ impl std::fmt::Display for PrettyNumber {
         if num < 1_000 {
             return write!(f, "{} {}", num, unit);
         }
+        // cspell:ignore MGTPE
         for prefix in b"kMGTPE" {
             if num < 1_000_000 {
                 let precision = if num < 10_000 {
@@ -985,7 +979,6 @@ mod tests {
     use near_epoch_manager::test_utils::*;
     use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
-    use near_primitives::hash::CryptoHash;
     use near_store::genesis::initialize_genesis_state;
 
     #[test]
@@ -1087,7 +1080,6 @@ mod tests {
             "for this test, make sure number of validators are more than block producer seats"
         );
 
-        let last_block_hash = CryptoHash::default();
         let epoch_id = EpochId::default();
         let epoch_length = 2;
         let num_shards = 2;
@@ -1107,10 +1099,7 @@ mod tests {
         // First check that we have different number of block and chunk producers.
         assert_eq!(
             num_block_producer_seats,
-            epoch_manager_adapter
-                .get_epoch_block_producers_ordered(&epoch_id, &last_block_hash)
-                .unwrap()
-                .len()
+            epoch_manager_adapter.get_epoch_block_producers_ordered(&epoch_id).unwrap().len()
         );
         assert_eq!(
             num_validators,

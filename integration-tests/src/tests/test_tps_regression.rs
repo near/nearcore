@@ -138,12 +138,11 @@ fn run_multiple_nodes(
     transaction_handler.join().unwrap();
     observer_handler.join().unwrap();
 
-    let submitted_xacts_num = submitted_transactions.read().unwrap().iter().sum::<u64>();
-    let observed_xacts_num = observed_transactions.read().unwrap().iter().sum::<u64>();
+    let submitted_txn_num = submitted_transactions.read().unwrap().iter().sum::<u64>();
+    let observed_txn_num = observed_transactions.read().unwrap().iter().sum::<u64>();
 
-    let _ =
-        stdout().write(format!("Submitted transactions: {:?}; ", submitted_xacts_num).as_bytes());
-    let _ = stdout().write(format!("Observed transactions: {:?}", observed_xacts_num).as_bytes());
+    let _ = stdout().write(format!("Submitted transactions: {:?}; ", submitted_txn_num).as_bytes());
+    let _ = stdout().write(format!("Observed transactions: {:?}", observed_txn_num).as_bytes());
     let _ = stdout().flush();
 
     // Test that the network does not choke. The choke can be observed when the number of submitted
@@ -151,16 +150,16 @@ fn run_multiple_nodes(
 
     // The difference is within 20%.
     assert!(
-        (submitted_xacts_num as f64 - observed_xacts_num as f64).abs()
-            < u64::max(submitted_xacts_num, observed_xacts_num) as f64 * 0.2
+        (submitted_txn_num as f64 - observed_txn_num as f64).abs()
+            < u64::max(submitted_txn_num, observed_txn_num) as f64 * 0.2
     );
 
     // Also verify that the average tps is within 20% of the target.
-    assert!((target_tps as f64) * 0.8 < (observed_xacts_num as f64 / timeout.as_secs_f64()));
+    assert!((target_tps as f64) * 0.8 < (observed_txn_num as f64 / timeout.as_secs_f64()));
 }
 
 #[test]
-fn ultra_slow_test_highload() {
+fn ultra_slow_test_high_load() {
     // Run 4 nodes with 20 input tps and check the output tps to be 20.
     heavy_test(|| run_multiple_nodes(4, 20, 20, Duration::from_secs(120), "4_20"));
 }

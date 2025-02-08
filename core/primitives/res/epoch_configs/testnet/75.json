@@ -1,15 +1,17 @@
 {
   "epoch_length": 43200,
-  "num_block_producer_seats": 100,
+  "num_block_producer_seats": 20,
   "num_block_producer_seats_per_shard": [
-    100,
-    100,
-    100,
-    100,
-    100,
-    100
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20
   ],
   "avg_hidden_validator_seats_per_shard": [
+    0,
     0,
     0,
     0,
@@ -37,44 +39,76 @@
     5
   ],
   "shard_layout": {
-    "V1": {
+    "V2": {
       "boundary_accounts": [
         "aurora",
         "aurora-0",
         "game.hot.tg",
+        "game.hot.tg-0",
         "kkuuue2akv_1630967379.near",
         "tge-lockup.sweat"
       ],
-      "shards_split_map": [
-        [
-          0
-        ],
-        [
-          1
-        ],
-        [
-          2,
-          3
-        ],
-        [
-          4
-        ],
-        [
-          5
-        ]
-      ],
-      "to_parent_shard_map": [
+      "shard_ids": [
         0,
         1,
         2,
-        2,
-        3,
-        4
+        6,
+        7,
+        4,
+        5
       ],
+      "id_to_index_map": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "4": 5,
+        "5": 6,
+        "6": 3,
+        "7": 4
+      },
+      "index_to_id_map": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 6,
+        "4": 7,
+        "5": 4,
+        "6": 5
+      },
+      "shards_split_map": {
+        "0": [
+          0
+        ],
+        "1": [
+          1
+        ],
+        "2": [
+          2
+        ],
+        "3": [
+          6,
+          7
+        ],
+        "4": [
+          4
+        ],
+        "5": [
+          5
+        ]
+      },
+      "shards_parent_map": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "4": 4,
+        "5": 5,
+        "6": 3,
+        "7": 3
+      },
       "version": 3
     }
   },
-  "num_chunk_producer_seats": 100,
+  "num_chunk_producer_seats": 20,
   "num_chunk_validator_seats": 300,
   "num_chunk_only_producer_seats": 0,
   "minimum_validators_per_shard": 1,

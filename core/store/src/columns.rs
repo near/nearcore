@@ -43,7 +43,7 @@ pub enum DBCol {
     BlockHeight,
     /// Column that stores the Trie state.
     /// - *Rows*: trie_node_or_value_hash (CryptoHash)
-    /// - *Content type*: Serializd RawTrieNodeWithSize or value ()
+    /// - *Content type*: Serialized RawTrieNodeWithSize or value ()
     State,
     /// Mapping from BlockChunk to ChunkExtra
     /// - *Rows*: BlockChunk (block_hash, shard_uid)
@@ -317,6 +317,11 @@ pub enum DBCol {
     /// - *Rows*: `CryptoHash`
     /// - *Column type*: `Vec<u8>`
     StateSyncNewChunks,
+    /// Stores chunk application stats for every applied chunk.
+    /// The stats can be read to analyze what happened during chunk application.
+    /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
+    /// - *Column type*: `ChunkApplyStats`
+    ChunkApplyStats,
 }
 
 /// Defines different logical parts of a db key.
@@ -357,7 +362,7 @@ pub enum DBKeyType {
 impl DBCol {
     /// Whether data in this column is effectively immutable.
     ///
-    /// Data in such columns is never overwriten, though it can be deleted by gc
+    /// Data in such columns is never overwritten, though it can be deleted by gc
     /// eventually. Specifically, for a given key:
     ///
     /// * It's OK to insert a new value.
@@ -462,7 +467,8 @@ impl DBCol {
             | DBCol::StateHeaders
             | DBCol::TransactionResultForBlock
             | DBCol::Transactions
-            | DBCol::StateShardUIdMapping => true,
+            | DBCol::StateShardUIdMapping
+            | DBCol::ChunkApplyStats => true,
 
             // TODO
             DBCol::ChallengedBlocks => false,
@@ -598,6 +604,7 @@ impl DBCol {
             DBCol::StateShardUIdMapping => &[DBKeyType::ShardUId],
             DBCol::StateSyncHashes => &[DBKeyType::EpochId],
             DBCol::StateSyncNewChunks => &[DBKeyType::BlockHash],
+            DBCol::ChunkApplyStats => &[DBKeyType::BlockHash, DBKeyType::ShardId],
         }
     }
 }

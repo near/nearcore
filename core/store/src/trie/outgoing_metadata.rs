@@ -690,24 +690,15 @@ mod tests {
     }
 
     /// The diff between two consecutive values that can be requested in a bandwidth request
-    /// is ~110 kB. The upper bound of the receipt group size is 100 kB. The groups are small
+    /// is ~103 kB. The upper bound of the receipt group size is 100 kB. The groups are small
     /// enough that bandwidth requests produced from group sizes are optimal, optimal meaning
     /// the same as if the requests were made based on individual receipt sizes.
-    /// The only exception is around `max_receipt_size` - the value that is the closest to
-    /// `max_receipt_size` is set to `max_receipt_size`, which causes the diff to be smaller.
     #[test]
     fn test_receipt_groups_produce_optimal_bandwidth_request() {
-        let scheduler_params = BandwidthSchedulerParams {
-            base_bandwidth: 50_000,
-            max_shard_bandwidth: 4_500_000,
-            max_receipt_size: 4 * 1024 * 1024,
-            max_allowance: 4_500_000,
-        };
+        let scheduler_params = BandwidthSchedulerParams::for_test(6);
         let request_values = BandwidthRequestValues::new(&scheduler_params).values;
-        assert!(request_values[1] - request_values[0] > 110_000);
+        assert!(request_values[1] - request_values[0] > 102_000);
 
-        let max_receipt_size_pos =
-            request_values.iter().position(|v| v == &scheduler_params.max_receipt_size).unwrap();
         let groups_config =
             ReceiptGroupsConfig { size_upper_bound: ByteSize::kb(100), gas_upper_bound: Gas::MAX };
 
@@ -743,19 +734,11 @@ mod tests {
                     &scheduler_params,
                 )
                 .unwrap();
-                if let Some(mut ideal_request) = ideal_bandwidth_request {
-                    let mut groups_request = groups_bandwidth_request.unwrap();
 
-                    // Zero out everything after `max_receipt_size` in both requests before comparison.
-                    for i in max_receipt_size_pos..request_values.len() {
-                        ideal_request.requested_values_bitmap.set_bit(i, false);
-                        groups_request.requested_values_bitmap.set_bit(i, false);
-                    }
-                    assert_eq!(ideal_request, groups_request);
-                }
+                // Bandwidth request produced from receipt groups should be optimal (same as from
+                // individual receipt sizes).
+                assert_eq!(ideal_bandwidth_request, groups_bandwidth_request);
 
-                // Bandwidth request produced from receipt groups should be optimal (same as from individual
-                // receipt sizes). (up to `max_receipt_size`)
                 let new_receipt_size = ByteSize::b(get_random_receipt_size_for_test(rng));
                 buffered_receipts.push_back(new_receipt_size);
                 test_queue.update_on_receipt_pushed(new_receipt_size, 1, &groups_config);

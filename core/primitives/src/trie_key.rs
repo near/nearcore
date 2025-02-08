@@ -1,6 +1,6 @@
 use crate::hash::CryptoHash;
 use crate::types::AccountId;
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::{to_vec, BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -62,6 +62,9 @@ pub mod col {
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_DATA: u8 = 16;
     /// A single item of `ReceiptGroupsQueue`. Values are of type `ReceiptGroup`.
     pub const BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM: u8 = 17;
+    /// Global contract code instance. Values are contract blobs,
+    /// the same as for `CONTRACT_CODE`.
+    pub const GLOBAL_CONTRACT_CODE: u8 = 18;
 
     /// All columns except those used for the delayed receipts queue, the yielded promises
     /// queue, and the outgoing receipts buffer, which are global state for the shard.
@@ -77,7 +80,7 @@ pub mod col {
         (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 
-    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 17] = [
+    pub const ALL_COLUMNS_WITH_NAMES: [(u8, &'static str); 18] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -95,7 +98,30 @@ pub mod col {
         (BANDWIDTH_SCHEDULER_STATE, "BandwidthSchedulerState"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_DATA, "BufferedReceiptGroupsQueueData"),
         (BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM, "BufferedReceiptGroupsQueueItem"),
+        (GLOBAL_CONTRACT_CODE, "GlobalContractCode"),
     ];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, ProtocolSchema)]
+pub enum GlobalContractCodeIdentifier {
+    CodeHash(CryptoHash),
+    AccountId(AccountId),
+}
+
+impl GlobalContractCodeIdentifier {
+    pub fn len(&self) -> usize {
+        1 + match self {
+            Self::CodeHash(hash) => hash.as_bytes().len(),
+            Self::AccountId(account_id) => {
+                // Corresponds to String repr in borsh spec
+                size_of::<u32>() + account_id.len()
+            }
+        }
+    }
+
+    pub fn append_into(&self, buf: &mut Vec<u8>) {
+        buf.extend(to_vec(self).unwrap());
+    }
 }
 
 /// Describes the key of a specific key-value record in a state trie.
@@ -193,6 +219,9 @@ pub enum TrieKey {
         receiving_shard: ShardId,
         index: u64,
     },
+    GlobalContractCode {
+        identifier: GlobalContractCodeIdentifier,
+    },
 }
 
 /// Provides `len` function.
@@ -276,6 +305,9 @@ impl TrieKey {
                 col::BUFFERED_RECEIPT_GROUPS_QUEUE_ITEM.len()
                     + std::mem::size_of::<u64>()
                     + std::mem::size_of_val(index)
+            }
+            TrieKey::GlobalContractCode { identifier } => {
+                col::GLOBAL_CONTRACT_CODE.len() + identifier.len()
             }
         }
     }
@@ -370,6 +402,10 @@ impl TrieKey {
                 buf.extend(&receiving_shard.to_le_bytes());
                 buf.extend(&index.to_le_bytes());
             }
+            TrieKey::GlobalContractCode { identifier } => {
+                buf.push(col::GLOBAL_CONTRACT_CODE);
+                identifier.append_into(buf);
+            }
         };
         debug_assert_eq!(expected_len, buf.len() - start_len);
     }
@@ -401,6 +437,9 @@ impl TrieKey {
             TrieKey::BandwidthSchedulerState => None,
             TrieKey::BufferedReceiptGroupsQueueData { .. } => None,
             TrieKey::BufferedReceiptGroupsQueueItem { .. } => None,
+            // Even though global contract code might be deployed under account id, it doesn't
+            // correspond to the data stored for that account id, so always returning None here.
+            TrieKey::GlobalContractCode { .. } => None,
         }
     }
 }
@@ -517,6 +556,19 @@ pub mod trie_key_parsers {
         }
     }
 
+    pub fn parse_index_from_delayed_receipt_key(raw_key: &[u8]) -> Result<u64, std::io::Error> {
+        // The length of TrieKey::DelayedReceipt { .. } should be 9 since it's a single byte for the
+        // column and then 8 bytes for a u64 index.
+        if raw_key.len() != 9 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unexpected raw key len of {} for delayed receipt index", raw_key.len()),
+            ));
+        }
+        let index = raw_key[1..9].try_into().unwrap();
+        Ok(u64::from_le_bytes(index))
+    }
+
     pub fn parse_account_id_from_contract_code_key(
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
@@ -622,6 +674,7 @@ mod tests {
 
     use super::*;
 
+    // cspell:ignore cheapaccounts lols skidanov
     const OK_ACCOUNT_IDS: &[&str] = &[
         "aa",
         "a-a",
@@ -816,9 +869,10 @@ mod tests {
         let key = TrieKey::DelayedReceiptIndices;
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
-        let key = TrieKey::DelayedReceipt { index: 0 };
+        let key = TrieKey::DelayedReceipt { index: 123 };
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
+        assert_eq!(trie_key_parsers::parse_index_from_delayed_receipt_key(&raw_key).unwrap(), 123);
     }
 
     #[test]
@@ -931,5 +985,21 @@ mod tests {
             max_id <= u16::MAX as u64,
             "buffered receipt trie key optimization broken, must fit in a u16"
         );
+    }
+
+    #[test]
+    fn test_global_contract_code_identifier_len() {
+        check_global_contract_code_identifier_len(GlobalContractCodeIdentifier::CodeHash(
+            CryptoHash::hash_bytes(&[42]),
+        ));
+        check_global_contract_code_identifier_len(GlobalContractCodeIdentifier::AccountId(
+            "alice.near".parse().unwrap(),
+        ));
+    }
+
+    fn check_global_contract_code_identifier_len(identifier: GlobalContractCodeIdentifier) {
+        let mut buf = Vec::new();
+        identifier.append_into(&mut buf);
+        assert_eq!(buf.len(), identifier.len());
     }
 }

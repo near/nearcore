@@ -12,15 +12,15 @@ use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle}
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
-use near_primitives::challenge::PartialState;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
+use near_primitives::state::PartialState;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
-use near_store::trie::mem::mem_trie_update::TrackingMode;
+use near_store::trie::mem::memtrie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
 use near_store::trie::TrieRecorder;
@@ -76,10 +76,13 @@ impl ReshardingManager {
         let next_epoch_id = self.epoch_manager.get_next_epoch_id_from_prev_block(prev_hash)?;
         let next_shard_layout = self.epoch_manager.get_shard_layout(&next_epoch_id)?;
 
-        let next_block_has_new_shard_layout =
-            self.epoch_manager.is_next_block_epoch_start(block_hash)?
-                && shard_layout != next_shard_layout;
-        if !next_block_has_new_shard_layout {
+        let is_next_block_epoch_start = self.epoch_manager.is_next_block_epoch_start(block_hash)?;
+        if !is_next_block_epoch_start {
+            return Ok(());
+        }
+
+        let will_shard_layout_change = shard_layout != next_shard_layout;
+        if !will_shard_layout_change {
             tracing::debug!(target: "resharding", ?prev_hash, "prev block has the same shard layout, skipping");
             return Ok(());
         }
@@ -153,7 +156,6 @@ impl ReshardingManager {
     /// Store in the database the mapping of ShardUId from children to the parent shard,
     /// so that subsequent accesses to the State will use the ancestor's ShardUId prefix
     /// as a prefix for the database key.
-    // TODO(resharding) add testloop where grandparent ShardUId is used
     fn set_state_shard_uid_mapping(
         &mut self,
         split_shard_event: &ReshardingSplitShardParams,
@@ -161,7 +163,6 @@ impl ReshardingManager {
         let mut store_update = self.store.trie_store().store_update();
         let parent_shard_uid = split_shard_event.parent_shard;
         let parent_shard_uid_prefix = get_shard_uid_mapping(&self.store, parent_shard_uid);
-        // TODO(resharding) No need to set the mapping for children shards that we won't track just after resharding?
         for child_shard_uid in split_shard_event.children_shards() {
             store_update.set_shard_uid_mapping(child_shard_uid, parent_shard_uid_prefix);
         }
@@ -185,11 +186,7 @@ impl ReshardingManager {
             ?block_hash, block_height, ?parent_shard_uid)
         .entered();
 
-        // TODO(resharding): what if node doesn't have memtrie? just pause
-        // processing?
-        // TODO(resharding): fork handling. if epoch is finalized on different
-        // blocks, the second finalization will crash.
-        tries.freeze_mem_tries(parent_shard_uid, split_shard_event.children_shards())?;
+        tries.freeze_parent_memtrie(parent_shard_uid, split_shard_event.children_shards())?;
 
         let parent_chunk_extra = self.get_chunk_extra(block_hash, &parent_shard_uid)?;
         let boundary_account = split_shard_event.boundary_account;
@@ -201,7 +198,7 @@ impl ReshardingManager {
             (split_shard_event.left_child_shard, RetainMode::Left),
             (split_shard_event.right_child_shard, RetainMode::Right),
         ] {
-            let Some(mem_tries) = tries.get_mem_tries(new_shard_uid) else {
+            let Some(memtries) = tries.get_memtries(new_shard_uid) else {
                 tracing::error!(
                     "Memtrie not loaded. Cannot process memtrie resharding storage
                      update for block {:?}, shard {:?}",
@@ -215,15 +212,15 @@ impl ReshardingManager {
                 target: "resharding", ?new_shard_uid, ?retain_mode,
                 "Creating child memtrie by retaining nodes in parent memtrie..."
             );
-            let mut mem_tries = mem_tries.write().unwrap();
+            let mut memtries = memtries.write().unwrap();
             let mut trie_recorder = TrieRecorder::new(None);
             let mode = TrackingMode::RefcountsAndAccesses(&mut trie_recorder);
-            let mem_trie_update = mem_tries.update(*parent_chunk_extra.state_root(), mode)?;
+            let memtrie_update = memtries.update(*parent_chunk_extra.state_root(), mode)?;
 
-            let trie_changes = mem_trie_update.retain_split_shard(&boundary_account, retain_mode);
-            let mem_changes = trie_changes.mem_trie_changes.as_ref().unwrap();
-            let new_state_root = mem_tries.apply_memtrie_changes(block_height, mem_changes);
-            drop(mem_tries);
+            let trie_changes = memtrie_update.retain_split_shard(&boundary_account, retain_mode);
+            let memtrie_changes = trie_changes.memtrie_changes.as_ref().unwrap();
+            let new_state_root = memtries.apply_memtrie_changes(block_height, memtrie_changes);
+            drop(memtries);
 
             // Get the congestion info for the child.
             let parent_epoch_id = block.header().epoch_id();

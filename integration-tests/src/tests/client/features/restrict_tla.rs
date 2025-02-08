@@ -26,6 +26,7 @@ fn test_create_top_level_accounts() {
         "0a5e97870f263700f46aa00d967821199b9bc5a120",
         "0x000000000000000000000000000000000000000",
         "alice",
+        // cspell:disable-next-line
         "thisisaveryverylongtoplevelaccount",
     ];
     for (index, id) in top_level_accounts.iter().enumerate() {

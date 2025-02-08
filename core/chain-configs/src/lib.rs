@@ -7,7 +7,7 @@ mod metrics;
 pub mod test_genesis;
 #[cfg(feature = "test_utils")]
 pub mod test_utils;
-mod updateable_config;
+mod updatable_config;
 
 pub use client_config::{
     default_enable_multiline_logging, default_epoch_sync,
@@ -34,9 +34,7 @@ pub use genesis_config::{
 };
 use near_primitives::types::{Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
 use num_rational::Rational32;
-pub use updateable_config::{
-    MutableConfigValue, MutableValidatorSigner, UpdateableClientConfig, UpdateableValidatorSigner,
-};
+pub use updatable_config::{MutableConfigValue, MutableValidatorSigner, UpdatableClientConfig};
 
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 

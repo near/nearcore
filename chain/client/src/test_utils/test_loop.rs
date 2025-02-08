@@ -1,3 +1,4 @@
+use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_primitives::views::{
@@ -24,7 +25,8 @@ where
         let client: &Client = self[0].as_ref();
         let head = client.chain.head().unwrap();
         let shard_id =
-            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+            account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
+                .unwrap();
 
         for i in 0..self.len() {
             let client: &Client = self[i].as_ref();
@@ -47,8 +49,10 @@ where
         let head = client.chain.head().unwrap();
         let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
         let shard_id =
-            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
-        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
+            account_id_to_shard_id(client.epoch_manager.as_ref(), &account_id, &head.epoch_id)
+                .unwrap();
+        let shard_uid =
+            shard_id_to_uid(client.epoch_manager.as_ref(), shard_id, &head.epoch_id).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&head.epoch_id).unwrap();
         let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_index];

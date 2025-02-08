@@ -30,7 +30,7 @@ impl crate::CongestionStrategy for GlobalTxStopShard {
             }
         }
 
-        // stop accepting transacions when any shard is congested
+        // stop accepting transactions when any shard is congested
         if !any_shard_congested {
             while ctx.gas_burnt() < TX_GAS_LIMIT {
                 if let Some(tx) = ctx.incoming_transactions().pop_front() {

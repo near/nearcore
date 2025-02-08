@@ -132,6 +132,7 @@ impl RewardCalculator {
             {
                 0
             } else {
+                // cspell:ignore denum
                 let stake = *validator_stake
                     .get(&account_id)
                     .unwrap_or_else(|| panic!("{} is not a validator", account_id));

@@ -140,7 +140,7 @@ pub(crate) async fn convert_block_to_transactions(
         })
         .filter(move |account_id| {
             // TODO(mina86): Convert this to seen.get_or_insert_with(account_id,
-            // Clone::clone) once hash_set_entry stabilises.
+            // Clone::clone) once hash_set_entry stabilizes.
             seen.insert(account_id.clone())
         })
         .collect::<Vec<_>>();
@@ -352,23 +352,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
-                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                // Non-refundable transfer deposit is burnt for permanent storage bytes on the receiving account.
-                near_primitives::transaction::Action::NonrefundableStorageTransfer(action) => {
-                    let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
-
-                    let sender_transfer_operation_id =
-                        crate::models::OperationIdentifier::new(&operations);
-                    operations.push(
-                        validated_operations::TransferOperation {
-                            account: sender_account_identifier.clone(),
-                            amount: -transfer_amount.clone(),
-                            predecessor_id: Some(sender_account_identifier.clone()),
-                        }
-                        .into_operation(sender_transfer_operation_id.clone()),
-                    );
-                }
-
                 near_primitives::transaction::Action::Stake(action) => {
                     operations.push(
                         validated_operations::StakeOperation {
@@ -500,6 +483,10 @@ impl From<NearActions> for Vec<crate::models::Operation> {
 
                     operations.extend(delegated_operations);
                 } // TODO(#8469): Implement delegate action support, for now they are ignored.
+                near_primitives::transaction::Action::DeployGlobalContract(_)
+                | near_primitives::transaction::Action::UseGlobalContract(_) => {
+                    // TODO(#12639): Implement global contracts support, ignored for now.
+                }
             }
         }
         operations
@@ -743,9 +730,9 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     // the "sender" of this group of operations is considered to be the delegating account, not the proxy
                     sender_account_id.try_set(&signed_delegate_action_operation.receiver_id)?;
 
-                    let intitiate_signed_delegate_action_operation = validated_operations::intitiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
+                    let initiate_signed_delegate_action_operation = validated_operations::initiate_signed_delegate_action::InitiateSignedDelegateActionOperation::try_from_option(operations.next())?;
                     delegate_proxy_account_id
-                        .try_set(&intitiate_signed_delegate_action_operation.sender_account)?;
+                        .try_set(&initiate_signed_delegate_action_operation.sender_account)?;
 
                     let delegate_action: near_primitives::transaction::Action =
                         near_primitives::action::delegate::SignedDelegateAction {
@@ -857,6 +844,7 @@ mod tests {
 
     #[test]
     fn test_convert_block_changes_to_transactions() {
+        // cspell:ignore nfvalidator
         run_actix(async {
             let runtime_config: RuntimeConfigView = RuntimeConfig::test().into();
             let actor_handles = setup_no_network(
@@ -879,8 +867,6 @@ mod tests {
                             amount: 5000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -896,8 +882,6 @@ mod tests {
                             amount: 4000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -911,8 +895,6 @@ mod tests {
                             amount: 7000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -928,8 +910,6 @@ mod tests {
                             amount: 8000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -943,8 +923,6 @@ mod tests {
                     amount: 4000000000000000000,
                     code_hash: near_primitives::hash::CryptoHash::default(),
                     locked: 400000000000000000000000000000,
-                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                    permanent_storage_bytes: 0,
                     storage_paid_at: 0,
                     storage_usage: 200000,
                 },
@@ -955,8 +933,6 @@ mod tests {
                     amount: 6000000000000000000,
                     code_hash: near_primitives::hash::CryptoHash::default(),
                     locked: 400000000000000000000000000000,
-                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                    permanent_storage_bytes: 0,
                     storage_paid_at: 0,
                     storage_usage: 200000,
                 },
@@ -1586,34 +1562,5 @@ mod tests {
             NearActions::try_from(operations),
             Err(crate::errors::ErrorKind::InvalidInput(_))
         ));
-    }
-
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    #[test]
-    fn test_convert_nonrefundable_storage_transfer_action() {
-        let deposit = near_primitives::types::Balance::MAX - 1;
-        let nonrefundable_transfer_actions = vec![
-            near_primitives::transaction::NonrefundableStorageTransferAction { deposit }.into(),
-        ];
-        let near_nonrefundable_transfer_actions = NearActions {
-            sender_account_id: "sender.near".parse().unwrap(),
-            receiver_account_id: "receiver.near".parse().unwrap(),
-            actions: nonrefundable_transfer_actions,
-        };
-        let nonrefundable_transfer_operations_converted: Vec<crate::models::Operation> =
-            near_nonrefundable_transfer_actions.into();
-        assert_eq!(nonrefundable_transfer_operations_converted.len(), 1);
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].type_,
-            crate::models::OperationType::Transfer
-        );
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].account,
-            "sender.near".parse().unwrap()
-        );
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].amount,
-            Some(-crate::models::Amount::from_yoctonear(deposit))
-        );
     }
 }

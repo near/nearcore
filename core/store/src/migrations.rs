@@ -2,12 +2,12 @@ use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
 use anyhow::{anyhow, Context};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::challenge::PartialState;
 use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
+use near_primitives::state::PartialState;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
     StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
@@ -124,7 +124,7 @@ pub fn migrate_32_to_33(store: &Store) -> anyhow::Result<()> {
     for row in store.iter_ser::<Vec<ExecutionOutcomeWithIdAndProof>>(DBCol::_TransactionResult) {
         let (_, mut outcomes) = row?;
         // It appears that it was possible that the same entry in the original column contained
-        // duplicate outcomes. We remove them here to avoid panicing due to issuing a
+        // duplicate outcomes. We remove them here to avoid panicking due to issuing a
         // self-overwriting transaction.
         outcomes.sort_by_key(|outcome| (*outcome.id(), outcome.block_hash));
         outcomes.dedup_by_key(|outcome| (*outcome.id(), outcome.block_hash));
@@ -366,8 +366,8 @@ pub fn migrate_39_to_40(store: &Store) -> anyhow::Result<()> {
 
 /// Migrates the database from version 40 to 41.
 ///
-/// The migraton replaces non-enum StoredChunkStateTransitionData struct with its enum version V1.
-/// NOTE: The data written by this migration is overriden by migrate_42_to_43 to a different format.
+/// The migration replaces non-enum StoredChunkStateTransitionData struct with its enum version V1.
+/// NOTE: The data written by this migration is overridden by migrate_42_to_43 to a different format.
 pub fn migrate_40_to_41(store: &Store) -> anyhow::Result<()> {
     #[derive(BorshDeserialize)]
     pub struct DeprecatedStoredChunkStateTransitionData {

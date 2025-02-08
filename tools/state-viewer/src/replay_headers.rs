@@ -35,8 +35,8 @@ pub(crate) fn replay_headers(
 ) {
     let chain_store = ChainStore::new(
         store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
     );
     let start_height: BlockHeight =
         start_height.unwrap_or_else(|| chain_store.get_genesis_height());

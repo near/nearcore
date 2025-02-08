@@ -11,6 +11,7 @@ use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use crate::hash::CryptoHash;
 use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::num_rational::Rational32;
+use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
 use crate::types::{Balance, BlockHeight, EpochId, Gas};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
@@ -305,12 +306,14 @@ impl Block {
         block_merkle_root: CryptoHash,
         clock: near_time::Clock,
         sandbox_delta_time: Option<near_time::Duration>,
+        optimistic_block: Option<OptimisticBlock>,
     ) -> Self {
         use itertools::Itertools;
         use near_primitives_core::version::ProtocolFeature;
 
         use crate::{
-            hash::hash, stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+            stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap,
+            utils::get_block_metadata,
         };
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut prev_validator_proposals = vec![];
@@ -340,15 +343,20 @@ impl Block {
         );
 
         let new_total_supply = prev.total_supply() + minted_amount.unwrap_or(0) - balance_burnt;
-        let now = clock.now_utc().unix_timestamp_nanos() as u64;
-        #[cfg(feature = "sandbox")]
-        let now = now + sandbox_delta_time.unwrap().whole_nanoseconds() as u64;
-        #[cfg(not(feature = "sandbox"))]
-        debug_assert!(sandbox_delta_time.is_none());
-        let time = if now <= prev.raw_timestamp() { prev.raw_timestamp() + 1 } else { now };
 
-        let (vrf_value, vrf_proof) = signer.compute_vrf_with_proof(prev.random_value().as_ref());
-        let random_value = hash(vrf_value.0.as_ref());
+        // Use the optimistic block data if available, otherwise compute it.
+        let (time, vrf_value, vrf_proof, random_value) = optimistic_block
+            .as_ref()
+            .map(|ob| {
+                tracing::debug!(target: "client", "Taking metadata from optimistic block");
+                (
+                    ob.inner.block_timestamp,
+                    ob.inner.vrf_value,
+                    ob.inner.vrf_proof,
+                    ob.inner.random_value,
+                )
+            })
+            .unwrap_or_else(|| get_block_metadata(prev, signer, clock, sandbox_delta_time));
 
         let last_ds_final_block =
             if height == prev.height() + 1 { prev.hash() } else { prev.last_ds_final_block() };
@@ -660,46 +668,11 @@ impl Block {
     }
 
     pub fn block_congestion_info(&self) -> BlockCongestionInfo {
-        let mut result = BTreeMap::new();
-
-        for chunk in self.chunks().iter_deprecated() {
-            let shard_id = chunk.shard_id();
-
-            if let Some(congestion_info) = chunk.congestion_info() {
-                let height_included = chunk.height_included();
-                let height_current = self.header().height();
-                let missed_chunks_count = height_current.checked_sub(height_included);
-                let missed_chunks_count = missed_chunks_count
-                    .expect("The chunk height included must be less or equal than block height!");
-
-                let extended_congestion_info =
-                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
-                result.insert(shard_id, extended_congestion_info);
-            }
-        }
-        BlockCongestionInfo::new(result)
+        self.chunks().block_congestion_info()
     }
 
     pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
-        let mut result = BTreeMap::new();
-
-        for chunk in self.chunks().iter() {
-            // It's okay to take bandwidth requests from a missing chunk,
-            // the chunk was missing so it didn't send anything and still
-            // wants to send out the same receipts.
-            let chunk = match chunk {
-                MaybeNew::New(new_chunk) => new_chunk,
-                MaybeNew::Old(missing_chunk) => missing_chunk,
-            };
-
-            let shard_id = chunk.shard_id();
-
-            if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
-                result.insert(shard_id, bandwidth_requests.clone());
-            }
-        }
-
-        BlockBandwidthRequests { shards_bandwidth_requests: result }
+        self.chunks().block_bandwidth_requests()
     }
 
     pub fn hash(&self) -> &CryptoHash {
@@ -821,6 +794,13 @@ impl<'a> Chunks<'a> {
         Self { chunks, block_height: block.header().height() }
     }
 
+    pub fn from_chunk_headers(
+        chunk_headers: &'a [ShardChunkHeader],
+        block_height: BlockHeight,
+    ) -> Self {
+        Self { chunks: ChunksCollection::V2(chunk_headers), block_height }
+    }
+
     pub fn len(&self) -> usize {
         match &self.chunks {
             ChunksCollection::V1(chunks) => chunks.len(),
@@ -861,6 +841,49 @@ impl<'a> Chunks<'a> {
             ChunksCollection::V1(chunks) => chunks.get(index),
             ChunksCollection::V2(chunks) => chunks.get(index),
         }
+    }
+
+    pub fn block_congestion_info(&self) -> BlockCongestionInfo {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.iter_deprecated() {
+            let shard_id = chunk.shard_id();
+
+            if let Some(congestion_info) = chunk.congestion_info() {
+                let height_included = chunk.height_included();
+                let height_current = self.block_height;
+                let missed_chunks_count = height_current.checked_sub(height_included);
+                let missed_chunks_count = missed_chunks_count
+                    .expect("The chunk height included must be less or equal than block height!");
+
+                let extended_congestion_info =
+                    ExtendedCongestionInfo::new(congestion_info, missed_chunks_count);
+                result.insert(shard_id, extended_congestion_info);
+            }
+        }
+        BlockCongestionInfo::new(result)
+    }
+
+    pub fn block_bandwidth_requests(&self) -> BlockBandwidthRequests {
+        let mut result = BTreeMap::new();
+
+        for chunk in self.iter() {
+            // It's okay to take bandwidth requests from a missing chunk,
+            // the chunk was missing so it didn't send anything and still
+            // wants to send out the same receipts.
+            let chunk = match chunk {
+                MaybeNew::New(new_chunk) => new_chunk,
+                MaybeNew::Old(missing_chunk) => missing_chunk,
+            };
+
+            let shard_id = chunk.shard_id();
+
+            if let Some(bandwidth_requests) = chunk.bandwidth_requests() {
+                result.insert(shard_id, bandwidth_requests.clone());
+            }
+        }
+
+        BlockBandwidthRequests { shards_bandwidth_requests: result }
     }
 }
 

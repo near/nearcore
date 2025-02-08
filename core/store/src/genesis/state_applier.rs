@@ -243,7 +243,7 @@ impl GenesisStateApplier {
                     })
                 }
                 StateRecord::DelayedReceipt(receipt) => storage.modify(|state_update| {
-                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt);
+                    set_delayed_receipt(state_update, delayed_receipts_indices, &*receipt.receipt);
                 }),
             }
         });
@@ -314,7 +314,9 @@ impl GenesisStateApplier {
                         set_promise_yield_receipt(state_update, &receipt);
                     });
                 }
-                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                ReceiptEnum::GlobalContractDistribution(_)
+                | ReceiptEnum::Data(_)
+                | ReceiptEnum::PromiseResume(_) => {
                     panic!("Expected action receipt")
                 }
             }

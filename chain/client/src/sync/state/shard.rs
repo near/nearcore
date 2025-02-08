@@ -8,6 +8,7 @@ use near_async::messaging::AsyncSender;
 use near_chain::types::RuntimeAdapter;
 use near_chain::BlockHeader;
 use near_client_primitives::types::ShardSyncStatus;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunk;
@@ -54,6 +55,7 @@ macro_rules! return_if_cancelled {
         }
     };
 }
+
 pub(super) async fn run_state_sync_for_shard(
     store: Store,
     shard_id: ShardId,
@@ -77,7 +79,7 @@ pub(super) async fn run_state_sync_for_shard(
             || near_chain::Error::DBNotFoundErr(format!("No block header {}", sync_hash)),
         )?;
     let epoch_id = *block_header.epoch_id();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+    let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id)?;
     metrics::STATE_SYNC_PARTS_TOTAL
         .with_label_values(&[&shard_id.to_string()])
         .set(num_parts as i64);
@@ -127,7 +129,7 @@ pub(super) async fn run_state_sync_for_shard(
 
     return_if_cancelled!(cancel);
     *status.lock().unwrap() = ShardSyncStatus::StateApplyInProgress;
-    runtime.get_tries().unload_mem_trie(&shard_uid);
+    runtime.get_tries().unload_memtrie(&shard_uid);
     let mut store_update = store.store_update();
     runtime
         .get_flat_storage_manager()
@@ -182,7 +184,7 @@ pub(super) async fn run_state_sync_for_shard(
         let shard_uids_pending_resharding = epoch_manager
             .get_shard_uids_pending_resharding(head_protocol_version, PROTOCOL_VERSION)?;
         handle.set_status("Loading memtrie");
-        runtime.get_tries().load_mem_trie_on_catchup(
+        runtime.get_tries().load_memtrie_on_catchup(
             &shard_uid,
             &state_root,
             &shard_uids_pending_resharding,

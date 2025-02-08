@@ -63,7 +63,7 @@ pub enum RuntimeError {
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
     BalanceMismatchError(Box<BalanceMismatchError>),
-    /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
+    /// The incoming receipt didn't pass the validation, it's likely a malicious behavior.
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
@@ -302,7 +302,7 @@ pub enum InvalidAccessKeyError {
     ProtocolSchema,
 )]
 pub enum ActionsValidationError {
-    /// The delete action must be a final aciton in transaction
+    /// The delete action must be a final action in transaction
     DeleteActionMustBeFinal,
     /// The total prepaid gas (for all given actions) exceeded the limit.
     TotalPrepaidGasExceeded { total_prepaid_gas: Gas, limit: Gas },
@@ -591,8 +591,6 @@ pub enum ActionErrorKind {
     DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
     /// DelegateAction nonce is larger than the upper bound given by the block height
     DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
-    /// Non-refundable storage transfer to an existing account is not allowed according to NEP-491.
-    NonRefundableTransferToExistingAccount { account_id: AccountId },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -933,9 +931,6 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
             ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
-            ActionErrorKind::NonRefundableTransferToExistingAccount { account_id} => {
-                write!(f, "Can't make non-refundable storage transfer to {} because it already exists", account_id)
-            }
         }
     }
 }
@@ -1068,7 +1063,7 @@ pub enum PrepareError {
     /// Error happened during instantiation.
     ///
     /// This might indicate that `start` function trapped, or module isn't
-    /// instantiable and/or unlinkable.
+    /// instantiable and/or un-linkable.
     Instantiate,
     /// Error creating memory.
     Memory,
@@ -1187,7 +1182,7 @@ pub enum HostError {
     Deprecated { method_name: String },
     /// General errors for ECDSA recover.
     ECRecoverError { msg: String },
-    /// Invalid input to alt_bn128 familiy of functions (e.g., point which isn't
+    /// Invalid input to alt_bn128 family of functions (e.g., point which isn't
     /// on the curve).
     AltBn128InvalidInput { msg: String },
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be

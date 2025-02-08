@@ -18,7 +18,7 @@ use near_primitives_core::account::id::AccountIdRef;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::ShardTries;
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
@@ -148,6 +148,8 @@ impl StandaloneRuntime {
         let shard_id = self.apply_state.shard_id;
         let shard_uid = ShardUId::new(0, shard_id);
         let trie = self.tries.get_trie_for_shard(shard_uid, self.root);
+        let validity = vec![true; transactions.len()];
+        let transactions = SignedValidPeriodTransactions::new(transactions, &validity);
         let apply_result = self
             .runtime
             .apply(
@@ -265,14 +267,7 @@ impl RuntimeGroup {
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.clone(),
-                    account: Account::new(
-                        TESTING_INIT_BALANCE,
-                        TESTING_INIT_STAKE,
-                        0,
-                        code_hash,
-                        0,
-                        PROTOCOL_VERSION,
-                    ),
+                    account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.clone(),

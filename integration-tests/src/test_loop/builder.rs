@@ -35,9 +35,8 @@ use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
-use near_store::db::TestDBFlags;
 use near_store::genesis::initialize_genesis_state;
-use near_store::test_utils::{create_test_split_store, create_test_store_with_flags};
+use near_store::test_utils::{create_test_split_store, create_test_store};
 use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
@@ -99,11 +98,9 @@ pub(crate) struct TestLoopBuilder {
     /// Whether all nodes must track all shards.
     track_all_shards: bool,
     /// Whether to load mem tries for the tracked shards.
-    load_mem_tries_for_tracked_shards: bool,
+    load_memtries_for_tracked_shards: bool,
     /// Upgrade schedule which determines when the clients start voting for new protocol versions.
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
-    /// Overrides to test database behavior.
-    test_store_flags: TestDBFlags,
 }
 
 /// Checks whether chunk is validated by the given account.
@@ -305,9 +302,8 @@ impl TestLoopBuilder {
             config_modifier: None,
             warmup: true,
             track_all_shards: false,
-            load_mem_tries_for_tracked_shards: true,
+            load_memtries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
-            test_store_flags: Default::default(),
         }
     }
 
@@ -431,13 +427,8 @@ impl TestLoopBuilder {
         self
     }
 
-    pub fn load_mem_tries_for_tracked_shards(mut self, load_mem_tries: bool) -> Self {
-        self.load_mem_tries_for_tracked_shards = load_mem_tries;
-        self
-    }
-
-    pub(crate) fn allow_negative_refcount(mut self) -> Self {
-        self.test_store_flags.allow_negative_refcount = true;
+    pub fn load_memtries_for_tracked_shards(mut self, load_memtries: bool) -> Self {
+        self.load_memtries_for_tracked_shards = load_memtries;
         self
     }
 
@@ -570,7 +561,7 @@ impl TestLoopBuilder {
 
         let store_config = StoreConfig {
             path: Some(homedir.clone()),
-            load_mem_tries_for_tracked_shards: self.load_mem_tries_for_tracked_shards,
+            load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             ..Default::default()
         };
 
@@ -581,7 +572,7 @@ impl TestLoopBuilder {
                 let (hot_store, split_store) = create_test_split_store();
                 (hot_store, Some(split_store))
             } else {
-                let hot_store = create_test_store_with_flags(&self.test_store_flags);
+                let hot_store = create_test_store();
                 (hot_store, None)
             };
         initialize_genesis_state(store.clone(), &genesis, None);
@@ -659,12 +650,13 @@ impl TestLoopBuilder {
             resharding_sender.as_multi_sender(),
             Arc::new(self.test_loop.future_spawner()),
             client_adapter.as_multi_sender(),
+            client_adapter.as_multi_sender(),
             self.upgrade_schedule.clone(),
         )
         .unwrap();
 
         // If this is an archival node and split storage is initialized, then create view-specific
-        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initiaze the
+        // versions of EpochManager, ShardTracker and RuntimeAdapter and use them to initialize the
         // ViewClientActorInner. Otherwise, we use the regular versions created above.
         let (view_epoch_manager, view_shard_tracker, view_runtime_adapter) =
             if let Some(split_store) = &split_store {
@@ -722,7 +714,6 @@ impl TestLoopBuilder {
         let client_actor = ClientActorInner::new(
             self.test_loop.clock(),
             client,
-            client_adapter.as_multi_sender(),
             peer_id.clone(),
             network_adapter.as_multi_sender(),
             noop().into_sender(),
@@ -741,13 +732,16 @@ impl TestLoopBuilder {
             epoch_manager.clone(),
             runtime_adapter.clone(),
             Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
         );
 
         let gc_actor = GCActor::new(
             runtime_adapter.store().clone(),
-            chain_genesis.height,
+            &chain_genesis,
             runtime_adapter.clone(),
             epoch_manager.clone(),
+            shard_tracker.clone(),
+            validator_signer.clone(),
             client_config.gc.clone(),
             client_config.archive,
         );
@@ -755,7 +749,7 @@ impl TestLoopBuilder {
         self.test_loop.register_actor_for_index(idx, gc_actor, None);
 
         let resharding_actor =
-            ReshardingActor::new(runtime_adapter.store().clone(), chain_genesis.height);
+            ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
 
         let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {

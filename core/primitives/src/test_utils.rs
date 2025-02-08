@@ -21,12 +21,12 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
-use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion, ShardId};
+use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account::new(amount, 0, 0, code_hash, std::mem::size_of::<Account>() as u64, PROTOCOL_VERSION)
+    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
 }
 
 impl Transaction {
@@ -867,6 +867,7 @@ impl TestBlockBuilder {
             self.block_merkle_root,
             self.clock,
             None,
+            None,
         )
     }
 }
@@ -1035,14 +1036,6 @@ impl EpochInfoProvider for MockEpochInfoProvider {
 
     fn chain_id(&self) -> String {
         "localnet".into()
-    }
-
-    fn account_id_to_shard_id(
-        &self,
-        account_id: &AccountId,
-        _epoch_id: &EpochId,
-    ) -> Result<ShardId, EpochError> {
-        Ok(self.shard_layout.account_id_to_shard_id(account_id))
     }
 
     fn shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {

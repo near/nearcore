@@ -33,7 +33,7 @@ const MAX_HISTORY_SIZE: usize = 1000;
 /// `TwoThirds` means the block can only be produced if at least 2/3 of the stake is approving it,
 ///             and is what should be used in production (and what guarantees finality)
 /// `NoApprovals` means the block production is not blocked on approvals. This is used
-///             in many tests (e.g. `cross_shard_tx`) to create lots of forkfulness.
+///             in many tests (e.g. `cross_shard_tx`) to create lots of forks.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum DoomslugThresholdMode {
     NoApprovals,
@@ -138,7 +138,7 @@ pub struct Doomslug {
     /// Information to track the timer (see `start_timer` routine in the paper)
     timer: DoomslugTimer,
     /// How many approvals to have before producing a block. In production should be always `HalfStake`,
-    ///    but for many tests we use `NoApprovals` to invoke more forkfulness
+    ///    but for many tests we use `NoApprovals` to invoke more forks
     threshold_mode: DoomslugThresholdMode,
 
     /// Approvals that were created by this doomslug instance (for debugging only).
@@ -280,7 +280,7 @@ impl DoomslugApprovalsTrackersAtHeight {
     fn process_approval(
         &mut self,
         approval: &Approval,
-        stakes: &[(ApprovalStake, bool)],
+        stakes: &[ApprovalStake],
         threshold_mode: DoomslugThresholdMode,
     ) -> DoomslugBlockProductionReadiness {
         if let Some(last_parent) = self.last_approval_per_account.get(&approval.account_id) {
@@ -300,13 +300,7 @@ impl DoomslugApprovalsTrackersAtHeight {
 
         let account_id_to_stakes = stakes
             .iter()
-            .filter_map(|(x, is_slashed)| {
-                if *is_slashed {
-                    None
-                } else {
-                    Some((x.account_id.clone(), (x.stake_this_epoch, x.stake_next_epoch)))
-                }
-            })
+            .map(|x| (x.account_id.clone(), (x.stake_this_epoch, x.stake_next_epoch)))
             .collect::<HashMap<_, _>>();
 
         assert_eq!(account_id_to_stakes.len(), stakes.len());
@@ -405,7 +399,7 @@ impl Doomslug {
     }
 
     /// Returns the largest height for which we have enough approvals to be theoretically able to
-    ///     produce a block (in practice a blocks might not be produceable yet if not enough time
+    ///     produce a block (in practice a blocks might not be producible yet if not enough time
     ///     passed since it accumulated enough approvals)
     pub fn get_largest_height_crossing_threshold(&self) -> BlockHeight {
         self.largest_threshold_height.get()
@@ -559,27 +553,25 @@ impl Doomslug {
     pub fn can_approved_block_be_produced(
         mode: DoomslugThresholdMode,
         approvals: &[Option<Box<Signature>>],
-        stakes: &[(Balance, Balance, bool)],
+        stakes: &[(Balance, Balance)],
     ) -> bool {
         if mode == DoomslugThresholdMode::NoApprovals {
             return true;
         }
 
-        let threshold1 = stakes.iter().map(|(x, _, _)| x).sum::<Balance>() * 2 / 3;
-        let threshold2 = stakes.iter().map(|(_, x, _)| x).sum::<Balance>() * 2 / 3;
+        let threshold1 = stakes.iter().map(|(x, _)| x).sum::<Balance>() * 2 / 3;
+        let threshold2 = stakes.iter().map(|(_, x)| x).sum::<Balance>() * 2 / 3;
 
         let approved_stake1 = approvals
             .iter()
             .zip(stakes.iter())
-            .filter(|(_, (_, _, is_slashed))| !*is_slashed)
-            .map(|(approval, (stake, _, _))| if approval.is_some() { *stake } else { 0 })
+            .map(|(approval, (stake, _))| if approval.is_some() { *stake } else { 0 })
             .sum::<Balance>();
 
         let approved_stake2 = approvals
             .iter()
             .zip(stakes.iter())
-            .filter(|(_, (_, _, is_slashed))| !*is_slashed)
-            .map(|(approval, (_, stake, _))| if approval.is_some() { *stake } else { 0 })
+            .map(|(approval, (_, stake))| if approval.is_some() { *stake } else { 0 })
             .sum::<Balance>();
 
         (approved_stake1 > threshold1 || threshold1 == 0)
@@ -639,7 +631,7 @@ impl Doomslug {
     fn on_approval_message_internal(
         &mut self,
         approval: &Approval,
-        stakes: &[(ApprovalStake, bool)],
+        stakes: &[ApprovalStake],
     ) -> DoomslugBlockProductionReadiness {
         let threshold_mode = self.threshold_mode;
         let ret = self
@@ -662,7 +654,7 @@ impl Doomslug {
     }
 
     /// Processes single approval
-    pub fn on_approval_message(&mut self, approval: &Approval, stakes: &[(ApprovalStake, bool)]) {
+    pub fn on_approval_message(&mut self, approval: &Approval, stakes: &[ApprovalStake]) {
         if approval.target_height < self.tip.height
             || approval.target_height > self.tip.height + MAX_HEIGHTS_AHEAD_TO_STORE_APPROVALS
         {
@@ -824,7 +816,7 @@ mod tests {
             }
         }
 
-        // Not processing a block at height 2 should not produce an appoval
+        // Not processing a block at height 2 should not produce an approval
         ds.set_tip(hash(&[2]), 2, 0);
         clock.advance(Duration::milliseconds(400));
         assert_eq!(ds.process_timer(&signer), vec![]);
@@ -935,7 +927,6 @@ mod tests {
                 stake_next_epoch: *stake_next_epoch,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
-            .map(|stake| (stake, false))
             .collect::<Vec<_>>();
         let signers = accounts
             .iter()
@@ -1058,7 +1049,6 @@ mod tests {
                 stake_next_epoch,
                 public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
             })
-            .map(|stake| (stake, false))
             .collect::<Vec<_>>();
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut tracker = DoomslugApprovalsTrackersAtHeight::new(clock.clock());

@@ -351,7 +351,7 @@ fn run_loop_all_shards(
                             .set(1);
                         reset_num_parts_metrics(&chain_id, shard_id);
                     } else {
-                        // this check would be working on the same epoch as last check, so we don't reset the num parts metrics to 0 repeatedlyd
+                        // this check would be working on the same epoch as last check, so we don't reset the num parts metrics to 0 repeatedly
                         tracing::info!(
                             ?epoch_height,
                             ?parts_done,

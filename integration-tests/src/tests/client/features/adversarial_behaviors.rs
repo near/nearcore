@@ -1,28 +1,21 @@
-use std::collections::HashSet;
-
-use near_async::{
-    messaging::CanSend,
-    time::{FakeClock, Utc},
-};
+use near_async::messaging::CanSend;
+use near_async::time::{FakeClock, Utc};
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_chunks::{
-    shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
-    test_utils::ShardsManagerResendChunkRequests,
-};
+use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
+use near_chunks::test_utils::ShardsManagerResendChunkRequests;
 use near_client::test_utils::TestEnv;
-use near_network::{
-    shards_manager::ShardsManagerRequestFromNetwork,
-    types::{NetworkRequests, PeerManagerMessageRequest},
-};
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::{
-    shard_layout::ShardLayout,
-    types::{AccountId, EpochId, ShardId},
-};
-use near_primitives::{stateless_validation::ChunkProductionKey, utils::from_timestamp};
-use near_primitives_core::{checked_feature, version::PROTOCOL_VERSION};
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::types::{AccountId, EpochId, ShardId};
+use near_primitives::utils::from_timestamp;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use std::collections::HashSet;
 use tracing::log::debug;
 
 struct AdversarialBehaviorTestData {
@@ -105,6 +98,7 @@ impl AdversarialBehaviorTestData {
 
     fn process_all_actor_messages(&mut self) {
         loop {
+            // cspell:ignore hpmv
             // Force trigger any chunk request retries.
             // NOTE(hpmv): Additionally dial time forward to trigger a full fetch. Why? Probably
             // because during epoch transitions we don't exactly get this correct. But honestly,
@@ -205,9 +199,8 @@ fn slow_test_non_adversarial_case() {
     let final_prev_block_hash = test.env.clients[0].chain.head().unwrap().prev_block_hash;
     let final_epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
-    let final_block_producers = epoch_manager
-        .get_epoch_block_producers_ordered(&final_epoch_id, &final_prev_block_hash)
-        .unwrap();
+    let final_block_producers =
+        epoch_manager.get_epoch_block_producers_ordered(&final_epoch_id).unwrap();
     // No producers should be kicked out.
     assert_eq!(final_block_producers.len(), 4);
     let final_chunk_producers = epoch_manager.get_epoch_chunk_producers(&final_epoch_id).unwrap();
@@ -258,6 +251,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                     })
                     .unwrap()
                     .take_account_id();
+
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {
@@ -360,9 +354,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     let final_prev_block_hash = test.env.clients[0].chain.head().unwrap().prev_block_hash;
     let final_epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
-    let final_block_producers = epoch_manager
-        .get_epoch_block_producers_ordered(&final_epoch_id, &final_prev_block_hash)
-        .unwrap();
+    let final_block_producers =
+        epoch_manager.get_epoch_block_producers_ordered(&final_epoch_id).unwrap();
     assert!(final_block_producers.len() >= 3); // 3 validators if the bad validator was a block producer
     let final_chunk_producers = epoch_manager.get_epoch_chunk_producers(&final_epoch_id).unwrap();
     assert_eq!(final_chunk_producers.len(), 7);
@@ -370,19 +363,23 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
 #[test]
 #[cfg(feature = "test_features")]
-fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
+fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
-    test.env.clients[7].produce_invalid_chunks = true;
+    test.env.clients[7].chunk_producer.produce_invalid_chunks = true;
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
 
 #[test]
 #[cfg(feature = "test_features")]
-#[cfg_attr(feature = "protocol_feature_relaxed_chunk_validation", ignore)]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
-    init_test_logger();
-    let mut test = AdversarialBehaviorTestData::new();
-    test.env.clients[7].produce_invalid_tx_in_chunks = true;
-    test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
+    let relaxed_chunk_validation =
+        checked_feature!("stable", RelaxedChunkValidation, PROTOCOL_VERSION);
+    if !relaxed_chunk_validation {
+        init_test_logger();
+        let mut test = AdversarialBehaviorTestData::new();
+        test.env.clients[7].chunk_producer.produce_invalid_tx_in_chunks = true;
+        test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
+    }
+    // Otherwise the chunks aren't considered invalid and there will be no banning.
 }

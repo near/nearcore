@@ -18,6 +18,7 @@ use std::sync::Arc;
 pub(crate) struct AnalyzeContractSizesCommand {
     /// Show top N contracts by size.
     #[arg(short, long, default_value_t = 50)]
+    // cspell:words topn
     topn: usize,
 
     /// Compress contract code before calculating size.
@@ -82,8 +83,8 @@ impl AnalyzeContractSizesCommand {
         let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
             store.clone(),
-            near_config.genesis.config.genesis_height,
             false,
+            near_config.genesis.config.transaction_validity_period,
         ));
 
         let head = chain_store.head().unwrap();

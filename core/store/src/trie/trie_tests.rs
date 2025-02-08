@@ -3,10 +3,10 @@ use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::trie::TrieNodesCount;
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
-use near_primitives::challenge::PartialState;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::state::PartialState;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -211,9 +211,10 @@ mod trie_storage_tests {
     use crate::adapter::StoreAdapter;
     use crate::test_utils::create_test_store;
     use crate::trie::accounting_cache::TrieAccountingCache;
+    use crate::trie::iterator::TrieIterator;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountAddition;
-    use crate::{TrieChanges, TrieConfig, TrieIterator};
+    use crate::{TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::hash;
@@ -472,7 +473,7 @@ mod trie_storage_tests {
 
     // Checks that when non-existent key is removed, only nodes along the path
     // to it is recorded.
-    // Needed because old disk trie logic was always reading neighbouring children
+    // Needed because old disk trie logic was always reading neighboring children
     // along the path to recompute memory usages, which is not needed if trie
     // structure doesn't change.
     #[test]

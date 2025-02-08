@@ -51,6 +51,7 @@ class NodeHandle:
         self.node.init_python()
         self.node.start_neard_runner()
 
+    # cspell:ignore culted
     # TODO: is the validators RPC the best way to do this? What are we trying to
     # test for exactly? The use of this is basically just cargo culted from a while ago,
     # but maybe we should consider something else

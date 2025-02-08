@@ -156,7 +156,7 @@ use rand_chacha::ChaCha20Rng;
 /// How many bytes of outgoing receipts can be sent from one shard to another at the current height.
 /// Produced by the bandwidth scheduler.
 pub struct GrantedBandwidth {
-    granted: BTreeMap<(ShardId, ShardId), Bandwidth>,
+    pub granted: BTreeMap<(ShardId, ShardId), Bandwidth>,
 }
 
 impl GrantedBandwidth {
@@ -763,12 +763,7 @@ mod tests {
         let shard_layout = ShardLayout::multi_shard(num_shards, 0);
 
         // Standard params
-        let params = BandwidthSchedulerParams {
-            base_bandwidth: 50_000,
-            max_shard_bandwidth: 4_500_000,
-            max_receipt_size: 4 * 1024 * 1024,
-            max_allowance: 4_500_000,
-        };
+        let params = BandwidthSchedulerParams::for_test(num_shards);
 
         // Every link has a different allowance, which should make the `requests_by_allowance` BTreeMap
         // as large as possible.

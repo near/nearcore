@@ -3,7 +3,7 @@ use crate::metrics;
 use actix_rt::Arbiter;
 use anyhow::Context;
 use borsh::BorshSerialize;
-use futures::future::BoxFuture;
+use futures::future::{select_all, BoxFuture};
 use futures::{FutureExt, StreamExt};
 use near_async::futures::{respawn_for_parallelism, FutureSpawner};
 use near_async::time::{Clock, Duration, Interval};
@@ -11,7 +11,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
-    create_bucket_readwrite, external_storage_location, StateFileType,
+    create_bucket_read_write, external_storage_location, StateFileType,
 };
 use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
@@ -71,7 +71,7 @@ impl StateSyncDumper {
 
         let external = match dump_config.location {
             ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3 {
-                bucket: Arc::new(create_bucket_readwrite(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
+                bucket: Arc::new(create_bucket_read_write(&bucket, &region, std::time::Duration::from_secs(30), dump_config.credentials_file).expect(
                     "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
             },
             ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
@@ -222,7 +222,7 @@ struct ShardDump {
     parts_missing: Arc<RwLock<HashSet<u64>>>,
     // This will give Ok(()) when they're all done, or Err() when one gives an error
     // For now the tasks never fail, since we just retry all errors like the old implementation did,
-    // but we probably want to make a change to distinguish which errors are actually retriable
+    // but we probably want to make a change to distinguish which errors are actually retryable
     // (e.g. the state snapshot isn't ready yet)
     upload_parts: oneshot::Receiver<anyhow::Result<()>>,
 }
@@ -290,7 +290,7 @@ enum NewDump {
 /// `ShardDump` struct, which we check in `check_parts_upload()`.
 ///
 /// Separately, every so often we check whether there's a new epoch to dump state for (in `check_head()`) and whether other processes
-/// have uploaded some state parts that we can therfore skip (in `check_stored_parts()`).
+/// have uploaded some state parts that we can therefore skip (in `check_stored_parts()`).
 struct StateDumper {
     clock: Clock,
     chain_id: String,
@@ -350,7 +350,7 @@ impl PartUploader {
     /// Attempt to generate the state part for `self.epoch_id`, `self.shard_id` and `part_idx`, and upload it to
     /// the external storage. The state part generation is limited by the number of permits allocated to the `obtain_parts`
     /// Semaphore. For now, this always returns OK(()) (loops forever retrying in case of errors), but this should be changed
-    /// to return Err() if the error is not going to be retriable.
+    /// to return Err() if the error is not going to be retryable.
     async fn upload_state_part(self: Arc<Self>, part_idx: u64) -> anyhow::Result<()> {
         if !self.parts_missing.read().unwrap().contains(&part_idx) {
             self.inc_parts_dumped();
@@ -379,7 +379,7 @@ impl PartUploader {
                     break state_part;
                 }
                 Err(error) => {
-                    // TODO: return non retriable errors.
+                    // TODO: return non retryable errors.
                     tracing::warn!(
                         target: "state_sync_dump",
                         shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, ?error,
@@ -430,6 +430,39 @@ impl PartUploader {
             }
         }
     }
+
+    /// Enumerate all state parts in the shard and spawn a future for each that will obtain and upload it,
+    /// then send the result on `sender` when it's done
+    async fn dump_shard_state(
+        self: Arc<Self>,
+        sender: oneshot::Sender<anyhow::Result<()>>,
+        future_spawner: Arc<dyn FutureSpawner>,
+    ) {
+        let mut parts = (0..self.num_parts).collect::<Vec<_>>();
+        // We randomize so different nodes uploading parts don't try to upload in the same order
+        parts.shuffle(&mut thread_rng());
+
+        let mut tasks = tokio_stream::iter(parts)
+            .map(|part_id| {
+                let me = self.clone();
+                let task = me.upload_state_part(part_id);
+                respawn_for_parallelism(&*future_spawner, "upload part", task)
+            })
+            .buffer_unordered(5);
+
+        while let Some(result) = tasks.next().await {
+            if result.is_err() {
+                let _ = sender.send(result);
+                // Any remaining upload_state_part() tasks will exit when they read the `canceled` variable,
+                // and we'll drop anything still left to be started in `tasks`.
+                // However if upload_state_part() doesn't return because it's looping retrying an error, we won't finish
+                // dumping this shard's state, and the task will stay around until the `canceled` variable is set when
+                // the next epoch starts.
+                return;
+            }
+        }
+        let _ = sender.send(Ok(()));
+    }
 }
 
 // Stores needed data for use in header upload futures
@@ -444,7 +477,7 @@ struct HeaderUploader {
 impl HeaderUploader {
     /// Attempt to generate the state header for `self.epoch_id` and `self.shard_id`, and upload it to
     /// the external storage. For now, this always returns OK(()) (loops forever retrying in case of errors),
-    /// but this should be changed to return Err() if the error is not going to be retriable.
+    /// but this should be changed to return Err() if the error is not going to be retryable.
     async fn upload_header(self: Arc<Self>, shard_id: ShardId, header: Option<Vec<u8>>) {
         let Some(header) = header else {
             return;
@@ -581,8 +614,11 @@ impl StateDumper {
         shard_id: ShardId,
         sync_hash: &CryptoHash,
     ) -> anyhow::Result<(ShardDump, oneshot::Sender<anyhow::Result<()>>)> {
-        let state_header =
-            self.chain.get_state_response_header(shard_id, *sync_hash).with_context(|| {
+        let state_header = self
+            .chain
+            .state_sync_adapter
+            .get_state_response_header(shard_id, *sync_hash)
+            .with_context(|| {
                 format!("Failed getting state response header for {} {}", shard_id, sync_hash)
             })?;
         let state_root = state_header.chunk_prev_state_root();
@@ -743,88 +779,53 @@ impl StateDumper {
     /// when all parts have been uploaded for the shard.
     async fn start_upload_parts(
         &mut self,
-        senders: HashMap<ShardId, oneshot::Sender<anyhow::Result<()>>>,
+        mut senders: HashMap<ShardId, oneshot::Sender<anyhow::Result<()>>>,
         dump: &DumpState,
     ) {
-        let mut senders = senders
-            .into_iter()
-            .map(|(shard_id, sender)| {
-                let d = dump.dump_state.get(&shard_id).unwrap();
-                (shard_id, (sender, d.num_parts))
-            })
-            .collect::<HashMap<_, _>>();
-        let mut empty_shards = HashSet::new();
-        let uploaders = dump
+        debug_assert_eq!(
+            senders.keys().collect::<HashSet<_>>(),
+            dump.dump_state.keys().collect::<HashSet<_>>()
+        );
+
+        // cspell:words uploaders
+        let mut uploaders = dump
             .dump_state
             .iter()
             .filter_map(|(shard_id, shard_dump)| {
                 metrics::STATE_SYNC_DUMP_NUM_PARTS_DUMPED
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
-                if shard_dump.num_parts > 0 {
-                    Some(Arc::new(PartUploader {
-                        clock: self.clock.clone(),
-                        external: self.external.clone(),
-                        runtime: self.runtime.clone(),
-                        chain_id: self.chain_id.clone(),
-                        epoch_id: dump.epoch_id,
-                        epoch_height: dump.epoch_height,
-                        sync_prev_prev_hash: dump.sync_prev_prev_hash,
-                        shard_id: *shard_id,
-                        state_root: shard_dump.state_root,
-                        num_parts: shard_dump.num_parts,
-                        parts_dumped: shard_dump.parts_dumped.clone(),
-                        parts_missing: shard_dump.parts_missing.clone(),
-                        obtain_parts: self.obtain_parts.clone(),
-                        canceled: dump.canceled.clone(),
-                    }))
-                } else {
-                    empty_shards.insert(shard_id);
-                    None
+
+                let sender = senders.remove(shard_id).unwrap();
+                if shard_dump.num_parts == 0 {
+                    let _ = sender.send(Ok(()));
+                    return None;
                 }
+                let uploader = Arc::new(PartUploader {
+                    clock: self.clock.clone(),
+                    external: self.external.clone(),
+                    runtime: self.runtime.clone(),
+                    chain_id: self.chain_id.clone(),
+                    epoch_id: dump.epoch_id,
+                    epoch_height: dump.epoch_height,
+                    sync_prev_prev_hash: dump.sync_prev_prev_hash,
+                    shard_id: *shard_id,
+                    state_root: shard_dump.state_root,
+                    num_parts: shard_dump.num_parts,
+                    parts_dumped: shard_dump.parts_dumped.clone(),
+                    parts_missing: shard_dump.parts_missing.clone(),
+                    obtain_parts: self.obtain_parts.clone(),
+                    canceled: dump.canceled.clone(),
+                });
+                let dump_shard = uploader.dump_shard_state(sender, self.future_spawner.clone());
+                Some(dump_shard.boxed())
             })
             .collect::<Vec<_>>();
-        for shard_id in empty_shards {
-            let (sender, _) = senders.remove(shard_id).unwrap();
-            let _ = sender.send(Ok(()));
-        }
-        assert_eq!(senders.len(), uploaders.len());
 
-        let mut tasks = uploaders
-            .iter()
-            .map(|u| (0..u.num_parts).map(|part_id| (u.clone(), part_id)))
-            .flatten()
-            .collect::<Vec<_>>();
-        // We randomize so different nodes uploading parts don't try to upload in the same order
-        tasks.shuffle(&mut thread_rng());
-
-        let future_spawner = self.future_spawner.clone();
         let fut = async move {
-            let mut tasks = tokio_stream::iter(tasks)
-                .map(|(u, part_id)| {
-                    let shard_id = u.shard_id;
-                    let task = u.upload_state_part(part_id);
-                    let task = respawn_for_parallelism(&*future_spawner, "upload part", task);
-                    async move { (shard_id, task.await) }
-                })
-                .buffer_unordered(10);
-
-            while let Some((shard_id, result)) = tasks.next().await {
-                let std::collections::hash_map::Entry::Occupied(mut e) = senders.entry(shard_id)
-                else {
-                    panic!("shard ID {} missing in state dump handles", shard_id);
-                };
-                let (_, parts_left) = e.get_mut();
-                if result.is_err() {
-                    let (sender, _) = e.remove();
-                    let _ = sender.send(result);
-                    return;
-                }
-                *parts_left -= 1;
-                if *parts_left == 0 {
-                    let (sender, _) = e.remove();
-                    let _ = sender.send(result);
-                }
+            while !uploaders.is_empty() {
+                let (_output, _idx, remaining) = select_all(uploaders).await;
+                uploaders = remaining;
             }
         };
         self.future_spawner.spawn_boxed("upload_parts", fut.boxed());
@@ -895,10 +896,17 @@ impl StateDumper {
                 .boxed()
             }))
             .await;
-        result?;
+
         drop(_still_going);
 
-        tracing::info!(target: "state_sync_dump", epoch_id = ?&dump.epoch_id, %shard_id, "Shard dump finished");
+        match result {
+            Ok(()) => {
+                tracing::info!(target: "state_sync_dump", epoch_id = ?&dump.epoch_id, %shard_id, "Shard dump finished");
+            }
+            Err(error) => {
+                tracing::error!(target: "state_sync_dump", epoch_id = ?&dump.epoch_id, %shard_id, ?error, "Shard dump failed");
+            }
+        }
 
         self.chain
             .chain_store()
@@ -939,6 +947,10 @@ impl StateDumper {
                 if &dump.epoch_id == sync_header.epoch_id() {
                     return Ok(());
                 }
+                tracing::warn!(
+                    target: "state_sync_dump", "Canceling existing dump of state for epoch {} upon new epoch {}",
+                    &dump.epoch_id.0, &sync_header.epoch_id().0,
+                );
                 dump.canceled.store(true, Ordering::Relaxed);
                 for (_shard_id, d) in dump.dump_state.iter() {
                     // Set it to -1 to tell the existing tasks not to set the metrics anymore

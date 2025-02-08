@@ -2,15 +2,15 @@ use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
     total_prepaid_gas, total_prepaid_send_fees,
 };
-use crate::safe_add_balance_apply;
-use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
+use crate::{safe_add_balance_apply, SignedValidPeriodTransactions};
+use crate::{DelayedReceiptIndices, ValidatorAccountsUpdate};
 use near_parameters::{ActionCosts, RuntimeConfig};
+use near_primitives::chunk_apply_stats::BalanceStats;
 use near_primitives::errors::{
     BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum, ReceiptOrStateStoredReceipt};
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -66,7 +66,9 @@ fn receipt_cost(
             }
             total_cost
         }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::GlobalContractDistribution(_)
+        | ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 
@@ -180,11 +182,11 @@ fn all_touched_accounts(
     incoming_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
-    transactions: &[SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'_>,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
 ) -> Result<HashSet<AccountId>, RuntimeError> {
     let mut all_accounts_ids: HashSet<AccountId> = transactions
-        .iter()
+        .iter_nonexpired_transactions()
         .map(|tx| tx.transaction.signer_id().clone())
         .chain(incoming_receipts.iter().map(|r| r.receiver_id().clone()))
         .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id().clone()))
@@ -259,6 +261,7 @@ fn potential_postponed_receipt_ids(
                     account_id.clone(),
                     data_receipt.data_id,
                 ))),
+                ReceiptEnum::GlobalContractDistribution(_) => None,
             }
         })
         .collect::<Result<HashSet<_>, StorageError>>()
@@ -277,9 +280,9 @@ pub(crate) fn check_balance(
     incoming_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
-    transactions: &[SignedTransaction],
+    transactions: SignedValidPeriodTransactions<'_>,
     outgoing_receipts: &[Receipt],
-    stats: &ApplyStats,
+    stats: &BalanceStats,
 ) -> Result<(), RuntimeError> {
     let initial_state = final_state.trie();
 
@@ -388,14 +391,13 @@ pub(crate) fn check_balance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ApplyStats;
     use near_crypto::InMemorySigner;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{
         ActionReceipt, BufferedReceiptIndices, ReceiptPriority, ReceiptV0, TrieQueueIndices,
     };
     use near_primitives::test_utils::account_new;
-    use near_primitives::transaction::{Action, TransferAction};
+    use near_primitives::transaction::{Action, SignedTransaction, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{set, set_account, Trie};
@@ -422,9 +424,9 @@ mod tests {
             &[],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &[],
-            &[],
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap();
     }
@@ -441,9 +443,9 @@ mod tests {
             &[Receipt::new_balance_refund(&alice_account(), 1000, ReceiptPriority::NoPriority)],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &[],
-            &[],
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap_err();
         assert_matches!(err, RuntimeError::BalanceMismatchError(_));
@@ -506,9 +508,9 @@ mod tests {
             )],
             &[],
             &[],
+            SignedValidPeriodTransactions::empty(),
             &[],
-            &[],
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap();
     }
@@ -555,9 +557,9 @@ mod tests {
             &[],
             &[],
             &[],
-            &[tx],
+            SignedValidPeriodTransactions::new(&[tx], &[true]),
             &[receipt],
-            &ApplyStats {
+            &BalanceStats {
                 tx_burnt_amount: total_validator_reward,
                 gas_deficit_amount: 0,
                 other_burnt_amount: 0,
@@ -608,7 +610,6 @@ mod tests {
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
         // We use `u128::MAX - 1`, because `u128::MAX` is used as a sentinel value for accounts version 2 or higher.
-        // See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
         let alice = account_new(u128::MAX - 1, hash(&[]));
         let bob = account_new(2u128, hash(&[]));
 
@@ -628,17 +629,16 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                &[tx],
+                SignedValidPeriodTransactions::new(&[tx], &[true]),
                 &[],
-                &ApplyStats::default(),
+                &BalanceStats::default(),
             ),
             Err(RuntimeError::UnexpectedIntegerOverflow(_))
         );
     }
 
     /// This tests shows what would happen if the total balance becomes u128::MAX
-    /// which is also the sentinel value use to distinguish between accounts version 1 and 2 or higher
-    /// See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
+    /// which is also the sentinel value use to distinguish between accounts version 1 and 2 or higher.
     #[test]
     fn test_total_balance_u128_max() {
         let tries = TestTriesBuilder::new().build();
@@ -671,9 +671,9 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                &[tx],
+                SignedValidPeriodTransactions::new(&[tx], &[true]),
                 &[],
-                &ApplyStats::default(),
+                &BalanceStats::default(),
             ),
             Err(RuntimeError::BalanceMismatchError { .. })
         );
@@ -751,9 +751,9 @@ mod tests {
             &[],
             &[],
             &[],
-            &[tx],
+            SignedValidPeriodTransactions::new(&[tx], &[true]),
             &[],
-            &ApplyStats {
+            &BalanceStats {
                 // send gas was burnt on this shard, exec gas is part of the receipt value
                 tx_burnt_amount: send_gas as Balance * gas_price,
                 gas_deficit_amount: 0,
@@ -822,9 +822,9 @@ mod tests {
             &[],
             &[],
             &[],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &outgoing_receipts,
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap();
     }
@@ -886,9 +886,9 @@ mod tests {
             &[],
             &[],
             &[],
-            &[],
+            SignedValidPeriodTransactions::empty(),
             &outgoing_receipts,
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         );
         assert_matches!(result, Err(RuntimeError::BalanceMismatchError { .. }));
     }

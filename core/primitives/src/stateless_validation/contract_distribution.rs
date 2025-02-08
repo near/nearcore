@@ -9,13 +9,13 @@ use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::{AccountId, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
+use super::ChunkProductionKey;
 #[cfg(feature = "solomon")]
 use crate::reed_solomon::{ReedSolomonEncoderDeserialize, ReedSolomonEncoderSerialize};
+use crate::types::SignatureDifferentiator;
 use crate::{utils::compression::CompressedData, validator_signer::ValidatorSigner};
 
-use super::{ChunkProductionKey, SignatureDifferentiator};
-
-// Data structures for chunk producers to send accessesed contracts to chunk validators.
+// Data structures for chunk producers to send accessed contracts to chunk validators.
 
 /// Contains contracts (as code-hashes) accessed during the application of a chunk.
 /// This is used by the chunk producer to let the chunk validators know about which contracts
@@ -25,7 +25,7 @@ pub enum ChunkContractAccesses {
     V1(ChunkContractAccessesV1),
 }
 
-/// Contains information necessary to indentify StateTransitionData in the storage.
+/// Contains information necessary to identify StateTransitionData in the storage.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub struct MainTransitionKey {
     pub block_hash: CryptoHash,
@@ -123,7 +123,7 @@ impl ChunkContractAccessesInner {
 // Data structures for chunk validators to request contract code from chunk producers.
 
 /// Message to request missing code for a set of contracts.
-/// The contracts are idenfied by the hash of their code.
+/// The contracts are identified by the hash of their code.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, ProtocolSchema)]
 pub enum ContractCodeRequest {
     V1(ContractCodeRequestV1),
@@ -370,7 +370,7 @@ impl Into<ContractCode> for CodeBytes {
 }
 
 /// Contains the accesses and changes (eg. deployments) to the contracts while applying a chunk.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ContractUpdates {
     /// Code-hashes of the contracts accessed (called) while applying the chunk.
     pub contract_accesses: HashSet<CodeHash>,

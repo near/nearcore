@@ -6,7 +6,7 @@ changed, but the documentation is not up-to-date yet.
 The philosophy of Wasmer was to be very modular by design. It's
 composed of a set of crates. We can group them as follows:
 
-* `api` — The public Rust API exposes everything a user needs to use Wasmer programatically through
+* `api` — The public Rust API exposes everything a user needs to use Wasmer programmatically through
   the `wasmer` crate,
 * `cache` — The traits and types to cache compiled WebAssembly modules,
 * `cli` — The Wasmer CLI itself,
@@ -15,7 +15,7 @@ composed of a set of crates. We can group them as follows:
   * `compiler-singlepass` — A WebAssembly compiler based on our own compilation infrastructure;
     recommended for compilation-time speed performance.
 * `derive` — A set of procedural macros used inside Wasmer,
-* `engine` — The general abstraction for creating an engine, which is responsible of leading the
+* `engine` — The general abstraction for creating an engine, which is responsible for leading the
   compiling and running flow. Using the same compiler, the runtime performance will be
   approximately the same, however the way it stores and loads the executable code will differ:
   * `engine-universal` — stores the code in a custom file format, and loads it in memory,

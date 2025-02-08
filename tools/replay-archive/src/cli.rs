@@ -7,7 +7,7 @@ use near_chain::chain::{
     ShardContext, StorageContext,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::sharding::shuffle_receipt_proofs;
+use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
 use near_chain::types::StorageDataSource;
@@ -16,10 +16,12 @@ use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
 use near_chain::{
-    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+    get_incoming_receipts_for_shard, Block, BlockHeader, Chain, ChainGenesis, ChainStore,
+    ChainStoreAccess, ReceiptFilter,
 };
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;
@@ -116,7 +118,11 @@ impl ReplayController {
         let store = Store::new(storage.clone());
 
         let genesis_height = near_config.genesis.config.genesis_height;
-        let chain_store = ChainStore::new(store.clone(), genesis_height, false);
+        let chain_store = ChainStore::new(
+            store.clone(),
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
 
         let head_height = chain_store.head().context("Failed to get head of the chain")?.height;
         let start_height = start_height.unwrap_or(genesis_height);
@@ -241,9 +247,7 @@ impl ReplayController {
             let prev_chunk_header = &prev_chunk_headers[shard_id];
             let epoch_id = block.header().epoch_id();
             let shard_id: ShardId = shard_id.try_into()?;
-            let shard_uid = self
-                .epoch_manager
-                .shard_id_to_uid(shard_id, epoch_id)
+            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)
                 .context("Failed to get shard UID from shard id")?;
             let replay_output = self
                 .replay_chunk(
@@ -341,6 +345,8 @@ impl ReplayController {
             ShardUpdateReason::NewChunk(NewChunkData {
                 chunk_header: chunk_header.clone(),
                 transactions: chunk.transactions().to_vec(),
+                // FIXME: see the `validate_chunk` thing above.
+                transaction_validity_check_results: vec![true; chunk.transactions().len()],
                 receipts,
                 block: block_context,
                 is_first_block_with_chunk_of_version,
@@ -388,7 +394,8 @@ impl ReplayController {
     ) -> Result<Vec<Receipt>> {
         let shard_layout =
             self.epoch_manager.get_shard_layout_from_prev_block(block_header.prev_hash())?;
-        let receipt_response = &self.chain_store.get_incoming_receipts_for_shard(
+        let receipt_response = get_incoming_receipts_for_shard(
+            &self.chain_store,
             self.epoch_manager.as_ref(),
             shard_id,
             &shard_layout,
@@ -396,7 +403,7 @@ impl ReplayController {
             prev_chunk_height_included,
             ReceiptFilter::TargetShard,
         )?;
-        let receipts = collect_receipts_from_response(receipt_response);
+        let receipts = collect_receipts_from_response(&receipt_response);
         Ok(receipts)
     }
 
@@ -421,7 +428,7 @@ impl ReplayController {
         prev_chunk_header: &ShardChunkHeader,
         prev_chunk_extra: &ChunkExtra,
     ) -> Result<()> {
-        // Check if the information in the ChunkExtra recorded after applying the previuous chunk matches the information in the new chunk.
+        // Check if the information in the ChunkExtra recorded after applying the previous chunk matches the information in the new chunk.
         if is_new_chunk {
             validate_chunk_with_chunk_extra(
                 &self.chain_store,
@@ -438,6 +445,8 @@ impl ReplayController {
         {
             bail!("Failed to validate chunk proofs");
         }
+        // FIXME: this should be using Chain::validate_chunk_transactions instead of doing its own
+        // thing?
         if !validate_transactions_order(chunk.transactions()) {
             bail!("Failed to validate transactions order in the chunk");
         }
@@ -483,8 +492,9 @@ impl ReplayController {
         }
 
         let mut store_update = self.chain_store.store_update();
+        let receipts_shuffle_salt = get_receipts_shuffle_salt(self.epoch_manager.as_ref(), block)?;
         for (shard_id, mut receipts) in receipt_proofs_by_shard_id.into_iter() {
-            shuffle_receipt_proofs(&mut receipts, block_hash);
+            shuffle_receipt_proofs(&mut receipts, receipts_shuffle_salt);
             store_update.save_incoming_receipt(&block_hash, shard_id, Arc::new(receipts));
         }
         store_update.commit().unwrap();
@@ -503,7 +513,7 @@ impl ReplayController {
     /// from the information in the genesis block without applying any transactions or receipts.
     fn save_genesis_chunk_extras(&mut self, genesis_block: &Block) -> Result<()> {
         let chain_genesis = ChainGenesis::new(&self.near_config.genesis.config);
-        let state_roots = get_genesis_state_roots(self.chain_store.store())?
+        let state_roots = get_genesis_state_roots(&self.chain_store.store())?
             .ok_or_else(|| anyhow!("genesis state roots do not exist in the db".to_owned()))?;
         let mut store_update = self.chain_store.store_update();
         Chain::save_genesis_chunk_extras(

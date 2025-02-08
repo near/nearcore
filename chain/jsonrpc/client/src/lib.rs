@@ -97,6 +97,7 @@ where
 /// Expands a variable list of parameters into its serializable form. Is needed to make the params
 /// of a nullary method equal to `[]` instead of `()` and thus make sure it serializes to `[]`
 /// instead of `null`.
+/// cspell:ignore nullary
 #[doc(hidden)]
 macro_rules! expand_params {
     () => ([] as [(); 0]);
@@ -105,6 +106,7 @@ macro_rules! expand_params {
 
 /// Generates a simple HTTP client with automatic serialization and deserialization.
 /// Method calls get correct types automatically.
+/// cspell:ignore selff
 macro_rules! http_client {
     (
         $(#[$struct_attr:meta])*

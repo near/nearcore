@@ -219,3 +219,7 @@ max_tx_gas                               500_000_000_000_000
 min_tx_gas                                20_000_000_000_000
 reject_tx_congestion_threshold          80 / 100
 use_state_stored_receipt                true
+max_shard_bandwidth                                4_500_000
+max_single_grant                                   4_194_304
+max_allowance                                      4_500_000
+max_base_bandwidth                                   100_000

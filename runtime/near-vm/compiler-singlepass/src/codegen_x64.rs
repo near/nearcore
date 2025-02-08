@@ -1191,7 +1191,7 @@ impl<'a> FuncGen<'a> {
             );
             if (stack_offset % 8) != 0 {
                 return Err(CodegenError {
-                    message: "emit_call_native: Bad restoring stack alignement".to_string(),
+                    message: "emit_call_native: Bad restoring stack alignment".to_string(),
                 });
             }
         }

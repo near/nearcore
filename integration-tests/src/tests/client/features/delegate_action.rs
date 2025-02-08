@@ -133,7 +133,7 @@ fn check_meta_tx_execution(
         .get_access_key(&relayer, &PublicKey::from_seed(KeyType::ED25519, relayer.as_ref()))
         .unwrap()
         .nonce;
-    let user_pubk = match sender.get_account_type() {
+    let user_pub_key = match sender.get_account_type() {
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, protocol_version) {
@@ -144,7 +144,7 @@ fn check_meta_tx_execution(
         }
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
-    let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
+    let user_nonce_before = node_user.get_access_key(&sender, &user_pub_key).unwrap().nonce;
 
     let tx_result =
         node_user.meta_tx(sender.clone(), receiver.clone(), relayer.clone(), actions).unwrap();
@@ -692,7 +692,7 @@ fn ft_transfer_event(sender: &str, receiver: &str, amount: u128) -> String {
     // the string comparison.
     // (Note: parsing the logs as JSON and comparing serde_json::Value instead
     // of string is not possible because the logs are only partially valid
-    // JOSN...)
+    // JSON...)
     let data_json = format!(
         r#"[{{"old_owner_id":"{sender}","new_owner_id":"{receiver}","amount":"{amount}"}}]"#
     );

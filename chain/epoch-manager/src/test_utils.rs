@@ -299,9 +299,8 @@ pub fn setup_epoch_manager_with_block_and_chunk_producers(
     )
     .unwrap();
     // Sanity check that the election results are indeed as expected.
-    let actual_block_producers = epoch_manager
-        .get_all_block_producers_ordered(&EpochId::default(), &CryptoHash::default())
-        .unwrap();
+    let actual_block_producers =
+        epoch_manager.get_all_block_producers_ordered(&EpochId::default()).unwrap();
     assert_eq!(actual_block_producers.len(), block_producers.len());
     let actual_chunk_producers =
         epoch_manager.get_all_chunk_producers(&EpochId::default()).unwrap();

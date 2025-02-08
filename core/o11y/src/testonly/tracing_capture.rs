@@ -42,7 +42,7 @@ impl TracingCapture {
     ///
     /// The intended use-case is for testing multithreaded code: by *blocking*
     /// in the `on_log` for specific log-lines, the test can maneuver the
-    /// threads into particularly interesting interleavings.
+    /// threads into particularly interesting interleaving.
     pub fn set_callback(&mut self, on_log: impl Fn(&str) + Send + Sync + 'static) {
         self.captured.lock().unwrap().on_log = Arc::new(on_log)
     }

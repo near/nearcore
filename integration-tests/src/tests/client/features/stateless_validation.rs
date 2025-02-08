@@ -74,7 +74,7 @@ fn run_chunk_validation_test(
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
         num_block_producer_seats: num_validators as NumSeats,
-        // Each shard has 2 chunk prducers, so 4 shards, 8 chunk producers total.
+        // Each shard has 2 chunk producers, so 4 shards, 8 chunk producers total.
         minimum_validators_per_shard: 2,
         // Even though not used for the most recent protocol version,
         // this must still have the same length as the number of shards,
@@ -110,14 +110,7 @@ fn run_chunk_validation_test(
         let staked = if i < num_validators { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(
-                initial_balance,
-                staked,
-                0,
-                CryptoHash::default(),
-                0,
-                genesis_protocol_version,
-            ),
+            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),

@@ -109,7 +109,7 @@ pub enum ProcessTxResponse {
     InvalidTx(InvalidTxError),
     /// The request is routed to other shards
     RequestRouted,
-    /// The node being queried does not track the shard needed and therefore cannot provide userful
+    /// The node being queried does not track the shard needed and therefore cannot provide useful
     /// response.
     DoesNotTrackShard,
 }

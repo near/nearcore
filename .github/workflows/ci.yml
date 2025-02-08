@@ -270,6 +270,12 @@ jobs:
           tool: just
       - run: just doctests
 
+  spellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: streetsidesoftware/cspell-action@v6
+
   check_cargo_deny:
     name: "Cargo Deny"
     runs-on: ubuntu-latest
@@ -388,7 +394,7 @@ jobs:
           pattern: coverage-codecov-*
           merge-multiple: true
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
-      # codecov will send a comment only after having receidev this number of uploads.
+      # codecov will send a comment only after having received this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: unit-linux.json

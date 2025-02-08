@@ -62,6 +62,7 @@ Note how the output looks a bit different now. The `i`, `r` and `w` values show
 instruction count, read IO bytes, and write IO bytes respectively. The IO byte
 count is known to be inaccurate.
 
+<!-- cspell:ignore libcounter Haswell -->
 ```
 + /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/qemu-x86_64 -plugin file=/host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so -cpu Haswell-v4 /host/nearcore/target/release/runtime-params-estimator --home /.near --accounts-num 20000 --iters 3 --warmup-iters 1 --metric icount --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase --skip-build-test-contract --additional-accounts-num 0 --in-memory-db
 ActionReceiptCreation         214_581_685_500 gas [  1716653.48i 0.00r 0.00w]     (computed in 6.11s)

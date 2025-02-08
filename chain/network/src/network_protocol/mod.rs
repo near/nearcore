@@ -179,7 +179,7 @@ impl VersionedAccountData {
     /// intermediate SerializedAccountData type) so that sign() then could fail only
     /// due to account_id mismatch. Then instead of panicking we could return an error
     /// and the caller (who constructs the arguments) would do an unwrap(). This would
-    /// consistute a cleaner never-panicking interface.
+    /// constitute a cleaner never-panicking interface.
     pub fn sign(self, signer: &ValidatorSigner) -> anyhow::Result<SignedAccountData> {
         assert_eq!(
             self.account_key,
@@ -625,7 +625,7 @@ impl fmt::Debug for RoutedMessageBody {
                 response.chunk_hash,
                 response.parts.iter().map(|p| p.part_ord).collect::<Vec<_>>()
             ),
-            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartiaEncodedChunk"),
+            RoutedMessageBody::_UnusedPartialEncodedChunk => write!(f, "PartialEncodedChunk"),
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
@@ -703,7 +703,7 @@ pub struct RoutedMessageV2 {
     pub msg: RoutedMessage,
     /// The time the Routed message was created by `author`.
     pub created_at: Option<time::Utc>,
-    /// Number of peers this routed message travelled through.
+    /// Number of peers this routed message traveled through.
     /// Doesn't include the peers that are the source and the destination of the message.
     pub num_hops: u32,
 }

@@ -77,7 +77,7 @@ fn ultra_slow_test_block_unknown_block_error() {
 }
 
 // Queries json-rpc chunk that doesn't exists
-// (randomish chunk hash, we hope it won't happen in test case)
+// (random-ish chunk hash, we hope it won't happen in test case)
 // Checks if the struct is expected and contains the proper data
 #[test]
 fn ultra_slow_test_chunk_unknown_chunk_error() {

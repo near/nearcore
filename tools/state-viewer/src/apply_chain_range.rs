@@ -6,8 +6,11 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
+use near_chain::{
+    get_incoming_receipts_for_shard, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
+};
 use near_chain_configs::Genesis;
+use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::receipt::DelayedReceiptIndices;
@@ -19,6 +22,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
+use node_runtime::SignedValidPeriodTransactions;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
@@ -73,7 +77,7 @@ fn apply_block_from_range(
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the read store anyway
     let mut read_chain_store =
-        ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
+        ChainStore::new(read_store.clone(), false, genesis.config.transaction_validity_period);
     let block_hash = match read_chain_store.get_block_hash_by_height(height) {
         Ok(block_hash) => block_hash,
         Err(_) => {
@@ -84,8 +88,8 @@ fn apply_block_from_range(
     };
     let block = read_chain_store.get_block(&block_hash).unwrap();
     let epoch_id = block.header().epoch_id();
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
-    let shard_index = epoch_manager.shard_id_to_index(shard_id, epoch_id).unwrap();
+    let shard_uid = shard_id_to_uid(epoch_manager, shard_id, epoch_id).unwrap();
+    let shard_index = shard_id_to_index(epoch_manager, shard_id, epoch_id).unwrap();
     assert!(block.chunks().len() > 0);
     let mut existing_chunk_extra = None;
     let mut prev_chunk_extra = None;
@@ -97,6 +101,8 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
+    let protocol_version =
+        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
@@ -143,18 +149,23 @@ fn apply_block_from_range(
         };
 
         let chain_store_update = ChainStoreUpdate::new(&mut read_chain_store);
+        let transactions = chunk.transactions();
+        let valid_txs = chain_store_update
+            .chain_store()
+            .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
+            .expect("valid transaction calculation");
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
-        let receipt_proof_response = chain_store_update
-            .get_incoming_receipts_for_shard(
-                epoch_manager,
-                shard_id,
-                &shard_layout,
-                block_hash,
-                prev_block.chunks()[shard_index].height_included(),
-                ReceiptFilter::TargetShard,
-            )
-            .unwrap();
+        let receipt_proof_response = get_incoming_receipts_for_shard(
+            &read_chain_store,
+            epoch_manager,
+            shard_id,
+            &shard_layout,
+            block_hash,
+            prev_block.chunks()[shard_index].height_included(),
+            ReceiptFilter::TargetShard,
+        )
+        .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
@@ -168,6 +179,7 @@ fn apply_block_from_range(
 
         num_receipt = receipts.len();
         num_tx = chunk.transactions().len();
+
         if only_contracts {
             let mut has_contracts = false;
             for tx in chunk.transactions() {
@@ -200,7 +212,7 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &receipts,
-                chunk.transactions(),
+                SignedValidPeriodTransactions::new(&transactions, &valid_txs),
             )
             .unwrap()
     } else {
@@ -227,13 +239,11 @@ fn apply_block_from_range(
                     block.block_bandwidth_requests(),
                 ),
                 &[],
-                &[],
+                SignedValidPeriodTransactions::empty(),
             )
             .unwrap()
     };
 
-    let protocol_version =
-        epoch_manager.get_epoch_protocol_version(block.header().epoch_id()).unwrap();
     let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         protocol_version,
@@ -294,7 +304,7 @@ fn apply_block_from_range(
     // Ultimately, this has to handle requirements on storage effects from multiple sources --
     // `Benchmark` for example repeatedly applies a single block, so no storage effects are
     // desired, meanwhile other modes can be set to operate on various storage sources, all of
-    // which have their unique propoerties (e.g. flat storage operates on flat_head...)
+    // which have their unique properties (e.g. flat storage operates on flat_head...)
     match (mode, storage) {
         (ApplyRangeMode::Benchmark, _) => {}
         (_, StorageSource::Trie | StorageSource::TrieFree) => {}
@@ -332,7 +342,8 @@ fn apply_block_from_range(
         (_, StorageSource::Trie | StorageSource::TrieFree | StorageSource::Memtrie) => {
             if let Err(err) = maybe_save_trie_changes(
                 write_store,
-                genesis.config.genesis_height,
+                &genesis.config,
+                block_hash,
                 apply_result,
                 height,
                 shard_id,
@@ -370,7 +381,8 @@ pub fn apply_chain_range(
         only_contracts,
         ?storage)
     .entered();
-    let chain_store = ChainStore::new(read_store.clone(), genesis.config.genesis_height, false);
+    let chain_store =
+        ChainStore::new(read_store.clone(), false, genesis.config.transaction_validity_period);
     let final_head = chain_store.final_head().unwrap();
     let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
     let shard_uid =
@@ -391,7 +403,7 @@ pub fn apply_chain_range(
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             runtime_adapter
                 .get_tries()
-                .load_mem_trie(&shard_uid, None, true)
+                .load_memtrie(&shard_uid, None, true)
                 .expect("load mem trie");
         }
     }

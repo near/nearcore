@@ -60,6 +60,18 @@ Automatic calculation of transactions per second (TPS) when RPC requests are sen
 http localhost:3030/metrics | grep transaction_processed
 ```
 
+### Benchmark calls to the `sign` method of an MPC contract
+
+Assumes the accounts that send the transactions invoking `sign` have been created as described above. Transactions can be sent to a RPC of a network on which an instance of the [`mpc/chain-signatures`](https://github.com/near/mpc/tree/79ec50759146221e7ad8bb04520f13333b75ca07/chain-signatures/contract) is deployed.
+
+Transactions are sent to the RPC with `wait_until: EXECUTED_OPTIMISTIC` as the throughput for `sign` is at a level at which neither the network nor the RPC are expected to be a bottleneck.
+
+All options of the command can be shown with:
+
+```command
+cargo run -- benchmark-mpc-sign --help
+```
+
 ## Network setup and `neard` configuration
 
 Details of bringing up and configuring a network are out of scope for this document. Instead we just give a brief overview of the setup regularly used to benchmark TPS of common workloads in a single-node with a single-shard setup.

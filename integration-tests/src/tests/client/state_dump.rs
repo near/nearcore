@@ -248,8 +248,11 @@ fn run_state_sync_with_dumped_parts(
 
     let sync_hash = env.clients[0].chain.get_sync_hash(final_block_hash).unwrap().unwrap();
     assert!(env.clients[0].chain.check_sync_hash_validity(&sync_hash).unwrap());
-    let state_sync_header =
-        env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
+    let state_sync_header = env.clients[0]
+        .chain
+        .state_sync_adapter
+        .get_state_response_header(shard_id, sync_hash)
+        .unwrap();
     let state_root = state_sync_header.chunk_prev_state_root();
     let num_parts = state_sync_header.num_state_parts();
 
@@ -287,7 +290,11 @@ fn run_state_sync_with_dumped_parts(
 
     // Simulate state sync by reading the dumped parts from the external storage and applying them to the other node
     tracing::info!("syncing node: simulating state sync..");
-    env.clients[1].chain.set_state_header(shard_id, sync_hash, state_sync_header).unwrap();
+    env.clients[1]
+        .chain
+        .state_sync_adapter
+        .set_state_header(shard_id, sync_hash, state_sync_header)
+        .unwrap();
     let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
     let mut store_update = runtime_client_1.store().store_update();
     assert!(runtime_client_1
@@ -342,8 +349,8 @@ fn run_state_sync_with_dumped_parts(
         {
             let store0 = env.clients[0].chain.chain_store().store();
             let store1 = env.clients[1].chain.chain_store().store();
-            let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(store0);
-            let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(store1);
+            let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(&store0);
+            let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(&store1);
             // Nothing new created, number of flat state values should be identical.
             assert_eq!(num_inlined_before, num_inlined_after);
             assert_eq!(num_ref_before, num_ref_after);
@@ -361,8 +368,8 @@ fn run_state_sync_with_dumped_parts(
         {
             let store0 = env.clients[0].chain.chain_store().store();
             let store1 = env.clients[1].chain.chain_store().store();
-            let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(store0);
-            let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(store1);
+            let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(&store0);
+            let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(&store1);
             // Created a new entry, but inlined values should stay inlinedNothing new created, number of flat state values should be identical.
             assert!(num_inlined_before >= num_inlined_after);
             assert!(num_inlined_after > 0);
@@ -377,37 +384,37 @@ fn run_state_sync_with_dumped_parts(
 #[test]
 fn slow_test_state_sync_with_dumped_parts_2_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 2, 5);
+    run_state_sync_with_dumped_parts(false, 2, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_2_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 2, 5);
+    run_state_sync_with_dumped_parts(true, 2, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_3_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 3, 5);
+    run_state_sync_with_dumped_parts(false, 3, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_3_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 3, 5);
+    run_state_sync_with_dumped_parts(true, 3, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_4_non_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(false, 4, 5);
+    run_state_sync_with_dumped_parts(false, 4, 8);
 }
 
 #[test]
 fn slow_test_state_sync_with_dumped_parts_4_final() {
     init_test_logger();
-    run_state_sync_with_dumped_parts(true, 4, 5);
+    run_state_sync_with_dumped_parts(true, 4, 8);
 }
 
 fn count_flat_state_value_kinds(store: &Store) -> (u64, u64) {

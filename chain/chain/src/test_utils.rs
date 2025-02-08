@@ -19,6 +19,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
@@ -90,7 +91,7 @@ pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
 }
 
 pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
-    chain.blocks_in_processing.contains(block_hash)
+    chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash))
 }
 
 pub fn wait_for_block_in_processing(
@@ -190,7 +191,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         head.last_block_hash
     );
     let mut headers = vec![];
-    for (key, _) in chain_store.store().clone().iter(DBCol::BlockHeader).map(Result::unwrap) {
+    for (key, _) in chain_store.store().iter(DBCol::BlockHeader).map(Result::unwrap) {
         let header = chain_store
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
@@ -297,7 +298,8 @@ mod test {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {
-                    shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
+                    receipt.send_to_all_shards()
+                        || shard_layout.account_id_to_shard_id(receipt.receiver_id()) == shard_id
                 })
                 .cloned()
                 .collect();

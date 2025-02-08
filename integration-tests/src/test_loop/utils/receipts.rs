@@ -8,6 +8,7 @@ use near_chain::types::Tip;
 use near_chain::ChainStoreAccess;
 use near_client::client_actor::ClientActorInner;
 use near_client::Client;
+use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     BufferedReceiptIndices, DelayedReceiptIndices, PromiseYieldIndices,
@@ -87,7 +88,7 @@ pub fn check_receipts_at_block(
 ) {
     let epoch_manager = &client_actor.client.epoch_manager;
     let shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
-    let shard_id = epoch_manager.account_id_to_shard_id(&account, &tip.epoch_id).unwrap();
+    let shard_id = account_id_to_shard_id(epoch_manager.as_ref(), &account, &tip.epoch_id).unwrap();
     let shard_uid = &ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
     let congestion_info = &client_actor
         .client

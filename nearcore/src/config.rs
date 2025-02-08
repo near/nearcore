@@ -297,7 +297,7 @@ pub struct Config {
     /// New transactions that bring the size of the pool over this limit will be rejected. This
     /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
-    /// chunks and underutilizing the capacity of the network.
+    /// chunks and underutilized the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
     // Configuration for resharding.
     pub resharding_config: ReshardingConfig,
@@ -320,7 +320,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
     /// OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed
-    /// because the previous block isn't available. The witnesses wait in the pool untl the
+    /// because the previous block isn't available. The witnesses wait in the pool until the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
     /// Maximum size (number of bytes) of state witnesses in the OrphanStateWitnessPool.
@@ -413,25 +413,25 @@ impl Config {
             std::fs::read_to_string(path).map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to read config from {}", path.display()),
             })?;
-        let mut unrecognised_fields = Vec::new();
+        let mut unrecognized_fields = Vec::new();
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
             .map_err(|_| ValidationError::ConfigFileError {
                 error_message: format!("Failed to strip comments from {}", path.display()),
             })?;
         let config: Config = serde_ignored::deserialize(
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
-            |field| unrecognised_fields.push(field.to_string()),
+            |field| unrecognized_fields.push(field.to_string()),
         )
         .map_err(|e| ValidationError::ConfigFileError {
             error_message: format!("Failed to deserialize config from {}: {:?}", path.display(), e),
         })?;
 
-        if !unrecognised_fields.is_empty() {
-            let s = if unrecognised_fields.len() > 1 { "s" } else { "" };
-            let fields = unrecognised_fields.join(", ");
+        if !unrecognized_fields.is_empty() {
+            let s = if unrecognized_fields.len() > 1 { "s" } else { "" };
+            let fields = unrecognized_fields.join(", ");
             warn!(
                 target: "neard",
-                "{}: encountered unrecognised field{s}: {fields}",
+                "{}: encountered unrecognized field{s}: {fields}",
                 path.display(),
             );
         }
@@ -539,7 +539,7 @@ impl NearConfig {
                 block_header_fetch_horizon: config.consensus.block_header_fetch_horizon,
                 catchup_step_period: config.consensus.catchup_step_period,
                 chunk_request_retry_period: config.consensus.chunk_request_retry_period,
-                doosmslug_step_period: config.consensus.doomslug_step_period,
+                doomslug_step_period: config.consensus.doomslug_step_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
                 tracked_shadow_validator: config.tracked_shadow_validator,

@@ -1,5 +1,3 @@
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub use crate::action::NonrefundableStorageTransferAction;
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -60,7 +58,7 @@ pub struct TransactionV1 {
     pub block_hash: CryptoHash,
     /// A list of actions to be applied
     pub actions: Vec<Action>,
-    /// Priority fee. Unit is 10^12 yotcoNEAR
+    /// Priority fee. Unit is 10^12 yoctoNEAR
     pub priority_fee: u64,
 }
 
@@ -159,7 +157,7 @@ impl BorshDeserialize for Transaction {
         let u4 = u8::deserialize_reader(reader)?;
         // This is a ridiculous hackery: because the first field in `TransactionV0` is an `AccountId`
         // and an account id is at most 64 bytes, for all valid `TransactionV0` the second byte must be 0
-        // because of the littel endian encoding of the length of the account id.
+        // because of the little endian encoding of the length of the account id.
         // On the other hand, for `TransactionV1`, since the first byte is 1 and an account id must have nonzero
         // length, so the second byte must not be zero. Therefore, we can distinguish between the two versions
         // by looking at the second byte.

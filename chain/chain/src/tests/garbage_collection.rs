@@ -55,7 +55,6 @@ fn do_fork(
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).build()
         } else {
-            let prev_hash = prev_block.hash();
             let epoch_id = *prev_block.header().next_epoch_id();
             if verbose {
                 println!(
@@ -64,13 +63,9 @@ fn do_fork(
                     prev_block.header().height() + 1
                 );
             }
-            let next_bp_hash = Chain::compute_bp_hash(
-                chain.epoch_manager.as_ref(),
-                next_epoch_id,
-                epoch_id,
-                &prev_hash,
-            )
-            .unwrap();
+            let next_bp_hash =
+                Chain::compute_bp_hash(chain.epoch_manager.as_ref(), next_epoch_id, epoch_id)
+                    .unwrap();
             TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)
@@ -128,10 +123,9 @@ fn do_fork(
                 shard_uid,
                 trie_changes,
                 Default::default(),
-                *block.hash(),
                 block.header().height(),
             );
-            store_update.save_trie_changes(wrapped_trie_changes);
+            store_update.save_trie_changes(*block.hash(), wrapped_trie_changes);
 
             prev_state_roots[shard_id as usize] = new_root;
             trie_changes_shards.push(trie_changes_data);
@@ -192,7 +186,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     }
 
     // GC execution
-    chain1.clear_data(&GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }).unwrap();
+    chain1.clear_data(&GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() }, None).unwrap();
 
     let tries2 = get_chain_with_num_shards(Clock::real(), num_shards).runtime_adapter.get_tries();
 
@@ -624,11 +618,14 @@ fn test_fork_far_away_from_epoch_end() {
 
     // GC execution
     chain
-        .clear_data(&GCConfig {
-            gc_blocks_limit: 100,
-            gc_fork_clean_step: fork_clean_step,
-            ..GCConfig::default()
-        })
+        .clear_data(
+            &GCConfig {
+                gc_blocks_limit: 100,
+                gc_fork_clean_step: fork_clean_step,
+                ..GCConfig::default()
+            },
+            None,
+        )
         .expect("Clear data failed");
 
     // The run above would clear just the first 5 blocks from the beginning, but shouldn't clear any forks
@@ -670,7 +667,7 @@ fn test_fork_far_away_from_epoch_end() {
         );
     }
     chain
-        .clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() })
+        .clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }, None)
         .expect("Clear data failed");
     // And now all these blocks should be safely removed.
     for i in 6..50 {
@@ -707,7 +704,7 @@ fn test_clear_old_data() {
         );
     }
 
-    chain.clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
+    chain.clear_data(&GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }, None).unwrap();
 
     for i in 0..=max_height {
         println!("height = {} hash = {}", i, blocks[i].hash());
@@ -737,10 +734,8 @@ fn add_block(
     let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
         TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
     } else {
-        let prev_hash = prev_block.hash();
         let epoch_id = *prev_block.header().next_epoch_id();
-        let next_bp_hash =
-            Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id, &prev_hash).unwrap();
+        let next_bp_hash = Chain::compute_bp_hash(epoch_manager, next_epoch_id, epoch_id).unwrap();
         TestBlockBuilder::new(Clock::real(), &prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)
@@ -885,7 +880,9 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
 
     for iter in 0..10 {
         println!("ITERATION #{:?}", iter);
-        assert!(chain.clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }).is_ok());
+        assert!(chain
+            .clear_data(&GCConfig { gc_blocks_limit, ..GCConfig::default() }, None)
+            .is_ok());
 
         // epoch didn't change so no data is garbage collected.
         for i in 0..1000 {

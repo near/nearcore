@@ -8,7 +8,7 @@ pub struct CountingWrite<W: Write> {
     /// Total number of bytes written.
     total_written: u64,
     /// The total number of bytes allowed to be written, by default it is initialized to `max::MAX`.
-    /// If this limit is reached, the wirte operation will return an error.
+    /// If this limit is reached, the write operation will return an error.
     hard_limit: u64,
 }
 

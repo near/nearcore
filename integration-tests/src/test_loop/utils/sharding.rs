@@ -49,7 +49,7 @@ pub fn print_and_assert_shard_accounts(clients: &[&Client], tip: &Tip) {
         let mut shard_accounts = vec![];
         for item in trie.lock_for_iter().iter().unwrap() {
             let (key, value) = item.unwrap();
-            let state_record = StateRecord::from_raw_key_value(key, value);
+            let state_record = StateRecord::from_raw_key_value(&key, value);
             if let Some(StateRecord::Account { account_id, .. }) = state_record {
                 shard_accounts.push(account_id.to_string());
             }
@@ -103,11 +103,12 @@ pub fn next_block_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, 
         return false;
     }
 
-    let this_epoch_id = tip.epoch_id;
-    let next_epoch_id = epoch_manager.get_next_epoch_id(&tip.last_block_hash).unwrap();
+    next_epoch_has_new_shard_layout(epoch_manager, tip)
+}
 
-    let this_shard_layout = epoch_manager.get_shard_layout(&this_epoch_id).unwrap();
-    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id).unwrap();
+pub fn next_epoch_has_new_shard_layout(epoch_manager: &dyn EpochManagerAdapter, tip: &Tip) -> bool {
+    let this_shard_layout = epoch_manager.get_shard_layout(&tip.epoch_id).unwrap();
+    let next_shard_layout = epoch_manager.get_shard_layout(&tip.next_epoch_id).unwrap();
 
     this_shard_layout != next_shard_layout
 }
@@ -144,4 +145,23 @@ pub fn get_tracked_shards_from_prev_block(
 pub fn get_tracked_shards(client: &Client, block_hash: &CryptoHash) -> Vec<ShardUId> {
     let block_header = client.chain.get_block_header(block_hash).unwrap();
     get_tracked_shards_from_prev_block(client, block_header.prev_hash())
+}
+
+pub fn get_shards_will_care_about(client: &Client, block_hash: &CryptoHash) -> Vec<ShardUId> {
+    let signer = client.validator_signer.get();
+    let account_id = signer.as_ref().map(|s| s.validator_id());
+    let block_header = client.chain.get_block_header(block_hash).unwrap();
+    let shard_layout = client.epoch_manager.get_shard_layout(&block_header.epoch_id()).unwrap();
+    let mut shards_needs_for_next_epoch = vec![];
+    for shard_uid in shard_layout.shard_uids() {
+        if client.shard_tracker.will_care_about_shard(
+            account_id,
+            &block_header.prev_hash(),
+            shard_uid.shard_id(),
+            true,
+        ) {
+            shards_needs_for_next_epoch.push(shard_uid);
+        }
+    }
+    shards_needs_for_next_epoch
 }

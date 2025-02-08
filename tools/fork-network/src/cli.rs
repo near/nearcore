@@ -6,6 +6,7 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
@@ -283,8 +284,11 @@ impl ForkNetworkCommand {
         let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
         tracing::info!(?fork_heads);
 
-        let chain =
-            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+        let chain = ChainStore::new(
+            store.clone(),
+            false,
+            near_config.genesis.config.transaction_validity_period,
+        );
 
         // Move flat storage to the max height for consistency across shards.
         let (block_height, desired_block_hash) =
@@ -299,7 +303,8 @@ impl ForkNetworkCommand {
         let state_roots: Vec<(ShardId, StateRoot)> = shard_layout
             .shard_ids()
             .map(|shard_id| {
-                let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
+                let shard_uid =
+                    shard_id_to_uid(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
@@ -341,7 +346,7 @@ impl ForkNetworkCommand {
         home_dir: &Path,
     ) -> anyhow::Result<Vec<StateRoot>> {
         // Open storage with migration
-        near_config.config.store.load_mem_tries_for_tracked_shards = true;
+        near_config.config.store.load_memtries_for_tracked_shards = true;
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
@@ -363,7 +368,7 @@ impl ForkNetworkCommand {
                 .context("could not create the transaction runtime")?;
         runtime
             .get_tries()
-            .load_mem_tries_for_enabled_shards(&all_shard_uids, &[].into(), true)
+            .load_memtries_for_enabled_shards(&all_shard_uids, &[].into(), true)
             .unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
@@ -614,7 +619,7 @@ impl ForkNetworkCommand {
                 Ok((key, FlatStateValue::Inlined(value))) => (key, value),
                 otherwise => panic!("Unexpected flat state value: {otherwise:?}"),
             };
-            if let Some(sr) = StateRecord::from_raw_key_value(key.clone(), value.clone()) {
+            if let Some(sr) = StateRecord::from_raw_key_value(&key, value.clone()) {
                 match sr {
                     StateRecord::AccessKey { account_id, public_key, access_key } => {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
@@ -625,7 +630,7 @@ impl ForkNetworkCommand {
                         }
                         let new_account_id = map_account(&account_id, None);
                         let replacement = map_key(&public_key, None);
-                        storage_mutator.delete_access_key(account_id, public_key)?;
+                        storage_mutator.remove(key)?;
                         storage_mutator.set_access_key(
                             new_account_id,
                             replacement.public_key(),
@@ -638,7 +643,7 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_account(account_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_account(new_account_id, account)?;
                             accounts_implicit_updated += 1;
                         }
@@ -647,7 +652,7 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_data(account_id, &data_key)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_data(new_account_id, &data_key, value)?;
                             contract_data_updated += 1;
                         }
@@ -656,13 +661,13 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_code(account_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_code(new_account_id, code)?;
                             contract_code_updated += 1;
                         }
                     }
                     StateRecord::PostponedReceipt(mut receipt) => {
-                        storage_mutator.delete_postponed_receipt(&receipt)?;
+                        storage_mutator.remove(key)?;
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
                         storage_mutator.set_postponed_receipt(&receipt)?;
                         postponed_receipts_updated += 1;
@@ -671,15 +676,18 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
-                            storage_mutator.delete_received_data(account_id, data_id)?;
+                            storage_mutator.remove(key)?;
                             storage_mutator.set_received_data(new_account_id, data_id, &data)?;
                             received_data_updated += 1;
                         }
                     }
                     StateRecord::DelayedReceipt(mut receipt) => {
-                        storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
-                        near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
-                        storage_mutator.set_delayed_receipt(index_delayed_receipt, &receipt)?;
+                        storage_mutator.remove(key)?;
+                        near_mirror::genesis::map_receipt(&mut receipt.receipt, None, &default_key);
+                        // The index is guaranteed to be set when iterating over the trie rather than reading
+                        // serialized StateRecords
+                        let index = receipt.index.unwrap();
+                        storage_mutator.set_delayed_receipt(index, &receipt.receipt)?;
                         index_delayed_receipt += 1;
                     }
                 }
@@ -780,6 +788,7 @@ impl ForkNetworkCommand {
         }
         tracing::info!(?shard_uid, num_accounts, num_added, "Pass 2 done");
 
+        storage_mutator.set_delayed_receipt_indices()?;
         let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
 
         tracing::info!(?shard_uid, "Commit done");
@@ -848,10 +857,8 @@ impl ForkNetworkCommand {
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
-                    0,
                     CryptoHash::default(),
                     storage_bytes,
-                    PROTOCOL_VERSION,
                 ),
             )?;
             storage_mutator.set_access_key(

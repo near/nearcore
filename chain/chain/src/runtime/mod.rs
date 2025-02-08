@@ -9,6 +9,7 @@ use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
 use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::PublicKey;
+use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
@@ -136,9 +137,8 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
     ) -> Result<ShardUId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let shard_version = epoch_manager.get_shard_layout(&epoch_id)?.version();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_version = self.epoch_manager.get_shard_layout(&epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
@@ -172,7 +172,7 @@ impl NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
         let ApplyChunkBlockContext {
@@ -354,9 +354,10 @@ impl NightshadeRuntime {
 
         let total_balance_burnt = apply_result
             .stats
+            .balance
             .tx_burnt_amount
-            .checked_add(apply_result.stats.other_burnt_amount)
-            .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
+            .checked_add(apply_result.stats.balance.other_burnt_amount)
+            .and_then(|result| result.checked_add(apply_result.stats.balance.slashed_burnt_amount))
             .ok_or_else(|| {
                 Error::Other("Integer overflow during burnt balance summation".to_string())
             })?;
@@ -369,7 +370,6 @@ impl NightshadeRuntime {
                 shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
-                block_hash,
                 apply_state.block_height,
             ),
             new_root: apply_result.state_root,
@@ -386,6 +386,7 @@ impl NightshadeRuntime {
             bandwidth_requests: apply_result.bandwidth_requests,
             bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
             contract_updates: apply_result.contract_updates,
+            stats: apply_result.stats,
         };
 
         Ok(result)
@@ -566,6 +567,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             }
         }
 
+        let cost = match validate_transaction(
+            runtime_config,
+            gas_price,
+            transaction,
+            verify_signature,
+            current_protocol_version,
+        ) {
+            Ok(cost) => cost,
+            Err(e) => return Ok(Some(e)),
+        };
+
         if let Some(state_root) = state_root {
             let shard_uid =
                 self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
@@ -574,9 +586,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             match verify_and_charge_transaction(
                 runtime_config,
                 &mut state_update,
-                gas_price,
                 transaction,
-                verify_signature,
+                &cost,
                 // here we do not know which block the transaction will be included
                 // and therefore skip the check on the nonce upper bound.
                 None,
@@ -586,17 +597,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 Err(e) => Ok(Some(e)),
             }
         } else {
-            // Doing basic validation without a state root
-            match validate_transaction(
-                runtime_config,
-                gas_price,
-                transaction,
-                verify_signature,
-                current_protocol_version,
-            ) {
-                Ok(_) => Ok(None),
-                Err(e) => Ok(Some(e)),
-            }
+            // Without a state root, verification is skipped
+            Ok(None)
         }
     }
 
@@ -606,7 +608,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: PrepareTransactionsChunkContext,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
@@ -773,27 +775,36 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                // Verifying the validity of the transaction based on the current state.
-                match verify_and_charge_transaction(
+                let verify_result = validate_transaction(
                     runtime_config,
-                    &mut state_update,
                     prev_block.next_gas_price,
                     &tx,
-                    false,
-                    Some(next_block_height),
+                    true,
                     protocol_version,
-                ) {
-                    Ok(verification_result) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                )
+                .and_then(|cost| {
+                    verify_and_charge_transaction(
+                        runtime_config,
+                        &mut state_update,
+                        &tx,
+                        &cost,
+                        Some(next_block_height),
+                        protocol_version,
+                    )
+                });
+
+                match verify_result {
+                    Ok(cost) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation and verification");
                         state_update.commit(StateChangeCause::NotWritableToDisk);
-                        total_gas_burnt += verification_result.gas_burnt;
+                        total_gas_burnt += cost.gas_burnt;
                         total_size += tx.get_size();
                         result.transactions.push(tx);
                         // Take one transaction from this group, no more.
                         break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }
@@ -839,7 +850,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: &[SignedTransaction],
+        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
     ) -> Result<ApplyChunkResult, Error> {
         let shard_id = chunk.shard_id;
         let _timer = metrics::APPLYING_CHUNKS_TIME
@@ -1217,8 +1228,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+        Ok(self.epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
@@ -1325,11 +1335,7 @@ fn calculate_transactions_size_limit(
 ) -> u64 {
     // Checking feature WitnessTransactionLimits
     if ProtocolFeature::StatelessValidation.enabled(protocol_version) {
-        if near_primitives::checked_feature!(
-            "protocol_feature_relaxed_chunk_validation",
-            RelaxedChunkValidation,
-            protocol_version
-        ) {
+        if near_primitives::checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
             last_chunk_transactions_size = 0;
         }
         // Sum of transactions in the previous and current chunks should not exceed the limit.
@@ -1341,6 +1347,7 @@ fn calculate_transactions_size_limit(
             .try_into()
             .expect("Can't convert usize to u64!")
     } else {
+        // cspell:words roundtripping
         // In general, we limit the number of transactions via send_fees.
         // However, as a second line of defense, we want to limit the byte size
         // of transaction as well. Rather than introducing a separate config for
@@ -1371,8 +1378,7 @@ fn congestion_control_accepts_transaction(
         return Ok(true);
     }
     let receiver_id = tx.transaction.receiver_id();
-    let receiving_shard = epoch_manager.account_id_to_shard_id(receiver_id, &epoch_id)?;
-
+    let receiving_shard = account_id_to_shard_id(epoch_manager, receiver_id, &epoch_id)?;
     let congestion_info = prev_block.congestion_info.get(&receiving_shard);
     let Some(congestion_info) = congestion_info else {
         return Ok(true);

@@ -1,3 +1,4 @@
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use rand::Rng;
 use std::borrow::Cow;
 use std::path::Path;
@@ -52,8 +53,8 @@ impl PrintCmd {
     pub(crate) fn run(&self, near_config: &NearConfig, store: Store) {
         let chain_store = ChainStore::new(
             store,
-            near_config.genesis.config.genesis_height,
             near_config.client_config.save_trie_changes,
+            near_config.genesis.config.transaction_validity_period,
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
@@ -165,7 +166,7 @@ impl PrepareBenchmarkCmd {
         for (shard_index, &state_root) in state_roots.iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
             println!("old - {:?} - {:?}", shard_id, state_root);
-            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+            let shard_uid = shard_id_to_uid(epoch_manager.as_ref(), shard_id, &epoch_id).unwrap();
 
             let tries = runtime.get_tries();
 

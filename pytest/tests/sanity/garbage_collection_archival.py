@@ -138,7 +138,7 @@ wait_for_blocks(nodes[1],
                 target=deletion_finish_block_height + EPOCH_LENGTH * 6)
 
 # check that querying a validator node on the block at which the key inserted fails,
-# but querying an archival node succeeeds
+# but querying an archival node succeeds
 for key in keys:
     # check that it doesn't exist at the latest height
     res = nodes[1].json_rpc(
@@ -160,7 +160,7 @@ for key in keys:
     assert 'result' in res, res
     assert res['result']['amount'] == str(NEAR_BASE)
 
-    # check that the history cannot be queried on a nonarchival node
+    # check that the history cannot be queried on a non-archival node
     res = nodes[1].json_rpc(
         'query', {
             "request_type": "view_account",

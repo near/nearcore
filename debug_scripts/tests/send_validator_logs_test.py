@@ -20,5 +20,5 @@ class test_validator_log_filtering(unittest.TestCase):
                          "Filtered log should have 48 lines")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

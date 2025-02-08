@@ -39,7 +39,7 @@ fn slow_test_in_memory_trie_node_consistency() {
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
-    let epoch_length = 10000;
+    let epoch_length = 9000;
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(&["account0", "account1"], &[]);
 
@@ -68,7 +68,7 @@ fn slow_test_in_memory_trie_node_consistency() {
                 TrieConfig::default(), // client 0 does not load in-memory tries
                 TrieConfig {
                     // client 1 loads two of four shards into in-memory tries
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 2 },
                     ],
@@ -82,10 +82,7 @@ fn slow_test_in_memory_trie_node_consistency() {
     assert_eq!(
         env.clients[0]
             .epoch_manager
-            .get_epoch_block_producers_ordered(
-                &EpochId::default(),
-                &env.clients[0].chain.head().unwrap().last_block_hash
-            )
+            .get_epoch_block_producers_ordered(&EpochId::default())
             .unwrap()
             .len(),
         2
@@ -133,7 +130,7 @@ fn slow_test_in_memory_trie_node_consistency() {
             vec![
                 TrieConfig::default(),
                 TrieConfig {
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 1 }, // shard 2 changed to shard 1.
                     ],
@@ -171,7 +168,7 @@ fn slow_test_in_memory_trie_node_consistency() {
             vec![
                 // client 0 now loads in-memory tries
                 TrieConfig {
-                    load_mem_tries_for_shards: vec![
+                    load_memtries_for_shards: vec![
                         ShardUId { version: 1, shard_id: 1 },
                         ShardUId { version: 1, shard_id: 3 },
                     ],
@@ -400,7 +397,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
         env.clients[client_id]
             .runtime_adapter
             .get_tries()
-            .get_mem_tries(shard)?
+            .get_memtries(shard)?
             .read()
             .unwrap()
             .num_roots(),
@@ -469,10 +466,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
     assert_eq!(
         env.clients[0]
             .epoch_manager
-            .get_epoch_block_producers_ordered(
-                &EpochId::default(),
-                &env.clients[0].chain.head().unwrap().last_block_hash
-            )
+            .get_epoch_block_producers_ordered(&EpochId::default())
             .unwrap()
             .len(),
         NUM_VALIDATORS

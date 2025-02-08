@@ -24,7 +24,7 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-/// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
+/// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queryable
 #[test]
 fn test_keyvalue_runtime_balances() {
     let successful_queries = Arc::new(AtomicUsize::new(0));
@@ -587,7 +587,7 @@ fn ultra_slow_test_cross_shard_tx_8_iterations_drop_chunks() {
 /// rotation. The two versions of the test have slightly different block
 /// production times, and different number of iterations we expect to finish in
 /// the allocated time. (the one with lower block production time is expected to
-/// finish fewer because it has higher forkfulness).
+/// finish fewer because it has higher fork fulness).
 #[test]
 fn ultra_slow_test_cross_shard_tx_with_validator_rotation_1() {
     test_cross_shard_tx_common(8, true, false, false, 220, Some(2.4), None);

@@ -7,6 +7,8 @@ import glob
 from itertools import zip_longest
 from multiprocessing import cpu_count
 
+# cspell:words fillvalue covs getgid getuid kcov seccomp
+
 
 def grouper(iterable, n, fillvalue=None):
     args = [iter(iterable)] * n
@@ -14,48 +16,63 @@ def grouper(iterable, n, fillvalue=None):
 
 
 def coverage(test_binary):
-    """ Run a single test coverage by copying to docker, save exitcode, stdout and stderr """
-    src_dir = os.path.abspath('.')
+    """Run a single test coverage by copying to docker, save exitcode, stdout and stderr"""
+    src_dir = os.path.abspath(".")
     test_binary_basename = os.path.basename(test_binary)
-    coverage_output = f'target/cov0/{test_binary_basename}'
-    subprocess.check_output(f'mkdir -p {coverage_output}', shell=True)
+    coverage_output = f"target/cov0/{test_binary_basename}"
+    subprocess.check_output(f"mkdir -p {coverage_output}", shell=True)
     coverage_output = os.path.abspath(coverage_output)
 
     if not os.path.isfile(test_binary):
-        return -1, '', f'{test_binary} does not exist'
+        return -1, "", f"{test_binary} does not exist"
 
-    p = subprocess.Popen([
-        'docker', 'run', '--rm', '--security-opt', 'seccomp=unconfined', '-u',
-        f'{os.getuid()}:{os.getgid()}', '-v', f'{test_binary}:{test_binary}',
-        '-v', f'{src_dir}:{src_dir}', '-v',
-        f'{coverage_output}:{coverage_output}',
-        'nearprotocol/near-coverage-runtime', 'bash', '-c',
-        f'/usr/local/bin/kcov --include-pattern=nearcore --exclude-pattern=.so --verify {coverage_output} {test_binary}'
-    ],
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE,
-                         universal_newlines=True)
+    p = subprocess.Popen(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--security-opt",
+            "seccomp=unconfined",
+            "-u",
+            f"{os.getuid()}:{os.getgid()}",
+            "-v",
+            f"{test_binary}:{test_binary}",
+            "-v",
+            f"{src_dir}:{src_dir}",
+            "-v",
+            f"{coverage_output}:{coverage_output}",
+            "nearprotocol/near-coverage-runtime",
+            "bash",
+            "-c",
+            f"/usr/local/bin/kcov --include-pattern=nearcore --exclude-pattern=.so --verify {coverage_output} {test_binary}",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
     stdout, stderr = p.communicate()
     return (p.returncode, stdout, stderr)
 
 
 def clean_coverage():
-    subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
-    subprocess.check_output(f'rm -rf {current_path}/../target/merged_coverage',
+    subprocess.check_output(f"rm -rf {current_path}/../target/cov*", shell=True)
+    subprocess.check_output(f"rm -rf {current_path}/../target/merged_coverage",
                             shell=True)
 
 
 def coverage_dir(i):
-    return f'{current_path}/../target/cov{i}'
+    return f"{current_path}/../target/cov{i}"
 
 
 def merge_coverage(i, to_merge, j):
-    p = subprocess.Popen([
-        'kcov', '--merge',
-        os.path.join(coverage_dir(i + 1), str(j)), *to_merge
-    ],
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE)
+    p = subprocess.Popen(
+        [
+            "kcov", "--merge",
+            os.path.join(coverage_dir(i + 1), str(j)), *to_merge
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     stdout, stderr = p.communicate()
     return (p.returncode, stdout, stderr)
 
@@ -65,15 +82,15 @@ if __name__ == "__main__":
     clean_binary_tests()
     build_tests()
     binaries = test_binaries(exclude=[
-        r'test_regression-.*',
-        r'near-.*',
-        r'test_cases_runtime-.*',
-        r'test_cases_testnet_rpc-.*',
-        r'test_catchup-.*',
-        r'test_errors-.*',
-        r'test_rejoin-.*',
-        r'test_simple-.*',
-        r'test_tps_regression-.*',
+        r"test_regression-.*",
+        r"near-.*",
+        r"test_cases_runtime-.*",
+        r"test_cases_testnet_rpc-.*",
+        r"test_catchup-.*",
+        r"test_errors-.*",
+        r"test_rejoin-.*",
+        r"test_simple-.*",
+        r"test_tps_regression-.*",
     ])
     errors = False
 
@@ -89,20 +106,20 @@ if __name__ == "__main__":
                 print(result[2])
                 errors = True
                 print(
-                    f'========= error: kcov {binary} fail, exit code {result[0]} cause coverage fail'
+                    f"========= error: kcov {binary} fail, exit code {result[0]} cause coverage fail"
                 )
             else:
-                print(f'========= kcov {binary} done')
+                print(f"========= kcov {binary} done")
 
     # Merge coverage
     i = 0
     j = 0
     with ThreadPoolExecutor(max_workers=cpu_count()) as executor:
         while True:
-            covs = glob.glob(f'{coverage_dir(i)}/*')
+            covs = glob.glob(f"{coverage_dir(i)}/*")
             if len(covs) == 1:
                 break
-            subprocess.check_output(f'mkdir -p {coverage_dir(i+1)}', shell=True)
+            subprocess.check_output(f"mkdir -p {coverage_dir(i+1)}", shell=True)
 
             cov_to_merge = list(grouper(covs, 2))
             if cov_to_merge[-1][-1] is None:
@@ -121,11 +138,11 @@ if __name__ == "__main__":
             i += 1
 
     merged_coverage = os.path.join(coverage_dir(i), str(j))
-    print(f'========= coverage merged to {merged_coverage}')
+    print(f"========= coverage merged to {merged_coverage}")
     subprocess.check_output(
-        ['mv', merged_coverage, f'{current_path}/../merged_coverage'])
-    subprocess.check_output(f'rm -rf {current_path}/../target/cov*', shell=True)
+        ["mv", merged_coverage, f"{current_path}/../merged_coverage"])
+    subprocess.check_output(f"rm -rf {current_path}/../target/cov*", shell=True)
 
     if errors:
         print(
-            f'========= some errors in running kcov, coverage maybe inaccurate')
+            f"========= some errors in running kcov, coverage maybe inaccurate")
