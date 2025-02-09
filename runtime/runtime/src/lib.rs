@@ -289,17 +289,15 @@ impl Runtime {
         gas_price: Balance,
         transactions: &'a [SignedTransaction],
         current_protocol_version: ProtocolVersion,
-    ) -> impl Iterator<Item = (&'a SignedTransaction, Result<TransactionCost, InvalidTxError>)>
-    {
-        let results: Vec<_> = transactions
+    ) -> Vec<(&'a SignedTransaction, Result<TransactionCost, InvalidTxError>)> {
+        transactions
             .par_iter()
             .map(move |tx| {
                 let cost_result =
                     validate_transaction(config, gas_price, tx, true, current_protocol_version);
                 (tx, cost_result)
             })
-            .collect();
-        results.into_iter()
+            .collect()
     }
 
     /// Takes one signed transaction, verifies it and converts it to a receipt.
@@ -1445,9 +1443,11 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
+        metrics::TRANSACTION_APPLIED_TOTAL.inc_by(transactions.len() as u64);
+
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
-        // the check is not necessary.  It’s defence in depth to make sure any
+        // the check is not necessary.  It’s defense in depth to make sure any
         // future refactoring won’t break the condition.
         assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
 
