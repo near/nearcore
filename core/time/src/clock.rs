@@ -373,6 +373,6 @@ mod tests {
         fake.advance(Duration::hours(1));
         
         let end_utc = clock.now_utc();
-        assert_eq!(end_utc.signed_duration_since(start_utc), Duration::hours(1));
+        assert_eq!(end_utc - start_utc, Duration::hours(1));
     }
 }
