@@ -943,6 +943,13 @@ pub enum GlobalContractError {
     IdentifierNotFound(GlobalContractIdentifier),
 }
 
+impl Display for GlobalContractError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let Self::IdentifierNotFound(id) = self;
+        write!(f, "GlobalContractError: {:?}", id)
+    }
+}
+
 #[derive(Eq, PartialEq, Clone)]
 pub enum EpochError {
     /// Error calculating threshold from given stakes for given number of seats.

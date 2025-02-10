@@ -251,6 +251,9 @@ pub enum Error {
     /// Invalid chunk header version for protocol version
     #[error(transparent)]
     BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
+    /// Global contract error.
+    #[error("Global Contract Error: {0}")]
+    GlobalContractError(String),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),
@@ -289,6 +292,7 @@ impl Error {
             | Error::StorageError(_)
             | Error::GCError(_)
             | Error::ReshardingError(_)
+            | Error::GlobalContractError(_)
             | Error::DBNotFoundErr(_) => false,
             Error::InvalidBlockPastTime(_, _)
             | Error::InvalidBlockFutureTime(_)
@@ -424,6 +428,7 @@ impl Error {
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
             Error::ReshardingError(_) => "resharding_error",
+            Error::GlobalContractError(_) => "global_contract_error",
             Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
     }
