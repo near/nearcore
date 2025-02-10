@@ -237,6 +237,7 @@ export type ValidatorKickoutReason =
     | 'Slashed'
     | { NotEnoughBlocks: { produced: number; expected: number } }
     | { NotEnoughChunks: { produced: number; expected: number } }
+    | { NotEnoughEndorsements: { produced: number; expected: number } }
     | 'Unstaked'
     | { NotEnoughStake: { stake: string; threshold: string } }
     | 'DidNotGetASeat';
