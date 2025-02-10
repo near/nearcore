@@ -312,7 +312,7 @@ impl DumpState {
         while !self.dump_state.is_empty() {
             let (shard_id, result) = self.await_parts_upload().await;
             if let Err(error) = result {
-                tracing::error!(target: "state_sync_dump", epoch_id = ?&self.epoch_id, %shard_id, ?error, "Shard dump failed after cancelation");
+                tracing::error!(target: "state_sync_dump", epoch_id = ?&self.epoch_id, %shard_id, ?error, "Shard dump failed after cancellation");
             }
         }
     }
