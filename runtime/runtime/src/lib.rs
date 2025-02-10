@@ -289,17 +289,15 @@ impl Runtime {
         gas_price: Balance,
         transactions: &'a [SignedTransaction],
         current_protocol_version: ProtocolVersion,
-    ) -> impl Iterator<Item = (&'a SignedTransaction, Result<TransactionCost, InvalidTxError>)>
-    {
-        let results: Vec<_> = transactions
+    ) -> Vec<(&'a SignedTransaction, Result<TransactionCost, InvalidTxError>)> {
+        transactions
             .par_iter()
             .map(move |tx| {
                 let cost_result =
                     validate_transaction(config, gas_price, tx, true, current_protocol_version);
                 (tx, cost_result)
             })
-            .collect();
-        results.into_iter()
+            .collect()
     }
 
     /// Takes one signed transaction, verifies it and converts it to a receipt.
@@ -481,12 +479,9 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let contract = preparation_pipeline.get_contract(
-                    receipt,
-                    account.code_hash(),
-                    action_index,
-                    None,
-                );
+                let code_hash = account.local_contract_hash().unwrap_or_default();
+                let contract =
+                    preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
@@ -499,7 +494,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
-                    account.code_hash(),
+                    code_hash,
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
@@ -1445,9 +1440,11 @@ impl Runtime {
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyResult, RuntimeError> {
+        metrics::TRANSACTION_APPLIED_TOTAL.inc_by(transactions.len() as u64);
+
         // state_patch must be empty unless this is sandbox build.  Thanks to
         // conditional compilation this always resolves to true so technically
-        // the check is not necessary.  It’s defence in depth to make sure any
+        // the check is not necessary.  It’s defense in depth to make sure any
         // future refactoring won’t break the condition.
         assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
 
@@ -1587,7 +1584,7 @@ impl Runtime {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     state_update.set_code(account_id, &code);
-                    assert_eq!(*code.hash(), acc.code_hash());
+                    assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);

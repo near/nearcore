@@ -21,12 +21,18 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
+    Account::new(
+        amount,
+        0,
+        AccountContract::from_local_code_hash(code_hash),
+        std::mem::size_of::<Account>() as u64,
+    )
 }
 
 impl Transaction {

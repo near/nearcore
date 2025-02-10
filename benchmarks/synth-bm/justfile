@@ -26,6 +26,7 @@ benchmark_native_transfers:
     cargo run --release -- benchmark-native-transfers \
         --rpc-url {{rpc_url}} \
         --user-data-dir user-data/ \
+        --read-nonces-from-network \
         --num-transfers 200 \
         --channel-buffer-size 30000 \
         --requests-per-second 2000 \
@@ -36,6 +37,7 @@ benchmark_mpc_sign:
     cargo run --release -- benchmark-mpc-sign \
         --rpc-url {{rpc_url}} \
         --user-data-dir user-data/ \
+        --read-nonces-from-network \
         --num-transactions 500 \
         --requests-per-second 100 \
         --receiver-id 'v1.signer-dev.testnet' \
@@ -43,3 +45,4 @@ benchmark_mpc_sign:
         --channel-buffer-size 500 \
         --gas 300000000000000 \
         --deposit 100000000000000000000000
+

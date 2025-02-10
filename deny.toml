@@ -42,7 +42,6 @@ skip = [
 
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.
-    { name = "pwasm-utils", version = "=0.12.0" },
     { name = "parity-wasm", version = "=0.41.0" },
     # old version used by wasmer et al
     { name = "dynasm", version = "=1.2.3" },
@@ -57,7 +56,6 @@ skip = [
     { name = "object", version = "=0.30.4" },
     { name = "memoffset", version = "=0.6.5" },
     { name = "memoffset", version = "=0.8.0" },
-    { name = "addr2line", version = "=0.19.0" },
     { name = "gimli", version = "=0.27.2" },
 
     # wasm-tools
@@ -69,6 +67,7 @@ skip = [
     { name = "wasmprinter", version = "=0.2.57" },
 
     # wasmer 0.17.x
+    { name = "target-lexicon", version = "^0.12.0" },
     { name = "parking_lot", version = "=0.10.2" },
     { name = "parking_lot_core", version = "=0.7.2" },
     { name = "lock_api", version = "=0.3.4" },
@@ -89,7 +88,6 @@ skip = [
     { name = "getrandom", version = "=0.1.16" },
 
     # criterion and criterion-plot use conflicting versions
-    { name = "semver-parser", version = "=0.7.0" },
     { name = "semver", version = "=0.9.0" },
 
     # criterion, wasmer-runtime-core-near, rocksdb depend on this older version of the crate.
@@ -108,9 +106,6 @@ skip = [
 
     # prometheus depends on an old version of protobuf
     { name = "protobuf", version = "=2.27.1" },
-
-    # rust-s3 is using an old version of smartstring
-    { name = "smartstring", version = "=0.2.10" },
 
     # Various packages haven’t upgraded to 0.base64 21 yet.
     { name = "base64", version = "=0.13.0" },
