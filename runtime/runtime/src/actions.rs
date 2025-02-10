@@ -652,8 +652,6 @@ pub(crate) fn action_use_global_contract(
     account_id: &AccountId,
     account: &mut Account,
     action: &UseGlobalContractAction,
-    config: Arc<near_parameters::vm::Config>,
-    cache: Option<&dyn ContractRuntimeCache>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
@@ -663,24 +661,23 @@ pub(crate) fn action_use_global_contract(
             action.contract_identifier.clone(),
         )));
     }
-    let code = state_update
-        .get_global_code(action.contract_identifier.clone())?
-        .ok_or_else(|| {
-            RuntimeError::GlobalContractError(GlobalContractError::IdentifierNotFound(
-                action.contract_identifier.clone(),
-            ))
-        })?
-        .into_code();
-    let deploy_action = DeployContractAction { code };
-    action_deploy_contract(
-        state_update,
-        account,
-        account_id,
-        &deploy_action,
-        config,
-        cache,
-        current_protocol_version,
-    )?;
+    if let AccountContract::Local(code_hash) = account.contract() {
+        let prev_code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            code_hash,
+            current_protocol_version,
+        )?;
+        account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+    }
+    match &action.contract_identifier {
+        GlobalContractIdentifier::CodeHash(code_hash) => {
+            account.set_contract(AccountContract::Global(*code_hash));
+        }
+        GlobalContractIdentifier::AccountId(id) => {
+            account.set_contract(AccountContract::GlobalByAccount(id.clone()));
+        }
+    };
     Ok(())
 }
 

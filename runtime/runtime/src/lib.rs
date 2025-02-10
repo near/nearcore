@@ -480,8 +480,6 @@ impl Runtime {
                     account_id,
                     account,
                     use_global_contract,
-                    Arc::clone(&apply_state.config.wasm_config),
-                    apply_state.cache.as_deref(),
                     apply_state.current_protocol_version,
                 )?;
             }
