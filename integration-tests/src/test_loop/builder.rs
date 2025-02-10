@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
-use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
@@ -751,7 +750,6 @@ impl TestLoopBuilder {
         let resharding_actor =
             ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
 
-        let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
             clock: self.test_loop.clock(),
             client_config,
@@ -760,10 +758,6 @@ impl TestLoopBuilder {
             shard_tracker,
             runtime: runtime_adapter,
             validator: validator_signer,
-            dump_future_runner: Box::new(move |future| {
-                future_spawner.spawn_boxed("state_sync_dumper", future);
-                Box::new(|| {})
-            }),
             future_spawner: Arc::new(self.test_loop.future_spawner()),
             handle: None,
         };

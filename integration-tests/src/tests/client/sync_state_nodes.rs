@@ -345,7 +345,7 @@ fn ultra_slow_test_sync_state_dump() {
             let nearcore::NearNode {
                 view_client: view_client1,
                 // State sync dumper should be kept in the scope to avoid dropping it, which stops the state dumper loop.
-                state_sync_dumper: _dumper,
+                mut state_sync_dumper,
                 ..
             } = start_with_config(dir1.path(), near1).expect("start_with_config");
 
@@ -360,6 +360,7 @@ fn ultra_slow_test_sync_state_dump() {
                     let genesis2 = genesis.clone();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
+                        // FIXME: this is not the right check after the sync hash was moved to sync the current epoch's state
                         Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
                             let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
@@ -433,6 +434,7 @@ fn ultra_slow_test_sync_state_dump() {
             })
             .await
             .unwrap();
+            state_sync_dumper.stop_and_await();
             System::current().stop();
         });
         drop(_dump_dir);
