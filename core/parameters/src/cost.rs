@@ -440,6 +440,7 @@ pub struct StorageUsageConfig {
     pub num_bytes_account: u64,
     /// Additional number of bytes for a k/v record
     pub num_extra_bytes_record: u64,
+    /// Amount of yN burned per byte of deployed Global Contract code.
     pub global_contract_storage_amount_per_byte: Balance,
 }
 
