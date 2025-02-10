@@ -289,4 +289,4 @@ action_deploy_global_contract_per_byte: {
   send_not_sir: 999_999_999_999_999,
   execution: 999_999_999_999_999,
 }
-global_contract_storage_amount_per_byte: 999_999_999_999_999
+global_contract_storage_amount_per_byte: 999_999_999_999_999_999_999_999_999
