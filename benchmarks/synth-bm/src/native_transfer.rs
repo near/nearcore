@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::accounts_from_dir;
+use crate::account::{accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
@@ -34,6 +34,10 @@ pub struct BenchmarkArgs {
 
     #[arg(long)]
     pub amount: u128,
+
+    /// If set, this flag updates the nonce values from the network.
+    #[arg(default_value_t = false, long)]
+    pub read_nonces_from_network: bool,
 }
 
 pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
@@ -47,7 +51,19 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let mut rng = rand::thread_rng();
 
     let client = JsonRpcClient::connect(&args.rpc_url);
+
     let block_service = Arc::new(BlockService::new(client.clone()).await);
+
+    if args.read_nonces_from_network {
+        accounts = update_account_nonces(
+            client.clone(),
+            accounts,
+            1_000_000 / args.interval_duration_micros,
+            Some(&args.user_data_dir),
+        )
+        .await?;
+    }
+
     block_service.clone().start().await;
 
     // Before a request is made, a permit to send into the channel is awaited. Hence buffer size

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::accounts_from_dir;
+use crate::account::{accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
@@ -50,6 +50,10 @@ pub struct BenchmarkMpcSignArgs {
     /// The deposit (in yoctoNEAR) attached to each `sign` function call transaction.
     #[arg(long)]
     pub deposit: u128,
+
+    /// If set, this flag updates the nonce values from the network.
+    #[arg(default_value_t = false, long)]
+    pub read_nonces_from_network: bool,
 }
 
 pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
@@ -64,6 +68,15 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
     let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
 
     let client = JsonRpcClient::connect(&args.rpc_url);
+    if args.read_nonces_from_network {
+        accounts = update_account_nonces(
+            client.clone(),
+            accounts,
+            1_000_000 / args.transactions_per_second,
+            Some(&args.user_data_dir),
+        )
+        .await?;
+    }
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
     let mut rng = thread_rng();
