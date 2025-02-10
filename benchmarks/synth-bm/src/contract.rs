@@ -72,7 +72,7 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
         accounts = update_account_nonces(
             client.clone(),
             accounts,
-            1_000_000 / args.transactions_per_second,
+            args.requests_per_second,
             Some(&args.user_data_dir),
         )
         .await?;
