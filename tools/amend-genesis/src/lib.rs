@@ -73,7 +73,7 @@ impl AccountRecords {
                 // records. Set the storage usage to reflect whatever's in the original records, and at the
                 // end we will add to the storage usage with any extra keys added for this account
                 account.set_storage_usage(existing.storage_usage());
-                account.set_contract(existing.contract());
+                account.set_contract(existing.contract().into_owned());
                 if self.amount_needed {
                     set_total_balance(account, existing);
                 }
@@ -171,7 +171,7 @@ fn parse_extra_records(
     near_chain_configs::stream_records_from_file(reader, |r| {
         match r {
             StateRecord::Account { account_id, account } => {
-                if account.contract() != AccountContract::None {
+                if !account.contract().is_none() {
                     result = Err(anyhow::anyhow!(
                         "FIXME: accounts in --extra-records with code_hash set not supported"
                     ));
@@ -517,7 +517,7 @@ mod test {
                             (
                                 account.amount(),
                                 account.locked(),
-                                account.contract(),
+                                account.contract().into_owned(),
                                 account.storage_usage(),
                             ),
                         )
@@ -555,7 +555,7 @@ mod test {
                         (
                             account.amount(),
                             account.locked(),
-                            account.contract(),
+                            account.contract().into_owned(),
                             account.storage_usage(),
                         ),
                     );
