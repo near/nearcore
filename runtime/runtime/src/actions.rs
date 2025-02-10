@@ -622,11 +622,29 @@ pub(crate) fn action_deploy_contract(
 }
 
 pub(crate) fn action_deploy_global_contract(
+    account: &mut Account,
     account_id: &AccountId,
+    apply_state: &ApplyState,
     deploy_contract: &DeployGlobalContractAction,
     result: &mut ActionResult,
 ) {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
+
+    let storage_cost = apply_state
+        .config
+        .fees
+        .storage_usage_config
+        .global_contract_storage_amount_per_byte
+        .saturating_mul(deploy_contract.code.len() as u128);
+    let Some(updated_balance) = account.amount().checked_sub(storage_cost) else {
+        result.result = Err(ActionErrorKind::LackBalanceForState {
+            account_id: account_id.clone(),
+            amount: storage_cost,
+        }
+        .into());
+        return;
+    };
+    account.set_amount(updated_balance);
 
     let id = match deploy_contract.deploy_mode {
         GlobalContractDeployMode::CodeHash => {

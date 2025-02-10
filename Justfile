@@ -9,7 +9,8 @@ platform_excludes := if os() == "macos" {
     ""
 }
 
-nightly_flags := "--features nightly,test_features"
+nightly_test_flags := "--features nightly,test_features"
+stable_test_flags := "--features test_features"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
@@ -44,9 +45,9 @@ nextest TYPE *FLAGS:
         --cargo-profile dev-release \
         {{ ci_hack_nextest_profile }} \
         {{ platform_excludes }} \
-        {{ if TYPE == "nightly" { nightly_flags } \
-           else if TYPE == "stable" { "" } \
-           else { error("TYPE is neighter 'nightly' nor 'stable'") } }} \
+        {{ if TYPE == "nightly" { nightly_test_flags } \
+           else if TYPE == "stable" { stable_test_flags } \
+           else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
 
 nextest-slow TYPE *FLAGS: (nextest TYPE "--ignore-default-filter -E 'default() + test(/^(.*::slow_test|slow_test)/)'" FLAGS)

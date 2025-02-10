@@ -471,7 +471,14 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
-                action_deploy_global_contract(account_id, deploy_global_contract, &mut result);
+                let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
+                action_deploy_global_contract(
+                    account,
+                    account_id,
+                    apply_state,
+                    deploy_global_contract,
+                    &mut result,
+                );
             }
             Action::UseGlobalContract(use_global_contract) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
