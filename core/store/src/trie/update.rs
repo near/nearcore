@@ -165,14 +165,6 @@ impl TrieUpdate {
         self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, Some(code_hash))))
     }
 
-    pub fn get_global_code(
-        &self,
-        identifier: GlobalContractIdentifier,
-    ) -> Result<Option<ContractCode>, StorageError> {
-        let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
-        self.get(&key).map(|opt| opt.map(|code| ContractCode::new(code, None)))
-    }
-
     /// Returns the size (in num bytes) of the contract code for the given account.
     ///
     /// This is different from `get_code` in that it does not read the code from storage.
