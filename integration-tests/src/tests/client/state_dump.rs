@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 
-use near_async::futures::ActixFutureSpawner;
+use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
@@ -58,6 +58,8 @@ fn slow_test_state_dump() {
         Some(Arc::new(EmptyValidatorSigner::new("test0".parse().unwrap()))),
         "validator_signer",
     );
+
+    let arbiter = actix::Arbiter::new();
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config,
@@ -66,8 +68,7 @@ fn slow_test_state_dump() {
         shard_tracker,
         runtime,
         validator,
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
-        future_spawner: Arc::new(ActixFutureSpawner),
+        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -164,6 +165,7 @@ fn run_state_sync_with_dumped_parts(
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
     });
+    let arbiter = actix::Arbiter::new();
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.clone(),
@@ -172,8 +174,7 @@ fn run_state_sync_with_dumped_parts(
         shard_tracker,
         runtime,
         validator,
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
-        future_spawner: Arc::new(ActixFutureSpawner),
+        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
