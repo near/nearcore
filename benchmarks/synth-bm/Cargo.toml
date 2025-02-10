@@ -17,12 +17,22 @@ anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 env_logger.workspace = true
 log.workspace = true
-near-crypto = "0.27"
-near-jsonrpc-client = "0.14.0"
-near-jsonrpc-primitives = "0.27"
-near-primitives = "0.27"
-rand.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tracing = { workspace = true, features = ["std"] }
+rand.workspace = true
+
+# There are two issues related to inheriting below dependencies from the root workspace:
+#
+# 1) There is an unpublished workspace member in `nearcore/chain/jsonrpc/client` whose name
+#    collides with the crate `near-jsonrpc-client` that is published on crates.io and lives in
+#    another repo. Many workspace members already use the local `near-jsonrpc-client` crate.
+# 2) `near-jsonrpc-client` (from crates.io) restricts the versions of other `near-*` crates it
+#    is compatible with. These can currently not be satisfied by path dependencies: for example
+#    `near-crypto.workspace` would pull in a `near-crypto` version that differs from the one used by
+#    `near-jsonrpc-client`, leading to compilation errors.
+near-crypto = "0.27"
+near-jsonrpc-client = "0.14.0"
+near-jsonrpc-primitives = "0.27"
+near-primitives = "0.27"
