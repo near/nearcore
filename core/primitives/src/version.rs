@@ -82,5 +82,20 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: LazyLock<ProtocolUpgradeVotingSchedule> =
         // let schedule = vec![(v1_datetime, v1_protocol_version), (v2_datetime, v2_protocol_version)];
         // ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
 
-        ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, vec![]).unwrap()
+        let v1_protocol_version = 74;
+        let v2_protocol_version = 75;
+        let v3_protocol_version = 76;
+        let v1_datetime =
+            ProtocolUpgradeVotingSchedule::parse_datetime("2025-02-16 18:00:00").unwrap();
+        let v2_datetime =
+            ProtocolUpgradeVotingSchedule::parse_datetime("2025-02-17 18:00:00").unwrap();
+        let v3_datetime =
+            ProtocolUpgradeVotingSchedule::parse_datetime("2025-02-18 18:00:00").unwrap();
+
+        let schedule = vec![
+            (v1_datetime, v1_protocol_version),
+            (v2_datetime, v2_protocol_version),
+            (v3_datetime, v3_protocol_version),
+        ];
+        ProtocolUpgradeVotingSchedule::new_from_env_or_schedule(PROTOCOL_VERSION, schedule).unwrap()
     });
