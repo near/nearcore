@@ -11,6 +11,7 @@ mod fix_chunk_producer_stake_threshold;
 mod fix_min_stake_ratio;
 mod fix_stake_threshold;
 mod in_memory_tries;
+mod malicious_chunk_producer;
 mod max_receipt_size;
 mod multinode_stateless_validators;
 mod multinode_test_loop_example;

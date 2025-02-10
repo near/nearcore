@@ -587,7 +587,6 @@ pub(crate) fn action_deploy_contract(
     config: Arc<near_parameters::vm::Config>,
     cache: Option<&dyn ContractRuntimeCache>,
     current_protocol_version: ProtocolVersion,
-    global_contract_identifier: Option<GlobalContractIdentifier>,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
     let prev_code_len = get_code_len_or_default(
@@ -607,17 +606,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    match global_contract_identifier {
-        Some(GlobalContractIdentifier::CodeHash(hash)) => {
-            account.set_contract(AccountContract::Global(hash));
-        }
-        Some(GlobalContractIdentifier::AccountId(id)) => {
-            account.set_contract(AccountContract::GlobalByAccount(id));
-        }
-        None => {
-            account.set_contract(AccountContract::from_local_code_hash(*code.hash()));
-        }
-    };
+    account.set_contract(AccountContract::Local(*code.hash()));
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
@@ -677,7 +666,7 @@ pub(crate) fn action_use_global_contract(
     let code = state_update
         .get_global_code(action.contract_identifier.clone())?
         .ok_or_else(|| {
-            RuntimeError::GlobalContractError(GlobalContractError::CodeNotFound(
+            RuntimeError::GlobalContractError(GlobalContractError::IdentifierNotFound(
                 action.contract_identifier.clone(),
             ))
         })?
@@ -691,7 +680,6 @@ pub(crate) fn action_use_global_contract(
         config,
         cache,
         current_protocol_version,
-        Some(action.contract_identifier.clone()),
     )?;
     Ok(())
 }
@@ -1397,7 +1385,6 @@ mod tests {
             Arc::clone(&apply_state.config.wasm_config),
             None,
             apply_state.current_protocol_version,
-            None,
         );
         assert!(res.is_ok());
         test_delete_large_account(

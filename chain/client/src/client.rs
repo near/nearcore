@@ -1688,7 +1688,15 @@ impl Client {
                 next_height,
                 shard_id,
                 Some(signer),
-                &self.chain.transaction_validity_check(block.header().clone()),
+                &|tx| {
+                    #[cfg(features = "test_features")]
+                    match self.adv_produce_chunks {
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
+                        _ => chain.transaction_validity_check(block.header().clone())(tx),
+                    }
+                    #[cfg(not(features = "test_features"))]
+                    self.chain.transaction_validity_check(block.header().clone())(tx)
+                },
             );
             match result {
                 Ok(Some(result)) => {

@@ -453,7 +453,7 @@ impl Drop for TestLoopV2 {
             self.events.clear();
             panic!(
                 "Event scheduled at {} is not handled at the end of the test: {}.
-                 Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
+                     Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
                 event.due, event.event.description
             );
         }
