@@ -13,7 +13,7 @@ use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountType;
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
@@ -857,7 +857,7 @@ impl ForkNetworkCommand {
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
-                    CryptoHash::default(),
+                    AccountContract::None,
                     storage_bytes,
                 ),
             )?;

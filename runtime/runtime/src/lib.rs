@@ -479,12 +479,9 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let contract = preparation_pipeline.get_contract(
-                    receipt,
-                    account.code_hash(),
-                    action_index,
-                    None,
-                );
+                let code_hash = account.local_contract_hash().unwrap_or_default();
+                let contract =
+                    preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
                 action_function_call(
                     state_update,
@@ -497,7 +494,7 @@ impl Runtime {
                     account_id,
                     function_call,
                     action_hash,
-                    account.code_hash(),
+                    code_hash,
                     &apply_state.config,
                     is_last_action,
                     epoch_info_provider,
@@ -1587,7 +1584,7 @@ impl Runtime {
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     state_update.set_code(account_id, &code);
-                    assert_eq!(*code.hash(), acc.code_hash());
+                    assert_eq!(*code.hash(), acc.contract().local_code().unwrap_or_default());
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);

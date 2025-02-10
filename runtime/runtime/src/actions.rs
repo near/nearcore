@@ -7,7 +7,7 @@ use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::action::{
     DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
@@ -482,7 +482,7 @@ pub(crate) fn action_create_account(
     *account = Some(Account::new(
         0,
         0,
-        CryptoHash::default(),
+        AccountContract::None,
         fee_config.storage_usage_config.num_bytes_account,
     ));
 }
@@ -521,7 +521,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
             *account = Some(Account::new(
                 deposit,
                 0,
-                CryptoHash::default(),
+                AccountContract::None,
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
@@ -546,7 +546,12 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 let contract_hash = *magic_bytes.hash();
-                *account = Some(Account::new(deposit, 0, contract_hash, storage_usage));
+                *account = Some(Account::new(
+                    deposit,
+                    0,
+                    AccountContract::from_local_code_hash(contract_hash),
+                    storage_usage,
+                ));
                 state_update.set_code(account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
@@ -584,7 +589,7 @@ pub(crate) fn action_deploy_contract(
     let prev_code_len = get_code_len_or_default(
         state_update,
         account_id.clone(),
-        account.code_hash(),
+        account.local_contract_hash().unwrap_or_default(),
         current_protocol_version,
     )?;
     account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
@@ -598,7 +603,7 @@ pub(crate) fn action_deploy_contract(
             ))
         })?,
     );
-    account.set_code_hash(*code.hash());
+    account.set_contract(AccountContract::Local(*code.hash()));
     // Legacy: populate the mapping from `AccountId => sha256(code)` thus making contracts part of
     // The State. For the time being we are also relying on the `TrieUpdate` to actually write the
     // contracts into the storage as part of the commit routine, however no code should be relying
@@ -665,7 +670,7 @@ pub(crate) fn action_delete_account(
         let code_len = get_code_len_or_default(
             state_update,
             account_id.clone(),
-            account.code_hash(),
+            account.local_contract_hash().unwrap_or_default(),
             current_protocol_version,
         )?;
         debug_assert!(code_len == 0 || account_storage_usage > code_len,
@@ -1285,7 +1290,12 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
+        let mut account = Some(Account::new(
+            100,
+            0,
+            AccountContract::from_local_code_hash(*code_hash),
+            storage_usage,
+        ));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(
@@ -1335,7 +1345,7 @@ mod tests {
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
         let deploy_action = DeployContractAction { code: [0; 10_000].to_vec() };
-        let mut account = Account::new(100, 0, CryptoHash::default(), storage_usage);
+        let mut account = Account::new(100, 0, AccountContract::None, storage_usage);
         let apply_state = create_apply_state(0);
         let res = action_deploy_contract(
             &mut state_update,
@@ -1349,7 +1359,7 @@ mod tests {
         assert!(res.is_ok());
         test_delete_large_account(
             &account_id,
-            &account.code_hash(),
+            &account.local_contract_hash().unwrap_or_default(),
             storage_usage,
             &mut state_update,
         )
@@ -1445,7 +1455,7 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, CryptoHash::default(), 100);
+        let account = Account::new(100, 0, AccountContract::None, 100);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 
