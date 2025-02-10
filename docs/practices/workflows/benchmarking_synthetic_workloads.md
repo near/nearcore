@@ -145,7 +145,6 @@ Controls the rate at which transactions are sent. Assuming your hardware is able
 
 Before an RPC request is sent, the tooling awaits capacity on a buffered channel. Thereby the number of outstanding RPC requests is limited by `channel-buffer-size`. This can slow down the rate at which transactions are sent in case the node is congested. To disable that behavior, set `channel-buffer-size` to a large value, e.g. the total number of transactions to be sent.
 
-<<<<<<< HEAD
 ## Workflows
 
 The tooling's [`justfile`](../../../benchmarks/synth-bm/justfile) contains recipes for the most relevant workflows.
