@@ -1,5 +1,7 @@
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::optimistic_block::OptimisticBlock;
+use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::BlockHeight;
 use std::cmp::Ordering;
 use std::collections::{
@@ -188,8 +190,203 @@ impl<Block: BlockLike> MissingChunksPool<Block> {
     }
 }
 
+/// Stores chunks for some optimistic block received so far.
+#[derive(Debug, Default)]
+struct OptimisticBlockChunks {
+    /// Number of remaining chunks to be received. Stored to avoid naive
+    /// recomputation.
+    remaining_chunks: usize,
+    /// Height of the previous block.
+    prev_block_height: BlockHeight,
+    /// Stores chunks for each shard, if received.
+    chunks: Vec<Option<ShardChunkHeader>>,
+}
+
+impl OptimisticBlockChunks {
+    pub fn new(prev_block_height: BlockHeight, num_shards: usize) -> Self {
+        Self { remaining_chunks: num_shards, prev_block_height, chunks: vec![None; num_shards] }
+    }
+}
+/// Stores optimistic blocks and chunks which are waiting to be processed.
+///
+/// Once block and all chunks on top of the same previous block are received,
+/// it can provide the optimistic block to be processed.
+#[derive(Debug, Default)]
+pub struct OptimisticBlockChunksPool {
+    /// All blocks and chunks built on top of blocks *smaller* than this height
+    /// can be discarded. Needed to garbage collect old data in case of forks
+    /// which never can get finalized.
+    minimal_base_height: BlockHeight,
+    /// Optimistic block with heights *not greater* than this height are discarded.
+    /// Needed on top of `minimal_base_height` as well to ensure that only one
+    /// optimistic block on each height can be processed.
+    block_height_threshold: BlockHeight,
+    /// Maps previous block hash to the received optimistic block with the
+    /// highest height on top of it.
+    blocks: HashMap<CryptoHash, OptimisticBlock>,
+    /// Maps previous block hash to the vector of chunk headers corresponding
+    /// to complete chunks.
+    chunks: HashMap<CryptoHash, OptimisticBlockChunks>,
+    /// Optimistic block with the largest height which is ready to process.
+    /// Block and chunks must correspond to the same previous block hash.
+    latest_ready_block: Option<(OptimisticBlock, Vec<ShardChunkHeader>)>,
+}
+
+impl OptimisticBlockChunksPool {
+    pub fn new() -> Self {
+        Self {
+            minimal_base_height: 0,
+            block_height_threshold: 0,
+            blocks: Default::default(),
+            chunks: Default::default(),
+            latest_ready_block: None,
+        }
+    }
+
+    pub fn num_blocks(&self) -> usize {
+        self.blocks.len()
+    }
+
+    pub fn num_chunks(&self) -> usize {
+        self.chunks.len()
+    }
+
+    pub fn add_block(&mut self, block: OptimisticBlock) {
+        if block.height() <= self.block_height_threshold {
+            return;
+        }
+
+        let prev_block_hash = *block.prev_block_hash();
+        self.blocks.insert(prev_block_hash, block);
+        self.update_latest_ready_block(&prev_block_hash);
+    }
+
+    pub fn add_chunk(&mut self, shard_layout: &ShardLayout, chunk_header: ShardChunkHeader) {
+        // We assume that `chunk_header.height_created() = prev_block_height + 1`.
+        let prev_block_height = chunk_header.height_created().saturating_sub(1);
+        if prev_block_height < self.minimal_base_height {
+            return;
+        }
+
+        let prev_block_hash = *chunk_header.prev_block_hash();
+        let entry = self.chunks.entry(prev_block_hash).or_insert_with(|| {
+            OptimisticBlockChunks::new(prev_block_height, shard_layout.num_shards() as usize)
+        });
+
+        let shard_index = shard_layout.get_shard_index(chunk_header.shard_id()).unwrap();
+        let chunk_entry = entry.chunks.get_mut(shard_index).unwrap();
+        let chunk_hash = chunk_header.chunk_hash();
+        if let Some(chunk) = &chunk_entry {
+            let existing_chunk_hash = chunk.chunk_hash();
+            tracing::info!(target: "chunks", ?prev_block_hash, ?chunk_hash, ?existing_chunk_hash, "Chunk already found for OptimisticBlock");
+            return;
+        }
+
+        *chunk_entry = Some(chunk_header);
+        entry.remaining_chunks -= 1;
+        tracing::debug!(
+            target: "chunks",
+            ?prev_block_hash,
+            ?chunk_hash,
+            remaining_chunks = entry.remaining_chunks,
+            "New chunk found for OptimisticBlock"
+        );
+
+        if entry.remaining_chunks == 0 {
+            tracing::debug!(
+                target: "chunks",
+                ?prev_block_hash,
+                "All chunks received for OptimisticBlock"
+            );
+            self.update_latest_ready_block(&prev_block_hash);
+        }
+    }
+
+    /// Takes the latest optimistic block and chunks which are ready to
+    /// be processed.
+    pub fn take_latest_ready_block(&mut self) -> Option<(OptimisticBlock, Vec<ShardChunkHeader>)> {
+        self.latest_ready_block.take()
+    }
+
+    /// If the optimistic block on top of `prev_block_hash` is ready to
+    /// process, sets the latest ready block to it.
+    fn update_latest_ready_block(&mut self, prev_block_hash: &CryptoHash) {
+        let Some(chunks) = self.chunks.get(prev_block_hash) else {
+            return;
+        };
+        if chunks.remaining_chunks != 0 {
+            return;
+        }
+        let Some(block) = self.blocks.remove(prev_block_hash) else {
+            return;
+        };
+        if block.height() <= self.block_height_threshold {
+            return;
+        }
+
+        tracing::info!(
+            target: "chunks",
+            ?prev_block_hash,
+            optimistic_block_hash = ?block.hash(),
+            block_height = block.height(),
+            "OptimisticBlock is ready"
+        );
+        let chunks = chunks
+            .chunks
+            .iter()
+            .map(|c| {
+                let mut chunk = c.clone().unwrap();
+                // Debatable but probably ok
+                *chunk.height_included_mut() = block.height();
+                chunk
+            })
+            .collect();
+        self.update_block_height_threshold(block.height());
+        self.latest_ready_block = Some((block, chunks));
+    }
+
+    /// Updates the block height threshold and cleans up old blocks.
+    pub fn update_block_height_threshold(&mut self, height: BlockHeight) {
+        self.block_height_threshold = std::cmp::max(self.block_height_threshold, height);
+        let hashes_to_remove: Vec<_> = self
+            .blocks
+            .iter()
+            .filter(|(_, h)| h.height() <= self.block_height_threshold)
+            .map(|(h, _)| *h)
+            .collect();
+        for h in hashes_to_remove {
+            self.blocks.remove(&h);
+        }
+
+        let Some((block, _)) = &self.latest_ready_block else {
+            return;
+        };
+        if block.height() <= self.block_height_threshold {
+            self.latest_ready_block = None;
+        }
+    }
+
+    /// Updates the minimal base height and cleans up old blocks and chunks.
+    pub fn update_minimal_base_height(&mut self, height: BlockHeight) {
+        // If *new* chunks must be built on top of *at least* this height,
+        // optimistic block height must be *strictly greater* than this height.
+        self.update_block_height_threshold(height);
+
+        self.minimal_base_height = std::cmp::max(self.minimal_base_height, height);
+        let hashes_to_remove: Vec<_> = self
+            .chunks
+            .iter()
+            .filter(|(_, h)| h.prev_block_height < self.minimal_base_height)
+            .map(|(h, _)| *h)
+            .collect();
+        for h in hashes_to_remove {
+            self.chunks.remove(&h);
+        }
+    }
+}
+
 #[cfg(test)]
-mod test {
+mod missing_chunks_test {
     use super::{BlockHash, BlockLike, MissingChunksPool, MAX_BLOCKS_MISSING_CHUNKS};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::sharding::ChunkHash;
@@ -292,5 +489,83 @@ mod test {
         assert_eq!(pool.ready_blocks(), vec![block]);
         assert!(!pool.contains(&early_block_hash));
         assert!(pool.contains(&later_block_hash));
+    }
+}
+
+// TODO: tests for adding multiple blocks and reusing chunks.
+#[cfg(test)]
+mod optimistic_block_chunks_pool_test {
+    use super::{OptimisticBlock, OptimisticBlockChunksPool, ShardChunkHeader};
+    use itertools::Itertools;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::shard_layout::ShardLayout;
+    use near_primitives::types::ShardId;
+
+    #[test]
+    fn test_add_block() {
+        let mut pool = OptimisticBlockChunksPool::new();
+        let prev_hash = CryptoHash::default();
+        let block = OptimisticBlock::new_dummy(1, prev_hash);
+
+        pool.add_block(block);
+        assert_eq!(pool.num_blocks(), 1);
+        assert!(pool.blocks.contains_key(&prev_hash));
+    }
+
+    #[test]
+    fn test_add_chunk() {
+        let mut pool = OptimisticBlockChunksPool::new();
+        let prev_hash = CryptoHash::default();
+        let shard_layout = ShardLayout::single_shard();
+        let chunk_header = ShardChunkHeader::new_dummy(0, ShardId::new(0), prev_hash);
+
+        pool.add_chunk(&shard_layout, chunk_header);
+        assert_eq!(pool.num_chunks(), 1);
+        assert!(pool.chunks.contains_key(&prev_hash));
+    }
+
+    #[test]
+    fn test_ready_block() {
+        let mut pool = OptimisticBlockChunksPool::new();
+        let prev_hash = CryptoHash::default();
+        let block = OptimisticBlock::new_dummy(1, prev_hash);
+        let shard_layout = ShardLayout::multi_shard(2, 3);
+        let shard_ids = shard_layout.shard_ids().collect_vec();
+
+        let chunk_header = ShardChunkHeader::new_dummy(0, shard_ids[0], prev_hash);
+        pool.add_block(block);
+        pool.add_chunk(&shard_layout, chunk_header);
+
+        pool.update_latest_ready_block(&prev_hash);
+        assert!(pool.take_latest_ready_block().is_none());
+
+        let new_chunk_header = ShardChunkHeader::new_dummy(0, shard_ids[1], prev_hash);
+        pool.add_chunk(&shard_layout, new_chunk_header);
+
+        assert!(pool.take_latest_ready_block().is_some());
+        assert!(pool.take_latest_ready_block().is_none());
+    }
+
+    #[test]
+    fn test_thresholds() {
+        let mut pool = OptimisticBlockChunksPool::new();
+        pool.block_height_threshold = 10;
+        pool.minimal_base_height = 5;
+
+        let prev_hash = CryptoHash::default();
+        let block_below_threshold = OptimisticBlock::new_dummy(10, prev_hash);
+        pool.add_block(block_below_threshold);
+        assert_eq!(pool.num_blocks(), 0, "Block below threshold should not be added");
+
+        let shard_layout = ShardLayout::single_shard();
+        let chunk_header_below_threshold =
+            ShardChunkHeader::new_dummy(5, ShardId::new(0), prev_hash);
+        pool.add_chunk(&shard_layout, chunk_header_below_threshold);
+        assert_eq!(pool.num_chunks(), 0, "Chunk strictly below threshold should not be added");
+
+        let chunk_header_passing_threshold =
+            ShardChunkHeader::new_dummy(6, ShardId::new(0), prev_hash);
+        pool.add_chunk(&shard_layout, chunk_header_passing_threshold);
+        assert_eq!(pool.num_chunks(), 1);
     }
 }

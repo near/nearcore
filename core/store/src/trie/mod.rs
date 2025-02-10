@@ -907,7 +907,7 @@ impl Trie {
                 Ok(value) => String::from(value),
                 Err(_) => " ".repeat(key.len()),
             };
-            let state_record = StateRecord::from_raw_key_value(key.clone(), value);
+            let state_record = StateRecord::from_raw_key_value(&key, value);
 
             limit -= 1;
             writeln!(f, "{} {state_record:?}", key_string).expect("write failed");
@@ -1015,7 +1015,7 @@ impl Trie {
                 assert!(remainder.is_empty());
 
                 if !Self::should_prune_view_trie(&leaf_key, record_type, from, to) {
-                    let state_record = StateRecord::from_raw_key_value(leaf_key, bytes.to_vec());
+                    let state_record = StateRecord::from_raw_key_value(&leaf_key, bytes.to_vec());
 
                     writeln!(
                         f,

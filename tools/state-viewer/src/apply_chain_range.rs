@@ -6,7 +6,9 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter};
+use near_chain::{
+    get_incoming_receipts_for_shard, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
+};
 use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -74,12 +76,8 @@ fn apply_block_from_range(
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the read store anyway
-    let mut read_chain_store = ChainStore::new(
-        read_store.clone(),
-        genesis.config.genesis_height,
-        false,
-        genesis.config.transaction_validity_period,
-    );
+    let mut read_chain_store =
+        ChainStore::new(read_store.clone(), false, genesis.config.transaction_validity_period);
     let block_hash = match read_chain_store.get_block_hash_by_height(height) {
         Ok(block_hash) => block_hash,
         Err(_) => {
@@ -158,16 +156,16 @@ fn apply_block_from_range(
             .expect("valid transaction calculation");
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
-        let receipt_proof_response = chain_store_update
-            .get_incoming_receipts_for_shard(
-                epoch_manager,
-                shard_id,
-                &shard_layout,
-                block_hash,
-                prev_block.chunks()[shard_index].height_included(),
-                ReceiptFilter::TargetShard,
-            )
-            .unwrap();
+        let receipt_proof_response = get_incoming_receipts_for_shard(
+            &read_chain_store,
+            epoch_manager,
+            shard_id,
+            &shard_layout,
+            block_hash,
+            prev_block.chunks()[shard_index].height_included(),
+            ReceiptFilter::TargetShard,
+        )
+        .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
@@ -306,7 +304,7 @@ fn apply_block_from_range(
     // Ultimately, this has to handle requirements on storage effects from multiple sources --
     // `Benchmark` for example repeatedly applies a single block, so no storage effects are
     // desired, meanwhile other modes can be set to operate on various storage sources, all of
-    // which have their unique propoerties (e.g. flat storage operates on flat_head...)
+    // which have their unique properties (e.g. flat storage operates on flat_head...)
     match (mode, storage) {
         (ApplyRangeMode::Benchmark, _) => {}
         (_, StorageSource::Trie | StorageSource::TrieFree) => {}
@@ -345,6 +343,7 @@ fn apply_block_from_range(
             if let Err(err) = maybe_save_trie_changes(
                 write_store,
                 &genesis.config,
+                block_hash,
                 apply_result,
                 height,
                 shard_id,
@@ -382,12 +381,8 @@ pub fn apply_chain_range(
         only_contracts,
         ?storage)
     .entered();
-    let chain_store = ChainStore::new(
-        read_store.clone(),
-        genesis.config.genesis_height,
-        false,
-        genesis.config.transaction_validity_period,
-    );
+    let chain_store =
+        ChainStore::new(read_store.clone(), false, genesis.config.transaction_validity_period);
     let final_head = chain_store.final_head().unwrap();
     let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
     let shard_uid =

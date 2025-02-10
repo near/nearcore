@@ -1512,7 +1512,6 @@ mod tests {
         let chain_genesis = ChainGenesis::new(&genesis.config);
         let sender = Arc::new(T::new(ChainStore::new(
             store,
-            chain_genesis.height,
             false,
             chain_genesis.transaction_validity_period,
         )));

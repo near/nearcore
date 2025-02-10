@@ -45,12 +45,7 @@ pub fn check_storage_stake(
     runtime_config: &RuntimeConfig,
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageStakingError> {
-    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
     let billable_storage_bytes = account.storage_usage();
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    let billable_storage_bytes =
-        account.storage_usage().saturating_sub(account.permanent_storage_bytes());
-
     let required_amount = Balance::from(billable_storage_bytes)
         .checked_mul(runtime_config.storage_amount_per_byte())
         .ok_or_else(|| {
@@ -443,10 +438,6 @@ pub fn validate_action(
         }
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::NonrefundableStorageTransfer(_) => {
-            check_feature_enabled(ProtocolFeature::NonrefundableStorage, current_protocol_version)
-        }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
@@ -601,21 +592,6 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
     Ok(())
 }
 
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-fn check_feature_enabled(
-    feature: ProtocolFeature,
-    current_protocol_version: ProtocolVersion,
-) -> Result<(), ActionsValidationError> {
-    if feature.protocol_version() <= current_protocol_version {
-        Ok(())
-    } else {
-        Err(ActionsValidationError::UnsupportedProtocolFeature {
-            protocol_feature: format!("{feature:?}"),
-            version: feature.protocol_version(),
-        })
-    }
-}
-
 fn truncate_string(s: &str, limit: usize) -> String {
     for i in (0..=limit).rev() {
         if let Some(s) = s.get(..i) {
@@ -642,7 +618,7 @@ mod tests {
     use std::sync::Arc;
 
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
-    use near_primitives::account::{AccessKey, FunctionCallPermission};
+    use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ReceiptPriority;
@@ -738,7 +714,7 @@ mod tests {
                     account_id.clone(),
                     &ContractCode::new(code.clone(), Some(code_hash)),
                 );
-                initial_account.set_code_hash(code_hash);
+                initial_account.set_contract(AccountContract::Local(code_hash));
                 initial_account.set_storage_usage(
                     initial_account.storage_usage().checked_add(code.len() as u64).unwrap(),
                 );

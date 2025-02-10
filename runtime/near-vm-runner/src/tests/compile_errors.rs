@@ -318,7 +318,7 @@ fn test_limit_locals() {
 }
 
 #[test]
-fn test_limit_locals_global() {
+fn slow_test_limit_locals_global() {
     test_builder().wasm(&near_test_contracts::LargeContract {
         functions: 101,
         locals_per_function: 9901,

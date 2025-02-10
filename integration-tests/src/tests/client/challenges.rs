@@ -133,7 +133,6 @@ fn test_verify_block_double_sign_challenge() {
             env.clients[1].chain.epoch_manager.as_ref(),
             env.clients[1].chain.runtime_adapter.as_ref(),
             &epoch_id,
-            genesis.hash(),
             &valid_challenge
         )
         .unwrap()
@@ -151,7 +150,6 @@ fn test_verify_block_double_sign_challenge() {
         env.clients[1].chain.epoch_manager.as_ref(),
         env.clients[1].chain.runtime_adapter.as_ref(),
         &epoch_id,
-        genesis.hash(),
         &invalid_challenge,
     )
     .is_err());
@@ -167,7 +165,6 @@ fn test_verify_block_double_sign_challenge() {
         env.clients[1].chain.epoch_manager.as_ref(),
         env.clients[1].chain.runtime_adapter.as_ref(),
         &epoch_id,
-        genesis.hash(),
         &invalid_challenge,
     )
     .is_err());
@@ -330,7 +327,6 @@ fn challenge(
         env.clients[0].chain.epoch_manager.as_ref(),
         env.clients[0].chain.runtime_adapter.as_ref(),
         block.header().epoch_id(),
-        block.header().prev_hash(),
         &valid_challenge,
     )
 }
@@ -493,7 +489,6 @@ fn test_verify_chunk_invalid_state_challenge() {
             client.chain.epoch_manager.as_ref(),
             client.chain.runtime_adapter.as_ref(),
             block.header().epoch_id(),
-            block.header().prev_hash(),
             &challenge,
         )
         .unwrap_err(),

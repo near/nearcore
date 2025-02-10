@@ -47,7 +47,6 @@ nightly = [
   "near-vm-runner/nightly",
   "near-wallet-contract/nightly",
   "nightly_protocol",
-  "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
 ]
 nightly_protocol = [
@@ -61,7 +60,6 @@ nightly_protocol = [
   "near-wallet-contract/nightly_protocol",
   "testlib/nightly_protocol",
 ]
-protocol_feature_nonrefundable_transfer_nep491 = []
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 sandbox = ["near-o11y/sandbox", "near-vm-runner/sandbox"]
 test_features = [

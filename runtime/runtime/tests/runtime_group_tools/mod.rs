@@ -1,7 +1,7 @@
 use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ActionCosts;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
@@ -270,10 +270,8 @@ impl RuntimeGroup {
                     account: Account::new(
                         TESTING_INIT_BALANCE,
                         TESTING_INIT_STAKE,
+                        AccountContract::from_local_code_hash(code_hash),
                         0,
-                        code_hash,
-                        0,
-                        PROTOCOL_VERSION,
                     ),
                 });
                 state_records.push(StateRecord::AccessKey {

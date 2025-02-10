@@ -352,23 +352,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
-                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                // Non-refundable transfer deposit is burnt for permanent storage bytes on the receiving account.
-                near_primitives::transaction::Action::NonrefundableStorageTransfer(action) => {
-                    let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
-
-                    let sender_transfer_operation_id =
-                        crate::models::OperationIdentifier::new(&operations);
-                    operations.push(
-                        validated_operations::TransferOperation {
-                            account: sender_account_identifier.clone(),
-                            amount: -transfer_amount.clone(),
-                            predecessor_id: Some(sender_account_identifier.clone()),
-                        }
-                        .into_operation(sender_transfer_operation_id.clone()),
-                    );
-                }
-
                 near_primitives::transaction::Action::Stake(action) => {
                     operations.push(
                         validated_operations::StakeOperation {
@@ -856,6 +839,7 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_parameters::{RuntimeConfig, RuntimeConfigView};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::{Action, TransferAction};
     use near_time::Clock;
 
@@ -882,12 +866,12 @@ mod tests {
                         account_id: "nfvalidator1.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 5000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -899,12 +883,12 @@ mod tests {
                         account_id: "nfvalidator1.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 4000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -914,12 +898,12 @@ mod tests {
                         account_id: "nfvalidator2.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 7000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -931,12 +915,12 @@ mod tests {
                         account_id: "nfvalidator2.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 8000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
-                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                            permanent_storage_bytes: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -946,24 +930,24 @@ mod tests {
                 "nfvalidator1.near".parse().unwrap(),
                 near_primitives::views::AccountView {
                     amount: 4000000000000000000,
-                    code_hash: near_primitives::hash::CryptoHash::default(),
+                    code_hash: CryptoHash::default(),
                     locked: 400000000000000000000000000000,
-                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                    permanent_storage_bytes: 0,
                     storage_paid_at: 0,
                     storage_usage: 200000,
+                    global_contract_hash: None,
+                    global_contract_account_id: None,
                 },
             );
             accounts_previous_state.insert(
                 "nfvalidator2.near".parse().unwrap(),
                 near_primitives::views::AccountView {
                     amount: 6000000000000000000,
-                    code_hash: near_primitives::hash::CryptoHash::default(),
+                    code_hash: CryptoHash::default(),
                     locked: 400000000000000000000000000000,
-                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                    permanent_storage_bytes: 0,
                     storage_paid_at: 0,
                     storage_usage: 200000,
+                    global_contract_hash: None,
+                    global_contract_account_id: None,
                 },
             );
             let transactions = super::transactions::convert_block_changes_to_transactions(
@@ -1591,34 +1575,5 @@ mod tests {
             NearActions::try_from(operations),
             Err(crate::errors::ErrorKind::InvalidInput(_))
         ));
-    }
-
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    #[test]
-    fn test_convert_nonrefundable_storage_transfer_action() {
-        let deposit = near_primitives::types::Balance::MAX - 1;
-        let nonrefundable_transfer_actions = vec![
-            near_primitives::transaction::NonrefundableStorageTransferAction { deposit }.into(),
-        ];
-        let near_nonrefundable_transfer_actions = NearActions {
-            sender_account_id: "sender.near".parse().unwrap(),
-            receiver_account_id: "receiver.near".parse().unwrap(),
-            actions: nonrefundable_transfer_actions,
-        };
-        let nonrefundable_transfer_operations_converted: Vec<crate::models::Operation> =
-            near_nonrefundable_transfer_actions.into();
-        assert_eq!(nonrefundable_transfer_operations_converted.len(), 1);
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].type_,
-            crate::models::OperationType::Transfer
-        );
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].account,
-            "sender.near".parse().unwrap()
-        );
-        assert_eq!(
-            nonrefundable_transfer_operations_converted[0].amount,
-            Some(-crate::models::Amount::from_yoctonear(deposit))
-        );
     }
 }

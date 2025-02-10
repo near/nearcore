@@ -8,13 +8,14 @@ pub use near_client_primitives::types::{
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
-pub use crate::client::{Client, ProduceChunkResult};
+pub use crate::client::Client;
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor, StartClientResult};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::view_client_actor::{ViewClientActor, ViewClientActorInner};
+pub use chunk_producer::ProduceChunkResult;
 pub use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -30,6 +31,7 @@ pub mod adapter;
 pub mod adversarial;
 mod chunk_distribution_network;
 mod chunk_inclusion_tracker;
+mod chunk_producer;
 mod client;
 pub mod client_actor;
 mod config_updater;
@@ -41,6 +43,7 @@ mod stateless_validation;
 pub mod sync;
 pub mod sync_jobs_actor;
 pub mod test_utils;
+
 #[cfg(test)]
 mod tests;
 mod view_client_actor;

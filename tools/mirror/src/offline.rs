@@ -43,7 +43,6 @@ impl ChainAccess {
         let store = node_storage.get_hot_store();
         let chain = ChainStore::new(
             store.clone(),
-            config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
             config.genesis.config.transaction_validity_period,
         );

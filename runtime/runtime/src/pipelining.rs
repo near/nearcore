@@ -136,7 +136,10 @@ impl ReceiptPreparationPipeline {
                 }
                 Action::FunctionCall(function_call) => {
                     let Some(account) = &**account else { continue };
-                    let code_hash = account.code_hash();
+                    let Some(code_hash) = account.local_contract_hash() else {
+                        // TODO(#12884): support global contracts pipelining
+                        continue;
+                    };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
                     let entry = match self.map.entry(key) {
@@ -193,8 +196,6 @@ impl ReceiptPreparationPipeline {
                 | Action::DeleteKey(_)
                 | Action::DeleteAccount(_)
                 | Action::DeployGlobalContract(_) => {}
-                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                Action::NonrefundableStorageTransfer(_) => {}
             }
         }
         return any_function_calls;

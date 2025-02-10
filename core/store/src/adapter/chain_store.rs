@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
+use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
@@ -19,23 +20,17 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, inde
 use near_primitives::views::LightClientBlockView;
 
 use crate::{
-    DBCol, Store, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, TAIL_KEY,
+    get_genesis_height, DBCol, Store, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY,
+    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, TAIL_KEY,
 };
 
 use super::StoreAdapter;
 
-/// TODO: having genesis_height and save_trie_changes don't make sense here
 #[derive(Clone)]
 pub struct ChainStoreAdapter {
     store: Store,
     /// Genesis block height.
     genesis_height: BlockHeight,
-    /// save_trie_changes should be set to true iff
-    /// - archive is false - non-archival nodes need trie changes to perform garbage collection
-    /// - archive is true, cold_store is configured and migration to split_storage is finished - node
-    /// working in split storage mode needs trie changes in order to do garbage collection on hot.
-    save_trie_changes: bool,
 }
 
 impl StoreAdapter for ChainStoreAdapter {
@@ -45,8 +40,11 @@ impl StoreAdapter for ChainStoreAdapter {
 }
 
 impl ChainStoreAdapter {
-    pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> Self {
-        Self { store, genesis_height, save_trie_changes }
+    pub fn new(store: Store) -> Self {
+        let genesis_height = get_genesis_height(&store)
+            .expect("Store failed on fetching genesis height")
+            .expect("Genesis height not found in storage");
+        Self { store, genesis_height }
     }
 
     /// The chain head.
@@ -252,6 +250,16 @@ impl ChainStoreAdapter {
         )
     }
 
+    pub fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        self.store
+            .get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
+            .map_err(|e| e.into())
+    }
+
     pub fn get_outgoing_receipts(
         &self,
         prev_block_hash: &CryptoHash,
@@ -303,7 +311,7 @@ impl ChainStoreAdapter {
     pub fn get_block_merkle_tree(
         &self,
         block_hash: &CryptoHash,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
+    ) -> Result<PartialMerkleTree, Error> {
         option_to_not_found(
             self.store.get_ser(DBCol::BlockMerkleTree, block_hash.as_ref()),
             format_args!("BLOCK MERKLE TREE: {}", block_hash),
@@ -323,7 +331,7 @@ impl ChainStoreAdapter {
     pub fn get_block_merkle_tree_from_ordinal(
         &self,
         block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
+    ) -> Result<PartialMerkleTree, Error> {
         let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
         self.get_block_merkle_tree(&block_hash)
     }
@@ -390,10 +398,6 @@ impl ChainStoreAdapter {
     /// Get height of genesis
     pub fn get_genesis_height(&self) -> BlockHeight {
         self.genesis_height
-    }
-
-    pub fn save_trie_changes(&self) -> bool {
-        self.save_trie_changes
     }
 }
 

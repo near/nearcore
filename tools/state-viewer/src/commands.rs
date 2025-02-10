@@ -22,7 +22,8 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{
-    Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error, ReceiptFilter,
+    get_incoming_receipts_for_shard, Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error,
+    ReceiptFilter,
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -82,19 +83,18 @@ pub(crate) fn apply_block(
     let apply_result = if block.chunks()[shard_index].height_included() == height {
         let chunk = chain_store.get_chunk(&block.chunks()[shard_index].chunk_hash()).unwrap();
         let prev_block = chain_store.get_block(block.header().prev_hash()).unwrap();
-        let chain_store_update = ChainStoreUpdate::new(chain_store);
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(block.header().prev_hash()).unwrap();
-        let receipt_proof_response = chain_store_update
-            .get_incoming_receipts_for_shard(
-                epoch_manager,
-                shard_id,
-                &shard_layout,
-                block_hash,
-                prev_block.chunks()[shard_index].height_included(),
-                ReceiptFilter::TargetShard,
-            )
-            .unwrap();
+        let receipt_proof_response = get_incoming_receipts_for_shard(
+            &chain_store,
+            epoch_manager,
+            shard_id,
+            &shard_layout,
+            block_hash,
+            prev_block.chunks()[shard_index].height_included(),
+            ReceiptFilter::TargetShard,
+        )
+        .unwrap();
         let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let chunk_inner = chunk.cloned_header().take_inner();
@@ -176,7 +176,6 @@ pub(crate) fn apply_block_at_height(
 ) -> anyhow::Result<()> {
     let mut read_chain_store = ChainStore::new(
         read_store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -207,6 +206,7 @@ pub(crate) fn apply_block_at_height(
     let result = maybe_save_trie_changes(
         write_store.clone(),
         &near_config.genesis.config,
+        block_hash,
         apply_result,
         height,
         shard_id,
@@ -234,7 +234,6 @@ pub(crate) fn apply_chunk(
     .context("could not create the transaction runtime")?;
     let mut chain_store = ChainStore::new(
         store,
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -392,10 +391,11 @@ pub(crate) fn dump_account_storage(
             account_id: account_id.parse().unwrap(),
             key: storage_key.as_bytes().to_vec(),
         };
-        let item = trie.get(&key.to_vec());
+        let key = key.to_vec();
+        let item = trie.get(&key);
         let value = item.unwrap();
         if let Some(value) = value {
-            let record = StateRecord::from_raw_key_value(key.to_vec(), value).unwrap();
+            let record = StateRecord::from_raw_key_value(&key, value).unwrap();
             match record {
                 StateRecord::Data { account_id: _, data_key: _, value } => {
                     fs::write(output, value.as_slice()).unwrap();
@@ -521,7 +521,6 @@ pub(crate) fn dump_tx(
 ) -> Result<(), Error> {
     let chain_store = ChainStore::new(
         store,
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -546,12 +545,31 @@ pub(crate) fn dump_tx(
 pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: Store) {
     let chain_store = ChainStore::new(
         store,
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
     let chunk = chain_store.get_chunk(&chunk_hash);
     println!("Chunk: {:#?}", chunk);
+}
+
+pub(crate) fn print_chunk_apply_stats(
+    block_hash: &CryptoHash,
+    shard_id: u64,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let chain_store = ChainStore::new(
+        store,
+        near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
+    );
+    match chain_store.get_chunk_apply_stats(block_hash, &ShardId::new(shard_id)) {
+        Ok(Some(stats)) => println!("{:#?}", stats),
+        Ok(None) => {
+            println!("\nNo stats found for block hash {} and shard {}\n", block_hash, shard_id)
+        }
+        Err(e) => eprintln!("Error: {:#?}", e),
+    }
 }
 
 pub(crate) fn get_partial_chunk(
@@ -561,7 +579,6 @@ pub(crate) fn get_partial_chunk(
 ) {
     let chain_store = ChainStore::new(
         store,
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -572,7 +589,6 @@ pub(crate) fn get_partial_chunk(
 pub(crate) fn get_receipt(receipt_id: CryptoHash, near_config: NearConfig, store: Store) {
     let chain_store = ChainStore::new(
         store,
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -590,7 +606,6 @@ pub(crate) fn print_chain(
 ) {
     let chain_store = ChainStore::new(
         store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -621,8 +636,7 @@ pub(crate) fn print_chain(
                             println!(
                                 "Epoch {} Validators {:?}",
                                 format_hash(epoch_id.0, show_full_hashes),
-                                epoch_manager
-                                    .get_epoch_block_producers_ordered(&epoch_id, header.hash())
+                                epoch_manager.get_epoch_block_producers_ordered(&epoch_id)
                             );
                         }
                         Err(err) => {
@@ -726,7 +740,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
             runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
         for item in trie.disk_iter().unwrap() {
             let (key, value) = item.unwrap();
-            if let Some(state_record) = StateRecord::from_raw_key_value(key, value) {
+            if let Some(state_record) = StateRecord::from_raw_key_value(&key, value) {
                 println!("{}", state_record);
             }
         }
@@ -743,7 +757,6 @@ pub(crate) fn view_chain(
 ) {
     let chain_store = ChainStore::new(
         store.clone(),
-        near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -820,7 +833,6 @@ pub(crate) fn view_genesis(
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store = ChainStore::new(
         store,
-        genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -902,7 +914,6 @@ pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store)
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store = ChainStore::new(
         store,
-        genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -936,10 +947,8 @@ pub(crate) fn print_epoch_info(
     near_config: NearConfig,
     store: Store,
 ) {
-    let genesis_height = near_config.genesis.config.genesis_height;
     let mut chain_store = ChainStore::new(
         store.clone(),
-        genesis_height,
         near_config.client_config.save_trie_changes,
         near_config.genesis.config.transaction_validity_period,
     );
@@ -1297,19 +1306,16 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
 pub(crate) fn maybe_save_trie_changes(
     store: Option<Store>,
     genesis_config: &near_chain_configs::GenesisConfig,
+    block_hash: CryptoHash,
     apply_result: ApplyChunkResult,
     block_height: u64,
     shard_id: ShardId,
 ) -> anyhow::Result<()> {
     if let Some(store) = store {
-        let mut chain_store = ChainStore::new(
-            store,
-            genesis_config.genesis_height,
-            false,
-            genesis_config.transaction_validity_period,
-        );
+        let mut chain_store =
+            ChainStore::new(store, false, genesis_config.transaction_validity_period);
         let mut chain_store_update = chain_store.store_update();
-        chain_store_update.save_trie_changes(apply_result.trie_changes);
+        chain_store_update.save_trie_changes(block_hash, apply_result.trie_changes);
         chain_store_update.commit()?;
         tracing::debug!("Trie changes persisted for block {block_height}, shard {shard_id}");
     }
@@ -1339,7 +1345,7 @@ fn print_state_stats_for_shard_uid(
 
     let mut state_stats = StateStats::default();
 
-    // iteratate for the first time to get the size statistics
+    // iterate for the first time to get the size statistics
     let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
     let iter = get_state_stats_account_iter(&group_by);
     for state_stats_account in iter {
@@ -1394,7 +1400,7 @@ fn get_state_stats_group_by<'a>(
                 let key_size = key.len() as u64;
                 let value_size = value.len() as u64;
                 let size = ByteSize::b(key_size + value_size);
-                let state_record = StateRecord::from_raw_key_value(key, value);
+                let state_record = StateRecord::from_raw_key_value(&key, value);
                 state_record.map(|state_record| StateStatsStateRecord {
                     account_id: state_record_to_account_id(&state_record).clone(),
                     state_record,
@@ -1456,7 +1462,7 @@ pub struct StateStats {
     // The account that is in the middle of the state in respect to storage.
     pub middle_account: Option<StateStatsAccount>,
     // The total size of all accounts leading to the middle account.
-    // Can be used to determin how does the middle account split the state.
+    // Can be used to determine how does the middle account split the state.
     pub middle_account_leading_size: Option<ByteSize>,
 
     pub top_accounts: BinaryHeap<StateStatsAccount>,

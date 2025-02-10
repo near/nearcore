@@ -11,8 +11,8 @@ use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
-    get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
-    MerkleProofAccess,
+    get_epoch_block_producers_view, retrieve_headers, Chain, ChainGenesis, ChainStoreAccess,
+    DoomslugThresholdMode, MerkleProofAccess,
 };
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
@@ -647,7 +647,7 @@ impl ViewClientActorInner {
         &mut self,
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
-        self.chain.retrieve_headers(hashes, sync::header::MAX_BLOCK_HEADERS, None)
+        retrieve_headers(self.chain.chain_store(), hashes, sync::header::MAX_BLOCK_HEADERS, None)
     }
 
     fn check_signature_account_announce(
@@ -655,12 +655,9 @@ impl ViewClientActorInner {
         announce_account: &AnnounceAccount,
     ) -> Result<bool, Error> {
         let announce_hash = announce_account.hash();
-        let head = self.chain.head()?;
-
         self.epoch_manager
             .verify_validator_signature(
                 &announce_account.epoch_id,
-                &head.last_block_hash,
                 &announce_account.account_id,
                 announce_hash.as_ref(),
                 &announce_account.signature,
@@ -911,11 +908,7 @@ impl Handler<GetValidatorOrdered> for ViewClientActorInner {
             .with_label_values(&["GetValidatorOrdered"])
             .start_timer();
         Ok(self.maybe_block_id_to_block_header(msg.block_id).and_then(|header| {
-            get_epoch_block_producers_view(
-                header.epoch_id(),
-                header.prev_hash(),
-                self.epoch_manager.as_ref(),
-            )
+            get_epoch_block_producers_view(header.epoch_id(), self.epoch_manager.as_ref())
         })?)
     }
 }
@@ -1358,13 +1351,15 @@ impl Handler<StateRequestHeader> for ViewClientActorInner {
             return None;
         }
         let header = match self.chain.check_sync_hash_validity(&sync_hash) {
-            Ok(true) => match self.chain.get_state_response_header(shard_id, sync_hash) {
-                Ok(header) => Some(header),
-                Err(err) => {
-                    error!(target: "sync", ?err, "Cannot build state sync header");
-                    None
+            Ok(true) => {
+                match self.chain.state_sync_adapter.get_state_response_header(shard_id, sync_hash) {
+                    Ok(header) => Some(header),
+                    Err(err) => {
+                        error!(target: "sync", ?err, "Cannot build state sync header");
+                        None
+                    }
                 }
-            },
+            }
             Ok(false) => {
                 warn!(target: "sync", ?sync_hash, "sync_hash didn't pass validation, possible malicious behavior");
                 // Don't respond to the node, because the request is malformed.
@@ -1434,7 +1429,11 @@ impl Handler<StateRequestPart> for ViewClientActorInner {
         tracing::debug!(target: "sync", ?shard_id, ?sync_hash, ?part_id, "Computing state request part");
         let part = match self.chain.check_sync_hash_validity(&sync_hash) {
             Ok(true) => {
-                let part = match self.chain.get_state_response_part(shard_id, part_id, sync_hash) {
+                let part = match self
+                    .chain
+                    .state_sync_adapter
+                    .get_state_response_part(shard_id, part_id, sync_hash)
+                {
                     Ok(part) => Some((part_id, part)),
                     Err(err) => {
                         error!(target: "sync", ?err, ?sync_hash, ?shard_id, part_id, "Cannot build state part");
