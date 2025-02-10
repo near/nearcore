@@ -1,0 +1,13 @@
+{
+    "rpc": {
+        "addr": "127.0.0.1:4040",
+        "enable_debug_rpc": true
+    },
+    "store": {
+       "load_mem_tries_for_tracked_shards": true
+    },
+    "view_client_threads": 8,
+    "produce_chunk_add_transactions_time_limit": {
+        "nanos": 800000000
+    }
+}
