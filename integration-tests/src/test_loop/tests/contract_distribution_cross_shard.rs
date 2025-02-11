@@ -118,14 +118,21 @@ fn test_global_contract(
         &rpc_id,
         &accounts[0],
         contract.code().into(),
-        deploy_mode,
+        deploy_mode.clone(),
         nonce,
     );
     nonce += 1;
     env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.datas, &rpc_id, &[deploy_tx]);
-    let code_hash = CryptoHash::hash_bytes(contract.code());
-    let identifier = GlobalContractIdentifier::CodeHash(code_hash);
+    let identifier = match deploy_mode {
+        GlobalContractDeployMode::CodeHash => {
+            let code_hash = CryptoHash::hash_bytes(contract.code());
+            GlobalContractIdentifier::CodeHash(code_hash)
+        }
+        GlobalContractDeployMode::AccountId => {
+            GlobalContractIdentifier::AccountId(accounts[0].clone())
+        }
+    };
     // test on accounts from different shards
     for account in [&accounts[1], &accounts[6]] {
         let use_tx = use_global_contract(

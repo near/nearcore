@@ -493,6 +493,7 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
+
                 let code_hash = match account_contract.as_ref() {
                     AccountContract::None => CryptoHash::default(),
                     AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => {
