@@ -13,6 +13,7 @@ use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
+#[cfg(feature = "nightly_protocol")]
 use near_primitives::action::{
     Action, DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
     UseGlobalContractAction,
@@ -307,6 +308,7 @@ pub fn deploy_contract(
     tx_hash
 }
 
+#[cfg(feature = "nightly_protocol")]
 pub fn deploy_global_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &[TestData],
@@ -337,6 +339,7 @@ pub fn deploy_global_contract(
     tx_hash
 }
 
+#[cfg(feature = "nightly_protocol")]
 pub fn use_global_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &[TestData],
