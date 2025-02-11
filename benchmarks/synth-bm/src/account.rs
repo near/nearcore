@@ -213,6 +213,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     for i in 0..args.num_sub_accounts {
         let sub_account_key = SecretKey::from_random(KeyType::ED25519);
         let sub_account_id: AccountId = {
+            // cspell:ignore subname
             let subname = if let Some(prefix) = &args.sub_account_prefix {
                 format!("{prefix}_user_{i}")
             } else {
