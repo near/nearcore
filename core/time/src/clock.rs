@@ -161,12 +161,20 @@ impl FakeClockInner {
         }
         self.instant += d;
         self.utc += d;
+        
+        // Take ownership of completed waiters to minimize lock contention
+        let mut completed_waiters = Vec::new();
         while let Some(earliest_waiter) = self.waiters.peek() {
             if earliest_waiter.deadline <= self.instant {
-                self.waiters.pop().unwrap().waker.send(()).ok();
+                completed_waiters.push(self.waiters.pop().unwrap());
             } else {
                 break;
             }
+        }
+        
+        // Drop the lock before sending notifications
+        for waiter in completed_waiters {
+            let _ = waiter.waker.send(());
         }
     }
     pub fn advance_until(&mut self, t: Instant) {
@@ -212,29 +220,46 @@ impl FakeClock {
         if d <= Duration::ZERO {
             return;
         }
-        let receiver = {
+        
+        // Create the channel outside the mutex lock
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let deadline;
+        
+        // Minimize the time we hold the lock
+        {
             let mut inner = self.0.lock().unwrap();
-            let (sender, receiver) = tokio::sync::oneshot::channel();
-            let waiter = ClockWaiterInHeap { waker: sender, deadline: inner.now() + d };
+            deadline = inner.now() + d;
+            let waiter = ClockWaiterInHeap { waker: sender, deadline };
             inner.waiters.push(waiter);
-            receiver
-        };
-        receiver.await.unwrap();
+            
+            // Check if we should complete immediately
+            if inner.now() >= deadline {
+                // Already past deadline, complete immediately
+                return;
+            }
+        }
+        
+        // Wait outside the lock
+        let _ = receiver.await;
     }
 
     /// Cancel-safe.
     pub async fn sleep_until(&self, t: Instant) {
-        let receiver = {
+        // Create the channel outside the mutex lock
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        
+        // Minimize the time we hold the lock
+        {
             let mut inner = self.0.lock().unwrap();
             if inner.now() >= t {
                 return;
             }
-            let (sender, receiver) = tokio::sync::oneshot::channel();
             let waiter = ClockWaiterInHeap { waker: sender, deadline: t };
             inner.waiters.push(waiter);
-            receiver
-        };
-        receiver.await.unwrap();
+        }
+        
+        // Wait outside the lock
+        let _ = receiver.await;
     }
 
     /// Returns the earliest waiter, or None if no one is waiting on the clock.
@@ -320,8 +345,9 @@ mod tests {
             }
         });
 
-        // Give the sleep task a chance to start
+        // Give the sleep task a chance to start and register its waiter
         tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         println!("Advancing clock by 3 seconds from {:?}", fake.now());
         fake.advance(Duration::seconds(3));
@@ -335,7 +361,7 @@ mod tests {
         println!("Clock is now at {:?}", fake.now());
 
         // Now sleep task should complete with a timeout to prevent hanging
-        let end = tokio::time::timeout(std::time::Duration::from_secs(5), sleep_task)
+        let end = tokio::time::timeout(std::time::Duration::from_secs(1), sleep_task)
             .await
             .expect("sleep_task timed out")
             .expect("sleep_task panicked");
