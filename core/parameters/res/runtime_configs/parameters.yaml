@@ -277,3 +277,16 @@ max_shard_bandwidth: 999_999_999_999_999
 max_single_grant: 999_999_999_999_999
 max_allowance: 999_999_999_999_999
 max_base_bandwidth: 999_999_999_999_999
+
+# Global contracts
+action_deploy_global_contract: {
+  send_sir: 999_999_999_999_999,
+  send_not_sir: 999_999_999_999_999,
+  execution: 999_999_999_999_999,
+}
+action_deploy_global_contract_per_byte: {
+  send_sir: 999_999_999_999_999,
+  send_not_sir: 999_999_999_999_999,
+  execution: 999_999_999_999_999,
+}
+global_contract_storage_amount_per_byte: 999_999_999_999_999_999_999_999_999

@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 pub struct Version {
     pub version: String,
     pub build: String,
+    pub commit: String,
     #[serde(default)]
     pub rustc_version: String,
 }
