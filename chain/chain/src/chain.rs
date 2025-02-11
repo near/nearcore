@@ -3420,7 +3420,7 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if let Some(result) = self.apply_chunk_results_cache.peek(&cached_shard_update_key) {
-            info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+            debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
             let result = result.clone();
             return Ok(Some((
                 shard_id,
@@ -3428,7 +3428,7 @@ impl Chain {
                 Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
             )));
         }
-        info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+        debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
