@@ -3,7 +3,8 @@
 //! The build script sets `NEARD_VERSION` and `NEARD_BUILD` to be neard version
 //! and build respectively.  Version is the official semver such as 1.24.1 if
 //! the executable is built from a release branch or `trunk` if it’s built from
-//! master.  Build is a `git describe` of the commit the binary was built at.
+//! master.  Build is a `git describe` of the commit the binary was built at
+//! (for official releases it should be the same as version).
 
 use anyhow::{anyhow, Result};
 
