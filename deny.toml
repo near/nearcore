@@ -136,4 +136,32 @@ skip = [
 
     # indicatif brings in a newer version
     { name = "unicode-width", version = "<0.2" },
+
+    # Path dependencies to crates in this workspace are resolved with version 0.0.0.
+    # benchmarks/synth-bm needs to depend on newer versions to satisfy near-jsonrpc-client
+    { name = "near-chain-configs", version = "=0.0.0" },
+    { name = "near-config-utils", version = "=0.0.0" },
+    { name = "near-crypto", version = "=0.0.0" },
+    { name = "near-fmt", version = "=0.0.0" },
+    { name = "near-jsonrpc-client", version = "=0.0.0" },
+    { name = "near-jsonrpc-primitives", version = "=0.0.0" },
+    { name = "near-parameters", version = "=0.0.0" },
+    { name = "near-primitives", version = "=0.0.0" },
+    { name = "near-primitives-core", version = "=0.0.0" },
+    { name = "near-schema-checker-core", version = "=0.0.0" },
+    { name = "near-schema-checker-lib", version = "=0.0.0" },
+    { name = "near-schema-checker-macro", version = "=0.0.0" },
+    { name = "near-stdx", version = "=0.0.0" },
+    { name = "near-time", version = "=0.0.0" },
+
+    # near-jsonrpc-client brings in newer versions for multiple crates
+    { name = "base64", version = "=0.21.0" },
+    { name = "http", version = "=0.2.12" },
+    { name = "http-body", version = "=0.4.6" },
+    { name = "hyper", version = "=0.14.28" },
+    { name = "hyper-tls", version = "=0.5.0" },
+    { name = "reqwest", version = "=0.11.17" },
+    { name = "smart-default", version = "=0.6.0" },
+    { name = "socket2", version = "=0.4.9" },
+    { name = "winreg", version = "=0.10.1" },
 ]
