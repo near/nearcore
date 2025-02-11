@@ -2683,24 +2683,11 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
     let scheduled_receipt_offset = iterator.position(|peek| {
         let peek = peek.as_ref();
         let account_id = peek.receiver_id();
-        let receiver = std::cell::LazyCell::new(|| {
-            let key = TrieKey::Account { account_id: account_id.clone() };
-            let receiver = get_pure::<Account>(state_update, &key);
-            let Ok(Some(receiver)) = receiver else {
-                // Most likely reason this can happen is because the receipt is for an account that
-                // does not yet exist. This is a routine occurrence as accounts are created by
-                // sending some NEAR to a name that's about to be created.
-                return None;
-            };
-            Some(receiver)
-        });
-
         // We need to inspect each receipt recursively in case these are data receipts, thus a
         // function.
         fn handle_receipt(
             mgr: &mut ReceiptPreparationPipeline,
             state_update: &TrieUpdate,
-            receiver: &std::cell::LazyCell<Option<Account>, impl FnOnce() -> Option<Account>>,
             account_id: &AccountId,
             receipt: &Receipt,
         ) -> bool {
@@ -2709,7 +2696,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                     // This returns `true` if work may have been scheduled (thus we currently
                     // prepare actions in at most 2 "interesting" receipts in parallel due to
                     // staggering.)
-                    mgr.submit(receipt, &receiver, None)
+                    mgr.submit(receipt, state_update, None)
                 }
                 ReceiptEnum::Data(dr) => {
                     let key = TrieKey::PostponedReceiptId {
@@ -2736,7 +2723,7 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                     let Ok(Some(pr)) = get_pure::<Receipt>(state_update, &key) else {
                         return false;
                     };
-                    return handle_receipt(mgr, state_update, receiver, account_id, &pr);
+                    return handle_receipt(mgr, state_update, account_id, &pr);
                 }
                 ReceiptEnum::PromiseResume(dr) => {
                     let key = TrieKey::PromiseYieldReceipt {
@@ -2746,12 +2733,12 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
                     let Ok(Some(yr)) = get_pure::<Receipt>(state_update, &key) else {
                         return false;
                     };
-                    return handle_receipt(mgr, state_update, receiver, account_id, &yr);
+                    return handle_receipt(mgr, state_update, account_id, &yr);
                 }
                 ReceiptEnum::GlobalContractDistribution(_) => false,
             }
         }
-        handle_receipt(pipeline_manager, state_update, &receiver, account_id, peek)
+        handle_receipt(pipeline_manager, state_update, account_id, peek)
     })?;
     Some(scheduled_receipt_offset.saturating_add(1))
 }
