@@ -342,7 +342,6 @@ pub fn use_global_contract(
     node_datas: &[TestData],
     rpc_id: &AccountId,
     account_id: &AccountId,
-    // global_code_hash: CryptoHash,
     global_contract_identifier: GlobalContractIdentifier,
     nonce: u64,
 ) -> CryptoHash {
