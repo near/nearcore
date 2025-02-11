@@ -16,8 +16,9 @@ workspace = true
 anyhow.workspace = true 
 clap = { workspace = true, features = ["derive"] }
 env_logger.workspace = true
+ext-near-jsonrpc-client.workspace = true
 log.workspace = true
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tracing = { workspace = true, features = ["std"] }
@@ -32,7 +33,7 @@ rand.workspace = true
 #    is compatible with. These can currently not be satisfied by path dependencies: for example
 #    `near-crypto.workspace` would pull in a `near-crypto` version that differs from the one used by
 #    `near-jsonrpc-client`, leading to compilation errors.
-near-crypto = "0.27"
-near-jsonrpc-client = "0.14.0"
-near-jsonrpc-primitives = "0.27"
-near-primitives = "0.27"
+# TODO update comment
+near-crypto = "0.28"
+near-jsonrpc-primitives = "0.28"
+near-primitives = "0.28"

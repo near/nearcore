@@ -10,10 +10,10 @@ use tokio::time;
 use crate::block_service::BlockService;
 use crate::rpc::{new_request, view_access_key, ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
+use ext_near_jsonrpc_client::JsonRpcClient;
 use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_crypto::{PublicKey, Signer};
-use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::views::TxExecutionStatus;
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission},
@@ -186,7 +186,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
 
-    let mut interval = time::interval(Duration::from_micros(1_000_000/args.requests_per_second));
+    let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
     let timer = Instant::now();
 
     let mut sub_accounts: Vec<Account> =
@@ -257,13 +257,8 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
 
     // Nonces of new access keys are set by nearcore: https://github.com/near/nearcore/pull/4064
     // Query them from the rpc to write `Accounts` with valid nonces to disk
-    sub_accounts = update_account_nonces(
-        client.clone(),
-        sub_accounts,
-        args.requests_per_second,
-        None,
-    )
-    .await?;
+    sub_accounts =
+        update_account_nonces(client.clone(), sub_accounts, args.requests_per_second, None).await?;
 
     for account in sub_accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
