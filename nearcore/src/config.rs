@@ -396,6 +396,8 @@ impl Default for Config {
             orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
             save_latest_witnesses: false,
+            produce_optimistic_block: false,
+            process_optimistic_block: false,
         }
     }
 }
