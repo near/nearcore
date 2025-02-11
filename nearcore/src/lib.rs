@@ -439,7 +439,6 @@ pub fn start_with_config_and_synchronization(
         shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         future_spawner: state_sync_spawner,
         handle: None,
     };

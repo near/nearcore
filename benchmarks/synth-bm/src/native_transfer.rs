@@ -58,7 +58,7 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
         accounts = update_account_nonces(
             client.clone(),
             accounts,
-            1_000_000 / args.interval_duration_micros,
+            args.requests_per_second,
             Some(&args.user_data_dir),
         )
         .await?;

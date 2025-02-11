@@ -5,6 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use near_account_id::AccountId;
 use near_schema_checker_lib::ProtocolSchema;
+use std::borrow::Cow;
 use std::io;
 
 #[derive(
@@ -109,6 +110,10 @@ impl AccountContract {
             AccountContract::Local(code_hash)
         }
     }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
 }
 
 #[derive(
@@ -179,10 +184,12 @@ impl Account {
     }
 
     #[inline]
-    pub fn contract(&self) -> AccountContract {
+    pub fn contract(&self) -> Cow<AccountContract> {
         match self {
-            Self::V1(account) => AccountContract::from_local_code_hash(account.code_hash),
-            Self::V2(account) => account.contract.clone(),
+            Self::V1(account) => {
+                Cow::Owned(AccountContract::from_local_code_hash(account.code_hash))
+            }
+            Self::V2(account) => Cow::Borrowed(&account.contract),
         }
     }
 

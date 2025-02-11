@@ -260,7 +260,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     sub_accounts = update_account_nonces(
         client.clone(),
         sub_accounts,
-        1_000_000 / args.interval_duration_micros,
+        args.requests_per_second,
         None,
     )
     .await?;

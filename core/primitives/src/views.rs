@@ -89,11 +89,12 @@ pub struct ContractCodeView {
 
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
-        let (global_contract_hash, global_contract_account_id) = match account.contract() {
-            AccountContract::Global(contract) => (Some(contract), None),
-            AccountContract::GlobalByAccount(account_id) => (None, Some(account_id)),
-            AccountContract::Local(_) | AccountContract::None => (None, None),
-        };
+        let (global_contract_hash, global_contract_account_id) =
+            match account.contract().into_owned() {
+                AccountContract::Global(contract) => (Some(contract), None),
+                AccountContract::GlobalByAccount(account_id) => (None, Some(account_id)),
+                AccountContract::Local(_) | AccountContract::None => (None, None),
+            };
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
