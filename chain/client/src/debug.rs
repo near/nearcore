@@ -252,6 +252,10 @@ fn find_first_height_to_fetch(
     mode: DebugBlocksMode,
     final_height: BlockHeight,
 ) -> Result<BlockHeight, near_chain_primitives::Error> {
+    if matches!(mode, DebugBlocksMode::All) {
+        return Ok(height_to_fetch);
+    }
+
     let min_height_to_search = max(
         height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64,
         chain_store.genesis_height() as i64,
@@ -263,6 +267,8 @@ fn find_first_height_to_fetch(
             if matches!(mode, DebugBlocksMode::JumpToBlockMiss | DebugBlocksMode::JumpToChunkMiss) {
                 break;
             }
+            height_to_fetch -= 1;
+            continue;
         }
         if matches!(mode, DebugBlocksMode::JumpToBlockProduced) {
             break;
