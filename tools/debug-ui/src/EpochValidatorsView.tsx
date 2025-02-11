@@ -164,6 +164,9 @@ function processEpochData(epochData: any): ProcessedEpochData {
                 shards: validatorInfo.shards,
             });
         }
+        validators.addValidatorRole(validator.accountId, 0, {
+            kind: 'ChunkValidator',
+        });
     }
 
     for (const proposal of currentValidatorInfo.current_proposals) {

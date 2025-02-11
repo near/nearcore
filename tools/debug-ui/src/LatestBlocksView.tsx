@@ -411,7 +411,10 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                         onChange={(e) => setModeInInput(e.target.value)}
                     >
                         <option value="all">All</option>
-                        <option value="first_skip">From First Skip</option>
+                        <option value="first_block_miss">Jump To Block Miss</option>
+                        <option value="first_chunk_miss">Jump To Chunk Miss</option>
+                        <option value="first_block_produced">Jump To Block Produced</option>
+                        <option value="all_chunks_included">Jump To All Chunks Included</option>
                     </select>
                     <button onClick={goToHeightCallback}>Go</button>
                     <button onClick={() => setHeight(null)}>Show HEADER_HEAD</button>
