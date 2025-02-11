@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
 import Xarrow, { Xwrapper, useXarrow } from 'react-xarrows';
-import { DebugBlockStatus, DebugBlocksMode, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
+import { DebugBlockStatus, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
 import './LatestBlocksView.scss';
 
 function ellipsify(str: string, maxLen: number): string {
@@ -287,7 +287,7 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
     const [showMissingChunksStats, setShowMissingChunksStats] = useState(false);
     const [numBlocks, setNumBlocks] = useState<number | null>(null);
     const [numBlocksInInput, setNumBlocksInInput] = useState<string>('');
-    const [mode, setMode] = useState<DebugBlocksMode | null>(null);
+    const [mode, setMode] = useState<string | null>(null);
     const [modeInInput, setModeInInput] = useState<string>('');
     const updateXarrow = useXarrow();
 
@@ -371,8 +371,7 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
             setNumBlocks(null);
         }
         if (modeInInput != '') {
-            const mode = modeInInput as DebugBlocksMode;
-            setMode(mode);
+            setMode(modeInInput);
         } else {
             setMode(null);
         }
@@ -388,8 +387,8 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                             let promptText = height == null ? 
                                 `Displaying most recent ${blocksText}` : 
                                 `Displaying ${blocksText} from height ${height}`;
-                            if (mode == DebugBlocksMode.FirstSkip) {
-                                promptText += ' from first skip';
+                            if (mode != null && mode != 'all') {
+                                promptText += ` in mode ${mode}`;
                             }
                             return promptText;
                         })()}

@@ -435,15 +435,10 @@ export async function fetchTrackedShards(addr: string): Promise<TrackedShardsRes
     return await response.json();
 }
 
-export enum DebugBlocksMode {
-    All = "all",
-    FirstSkip = "first_skip",
-}
-
 export async function fetchBlockStatus(
     addr: string,
     height: number | null,
-    mode: DebugBlocksMode | null,
+    mode: string | null,
     numBlocks: number | null
 ): Promise<BlockStatusResponse> {
     const params = new URLSearchParams();
