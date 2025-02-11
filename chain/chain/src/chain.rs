@@ -3616,7 +3616,9 @@ impl Chain {
             self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
         let will_shard_layout_change =
             self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        let next_block_epoch =
+            self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
 
         let tries = self.runtime_adapter.get_tries();
         let snapshot_config = tries.state_snapshot_config();
