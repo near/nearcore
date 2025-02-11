@@ -313,22 +313,33 @@ mod tests {
         let sleep_task = tokio::spawn({
             let clock = clock.clone();
             async move {
+                println!("Sleep task starting at {:?}", clock.now());
                 clock.sleep(Duration::seconds(5)).await;
+                println!("Sleep task woke up at {:?}", clock.now());
                 clock.now()
             }
         });
 
-        // Advance clock by 3 seconds
+        // Give the sleep task a chance to start
+        tokio::task::yield_now().await;
+
+        println!("Advancing clock by 3 seconds from {:?}", fake.now());
         fake.advance(Duration::seconds(3));
+        println!("Clock is now at {:?}", fake.now());
 
         // Sleep task should still be waiting
         assert!(!sleep_task.is_finished());
 
-        // Advance clock by 3 more seconds
+        println!("Advancing clock by 3 more seconds");
         fake.advance(Duration::seconds(3));
+        println!("Clock is now at {:?}", fake.now());
 
-        // Now sleep task should complete
-        let end = sleep_task.await.unwrap();
+        // Now sleep task should complete with a timeout to prevent hanging
+        let end = tokio::time::timeout(std::time::Duration::from_secs(5), sleep_task)
+            .await
+            .expect("sleep_task timed out")
+            .expect("sleep_task panicked");
+        
         assert_eq!(end.signed_duration_since(start), Duration::seconds(6));
     }
 
