@@ -30,6 +30,7 @@ reset() {
 init() {
     echo "=> Initializing network"
     reset
+    rm ${CONFIG} ${GENESIS}
     /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
     tweak_config
     echo "=> Done"
@@ -57,18 +58,20 @@ create_accounts() {
 
     mkdir -p ${USERS_DATA_DIR}
 
+    num_accounts=$(jq '.num_accounts' ${BM_PARAMS})
+
     for i in $(seq 0 $((NUM_SHARDS-1))); do
-        prefix="a0${i}"
+        prefix=$(printf "a%02d" ${i})
         data_dir="${USERS_DATA_DIR}/shard${i}"
-        nonce=$((1+i*100))
-        echo "Creating accounts for shard: ${i}, account prefix: ${prefix}, use data dir: ${data_dir}, nonce: ${nonce}"
+        nonce=$((1+i*num_accounts))
+        echo "Creating ${num_accounts} accounts for shard: ${i}, account prefix: ${prefix}, use data dir: ${data_dir}, nonce: ${nonce}"
         RUST_LOG=info \
         cargo run --manifest-path ${SYNTH_BM_PATH} --release -- create-sub-accounts \
             --rpc-url ${RPC_URL} \
             --signer-key-path ${NEAR_HOME}/validator_key.json \
             --nonce ${nonce} \
             --sub-account-prefix ${prefix} \
-            --num-sub-accounts 100 \
+            --num-sub-accounts ${num_accounts} \
             --deposit 953060601875000000010000 \
             --channel-buffer-size 1200 \
             --interval-duration-micros 800 \

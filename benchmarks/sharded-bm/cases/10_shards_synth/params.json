@@ -1,5 +1,6 @@
 {
+    "num_accounts": 100,
     "channel_buffer_size": 30000,
-    "interval_duration_micros": 4500,
+    "interval_duration_micros": 3000,
     "num_transfers": 30000
 }
