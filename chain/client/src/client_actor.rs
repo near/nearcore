@@ -512,7 +512,7 @@ impl Handler<OptimisticBlockMessage> for ClientActorInner {
             debug!(target: "client", "Optimistic block processing is disabled");
             return;
         }
-        todo!("Record optimistic block.");
+        self.client.receive_optimistic_block(optimistic_block, from_peer);
     }
 }
 
