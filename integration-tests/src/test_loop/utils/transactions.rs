@@ -334,8 +334,6 @@ pub fn deploy_global_contract(
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
 
-    println!("QQP");
-    tracing::info!(target: "test", ?account_id, ?tx_hash, "QQP deployed global contract");
     tx_hash
 }
 

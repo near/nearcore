@@ -35,7 +35,6 @@ const NUM_ACCOUNTS: usize = NUM_VALIDATORS + NUM_RPC;
 #[test]
 fn test_global_contracts() {
     init_test_logger();
-    tracing::info!("QQP START");
     let accounts = make_accounts(NUM_ACCOUNTS);
 
     let (mut env, rpc_id) = setup(&accounts);
@@ -58,7 +57,6 @@ fn test_global_contracts() {
     nonce += 1;
     env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.datas, &rpc_id, &[deploy_tx]);
-    // panic!("QQP PANIC");
     let code_hash = CryptoHash::hash_bytes(contract.code());
     let identifier = GlobalContractIdentifier::CodeHash(code_hash);
     // test on accounts from different shards
