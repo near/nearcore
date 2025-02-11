@@ -471,8 +471,6 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
-                tracing::info!("QQP Processing Action::DeployGlobalContract");
-                println!("QQP Processing Action::DeployGlobalContract");
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_global_contract(
                     account,
@@ -673,7 +671,6 @@ impl Runtime {
                 apply_state.block_height,
                 action_index,
             );
-            tracing::info!("QQP Applying action {:?}", action);
             let mut new_result = self.apply_action(
                 action,
                 state_update,
@@ -2203,7 +2200,8 @@ impl Runtime {
                 &receipt_sink.outgoing_receipts(),
                 &stats.balance,
             ) {
-                panic!(
+                // panic!(
+                tracing::error!(
                     "The runtime's balance_checker failed for shard {} at height {} with block hash {} and protocol version {}: {}",
                     apply_state.shard_id,
                     apply_state.block_height,

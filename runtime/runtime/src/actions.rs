@@ -634,7 +634,6 @@ pub(crate) fn action_deploy_global_contract(
     result: &mut ActionResult,
 ) {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
-    tracing::info!("QQP Deploying Global Contract: {:#?}", deploy_contract);
 
     let storage_cost = apply_state
         .config

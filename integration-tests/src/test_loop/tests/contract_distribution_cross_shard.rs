@@ -58,7 +58,7 @@ fn test_global_contracts() {
     nonce += 1;
     env.test_loop.run_for(Duration::seconds(3));
     check_txs(&env.test_loop.data, &env.datas, &rpc_id, &[deploy_tx]);
-    panic!("QQP PANIC");
+    // panic!("QQP PANIC");
     let code_hash = CryptoHash::hash_bytes(contract.code());
     let identifier = GlobalContractIdentifier::CodeHash(code_hash);
     // test on accounts from different shards
@@ -73,7 +73,7 @@ fn test_global_contracts() {
         );
         nonce += 1;
         env.test_loop.run_for(Duration::seconds(3));
-        // check_txs(&env.test_loop.data, &env.datas, &rpc_id, &[use_tx]);
+        check_txs(&env.test_loop.data, &env.datas, &rpc_id, &[use_tx]);
         let call_tx = call_contract(
             &mut env.test_loop,
             &env.datas,
@@ -85,7 +85,7 @@ fn test_global_contracts() {
             nonce,
         );
         env.test_loop.run_for(Duration::seconds(3));
-        // check_txs(&env.test_loop.data, &env.datas, &rpc_id, &[call_tx]);
+        check_txs(&env.test_loop.data, &env.datas, &rpc_id, &[call_tx]);
     }
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
