@@ -32,7 +32,7 @@ enum ClockInner {
 /// # Examples
 ///
 /// ```
-/// use crate::{Clock, FakeClock};
+/// use near_time::{Clock, FakeClock};
 ///
 /// // In production code, use real clock
 /// let clock = Clock::real();
