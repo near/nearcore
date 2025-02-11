@@ -19,15 +19,15 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::Account;
+use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, GlobalContractError, IntegerOverflowError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -485,7 +485,22 @@ impl Runtime {
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let code_hash = account.local_contract_hash().unwrap_or_default();
+                let account_contract = account.contract();
+                let code_hash = match &account_contract {
+                    AccountContract::None => CryptoHash::default(),
+                    AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => {
+                        *code_hash
+                    }
+                    AccountContract::GlobalByAccount(account_id) => {
+                        let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
+                        let code = state_update.get_global_code(identifier.clone())?.ok_or(
+                            RuntimeError::GlobalContractError(
+                                GlobalContractError::IdentifierNotFound(identifier),
+                            ),
+                        )?;
+                        *code.hash()
+                    }
+                };
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
@@ -505,6 +520,7 @@ impl Runtime {
                     is_last_action,
                     epoch_info_provider,
                     contract,
+                    account_contract,
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {

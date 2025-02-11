@@ -180,6 +180,7 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
+    account_contract: AccountContract,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -191,6 +192,7 @@ pub(crate) fn action_function_call(
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,
+        account_contract,
         apply_state.apply_reason.clone(),
         apply_state.current_protocol_version,
     )?;
