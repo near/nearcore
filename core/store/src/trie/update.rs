@@ -325,7 +325,7 @@ impl TrieUpdate {
         &self,
         account_id: AccountId,
         code_hash: CryptoHash,
-        account_contract: AccountContract,
+        account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
         protocol_version: ProtocolVersion,
     ) -> Result<(), StorageError> {
@@ -344,17 +344,17 @@ impl TrieUpdate {
         // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
         // This avoids recording contracts that do not exist or are newly-deployed to the account.
         // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
-        if account_contract == AccountContract::None {
+        if account_contract.is_none() {
             return Ok(());
         }
         let trie_key = match account_contract {
             AccountContract::None => return Ok(()),
             AccountContract::Local(_) => TrieKey::ContractCode { account_id },
             AccountContract::Global(code_hash) => TrieKey::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::CodeHash(code_hash),
+                identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
             },
             AccountContract::GlobalByAccount(account_id) => TrieKey::GlobalContractCode {
-                identifier: GlobalContractCodeIdentifier::AccountId(account_id),
+                identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
             },
         };
         let contract_ref = self

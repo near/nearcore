@@ -180,7 +180,6 @@ pub(crate) fn action_function_call(
     is_last_action: bool,
     epoch_info_provider: &dyn EpochInfoProvider,
     contract: Box<dyn PreparedContract>,
-    account_contract: AccountContract,
 ) -> Result<(), RuntimeError> {
     if account.amount().checked_add(function_call.deposit).is_none() {
         return Err(StorageError::StorageInconsistentState(
@@ -189,10 +188,11 @@ pub(crate) fn action_function_call(
         .into());
     }
 
+    let account_contract = account.contract();
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,
-        account_contract,
+        account_contract.as_ref(),
         apply_state.apply_reason.clone(),
         apply_state.current_protocol_version,
     )?;
@@ -634,6 +634,7 @@ pub(crate) fn action_deploy_global_contract(
     result: &mut ActionResult,
 ) {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
+    tracing::info!("QQP Deploying Global Contract: {:#?}", deploy_contract);
 
     let storage_cost = apply_state
         .config
@@ -681,11 +682,11 @@ pub(crate) fn action_use_global_contract(
             action.contract_identifier.clone(),
         )));
     }
-    if let AccountContract::Local(code_hash) = account.contract() {
+    if let AccountContract::Local(code_hash) = account.contract().as_ref() {
         let prev_code_len = get_code_len_or_default(
             state_update,
             account_id.clone(),
-            code_hash,
+            *code_hash,
             current_protocol_version,
         )?;
         account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));

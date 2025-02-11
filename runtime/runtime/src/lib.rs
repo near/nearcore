@@ -471,6 +471,8 @@ impl Runtime {
                 )?;
             }
             Action::DeployGlobalContract(deploy_global_contract) => {
+                tracing::info!("QQP Processing Action::DeployGlobalContract");
+                println!("QQP Processing Action::DeployGlobalContract");
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 action_deploy_global_contract(
                     account,
@@ -493,7 +495,7 @@ impl Runtime {
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
                 let account_contract = account.contract();
-                let code_hash = match &account_contract {
+                let code_hash = match account_contract.as_ref() {
                     AccountContract::None => CryptoHash::default(),
                     AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => {
                         *code_hash
@@ -527,7 +529,6 @@ impl Runtime {
                     is_last_action,
                     epoch_info_provider,
                     contract,
-                    account_contract,
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {
@@ -672,6 +673,7 @@ impl Runtime {
                 apply_state.block_height,
                 action_index,
             );
+            tracing::info!("QQP Applying action {:?}", action);
             let mut new_result = self.apply_action(
                 action,
                 state_update,
