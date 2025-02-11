@@ -1701,14 +1701,14 @@ pub fn start_http(
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
             .service(
+                web::resource("/debug/api/block_status/{starting_height}")
+                    .route(web::get().to(deprecated_debug_block_status_handler)),
+            )
+            .service(
                 web::resource("/debug/api/block_status")
                     .route(web::get().to(debug_block_status_handler)),
             )
             .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
-            .service(
-                web::resource("/debug/api/block_status/{starting_height}")
-                    .route(web::get().to(deprecated_debug_block_status_handler)),
-            )
             .service(
                 web::resource("/debug/api/epoch_info/{epoch_id}")
                     .route(web::get().to(debug_epoch_info_handler)),

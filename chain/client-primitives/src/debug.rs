@@ -180,7 +180,10 @@ pub struct ValidatorStatus {
 #[derive(Debug, Display)]
 pub enum DebugBlocksMode {
     All,
-    FirstSkip,
+    JumpToBlockMiss,
+    JumpToChunkMiss,
+    JumpToBlockProduced,
+    JumpToAllChunksIncluded,
 }
 
 impl FromStr for DebugBlocksMode {
@@ -189,7 +192,11 @@ impl FromStr for DebugBlocksMode {
     fn from_str(input: &str) -> Result<DebugBlocksMode, Self::Err> {
         match input {
             "all" => Ok(DebugBlocksMode::All),
-            "first_skip" => Ok(DebugBlocksMode::FirstSkip),
+            "first_block_miss" => Ok(DebugBlocksMode::JumpToBlockMiss),
+            "first_chunk_miss" => Ok(DebugBlocksMode::JumpToChunkMiss),
+            "first_block_produced" => Ok(DebugBlocksMode::JumpToBlockProduced),
+            "all_chunks_included" => Ok(DebugBlocksMode::JumpToAllChunksIncluded),
+            "first_skip" => Ok(DebugBlocksMode::JumpToBlockMiss),
             _ => Err(format!("Invalid input: {}", input)),
         }
     }

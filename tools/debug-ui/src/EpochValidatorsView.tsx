@@ -556,9 +556,9 @@ const KickoutReason = ({ reason }: { reason: ValidatorKickoutReason | null }) =>
     } else if ('NotEnoughChunks' in reason) {
         kickoutSummary = '#Chunks';
         kickoutReason = `Validator did not produce enough chunks: expected ${reason.NotEnoughChunks.expected}, actually produced ${reason.NotEnoughChunks.produced}`;
-    } else if ('NotEnoughEndorsements' in reason) {
+    } else if ('NotEnoughChunkEndorsements' in reason) {
         kickoutSummary = '#Endors';
-        kickoutReason = `Validator did not produce enough chunk endorsements: expected ${reason.NotEnoughEndorsements.expected}, actually produced ${reason.NotEnoughEndorsements.produced}`;
+        kickoutReason = `Validator did not produce enough chunk endorsements: expected ${reason.NotEnoughChunkEndorsements.expected}, actually produced ${reason.NotEnoughChunkEndorsements.produced}`;
     } else if ('NotEnoughStake' in reason) {
         kickoutSummary = 'LowStake';
         kickoutReason = `Validator did not have enough stake: minimum stake required was ${reason.NotEnoughStake.threshold}, but validator only had ${reason.NotEnoughStake.stake}`;

@@ -246,6 +246,46 @@ fn get_block_hashes_to_fetch(
     }
 }
 
+fn find_first_height_to_fetch(
+    chain_store: &ChainStoreAdapter,
+    mut height_to_fetch: BlockHeight,
+    mode: DebugBlocksMode,
+    final_height: BlockHeight,
+) -> Result<BlockHeight, near_chain_primitives::Error> {
+    let min_height_to_search = max(
+        height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64,
+        chain_store.genesis_height() as i64,
+    ) as u64;
+    while height_to_fetch > min_height_to_search {
+        tracing::debug!(target: "chain", "DEBUGDEBUG height_to_search: {:?}", height_to_fetch);
+        let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
+        if block_hashes.is_empty() {
+            if matches!(mode, DebugBlocksMode::JumpToBlockMiss | DebugBlocksMode::JumpToChunkMiss) {
+                break;
+            }
+        }
+        if matches!(mode, DebugBlocksMode::JumpToBlockProduced) {
+            break;
+        }
+
+        let block_header = chain_store.get_block_header(&block_hashes[0])?;
+        let all_chunks_included = block_header.chunk_mask().iter().all(|&x| x);
+        if all_chunks_included {
+            if matches!(mode, DebugBlocksMode::JumpToAllChunksIncluded) {
+                break;
+            }
+        } else {
+            if matches!(mode, DebugBlocksMode::JumpToChunkMiss) {
+                break;
+            }
+        }
+
+        height_to_fetch -= 1;
+    }
+
+    Ok(height_to_fetch)
+}
+
 impl ClientActorInner {
     // Gets a list of block producers, chunk producers and chunk validators for a given epoch.
     fn get_validators_for_epoch(
@@ -513,38 +553,20 @@ impl ClientActorInner {
         let mut last_epoch_id = head.epoch_id;
         let initial_gas_price = self.client.chain.genesis_block().header().next_gas_price();
 
+        let chain_store = self.client.chain.chain_store();
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
-
-        // If we are fetching from the first skip, we need to find the first
-        // skipped height.
-        if matches!(mode, DebugBlocksMode::FirstSkip) {
-            let min_height_to_search =
-                max(height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64, 0) as u64;
-            while height_to_fetch > min_height_to_search {
-                tracing::debug!(target: "chain", "DEBUGDEBUG height_to_search: {:?}", height_to_fetch);
-                let block_hashes = get_block_hashes_to_fetch(
-                    &self.client.chain.chain_store(),
-                    height_to_fetch,
-                    final_head.height,
-                );
-                if block_hashes.is_empty() {
-                    break;
-                }
-                height_to_fetch -= 1;
-            }
-        }
-
-        let min_height_to_fetch = max(height_to_fetch as i64 - num_blocks as i64, 0) as u64;
+        height_to_fetch =
+            find_first_height_to_fetch(chain_store, height_to_fetch, mode, final_head.height)?;
+        let min_height_to_fetch =
+            max(height_to_fetch as i64 - num_blocks as i64, chain_store.genesis_height() as i64)
+                as u64;
 
         let mut block_hashes_to_force_fetch = HashSet::new();
         while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {
             tracing::debug!(target: "chain", "DEBUGDEBUG height_to_fetch: {:?}", height_to_fetch);
             let block_hashes = if height_to_fetch > min_height_to_fetch {
-                let block_hashes = get_block_hashes_to_fetch(
-                    &self.client.chain.chain_store(),
-                    height_to_fetch,
-                    final_head.height,
-                );
+                let block_hashes =
+                    get_block_hashes_to_fetch(chain_store, height_to_fetch, final_head.height);
                 if block_hashes.is_empty() {
                     missed_heights.push(MissedHeightInfo {
                         block_height: height_to_fetch,

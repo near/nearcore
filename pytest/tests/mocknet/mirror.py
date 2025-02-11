@@ -332,6 +332,7 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
 def status_cmd(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
     statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
+    print(statuses)
 
     not_ready = []
     for ready, node in zip(statuses, targeted):

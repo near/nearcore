@@ -266,6 +266,19 @@ type LatestBlockViewProps = {
     addr: string;
 };
 
+const calculateAvgBlockTime = (blocks: BlockTableRowBlock[]): number => {
+    let totalTime = 0;
+    let count = 0;
+    
+    for (let i = 1; i < blocks.length; i++) {
+        const timeDiff = (blocks[i-1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
+        totalTime += timeDiff;
+        count++;
+    }
+    
+    return count > 0 ? totalTime / count : 0;
+};
+
 export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
     const [height, setHeight] = useState<number | null>(null);
     const [heightInInput, setHeightInInput] = useState<string>('');
@@ -417,7 +430,11 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                         ((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount) *
                         100
                     ).toFixed(2)}
-                    %
+                    % {}
+                    Average Block Time:{' '}
+                    {calculateAvgBlockTime(
+                        rows.filter((row): row is BlockTableRowBlock => 'block' in row)
+                    ).toFixed(2)}s
                 </div>
                 <button
                     onClick={() => {
