@@ -45,7 +45,6 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle}
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
-use near_client_primitives::debug;
 use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
