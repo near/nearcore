@@ -5,6 +5,7 @@ use account::{create_sub_accounts, CreateSubAccountsArgs};
 mod block_service;
 mod contract;
 use contract::BenchmarkMpcSignArgs;
+mod metrics;
 mod native_transfer;
 mod rpc;
 
