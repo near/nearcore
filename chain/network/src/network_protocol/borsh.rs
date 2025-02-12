@@ -11,6 +11,7 @@ use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;
@@ -170,6 +171,7 @@ pub(super) enum PeerMessage {
 
     EpochSyncRequest,
     EpochSyncResponse(CompressedEpochSyncProof),
+    OptimisticBlock(OptimisticBlock),
 }
 #[cfg(target_arch = "x86_64")] // Non-x86_64 doesn't match this requirement yet but it's not bad as it's not production-ready
 const _: () = assert!(std::mem::size_of::<PeerMessage>() <= 1500, "PeerMessage > 1500 bytes");

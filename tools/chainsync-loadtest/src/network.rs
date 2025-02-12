@@ -266,6 +266,7 @@ impl Network {
             chunk_endorsement: noop().into_sender(),
             epoch_sync_request: noop().into_sender(),
             epoch_sync_response: noop().into_sender(),
+            optimistic_block_receiver: noop().into_sender(),
         }
     }
 }

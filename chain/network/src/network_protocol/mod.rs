@@ -46,6 +46,7 @@ use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::combine_hash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
@@ -433,6 +434,7 @@ pub enum PeerMessage {
 
     BlockRequest(CryptoHash),
     Block(Block),
+    OptimisticBlock(OptimisticBlock),
 
     Transaction(SignedTransaction),
     Routed(Box<RoutedMessageV2>),

@@ -19,6 +19,7 @@ use near_primitives::challenge::Challenge;
 use near_primitives::epoch_sync::CompressedEpochSyncProof;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
@@ -240,6 +241,8 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
+    /// Sends optimistic block as soon as the production window for the height starts.
+    OptimisticBlock { optimistic_block: OptimisticBlock },
     /// Sends approval.
     Approval { approval_message: ApprovalMessage },
     /// Request block with given hash from given peer.

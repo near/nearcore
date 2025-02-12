@@ -783,6 +783,14 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Block(block)));
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::OptimisticBlock { optimistic_block } => {
+                // TODO(#10584): send this message to all the producers.
+                // Maybe we just need to send this to the next producers.
+                self.state
+                    .tier1
+                    .broadcast_message(Arc::new(PeerMessage::OptimisticBlock(optimistic_block)));
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::Approval { approval_message } => {
                 self.state.send_message_to_account(
                     &self.clock,
