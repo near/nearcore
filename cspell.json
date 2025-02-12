@@ -357,6 +357,11 @@
         "syscalls",
         "contractregistry",
     ],
-    "ignoreWords": [],
+    "ignoreWords": [
+        "euxo",
+        "pipefail",
+        "pushd",
+        "popd",
+    ],
     "import": []
 }
