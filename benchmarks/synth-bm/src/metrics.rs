@@ -20,7 +20,7 @@ trait Metric: Sized {
     fn from_report(report: Report, time: Instant) -> anyhow::Result<Self>;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 struct SuccessfulTxsMetric {
     num: u64,
     time: Instant,
@@ -235,14 +235,16 @@ mod tests {
 
     #[test]
     fn test_get_metric_successful_transactions() -> anyhow::Result<()> {
+        let time = Instant::now();
+
         let report_some = indoc! {r#"
             # HELP near_transaction_processed_successfully_total The number of transactions processed successfully since starting this node
             # TYPE near_transaction_processed_successfully_total counter
             near_transaction_processed_successfully_total 100
         "#};
         assert_eq!(
-            get_metric(MetricName::SuccessfulTransactions, report_some)?,
-            MetricValue::SuccessfulTransactions { num: 100 }
+            SuccessfulTxsMetric::from_report(report_some, time)?,
+            SuccessfulTxsMetric::new(100, time),
         );
 
         let report_zero = indoc! {r#"
@@ -251,16 +253,16 @@ mod tests {
             near_transaction_processed_successfully_total 0
         "#};
         assert_eq!(
-            get_metric(MetricName::SuccessfulTransactions, report_zero)?,
-            MetricValue::SuccessfulTransactions { num: 0 }
+            SuccessfulTxsMetric::from_report(report_zero, time)?,
+            SuccessfulTxsMetric::new(0, time),
         );
 
         let report_none = indoc! {r#"
             # A report which does not contain any metrics.
         "#};
         assert_eq!(
-            get_metric(MetricName::SuccessfulTransactions, report_none)?,
-            MetricValue::SuccessfulTransactions { num: 0 }
+            SuccessfulTxsMetric::from_report(report_none, time)?,
+            SuccessfulTxsMetric::new(0, time),
         );
 
         Ok(())
