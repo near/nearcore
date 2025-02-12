@@ -6,16 +6,18 @@ use crate::metrics::{
     PIPELINING_ACTIONS_TASK_WORKING_TIME, PIPELINING_ACTIONS_WAITING_TIME,
 };
 use near_parameters::RuntimeConfig;
-use near_primitives::account::Account;
-use near_primitives::action::Action;
+use near_primitives::account::{Account, AccountContract};
+use near_primitives::action::{Action, GlobalContractIdentifier};
 use near_primitives::config::ViewConfig;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{AccountId, Gas};
 use near_store::contract::ContractStorage;
+use near_store::{get_pure, KeyLookupMode, TrieUpdate};
 use near_vm_runner::logic::{GasCounter, ProtocolVersion};
 use near_vm_runner::{ContractRuntimeCache, PreparedContract};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
@@ -48,6 +50,10 @@ pub(crate) struct ReceiptPreparationPipeline {
     /// contract deployments in block N only take effect in the block N+1 as that, among other
     /// things, would give the runtime more time to compile the contract.
     block_accounts: BTreeSet<AccountId>,
+
+    /// List of global contract identifiers that must not be prepared in this chunk.
+    /// This solves the same issue as `block_accounts` but for global contract deployments.
+    block_global_contracts: HashSet<GlobalContractIdentifier>,
 
     /// The Runtime config for these pipelining  requests.
     config: Arc<RuntimeConfig>,
@@ -90,6 +96,7 @@ impl ReceiptPreparationPipeline {
         Self {
             map: Default::default(),
             block_accounts: Default::default(),
+            block_global_contracts: Default::default(),
             config,
             contract_cache,
             protocol_version,
@@ -111,7 +118,7 @@ impl ReceiptPreparationPipeline {
     pub(crate) fn submit(
         &mut self,
         receipt: &Receipt,
-        account: &std::cell::LazyCell<Option<Account>, impl FnOnce() -> Option<Account>>,
+        state_update: &TrieUpdate,
         view_config: Option<ViewConfig>,
     ) -> bool {
         let account_id = receipt.receiver_id();
@@ -120,11 +127,14 @@ impl ReceiptPreparationPipeline {
         }
         let actions = match receipt.receipt() {
             ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => &a.actions,
-            ReceiptEnum::GlobalContractDistribution(_)
-            | ReceiptEnum::Data(_)
-            | ReceiptEnum::PromiseResume(_) => return false,
+            ReceiptEnum::GlobalContractDistribution(global_contract_data) => {
+                self.block_global_contracts.insert(global_contract_data.id.clone());
+                return false;
+            }
+            ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => return false,
         };
         let mut any_function_calls = false;
+        let mut account = None;
         for (action_index, action) in actions.iter().enumerate() {
             let account_id = account_id.clone();
             match action {
@@ -135,10 +145,51 @@ impl ReceiptPreparationPipeline {
                     return self.block_accounts.insert(account_id);
                 }
                 Action::FunctionCall(function_call) => {
-                    let Some(account) = &**account else { continue };
-                    let Some(code_hash) = account.local_contract_hash() else {
-                        // TODO(#12884): support global contracts pipelining
-                        continue;
+                    let account = if let Some(account) = &account {
+                        account
+                    } else {
+                        let key = TrieKey::Account { account_id: account_id.clone() };
+                        let Ok(Some(receiver)) = get_pure::<Account>(state_update, &key) else {
+                            // Most likely reason this can happen is because the receipt is for
+                            // an account that does not yet exist. This is a routine occurrence
+                            // as accounts are created by sending some NEAR to a name that's
+                            // about to be created.
+                            continue;
+                        };
+                        account.insert(receiver)
+                    };
+                    let code_hash = match account.contract().as_ref() {
+                        AccountContract::None => continue,
+                        AccountContract::Local(code_hash) => *code_hash,
+                        AccountContract::Global(global_code_hash) => {
+                            if self
+                                .block_global_contracts
+                                .contains(&GlobalContractIdentifier::CodeHash(*global_code_hash))
+                            {
+                                continue;
+                            }
+                            *global_code_hash
+                        }
+                        AccountContract::GlobalByAccount(global_contract_account_id) => {
+                            if self.block_global_contracts.contains(
+                                &GlobalContractIdentifier::AccountId(
+                                    global_contract_account_id.clone(),
+                                ),
+                            ) {
+                                continue;
+                            }
+                            let key = TrieKey::GlobalContractCode {
+                                identifier: GlobalContractCodeIdentifier::AccountId(
+                                    global_contract_account_id.clone(),
+                                ),
+                            };
+                            let Ok(Some(value_ref)) = state_update
+                                .get_ref_no_side_effects(&key, KeyLookupMode::FlatStorage)
+                            else {
+                                continue;
+                            };
+                            value_ref.value_hash()
+                        }
                     };
                     let key = PrepareTaskKey { receipt_id: receipt.get_hash(), action_index };
                     let gas_counter = self.gas_counter(view_config.as_ref(), function_call.gas);
