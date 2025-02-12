@@ -18,12 +18,18 @@ pub type Report<'a> = &'a str;
 trait Metric: Sized {
     fn name_in_report() -> &'static str;
     fn from_report(report: Report, time: Instant) -> anyhow::Result<Self>;
-    fn time(&self) -> Instant;
 }
 
+#[derive(Debug, Clone, Copy)]
 struct SuccessfulTxsMetric {
     num: u64,
     time: Instant,
+}
+
+impl SuccessfulTxsMetric {
+    fn new(num: u64, time: Instant) -> Self {
+        Self { num, time }
+    }
 }
 
 impl Default for SuccessfulTxsMetric {
@@ -48,10 +54,6 @@ impl Metric for SuccessfulTxsMetric {
             0
         };
         Ok(Self { num, time })
-    }
-
-    fn time(&self) -> Instant {
-        self.time
     }
 }
 
@@ -125,11 +127,11 @@ pub struct TransactionStatisticsService {
     refresh_interval: Interval,
     metrics_url: String,
     /// Data for the beginning of the observed interval.
-    data_t0: SuccessfulTxsData,
+    data_t0: SuccessfulTxsMetric,
     /// Data at time `t1`, where transaction processing was still ongoing after `t1` .
-    data_t1: SuccessfulTxsData,
+    data_t1: SuccessfulTxsMetric,
     /// Data at time `t2`. Transaction processing might have stopped in the interval `[t1, t2]`.
-    data_t2: SuccessfulTxsData,
+    data_t2: SuccessfulTxsMetric,
     http_client: Client,
 }
 
@@ -142,9 +144,9 @@ impl TransactionStatisticsService {
         Self {
             refresh_interval: time::interval(refresh_interval),
             metrics_url,
-            data_t0: SuccessfulTxsData::new_now(0),
-            data_t1: SuccessfulTxsData::new_now(0),
-            data_t2: SuccessfulTxsData::new_now(0),
+            data_t0: Default::default(),
+            data_t1: Default::default(),
+            data_t2: Default::default(),
             http_client: Client::new(),
         }
     }
@@ -168,8 +170,9 @@ impl TransactionStatisticsService {
                 MetricValue::SuccessfulTransactions { num } => num,
             };
             if num > initial_count {
-                self.data_t0 = SuccessfulTxsData::new_now(num);
-                self.data_t1 = SuccessfulTxsData::new_now(num);
+                let start_time = Instant::now();
+                self.data_t0 = SuccessfulTxsMetric::new(0, start_time);
+                self.data_t1 = SuccessfulTxsMetric::new(0, start_time);
                 info!("Observed successful transactions");
                 break;
             }
@@ -182,20 +185,16 @@ impl TransactionStatisticsService {
         loop {
             self.refresh_interval.tick().await;
             let report = self.get_report().await.unwrap();
-            let metric = get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
-            // TODO refactor `Metric*` to avoid such matching.
-            let new_num = match metric {
-                MetricValue::SuccessfulTransactions { num } => SuccessfulTxsData::new_now(num),
-            };
+            let new_metric = SuccessfulTxsMetric::from_report(&report, Instant::now()).unwrap();
 
-            if !(new_num.num > self.data_t2.num) {
+            if !(new_metric.num > self.data_t2.num) {
                 // No progress since the last observation, so assuming the workload is finished.
                 break;
             }
 
             // More transactions were processed, so update data points and print latest TPS.
             self.data_t1 = self.data_t2;
-            self.data_t2 = new_num;
+            self.data_t2 = new_metric;
             self.log_tps();
         }
 
