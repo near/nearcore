@@ -217,33 +217,37 @@ impl FakeClock {
             return;
         }
         
-        let mut inner = self.0.lock().unwrap();
-        let deadline = inner.now() + d;
-        
-        // Check if we should complete immediately
-        if inner.now() >= deadline {
-            return;
-        }
+        let receiver = {
+            let mut inner = self.0.lock().unwrap();
+            let deadline = inner.now() + d;
+            
+            // Check if we should complete immediately
+            if inner.now() >= deadline {
+                return;
+            }
 
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        let waiter = ClockWaiterInHeap { waker: sender, deadline };
-        inner.waiters.push(waiter);
-        drop(inner);
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let waiter = ClockWaiterInHeap { waker: sender, deadline };
+            inner.waiters.push(waiter);
+            receiver
+        };
         
         let _ = receiver.await;
     }
 
     /// Cancel-safe.
     pub async fn sleep_until(&self, t: Instant) {
-        let mut inner = self.0.lock().unwrap();
-        if inner.now() >= t {
-            return;
-        }
+        let receiver = {
+            let mut inner = self.0.lock().unwrap();
+            if inner.now() >= t {
+                return;
+            }
 
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        let waiter = ClockWaiterInHeap { waker: sender, deadline: t };
-        inner.waiters.push(waiter);
-        drop(inner);
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let waiter = ClockWaiterInHeap { waker: sender, deadline: t };
+            inner.waiters.push(waiter);
+            receiver
+        };
         
         let _ = receiver.await;
     }
