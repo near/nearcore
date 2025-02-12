@@ -8,6 +8,12 @@
             font-weight: bold;
             margin-right: 20px;
         }
+
+        input,
+        select,
+        button:not(:last-child) {
+            margin-right: 8px;
+        }
     }
 
     .explanation {
