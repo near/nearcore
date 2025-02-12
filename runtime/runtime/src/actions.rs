@@ -15,7 +15,9 @@ use near_primitives::action::{
 };
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, GlobalContractError, InvalidAccessKeyError, RuntimeError,
+};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
@@ -24,6 +26,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
@@ -185,9 +188,11 @@ pub(crate) fn action_function_call(
         .into());
     }
 
+    let account_contract = account.contract();
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,
+        account_contract.as_ref(),
         apply_state.apply_reason.clone(),
         apply_state.current_protocol_version,
     )?;
@@ -663,12 +668,36 @@ pub(crate) fn action_deploy_global_contract(
 }
 
 pub(crate) fn action_use_global_contract(
-    _state_update: &mut TrieUpdate,
-    _account: &mut Account,
-    _action: &UseGlobalContractAction,
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    action: &UseGlobalContractAction,
+    current_protocol_version: ProtocolVersion,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    // TODO(#12716): implement global contract usage
+    let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
+    if !state_update.contains_key(&key)? {
+        return Err(RuntimeError::GlobalContractError(GlobalContractError::IdentifierNotFound(
+            action.contract_identifier.clone(),
+        )));
+    }
+    if let AccountContract::Local(code_hash) = account.contract().as_ref() {
+        let prev_code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            *code_hash,
+            current_protocol_version,
+        )?;
+        account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+    }
+    match &action.contract_identifier {
+        GlobalContractIdentifier::CodeHash(code_hash) => {
+            account.set_contract(AccountContract::Global(*code_hash));
+        }
+        GlobalContractIdentifier::AccountId(id) => {
+            account.set_contract(AccountContract::GlobalByAccount(id.clone()));
+        }
+    };
     Ok(())
 }
 
