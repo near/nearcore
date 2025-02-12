@@ -4,21 +4,19 @@ use near_client_primitives::types::GetBlockError;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::views::BlockView;
 use near_primitives::types::BlockReference;
-use rand::SeedableRng;
+use near_primitives::views::BlockView;
 use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::task;
 use tokio::sync::oneshot;
-
+use tokio::task;
 
 pub mod account;
-#[cfg(feature="with_actix")]
+#[cfg(feature = "with_actix")]
 pub mod actix_actor;
-
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TxGeneratorConfig {
@@ -28,22 +26,18 @@ pub struct TxGeneratorConfig {
 }
 
 impl Default for TxGeneratorConfig {
-    fn default()-> Self {
-        Self {
-            tps: 0,
-            volume: 40000,
-            accounts_path: "".into(),
-        }
+    fn default() -> Self {
+        Self { tps: 0, volume: 40000, accounts_path: "".into() }
     }
 }
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct ClientSender{
+pub struct ClientSender {
     pub tx_request_sender: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
 }
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct ViewClientSender{
+pub struct ViewClientSender {
     pub block_request_sender: AsyncSender<GetBlock, Result<BlockView, GetBlockError>>,
 }
 
@@ -58,15 +52,12 @@ impl TxGenerator {
     pub fn new(
         params: TxGeneratorConfig,
         client_sender: ClientSender,
-        view_client_sender: ViewClientSender
-    )-> anyhow::Result<Self> 
-    {
-        Ok(Self {
-            params, client_sender, view_client_sender, runner: None,
-        })
+        view_client_sender: ViewClientSender,
+    ) -> anyhow::Result<Self> {
+        Ok(Self { params, client_sender, view_client_sender, runner: None })
     }
 
-    pub fn start(self: &mut Self)-> anyhow::Result<()> {
+    pub fn start(self: &mut Self) -> anyhow::Result<()> {
         if let Some(_) = self.runner {
             anyhow::bail!("attempt to (re)start the running transaction generator");
         }
@@ -78,13 +69,14 @@ impl TxGenerator {
         let client_sender = self.client_sender.clone();
         let view_client_sender = self.view_client_sender.clone();
         let (tx, mut _rx) = oneshot::channel::<bool>();
-        
+
         if self.params.tps == 0 {
             anyhow::bail!("target TPS should be > 0");
         }
-        let mut tx_interval = tokio::time::interval(Duration::from_micros(1_000_000/self.params.tps));
+        let mut tx_interval =
+            tokio::time::interval(Duration::from_micros(1_000_000 / self.params.tps));
         let mut block_interval = tokio::time::interval(Duration::from_secs(5));
-        
+
         let handle = tokio::spawn(async move {
             let mut rnd: StdRng = SeedableRng::from_entropy();
             let mut block_hash = CryptoHash::default();
@@ -110,9 +102,9 @@ impl TxGenerator {
                     // }
                 }
             }
-            // tracing::trace!(target: "transaction-generator", "tx generation loop completed");  
+            // tracing::trace!(target: "transaction-generator", "tx generation loop completed");
         });
-        
+
         self.runner = Some((handle, tx));
         Ok(())
     }
@@ -123,9 +115,9 @@ impl TxGenerator {
         accounts: &mut [account::Account],
         block_hash: &CryptoHash,
         client_sender: &ClientSender,
-    ){
+    ) {
         const AMOUNT: near_primitives::types::Balance = 1_000;
-        
+
         let id_sender = Uniform::from(0..accounts.len()).sample(rnd);
         let id_recv = loop {
             let candidate = Uniform::from(0..accounts.len()).sample(rnd);
@@ -151,14 +143,17 @@ impl TxGenerator {
         );
 
         tracing::trace!(target: "transaction-generator", "generated");
-        match client_sender.tx_request_sender.send_async(ProcessTxRequest{
-                transaction, is_forwarded: false, check_only: false}).await {
+        match client_sender
+            .tx_request_sender
+            .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
+            .await
+        {
             Ok(_) => {
-                tracing::trace!(target: "transaction-generator", "transaction pushed");    
-            },
+                tracing::trace!(target: "transaction-generator", "transaction pushed");
+            }
             Err(err) => {
                 tracing::debug!(target: "transaction-generator", "failed sending the transaction: {err}");
-            },
+            }
         }
-    }    
+    }
 }

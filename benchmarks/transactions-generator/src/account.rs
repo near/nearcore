@@ -1,12 +1,11 @@
+use anyhow::Context;
+use near_crypto::{InMemorySigner, PublicKey, SecretKey, Signer};
 use near_primitives::types::AccountId;
-use near_crypto::{PublicKey, SecretKey, InMemorySigner, Signer};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use anyhow::Context;
 
-
-#[derive(Serialize, Deserialize, Clone, Debug) ]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Account {
     #[serde(rename = "account_id")]
     pub id: AccountId,
