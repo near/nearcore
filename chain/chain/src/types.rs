@@ -14,6 +14,7 @@ use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
 pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::BlockCongestionInfo;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::congestion_info::ExtendedCongestionInfo;
@@ -115,6 +116,8 @@ pub struct ApplyChunkResult {
     pub bandwidth_scheduler_state_hash: CryptoHash,
     /// Contracts accessed and deployed while applying the chunk.
     pub contract_updates: ContractUpdates,
+    /// Extra information gathered during chunk application.
+    pub stats: ChunkApplyStatsV0,
 }
 
 impl ApplyChunkResult {

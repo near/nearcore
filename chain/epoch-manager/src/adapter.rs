@@ -675,7 +675,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         let epoch_manager = self.read();
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        let protocol_version = epoch_manager.get_epoch_info(epoch_id)?.protocol_version();
         Ok(epoch_manager.get_epoch_config(protocol_version))
     }
 
@@ -691,7 +691,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn get_shard_config(&self, epoch_id: &EpochId) -> Result<ShardConfig, EpochError> {
         let epoch_manager = self.read();
-        let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
+        let protocol_version = epoch_manager.get_epoch_info(epoch_id)?.protocol_version();
         let epoch_config = epoch_manager.get_epoch_config(protocol_version);
         Ok(ShardConfig::new(epoch_config))
     }

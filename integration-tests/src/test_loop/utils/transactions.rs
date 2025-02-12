@@ -153,7 +153,7 @@ pub(crate) fn execute_money_transfers(
         .collect_vec();
     for account in accounts {
         let expected = *balances.get(account).unwrap();
-        let actual = clients.query_balance(account);
+        let actual = clients.query_balance(&account);
         if expected != actual {
             return Err(BalanceMismatchError { account: account.clone(), expected, actual });
         }

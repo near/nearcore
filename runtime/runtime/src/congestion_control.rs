@@ -9,6 +9,7 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::bandwidth_scheduler::{
     BandwidthRequest, BandwidthRequests, BandwidthRequestsV1, BandwidthSchedulerParams,
 };
+use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats, ReceiptsStats};
 use near_primitives::congestion_info::{CongestionControl, CongestionInfo, CongestionInfoV1};
 use near_primitives::errors::{EpochError, IntegerOverflowError, RuntimeError};
 use near_primitives::receipt::{
@@ -59,6 +60,7 @@ pub(crate) struct ReceiptSinkV2 {
     pub(crate) outgoing_metadatas: OutgoingMetadatas,
     pub(crate) bandwidth_scheduler_output: Option<BandwidthSchedulerOutput>,
     pub(crate) protocol_version: ProtocolVersion,
+    pub(crate) stats: ReceiptSinkStats,
 }
 
 /// Limits for outgoing receipts to a shard.
@@ -126,6 +128,11 @@ impl ReceiptSink {
                 apply_state.current_protocol_version,
             )?;
 
+            let mut stats = ReceiptSinkStats::default();
+            stats.set_outgoing_limits(
+                outgoing_limit.iter().map(|(shard_id, limit)| (*shard_id, (limit.size, limit.gas))),
+            );
+
             Ok(ReceiptSink::V2(ReceiptSinkV2 {
                 own_congestion_info,
                 outgoing_receipts: Vec::new(),
@@ -134,6 +141,7 @@ impl ReceiptSink {
                 outgoing_metadatas,
                 bandwidth_scheduler_output,
                 protocol_version,
+                stats,
             }))
         } else {
             debug_assert!(!ProtocolFeature::CongestionControl.enabled(protocol_version));
@@ -188,10 +196,19 @@ impl ReceiptSink {
         }
     }
 
-    pub(crate) fn into_outgoing_receipts(self) -> Vec<Receipt> {
+    /// Consumes receipt sink, finalizes ReceiptSinkStats and returns the outgoing receipts.
+    /// Called at the end of chunk application.
+    pub(crate) fn finalize_stats_get_outgoing_receipts(
+        self,
+        stats: &mut ReceiptSinkStats,
+    ) -> Vec<Receipt> {
         match self {
             ReceiptSink::V1(inner) => inner.outgoing_receipts,
-            ReceiptSink::V2(inner) => inner.outgoing_receipts,
+            ReceiptSink::V2(mut inner) => {
+                inner.record_outgoing_buffer_stats();
+                *stats = inner.stats;
+                inner.outgoing_receipts
+            }
         }
     }
 
@@ -215,11 +232,12 @@ impl ReceiptSink {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
+        stats: &mut ChunkApplyStatsV0,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
         match self {
             ReceiptSink::V1(_) => Ok(None),
             ReceiptSink::V2(inner) => {
-                inner.generate_bandwidth_requests(trie, shard_layout, side_effects)
+                inner.generate_bandwidth_requests(trie, shard_layout, side_effects, stats)
             }
         }
     }
@@ -323,6 +341,7 @@ impl ReceiptSinkV2 {
                 &mut self.outgoing_limit,
                 &mut self.outgoing_receipts,
                 apply_state,
+                &mut self.stats,
             )? {
                 ReceiptForwarding::Forwarded => {
                     self.own_congestion_info.remove_receipt_bytes(size)?;
@@ -379,6 +398,7 @@ impl ReceiptSinkV2 {
             &mut self.outgoing_limit,
             &mut self.outgoing_receipts,
             apply_state,
+            &mut self.stats,
         )? {
             ReceiptForwarding::Forwarded => (),
             ReceiptForwarding::NotForwarded(receipt) => {
@@ -409,6 +429,7 @@ impl ReceiptSinkV2 {
         outgoing_limit: &mut HashMap<ShardId, OutgoingLimit>,
         outgoing_receipts: &mut Vec<Receipt>,
         apply_state: &ApplyState,
+        stats: &mut ReceiptSinkStats,
     ) -> Result<ReceiptForwarding, RuntimeError> {
         // There is a bug which allows to create receipts that are above the size limit. Receipts
         // above the size limit might not fit under the maximum outgoing size limit. Let's pretend
@@ -459,6 +480,7 @@ impl ReceiptSinkV2 {
             // underflow impossible: checked forward_limit > gas/size_to_forward above
             forward_limit.gas -= gas;
             forward_limit.size -= size;
+            stats.forwarded_receipts.entry(shard).or_default().add_receipt(size, gas);
 
             Ok(ReceiptForwarding::Forwarded)
         } else {
@@ -502,6 +524,7 @@ impl ReceiptSinkV2 {
         }
 
         self.outgoing_buffers.to_shard(shard).push_back(state_update, &receipt)?;
+        self.stats.buffered_receipts.entry(shard).or_default().add_receipt(size, gas);
         Ok(())
     }
 
@@ -510,6 +533,7 @@ impl ReceiptSinkV2 {
         trie: &dyn TrieAccess,
         shard_layout: &ShardLayout,
         side_effects: bool,
+        stats: &mut ChunkApplyStatsV0,
     ) -> Result<Option<BandwidthRequests>, StorageError> {
         if !ProtocolFeature::BandwidthScheduler.enabled(self.protocol_version) {
             return Ok(None);
@@ -534,7 +558,9 @@ impl ReceiptSinkV2 {
             }
         }
 
-        Ok(Some(BandwidthRequests::V1(BandwidthRequestsV1 { requests })))
+        let bandwidth_requests = BandwidthRequests::V1(BandwidthRequestsV1 { requests });
+        stats.set_new_bandwidth_requests(&bandwidth_requests, &params);
+        Ok(Some(bandwidth_requests))
     }
 
     fn generate_bandwidth_request(
@@ -618,6 +644,50 @@ impl ReceiptSinkV2 {
                 Box::new([Ok(params.max_receipt_size)].into_iter())
             }
         }
+    }
+
+    /// Record information about the outgoing buffer in ReceiptSinkStats.
+    fn record_outgoing_buffer_stats(&mut self) {
+        for shard in self.outgoing_buffers.shards() {
+            let buffer = self.outgoing_buffers.to_shard(shard);
+
+            if buffer.len() == 0 {
+                self.stats
+                    .final_outgoing_buffers
+                    .insert(shard, ReceiptsStats { num: 0, total_size: 0, total_gas: 0 });
+                self.stats.is_outgoing_metadata_ready.insert(shard, true);
+                continue;
+            }
+
+            // If the outgoing buffer metadata is fully initialized, record the total size and gas
+            // of the receipts in the buffer. Otherwise, record the number of receipts in the buffer
+            // and set the total size and gas to 0. See
+            // `get_receipt_group_sizes_for_buffer_to_shard` for more information about the metadata
+            // initialization.
+            match self.outgoing_metadatas.get_metadata_for_shard(&shard) {
+                Some(metadata) if metadata.total_receipts_num() == buffer.len() => {
+                    self.stats.final_outgoing_buffers.insert(
+                        shard,
+                        ReceiptsStats {
+                            num: buffer.len(),
+                            total_size: metadata.total_size(),
+                            total_gas: metadata.total_gas(),
+                        },
+                    );
+                    self.stats.is_outgoing_metadata_ready.insert(shard, true);
+                }
+                _ => {
+                    self.stats.final_outgoing_buffers.insert(
+                        shard,
+                        ReceiptsStats { num: buffer.len(), total_size: 0, total_gas: 0 },
+                    );
+                    self.stats.is_outgoing_metadata_ready.insert(shard, false);
+                }
+            }
+        }
+
+        self.stats.all_outgoing_metadatas_ready =
+            self.stats.is_outgoing_metadata_ready.values().all(|&ready| ready);
     }
 }
 

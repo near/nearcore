@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use actix_cors::Cors;
-use actix_web::http::header;
+use actix_web::http::header::{self, ContentType};
 use actix_web::HttpRequest;
 use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 pub use api::{RpcFrom, RpcInto, RpcRequest};
@@ -1496,7 +1496,9 @@ pub async fn prometheus_handler() -> Result<HttpResponse, HttpError> {
     encoder.encode(&prometheus::gather(), &mut buffer).unwrap();
 
     match String::from_utf8(buffer) {
-        Ok(text) => Ok(HttpResponse::Ok().body(text)),
+        Ok(text) => Ok(HttpResponse::Ok()
+            .content_type(ContentType("text/plain".parse().unwrap()))
+            .body(text)),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
     }
 }

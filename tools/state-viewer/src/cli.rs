@@ -52,6 +52,8 @@ pub enum StateViewerSubCommand {
     CheckBlock,
     /// Looks up a certain chunk.
     Chunks(ChunksCmd),
+    /// View chunk application stats for a chunk.
+    ChunkApplyStats(ChunkApplyStatsCmd),
     /// Clear recoverable data in CachedContractCode column.
     #[clap(alias = "clear_cache")]
     ClearCache,
@@ -168,6 +170,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::Chain(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CheckBlock => check_block_chunk_existence(near_config, store),
             StateViewerSubCommand::Chunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ChunkApplyStats(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ClearCache => clear_cache(store),
             StateViewerSubCommand::ContractAccounts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DebugUI(cmd) => {
@@ -415,6 +418,20 @@ impl ChunksCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
         let chunk_hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
         get_chunk(chunk_hash, near_config, store)
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ChunkApplyStatsCmd {
+    #[clap(long)]
+    block_hash: CryptoHash,
+    #[clap(long)]
+    shard_id: u64,
+}
+
+impl ChunkApplyStatsCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        print_chunk_apply_stats(&self.block_hash, self.shard_id, near_config, store);
     }
 }
 

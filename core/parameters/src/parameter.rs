@@ -229,6 +229,11 @@ pub enum Parameter {
     MaxSingleGrant,
     MaxAllowance,
     MaxBaseBandwidth,
+
+    // Global contracts
+    ActionDeployGlobalContract,
+    ActionDeployGlobalContractPerByte,
+    GlobalContractStorageAmountPerByte,
 }
 
 #[derive(
@@ -261,6 +266,8 @@ pub enum FeeParameter {
     ActionAddFunctionCallKeyPerByte,
     ActionDeleteKey,
     ActionDelegate,
+    ActionDeployGlobalContract,
+    ActionDeployGlobalContractPerByte,
 }
 
 impl Parameter {
@@ -324,6 +331,8 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::new_action_receipt => Self::ActionReceiptCreation,
             ActionCosts::new_data_receipt_base => Self::DataReceiptCreationBase,
             ActionCosts::new_data_receipt_byte => Self::DataReceiptCreationPerByte,
+            ActionCosts::deploy_global_contract_base => Self::ActionDeployGlobalContract,
+            ActionCosts::deploy_global_contract_byte => Self::ActionDeployGlobalContractPerByte,
         }
     }
 }

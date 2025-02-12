@@ -33,6 +33,7 @@ near-jsonrpc-primitives.workspace = true
 
 [dev-dependencies]
 near-actix-test-utils.workspace = true
+near-primitives-core.workspace = true
 
 [features]
 test_features = ["near-jsonrpc/test_features"]
@@ -45,6 +46,7 @@ nightly = [
   "near-jsonrpc/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
+  "near-primitives-core/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "nightly_protocol",
@@ -58,6 +60,7 @@ nightly_protocol = [
   "near-jsonrpc/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
 ]

@@ -44,7 +44,7 @@ pub(crate) fn setup_mock_peer(
         Some(a) => a,
         None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
     };
-    let mock_peer = actix::spawn(async move {
+    let mock_peer = tokio::spawn(async move {
         let mock = MockNode::new(
             ChainStoreAdapter::new(chain.chain_store().store()),
             epoch_manager,

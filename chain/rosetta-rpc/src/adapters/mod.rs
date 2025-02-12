@@ -839,6 +839,7 @@ mod tests {
     use near_crypto::{KeyType, SecretKey};
     use near_parameters::{RuntimeConfig, RuntimeConfigView};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+    use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::{Action, TransferAction};
     use near_time::Clock;
 
@@ -865,10 +866,12 @@ mod tests {
                         account_id: "nfvalidator1.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 5000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -880,10 +883,12 @@ mod tests {
                         account_id: "nfvalidator1.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 4000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -893,10 +898,12 @@ mod tests {
                         account_id: "nfvalidator2.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 7000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -908,10 +915,12 @@ mod tests {
                         account_id: "nfvalidator2.near".parse().unwrap(),
                         account: near_primitives::views::AccountView {
                             amount: 8000000000000000000,
-                            code_hash: near_primitives::hash::CryptoHash::default(),
+                            code_hash: CryptoHash::default(),
                             locked: 400000000000000000000000000000,
                             storage_paid_at: 0,
                             storage_usage: 200000,
+                            global_contract_hash: None,
+                            global_contract_account_id: None,
                         },
                     },
                 },
@@ -921,20 +930,24 @@ mod tests {
                 "nfvalidator1.near".parse().unwrap(),
                 near_primitives::views::AccountView {
                     amount: 4000000000000000000,
-                    code_hash: near_primitives::hash::CryptoHash::default(),
+                    code_hash: CryptoHash::default(),
                     locked: 400000000000000000000000000000,
                     storage_paid_at: 0,
                     storage_usage: 200000,
+                    global_contract_hash: None,
+                    global_contract_account_id: None,
                 },
             );
             accounts_previous_state.insert(
                 "nfvalidator2.near".parse().unwrap(),
                 near_primitives::views::AccountView {
                     amount: 6000000000000000000,
-                    code_hash: near_primitives::hash::CryptoHash::default(),
+                    code_hash: CryptoHash::default(),
                     locked: 400000000000000000000000000000,
                     storage_paid_at: 0,
                     storage_usage: 200000,
+                    global_contract_hash: None,
+                    global_contract_account_id: None,
                 },
             );
             let transactions = super::transactions::convert_block_changes_to_transactions(

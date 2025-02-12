@@ -40,7 +40,7 @@ async fn test_raw_conn_pings() {
         genesis_id.hash,
         0,
         vec![ShardId::new(0)],
-        time::Duration::SECOND,
+        Some(time::Duration::SECOND),
     )
     .await
     .unwrap();
@@ -101,7 +101,7 @@ async fn test_raw_conn_state_parts() {
         genesis_id.hash,
         0,
         vec![ShardId::new(0)],
-        time::Duration::SECOND,
+        Some(time::Duration::SECOND),
     )
     .await
     .unwrap();
@@ -181,7 +181,7 @@ async fn test_listener() {
         0,
         vec![ShardId::new(0)],
         false,
-        time::Duration::SECOND,
+        Some(time::Duration::SECOND),
         None,
     )
     .await

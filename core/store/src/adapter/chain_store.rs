@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
+use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
@@ -247,6 +248,16 @@ impl ChainStoreAdapter {
             self.store.get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
+    }
+
+    pub fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        self.store
+            .get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
+            .map_err(|e| e.into())
     }
 
     pub fn get_outgoing_receipts(
