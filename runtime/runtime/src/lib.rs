@@ -60,8 +60,8 @@ use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure,
     get_received_data, has_received_data, remove_account, remove_postponed_receipt,
     remove_promise_yield_receipt, set, set_access_key, set_account, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data, PartialStorage, StorageError, Trie, TrieAccess,
-    TrieChanges, TrieUpdate,
+    set_promise_yield_receipt, set_received_data, KeyLookupMode, PartialStorage, StorageError,
+    Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -501,12 +501,14 @@ impl Runtime {
                     }
                     AccountContract::GlobalByAccount(account_id) => {
                         let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
-                        let code = state_update.get_global_code(identifier.clone())?.ok_or(
-                            RuntimeError::GlobalContractError(
+                        let key =
+                            TrieKey::GlobalContractCode { identifier: identifier.clone().into() };
+                        let value_ref = state_update
+                            .get_ref_no_side_effects(&key, KeyLookupMode::FlatStorage)?
+                            .ok_or(RuntimeError::GlobalContractError(
                                 GlobalContractError::IdentifierNotFound(identifier),
-                            ),
-                        )?;
-                        *code.hash()
+                            ))?;
+                        value_ref.value_hash()
                     }
                 };
                 let contract =

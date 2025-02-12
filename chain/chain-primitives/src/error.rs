@@ -1,6 +1,6 @@
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState, MaybeEncodedShardChunk};
-use near_primitives::errors::{ChunkAccessError, EpochError, StorageError};
+use near_primitives::errors::{ChunkAccessError, EpochError, GlobalContractError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{BadHeaderForProtocolVersionError, ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId, ShardIndex};
@@ -253,7 +253,7 @@ pub enum Error {
     BadHeaderForProtocolVersion(#[from] BadHeaderForProtocolVersionError),
     /// Global contract error.
     #[error("Global Contract Error: {0}")]
-    GlobalContractError(String),
+    GlobalContractError(GlobalContractError),
     /// Anything else
     #[error("Other Error: {0}")]
     Other(String),

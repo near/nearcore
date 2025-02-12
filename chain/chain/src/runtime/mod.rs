@@ -336,7 +336,7 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
-                RuntimeError::GlobalContractError(e) => Error::Other(e.to_string()),
+                RuntimeError::GlobalContractError(e) => Error::GlobalContractError(e),
             })?;
         let elapsed = instant.elapsed();
 
