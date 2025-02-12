@@ -166,9 +166,7 @@ impl FakeClockInner {
         while let Some(earliest_waiter) = self.waiters.peek() {
             if earliest_waiter.deadline <= self.instant {
                 let waiter = self.waiters.pop().unwrap();
-                if waiter.waker.send(()).is_err() {
-                    tracing::warn!("Failed to wake up waiter - receiver was dropped");
-                }
+                waiter.waker.send(()).unwrap();
             } else {
                 break;
             }
@@ -221,21 +219,13 @@ impl FakeClock {
         let receiver = {
             let mut inner = self.0.lock().unwrap();
             let deadline = inner.now() + d;
-            
-            // Check if we should complete immediately
-            if inner.now() >= deadline {
-                return;
-            }
-
             let (sender, receiver) = tokio::sync::oneshot::channel();
             let waiter = ClockWaiterInHeap { waker: sender, deadline };
             inner.waiters.push(waiter);
             receiver
         };
         
-        if receiver.await.is_err() {
-            tracing::warn!("Sleep was interrupted - sender was dropped");
-        }
+        receiver.await.unwrap();
     }
 
     /// Cancel-safe.
@@ -252,9 +242,7 @@ impl FakeClock {
             receiver
         };
         
-        if receiver.await.is_err() {
-            tracing::warn!("Sleep was interrupted - sender was dropped");
-        }
+        receiver.await.unwrap();
     }
 
     /// Returns the earliest waiter, or None if no one is waiting on the clock.
