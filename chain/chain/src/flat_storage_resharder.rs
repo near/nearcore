@@ -710,7 +710,7 @@ impl FlatStorageResharder {
     /// code a chance to finish first.
     fn coordinate_snapshot(&self, height: BlockHeight) -> bool {
         let manager = self.runtime.get_flat_storage_manager();
-        let Some(min_chunk_prev_height) = manager.snapshot_wanted() else {
+        let Some(min_chunk_prev_height) = manager.snapshot_height_wanted() else {
             return false;
         };
         height >= min_chunk_prev_height
