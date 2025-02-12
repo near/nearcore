@@ -165,9 +165,7 @@ impl FakeClockInner {
         // Wake up any waiters that have reached their deadline
         while let Some(earliest_waiter) = self.waiters.peek() {
             if earliest_waiter.deadline <= self.instant {
-                if let Some(waiter) = self.waiters.pop() {
-                    let _ = waiter.waker.send(());
-                }
+                self.waiters.pop().unwrap().waker.send(()).ok();
             } else {
                 break;
             }
