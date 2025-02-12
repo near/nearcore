@@ -1,4 +1,5 @@
-neard := "../../target/release/neard"
+# Place the `neard` binary to be benchmarked here.
+neard := "./neard"
 near_localnet_home := ".near/"
 rpc_url := "http://127.0.0.1:3030"
 
