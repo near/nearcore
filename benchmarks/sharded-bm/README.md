@@ -61,10 +61,11 @@ The basic flow is the following:
 ### TL;DR - run a benchmark
 
 ```sh
+export CASE=cases/local/1_node_5_shard
 sudo systemctl stop neard
-./bench.sh reset cases/local/1_node_50_shard
-./bench.sh init cases/local/1_node_50_shard
+./bench.sh reset
+./bench.sh init
 sudo systemctl restart neard
-./bench.sh create-accounts cases/local/1_node_50_shard
-./bench.sh native-transfers cases/local/1_node_50_shard
+./bench.sh create-accounts
+./bench.sh native-transfers
 ```
