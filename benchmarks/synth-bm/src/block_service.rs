@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use near_jsonrpc_client::JsonRpcClient;
+use ext_near_jsonrpc_client::JsonRpcClient;
 use near_primitives::{hash::CryptoHash, views::BlockView};
 use tokio::time;
 
