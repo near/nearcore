@@ -161,7 +161,7 @@ impl TransactionStatisticsService {
 
         info!(
             r#"Tx statistics cut off a small time from the observation period.
-            Done to avoid statistic services slowing down the system.
+            This is done to avoid statistic services slowing down the system.
             So statistics miss a few successful txs, but adjust the observation period.
             Hence for workloads running more than a few secs, TPS are representative.
         "#
