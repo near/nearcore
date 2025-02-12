@@ -165,7 +165,10 @@ impl FakeClockInner {
         // Wake up any waiters that have reached their deadline
         while let Some(earliest_waiter) = self.waiters.peek() {
             if earliest_waiter.deadline <= self.instant {
-                self.waiters.pop().unwrap().waker.send(()).ok();
+                let waiter = self.waiters.pop().unwrap();
+                if waiter.waker.send(()).is_err() {
+                    tracing::warn!("Failed to wake up waiter - receiver was dropped");
+                }
             } else {
                 break;
             }
@@ -230,7 +233,9 @@ impl FakeClock {
             receiver
         };
         
-        let _ = receiver.await;
+        if receiver.await.is_err() {
+            tracing::warn!("Sleep was interrupted - sender was dropped");
+        }
     }
 
     /// Cancel-safe.
@@ -247,7 +252,9 @@ impl FakeClock {
             receiver
         };
         
-        let _ = receiver.await;
+        if receiver.await.is_err() {
+            tracing::warn!("Sleep was interrupted - sender was dropped");
+        }
     }
 
     /// Returns the earliest waiter, or None if no one is waiting on the clock.
