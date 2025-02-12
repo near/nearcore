@@ -41,7 +41,7 @@ As headers are quite small, we try to request multiple of them in a single call
 
 ![image](https://user-images.githubusercontent.com/1711539/195892312-2fbd8241-87ce-4241-a44d-ff3056b12bab.png)
 
-### Step 1a: Epoch Sync [normal node*] // not implemented yet
+### Step 1a: Epoch Sync [normal node*]
 
 While currently normal nodes are using Header sync, we could actually allow them
 to do something faster - “light client sync” a.k.a “epoch sync”.
@@ -52,7 +52,7 @@ epoch - that has to contain additional information about validators.
 This way it would drastically reduce both the time needed for the sync and the
 db resources.
 
-Implementation target date is TBD.
+Implementation is complete with [2.4 release](https://github.com/near/nearcore/releases/tag/2.4.0).
 
 ![image](https://user-images.githubusercontent.com/1711539/195892336-cc117c08-d3ad-43f7-9304-3233b25e8bb1.png)
 
