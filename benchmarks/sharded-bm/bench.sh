@@ -2,14 +2,21 @@
 
 set -o errexit
 
+CASE="${2:-$CASE}"
+BM_PARAMS=${CASE}/params.json
+
+if ! [[ -d $CASE ]]; then
+    echo "'$CASE' is not a valid test case directory"
+    exit 1
+fi
+
+NUM_NODES=$(jq '.nodes' ${BM_PARAMS} 2> /dev/null) || true
 NEARD="${NEARD:-/home/ubuntu/neard}"
 NEAR_HOME="${NEAR_HOME:-/home/ubuntu/.near}"
 
 GENESIS=${NEAR_HOME}/genesis.json
 CONFIG=${NEAR_HOME}/config.json
 
-CASE="cases/$2"
-BM_PARAMS=${CASE}/params.json
 GENESIS_PATCH=${CASE}/genesis_patch.json
 CONFIG_PATCH=${CASE}/config_patch.json
 
@@ -125,7 +132,16 @@ monitor() {
             elapsed=$((now-old_now))
             delta=$((processed-old_processed))
             tps=$(bc <<< "scale=2;${delta}/${elapsed}*1000")
-            echo "elapsed ${elapsed}ms, total tx: ${processed}, delta tx: ${delta}, TPS: ${tps}"
+            all_tps=($tps "${all_tps[@]}")
+            all_tps=("${all_tps[@]:0:3}")
+            sum=0
+            count=0
+            for x in "${all_tps[@]}"; do
+                count=$((count+1))
+                sum=$(bc <<< "${sum}+${x}")
+            done
+            avg_tps=$(bc <<< "scale=2;${sum}/${count}")
+            echo "elapsed ${elapsed}ms, total tx: ${processed}, delta tx: ${delta}, TPS: ${tps}", sustained TPS: ${avg_tps}
         fi
 
         old_now=${now}
@@ -134,11 +150,6 @@ monitor() {
         mpstat 10 1 | grep -v Linux
     done
 }
-
-if ! [[ -d $CASE ]]; then
-    echo "'$CASE' is not a valid test case directory"
-    exit 1
-fi
 
 case "$1" in
     reset)

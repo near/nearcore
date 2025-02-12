@@ -22,7 +22,7 @@ The basic flow is the following:
 2. Clear the database, if the node run beforehand
 
     ```sh
-    ./bench.sh reset
+    ./bench.sh reset <BENCH CASE>
     ```
 
 3. Prepare the network
@@ -49,7 +49,7 @@ The basic flow is the following:
 - Monitor local benchmark execution (TPS and other stuff):
 
     ```sh
-    ./bench.sh monitor
+    ./bench.sh monitor <BENCH CASE>
     ```
 
 - Apply config changes
@@ -62,9 +62,9 @@ The basic flow is the following:
 
 ```sh
 sudo systemctl stop neard
-./bench.sh reset
-./bench.sh init local/1_node_50_shard
+./bench.sh reset cases/local/1_node_50_shard
+./bench.sh init cases/local/1_node_50_shard
 sudo systemctl restart neard
-./bench.sh create-accounts local/1_node_50_shard
-./bench.sh native-transfers local/1_node_50_shard
+./bench.sh create-accounts cases/local/1_node_50_shard
+./bench.sh native-transfers cases/local/1_node_50_shard
 ```
