@@ -236,6 +236,8 @@ pub struct Config {
     #[cfg(feature = "rosetta_rpc")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rosetta_rpc: Option<RosettaRpcConfig>,
+    #[cfg(feature = "tx_generator")]
+    pub tx_generator: Option<near_transactions_generator::TxGeneratorConfig>,
     pub telemetry: TelemetryConfig,
     pub network: near_network::config_json::Config,
     pub consensus: Consensus,
@@ -355,6 +357,8 @@ impl Default for Config {
             rpc: Some(RpcConfig::default()),
             #[cfg(feature = "rosetta_rpc")]
             rosetta_rpc: None,
+            #[cfg(feature = "tx_generator")]
+            tx_generator: None,
             telemetry: TelemetryConfig::default(),
             network: Default::default(),
             consensus: Consensus::default(),
@@ -479,6 +483,8 @@ impl Config {
 pub struct NearConfig {
     pub config: Config,
     pub client_config: ClientConfig,
+    #[cfg(feature = "tx_generator")]
+    pub tx_generator: Option<near_transactions_generator::TxGeneratorConfig>,
     pub network_config: NetworkConfig,
     #[cfg(feature = "json_rpc")]
     pub rpc_config: Option<RpcConfig>,
@@ -573,6 +579,8 @@ impl NearConfig {
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
                 save_latest_witnesses: config.save_latest_witnesses,
             },
+            #[cfg(feature = "tx_generator")]
+            tx_generator: config.tx_generator,
             network_config: NetworkConfig::new(
                 config.network,
                 network_key_pair.secret_key,

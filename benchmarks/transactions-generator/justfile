@@ -1,0 +1,23 @@
+script_dir := `pwd`
+neard := script_dir / "./neard"
+near_localnet_home := script_dir / ".near/"
+rpc_url := "http://127.0.0.1:3030"
+
+init_localnet:
+    rm -rf {{near_localnet_home}} && {{neard}} --home {{near_localnet_home}} init --chain-id localnet
+
+run_localnet:
+    {{neard}} --home {{near_localnet_home}} run
+
+create_sub_accounts:
+    RUST_LOG=info \
+    ../synth-bm/target/release/near-synth-bm create-sub-accounts \
+        --rpc-url {{rpc_url}} \
+        --signer-key-path {{near_localnet_home}}/validator_key.json \
+        --nonce 1 \
+        --sub-account-prefix 'a' \
+        --num-sub-accounts 100 \
+        --deposit 953060601875000000010000 \
+        --channel-buffer-size 1200 \
+        --requests-per-second 1250 \
+        --user-data-dir user-data
