@@ -95,7 +95,7 @@ native_transfers() {
 
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     for i in $(seq 0 $((NUM_SHARDS-1))); do
-        log="${LOG_DIR}/shard${i}"
+        log="${LOG_DIR}/gen_shard${i}"
         data_dir="${USERS_DATA_DIR}/shard${i}"
         echo "Running benchmark for shard: ${i}, log file: ${log}, data dir: ${data_dir}"
         RUST_LOG=info \

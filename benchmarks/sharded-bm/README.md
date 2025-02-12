@@ -63,8 +63,8 @@ The basic flow is the following:
 ```sh
 sudo systemctl stop neard
 ./bench.sh reset
-./bench.sh init 50_shards_synth
+./bench.sh init local/1_node_50_shard
 sudo systemctl restart neard
-./bench.sh create-accounts 50_shards_synth
-./bench.sh native-transfers 50_shards_synth
+./bench.sh create-accounts local/1_node_50_shard
+./bench.sh native-transfers local/1_node_50_shard
 ```
