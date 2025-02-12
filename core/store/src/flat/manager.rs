@@ -22,6 +22,12 @@ use super::{
 #[derive(Clone)]
 pub struct FlatStorageManager(Arc<FlatStorageManagerInner>);
 
+/// Stores the reference block hash and min height of all the prev hashes of that block's chunks.
+struct SnapshotBlock {
+    block_hash: CryptoHash,
+    min_chunk_prev_height: BlockHeight,
+}
+
 pub struct FlatStorageManagerInner {
     store: FlatStoreAdapter,
     /// Here we store the flat_storage per shard. The reason why we don't use the same
@@ -35,7 +41,7 @@ pub struct FlatStorageManagerInner {
     flat_storages: Mutex<HashMap<ShardUId, FlatStorage>>,
     /// Set to Some() when there's a state snapshot in progress. Used to signal to the resharding flat
     /// storage catchup code that it shouldn't advance past this block height
-    want_snapshot: Mutex<Option<BlockHeight>>,
+    want_snapshot: Mutex<Option<SnapshotBlock>>,
 }
 
 impl FlatStorageManager {
@@ -299,10 +305,10 @@ impl FlatStorageManager {
 
     /// Should be called when we want to take a state snapshot. Disallows flat head updates, and signals to any resharding
     /// flat storage code that it should not advance beyond this hash
-    pub fn want_snapshot(&self, min_chunk_prev_height: BlockHeight) {
+    pub fn want_snapshot(&self, block_hash: CryptoHash, min_chunk_prev_height: BlockHeight) {
         {
             let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
-            *want_snapshot = Some(min_chunk_prev_height);
+            *want_snapshot = Some(SnapshotBlock { block_hash, min_chunk_prev_height });
         }
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         for flat_storage in flat_storages.values() {
@@ -311,11 +317,18 @@ impl FlatStorageManager {
         tracing::debug!(target: "store", "Locked flat head updates");
     }
 
-    /// Should be called when we're done taking a state snapshot. Allows flat head updates, and signals to any resharding
-    /// flat storage code that it can advance now.
-    pub fn snapshot_taken(&self) {
+    /// Should be called when we're done taking a state snapshot. If `block_hash` was the most recently requested snapshot, this
+    /// allows flat head updates, and signals to any resharding flat storage code that it can advance now.
+    pub fn snapshot_taken(&self, block_hash: &CryptoHash) {
         {
             let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+            if let Some(want) = &*want_snapshot {
+                if &want.block_hash != block_hash {
+                    return;
+                }
+            } else {
+                tracing::warn!(target: "store", %block_hash, "State snapshot being marked as taken without a corresponding pending request set");
+            }
             *want_snapshot = None;
         }
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
@@ -329,6 +342,12 @@ impl FlatStorageManager {
     // past the given hash
     pub fn snapshot_height_wanted(&self) -> Option<BlockHeight> {
         let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
-        *want_snapshot
+        want_snapshot.as_ref().map(|s| s.min_chunk_prev_height)
+    }
+
+    // Returns Some() with the corresponding block hash if a state snapshot has been requested
+    pub fn snapshot_hash_wanted(&self) -> Option<CryptoHash> {
+        let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
+        want_snapshot.as_ref().map(|s| s.block_hash)
     }
 }

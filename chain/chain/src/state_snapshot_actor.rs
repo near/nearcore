@@ -107,6 +107,12 @@ impl StateSnapshotActor {
         msg: CreateSnapshotRequest,
         ctx: &mut dyn DelayedActionRunner<Self>,
     ) {
+        if let Some(last_requested_hash) = self.flat_storage_manager.snapshot_hash_wanted() {
+            if last_requested_hash != msg.prev_block_hash {
+                tracing::info!(target: "state_snapshot", ?msg, %last_requested_hash, "Skipping state snapshot in favor of more recent request");
+                return;
+            }
+        }
         let should_wait = match self.should_wait_for_resharding_split(
             msg.min_chunk_prev_height,
             &msg.shard_indexes_and_uids,
@@ -146,10 +152,8 @@ impl StateSnapshotActor {
 
         // Unlocking flat state head can be done asynchronously in state_snapshot_actor.
         // The next flat storage update will bring flat storage to latest head.
-        // TODO(resharding): check what happens if two calls to want_snapshot() are made before this point,
-        // which can happen with short epochs if a state snapshot takes longer than the rest of the epoch to complete.
         // TODO(resharding): this can actually be called sooner, just after the rocksdb checkpoint is made.
-        self.flat_storage_manager.snapshot_taken();
+        self.flat_storage_manager.snapshot_taken(&prev_block_hash);
         match res {
             Ok(res_shard_uids) => {
                 let Some(res_shard_uids) = res_shard_uids else {
@@ -225,7 +229,7 @@ pub fn get_make_snapshot_callback(
         // We need to stop flat head updates synchronously in the client thread.
         // Async update in state_snapshot_actor can potentially lead to flat head progressing beyond prev_block_hash
         // This also prevents post-resharding flat storage catchup from advancing past `prev_block_hash`
-        flat_storage_manager.want_snapshot(min_chunk_prev_height);
+        flat_storage_manager.want_snapshot(prev_block_hash, min_chunk_prev_height);
         let create_snapshot_request = CreateSnapshotRequest {
             prev_block_hash,
             min_chunk_prev_height,
