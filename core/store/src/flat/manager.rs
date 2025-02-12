@@ -305,6 +305,9 @@ impl FlatStorageManager {
 
     /// Should be called when we want to take a state snapshot. Disallows flat head updates, and signals to any resharding
     /// flat storage code that it should not advance beyond this hash
+    // TODO(#12919): This sets the currently active snapshot request to `block_hash` in favor of any previous requests. We
+    // should modify this to be sure that the correct block hash that will end up on the canonical chain is taken. Right now
+    // we rely on the canonical one being requested after any other forks, which may not be the case.
     pub fn want_snapshot(&self, block_hash: CryptoHash, min_chunk_prev_height: BlockHeight) {
         {
             let mut want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
