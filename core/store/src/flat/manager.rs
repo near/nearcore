@@ -327,7 +327,7 @@ impl FlatStorageManager {
 
     // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
     // past the given hash
-    pub fn snapshot_wanted(&self) -> Option<BlockHeight> {
+    pub fn snapshot_height_wanted(&self) -> Option<BlockHeight> {
         let want_snapshot = self.0.want_snapshot.lock().expect(POISONED_LOCK_ERR);
         *want_snapshot
     }
