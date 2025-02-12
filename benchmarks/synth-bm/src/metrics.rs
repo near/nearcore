@@ -15,6 +15,46 @@ use tokio::time::Interval;
 /// ```
 pub type Report<'a> = &'a str;
 
+trait Metric: Sized {
+    fn name_in_report() -> &'static str;
+    fn from_report(report: Report, time: Instant) -> anyhow::Result<Self>;
+    fn time(&self) -> Instant;
+}
+
+struct SuccessfulTxsMetric {
+    num: u64,
+    time: Instant,
+}
+
+impl Default for SuccessfulTxsMetric {
+    fn default() -> Self {
+        Self { num: 0, time: Instant::now() }
+    }
+}
+
+impl Metric for SuccessfulTxsMetric {
+    fn name_in_report() -> &'static str {
+        "near_transaction_processed_successfully_total"
+    }
+
+    fn from_report(report: Report, time: Instant) -> anyhow::Result<Self> {
+        let lines = report.lines();
+        let line = lines.filter(|line| line.starts_with(Self::name_in_report())).next();
+        let num = if let Some(line) = line {
+            parse_at_eol(line)?
+        } else {
+            // Absence means the node did not yet process successful transactions since it was
+            // started.
+            0
+        };
+        Ok(Self { num, time })
+    }
+
+    fn time(&self) -> Instant {
+        self.time
+    }
+}
+
 /// Defines metrics for which parsing from a `Report` has been implemented.
 #[derive(Copy, Clone, Debug)]
 pub enum MetricName {
