@@ -41,7 +41,7 @@ loop {
 }
 ```
 
-So then the question is what does `map_key()` do?. If we don't care
+So then the question is what does `map_key()` do? If we don't care
 about the security of these accounts in the target chain (for example
 if the target chain is just some throwaway test chain that nobody
 would have any incentive to mess with), we can just use the bytes of
