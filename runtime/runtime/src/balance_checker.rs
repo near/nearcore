@@ -93,6 +93,7 @@ fn total_accounts_balance(
             None => return Ok(accumulator),
             Some(account) => (account.amount(), account.locked()),
         };
+        tracing::info!("ACC {:#?} | BAL {:#?} | LCK {:#?}", account_id, amount, locked);
         Ok(safe_add_balance_apply!(accumulator, amount, locked))
     })
 }
