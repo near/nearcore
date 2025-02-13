@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
-use near_async::futures::FutureSpawner;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::test_loop::TestLoopV2;
@@ -605,7 +604,6 @@ impl TestLoopBuilder {
             runtime_adapter.get_flat_storage_manager(),
             network_adapter.as_multi_sender(),
             runtime_adapter.get_tries(),
-            state_snapshot_adapter.as_multi_sender(),
         );
 
         let delete_snapshot_callback =
@@ -649,6 +647,7 @@ impl TestLoopBuilder {
             partial_witness_adapter.as_multi_sender(),
             resharding_sender.as_multi_sender(),
             Arc::new(self.test_loop.future_spawner()),
+            client_adapter.as_multi_sender(),
             client_adapter.as_multi_sender(),
             self.upgrade_schedule.clone(),
         )
@@ -713,7 +712,6 @@ impl TestLoopBuilder {
         let client_actor = ClientActorInner::new(
             self.test_loop.clock(),
             client,
-            client_adapter.as_multi_sender(),
             peer_id.clone(),
             network_adapter.as_multi_sender(),
             noop().into_sender(),
@@ -751,7 +749,6 @@ impl TestLoopBuilder {
         let resharding_actor =
             ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
 
-        let future_spawner = self.test_loop.future_spawner();
         let state_sync_dumper = StateSyncDumper {
             clock: self.test_loop.clock(),
             client_config,
@@ -760,10 +757,6 @@ impl TestLoopBuilder {
             shard_tracker,
             runtime: runtime_adapter,
             validator: validator_signer,
-            dump_future_runner: Box::new(move |future| {
-                future_spawner.spawn_boxed("state_sync_dumper", future);
-                Box::new(|| {})
-            }),
             future_spawner: Arc::new(self.test_loop.future_spawner()),
             handle: None,
         };

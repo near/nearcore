@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, HashMap};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -10,13 +12,6 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_schema_checker_lib::ProtocolSchema;
-
-use std::collections::{BTreeMap, HashMap};
-use tracing::{debug, debug_span};
-
-use crate::EpochManager;
-
-pub type RngSeed = [u8; 32];
 
 /// Aggregator of information needed for validator computation at the end of the epoch.
 #[derive(
@@ -73,14 +68,14 @@ impl EpochInfoAggregator {
         shard_layout: &ShardLayout,
         prev_block_height: BlockHeight,
     ) {
-        let _span =
-            debug_span!(target: "epoch_tracker", "update_tail", prev_block_height).entered();
+        let _span = tracing::debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
+            .entered();
 
         // Step 1: update block tracer (block-production stats)
 
         let block_info_height = block_info.height();
         for height in prev_block_height + 1..=block_info_height {
-            let block_producer_id = EpochManager::block_producer_from_info(epoch_info, height);
+            let block_producer_id = epoch_info.sample_block_producer(height);
             let entry = self.block_tracker.entry(block_producer_id);
             if height == block_info_height {
                 entry
@@ -90,7 +85,7 @@ impl EpochInfoAggregator {
                     })
                     .or_insert(ValidatorStats { produced: 1, expected: 1 });
             } else {
-                debug!(
+                tracing::debug!(
                     target: "epoch_tracker",
                     block_producer = ?epoch_info.validator_account_id(block_producer_id),
                     block_height = height, "Missed block");
@@ -103,19 +98,13 @@ impl EpochInfoAggregator {
         }
 
         // Step 2: update shard tracker (chunk production/endorsement stats)
-
-        // TODO(#11900): Call EpochManager::get_chunk_validator_assignments to access the cached validator assignments.
         let chunk_validator_assignment = epoch_info.sample_chunk_validators(prev_block_height + 1);
 
         for (shard_index, mask) in block_info.chunk_mask().iter().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let chunk_producer_id = EpochManager::chunk_producer_from_info(
-                epoch_info,
-                shard_layout,
-                shard_id,
-                prev_block_height + 1,
-            )
-            .unwrap();
+            let chunk_producer_id = epoch_info
+                .sample_chunk_producer(shard_layout, shard_id, prev_block_height + 1)
+                .unwrap();
             let tracker = self.shard_tracker.entry(shard_id).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_producer_id)
@@ -123,7 +112,7 @@ impl EpochInfoAggregator {
                     if *mask {
                         *stats.produced_mut() += 1;
                     } else {
-                        debug!(
+                        tracing::debug!(
                             target: "epoch_tracker",
                             chunk_validator = ?epoch_info.validator_account_id(chunk_producer_id),
                             ?shard_id,
@@ -183,8 +172,7 @@ impl EpochInfoAggregator {
         }
 
         // Step 3: update version tracker
-        let block_producer_id =
-            EpochManager::block_producer_from_info(epoch_info, block_info_height);
+        let block_producer_id = epoch_info.sample_block_producer(block_info_height);
         self.version_tracker
             .entry(block_producer_id)
             .or_insert_with(|| *block_info.latest_protocol_version());

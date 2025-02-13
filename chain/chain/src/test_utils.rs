@@ -19,6 +19,7 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
@@ -90,7 +91,7 @@ pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
 }
 
 pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
-    chain.blocks_in_processing.contains(block_hash)
+    chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash))
 }
 
 pub fn wait_for_block_in_processing(

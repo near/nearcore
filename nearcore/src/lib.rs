@@ -351,7 +351,6 @@ pub fn start_with_config_and_synchronization(
         runtime.get_flat_storage_manager(),
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
-        state_snapshot_sender.as_multi_sender(),
     );
     let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
     state_snapshot_sender.bind(state_snapshot_addr.clone().with_auto_span_context());
@@ -439,7 +438,6 @@ pub fn start_with_config_and_synchronization(
         shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         future_spawner: state_sync_spawner,
         handle: None,
     };

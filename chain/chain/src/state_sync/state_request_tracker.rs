@@ -1,5 +1,4 @@
 use crate::metrics;
-use crate::Chain;
 use lru::LruCache;
 use near_primitives::{
     hash::CryptoHash,
@@ -44,12 +43,9 @@ impl StateRequestTracker {
             .with_label_values(&[&shard_id.to_string()])
             .observe(elapsed_ms as f64 / 1000.);
     }
-}
 
-impl Chain {
     pub fn get_requested_state_parts(&self) -> Vec<RequestedStatePartsView> {
         let result: Vec<RequestedStatePartsView> = self
-            .requested_state_parts
             .requested_state_parts
             .iter()
             .map(|(crypto_hash, parts_per_shard)| RequestedStatePartsView {

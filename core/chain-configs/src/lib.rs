@@ -34,9 +34,7 @@ pub use genesis_config::{
 };
 use near_primitives::types::{Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats};
 use num_rational::Rational32;
-pub use updatable_config::{
-    MutableConfigValue, MutableValidatorSigner, UpdatableClientConfig, UpdatableValidatorSigner,
-};
+pub use updatable_config::{MutableConfigValue, MutableValidatorSigner, UpdatableClientConfig};
 
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 

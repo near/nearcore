@@ -345,7 +345,7 @@ fn ultra_slow_test_sync_state_dump() {
             let nearcore::NearNode {
                 view_client: view_client1,
                 // State sync dumper should be kept in the scope to avoid dropping it, which stops the state dumper loop.
-                state_sync_dumper: _dumper,
+                mut state_sync_dumper,
                 ..
             } = start_with_config(dir1.path(), near1).expect("start_with_config");
 
@@ -360,6 +360,7 @@ fn ultra_slow_test_sync_state_dump() {
                     let genesis2 = genesis.clone();
 
                     match view_client1.send(GetBlock::latest().with_span_context()).await {
+                        // FIXME: this is not the right check after the sync hash was moved to sync the current epoch's state
                         Ok(Ok(b)) if b.header.height >= genesis.config.epoch_length + 2 => {
                             let mut view_client2_holder2 = view_client2_holder2.write().unwrap();
                             let mut arbiters_holder2 = arbiters_holder2.write().unwrap();
@@ -433,6 +434,7 @@ fn ultra_slow_test_sync_state_dump() {
             })
             .await
             .unwrap();
+            state_sync_dumper.stop_and_await();
             System::current().stop();
         });
         drop(_dump_dir);
@@ -560,15 +562,22 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
             let sync_prev_block = &blocks[sync_block_idx - 1];
             let sync_prev_height_included = sync_prev_block.chunks()[0].height_included();
 
-            let state_sync_header =
-                env.clients[0].chain.get_state_response_header(shard_id, sync_hash).unwrap();
+            let state_sync_header = env.clients[0]
+                .chain
+                .state_sync_adapter
+                .get_state_response_header(shard_id, sync_hash)
+                .unwrap();
             let num_parts = state_sync_header.num_state_parts();
             let state_root = state_sync_header.chunk_prev_state_root();
             // Check that state parts can be obtained.
             let state_sync_parts: Vec<_> = (0..num_parts)
                 .map(|i| {
                     // This should obviously not fail, aka succeed.
-                    env.clients[0].chain.get_state_response_part(shard_id, i, sync_hash).unwrap()
+                    env.clients[0]
+                        .chain
+                        .state_sync_adapter
+                        .get_state_response_part(shard_id, i, sync_hash)
+                        .unwrap()
                 })
                 .collect();
 
@@ -591,11 +600,13 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
             tracing::info!(target: "test", "state sync - set parts");
             env.clients[1]
                 .chain
+                .state_sync_adapter
                 .set_state_header(shard_id, sync_hash, state_sync_header.clone())
                 .unwrap();
             for i in 0..num_parts {
                 env.clients[1]
                     .chain
+                    .state_sync_adapter
                     .set_state_part(
                         shard_id,
                         sync_hash,

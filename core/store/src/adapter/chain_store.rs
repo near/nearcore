@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
+use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
@@ -249,6 +250,16 @@ impl ChainStoreAdapter {
         )
     }
 
+    pub fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        self.store
+            .get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
+            .map_err(|e| e.into())
+    }
+
     pub fn get_outgoing_receipts(
         &self,
         prev_block_hash: &CryptoHash,
@@ -300,7 +311,7 @@ impl ChainStoreAdapter {
     pub fn get_block_merkle_tree(
         &self,
         block_hash: &CryptoHash,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
+    ) -> Result<PartialMerkleTree, Error> {
         option_to_not_found(
             self.store.get_ser(DBCol::BlockMerkleTree, block_hash.as_ref()),
             format_args!("BLOCK MERKLE TREE: {}", block_hash),
@@ -320,7 +331,7 @@ impl ChainStoreAdapter {
     pub fn get_block_merkle_tree_from_ordinal(
         &self,
         block_ordinal: NumBlocks,
-    ) -> Result<Arc<PartialMerkleTree>, Error> {
+    ) -> Result<PartialMerkleTree, Error> {
         let block_hash = self.get_block_hash_from_ordinal(block_ordinal)?;
         self.get_block_merkle_tree(&block_hash)
     }

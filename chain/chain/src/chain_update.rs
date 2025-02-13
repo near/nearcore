@@ -2,6 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
@@ -124,7 +125,7 @@ impl<'a> ChainUpdate<'a> {
                 )?;
                 self.chain_store_update.merge(store_update.into());
 
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     block_hash,
                     shard_id,
@@ -146,6 +147,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_id,
+                    apply_result.stats,
+                );
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -166,7 +172,7 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 if should_save_state_transition_data {
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
@@ -176,6 +182,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.stats,
+                );
             }
         };
         Ok(())
@@ -485,9 +496,13 @@ impl<'a> ChainUpdate<'a> {
             }
         };
 
-        let block_header = self
-            .chain_store_update
-            .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
+        // Note that block headers are already synced and can be taken
+        // from store on disk.
+        let block_header = get_block_header_on_chain_by_height(
+            &self.chain_store_update.chain_store(),
+            &sync_hash,
+            chunk.height_included(),
+        )?;
 
         // Getting actual incoming receipts.
         let mut receipt_proof_responses: Vec<ReceiptProofResponse> = vec![];
@@ -575,7 +590,7 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         let chunk_extra = ChunkExtra::new(
             protocol_version,
@@ -625,8 +640,13 @@ impl<'a> ChainUpdate<'a> {
         let _span =
             tracing::debug_span!(target: "sync", "set_state_finalize_on_height", height, ?shard_id)
                 .entered();
-        let block_header_result =
-            self.chain_store_update.get_block_header_on_chain_by_height(&sync_hash, height);
+        // Note that block headers are already synced and can be taken
+        // from store on disk.
+        let block_header_result = get_block_header_on_chain_by_height(
+            &self.chain_store_update.chain_store(),
+            &sync_hash,
+            height,
+        );
         if let Err(_) = block_header_result {
             // No such height, go ahead.
             return Ok(true);
@@ -673,7 +693,7 @@ impl<'a> ChainUpdate<'a> {
             apply_result.trie_changes.state_changes(),
         )?;
         self.chain_store_update.merge(store_update.into());
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         // The chunk is missing but some fields may need to be updated
         // anyway. Prepare a chunk extra as a copy of the old chunk

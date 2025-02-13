@@ -244,7 +244,7 @@ mod test {
         let pretty_debug_str = format!("{profile_data:#?}");
         expect_test::expect![[r#"
             ------------------------------
-            Action gas: 16120
+            Action gas: 18153
             ------ Host functions --------
             contract_loading_base -> 1 [0% host]
             contract_loading_bytes -> 2 [0% host]
@@ -347,6 +347,8 @@ mod test {
             new_data_receipt_base -> 1013
             new_data_receipt_byte -> 1014
             delegate -> 1015
+            deploy_global_contract_base -> 1016
+            deploy_global_contract_byte -> 1017
             ------------------------------
         "#]]
         .assert_eq(&pretty_debug_str)

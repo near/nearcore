@@ -581,18 +581,16 @@ impl ShardsManagerActor {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
         let block_producers = self
             .epoch_manager
-            .get_epoch_block_producers_ordered(&epoch_id, parent_hash)?
+            .get_epoch_block_producers_ordered(&epoch_id)?
             .into_iter()
-            .filter_map(|(validator_stake, is_slashed)| {
+            .filter_map(|validator_stake| {
                 let account_id = validator_stake.take_account_id();
-                if !is_slashed
-                    && self.shard_tracker.cares_about_shard_this_or_next_epoch(
-                        Some(&account_id),
-                        parent_hash,
-                        shard_id,
-                        false,
-                    )
-                    && me != Some(&account_id)
+                if self.shard_tracker.cares_about_shard_this_or_next_epoch(
+                    Some(&account_id),
+                    parent_hash,
+                    shard_id,
+                    false,
+                ) && me != Some(&account_id)
                 {
                     Some(account_id)
                 } else {
@@ -642,9 +640,8 @@ impl ShardsManagerActor {
             Some(it) => it,
         };
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let block_producers =
-            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, prev_hash)?;
-        for (bp, _) in block_producers {
+        let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
+        for bp in block_producers {
             if bp.account_id() == me {
                 return Ok(true);
             }
@@ -1872,8 +1869,7 @@ impl ShardsManagerActor {
         );
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-        let block_producers =
-            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
+        let block_producers = self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
         // SingleShardTracking: If enabled, we only forward the parts to the block producers
@@ -1889,7 +1885,7 @@ impl ShardsManagerActor {
                     shard_id,
                 })?
                 .take_account_id();
-            for (bp, _) in block_producers {
+            for bp in block_producers {
                 let bp_account_id = bp.take_account_id();
 
                 if self.shard_tracker.cares_about_shard_this_or_next_epoch(
@@ -1937,7 +1933,7 @@ impl ShardsManagerActor {
                 })
                 .collect::<Result<HashSet<_>, _>>()?;
             next_chunk_producers.remove(me);
-            for (bp, _) in block_producers {
+            for bp in block_producers {
                 let bp_account_id = bp.take_account_id();
                 // no need to send anything to myself
                 if me == &bp_account_id {

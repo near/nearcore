@@ -181,7 +181,7 @@ impl TestEnv {
         capture.set_callback(move |msg| {
             if msg.starts_with("do_apply_chunks") {
                 let cell = paused_blocks.lock().unwrap().iter().find_map(|(block_hash, cell)| {
-                    if msg.contains(&format!("block_hash={block_hash}")) {
+                    if msg.contains(&format!("block=Normal({block_hash})")) {
                         Some(Arc::clone(cell))
                     } else {
                         None

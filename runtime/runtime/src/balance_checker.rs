@@ -3,8 +3,9 @@ use crate::config::{
     total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::{safe_add_balance_apply, SignedValidPeriodTransactions};
-use crate::{ApplyStats, DelayedReceiptIndices, ValidatorAccountsUpdate};
+use crate::{DelayedReceiptIndices, ValidatorAccountsUpdate};
 use near_parameters::{ActionCosts, RuntimeConfig};
+use near_primitives::chunk_apply_stats::BalanceStats;
 use near_primitives::errors::{
     BalanceMismatchError, IntegerOverflowError, RuntimeError, StorageError,
 };
@@ -281,7 +282,7 @@ pub(crate) fn check_balance(
     yield_timeout_receipts: &[Receipt],
     transactions: SignedValidPeriodTransactions<'_>,
     outgoing_receipts: &[Receipt],
-    stats: &ApplyStats,
+    stats: &BalanceStats,
 ) -> Result<(), RuntimeError> {
     let initial_state = final_state.trie();
 
@@ -390,7 +391,6 @@ pub(crate) fn check_balance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ApplyStats;
     use near_crypto::InMemorySigner;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::{
@@ -426,7 +426,7 @@ mod tests {
             &[],
             SignedValidPeriodTransactions::empty(),
             &[],
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap();
     }
@@ -445,7 +445,7 @@ mod tests {
             &[],
             SignedValidPeriodTransactions::empty(),
             &[],
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap_err();
         assert_matches!(err, RuntimeError::BalanceMismatchError(_));
@@ -510,7 +510,7 @@ mod tests {
             &[],
             SignedValidPeriodTransactions::empty(),
             &[],
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap();
     }
@@ -559,7 +559,7 @@ mod tests {
             &[],
             SignedValidPeriodTransactions::new(&[tx], &[true]),
             &[receipt],
-            &ApplyStats {
+            &BalanceStats {
                 tx_burnt_amount: total_validator_reward,
                 gas_deficit_amount: 0,
                 other_burnt_amount: 0,
@@ -631,7 +631,7 @@ mod tests {
                 &[],
                 SignedValidPeriodTransactions::new(&[tx], &[true]),
                 &[],
-                &ApplyStats::default(),
+                &BalanceStats::default(),
             ),
             Err(RuntimeError::UnexpectedIntegerOverflow(_))
         );
@@ -673,7 +673,7 @@ mod tests {
                 &[],
                 SignedValidPeriodTransactions::new(&[tx], &[true]),
                 &[],
-                &ApplyStats::default(),
+                &BalanceStats::default(),
             ),
             Err(RuntimeError::BalanceMismatchError { .. })
         );
@@ -753,7 +753,7 @@ mod tests {
             &[],
             SignedValidPeriodTransactions::new(&[tx], &[true]),
             &[],
-            &ApplyStats {
+            &BalanceStats {
                 // send gas was burnt on this shard, exec gas is part of the receipt value
                 tx_burnt_amount: send_gas as Balance * gas_price,
                 gas_deficit_amount: 0,
@@ -824,7 +824,7 @@ mod tests {
             &[],
             SignedValidPeriodTransactions::empty(),
             &outgoing_receipts,
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         )
         .unwrap();
     }
@@ -888,7 +888,7 @@ mod tests {
             &[],
             SignedValidPeriodTransactions::empty(),
             &outgoing_receipts,
-            &ApplyStats::default(),
+            &BalanceStats::default(),
         );
         assert_matches!(result, Err(RuntimeError::BalanceMismatchError { .. }));
     }

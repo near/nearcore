@@ -120,7 +120,9 @@ impl IntoVMError for anyhow::Error {
             };
             return Err(VMRunnerError::Nondeterministic(nondeterministic_message.into()));
         }
-        Ok(FunctionCallError::LinkError { msg: format!("{:#?}", cause) })
+        // FIXME: this can blow up in size and would get stored in the storage in case this was a
+        // production runtime. Something more proper should be done here.
+        Ok(FunctionCallError::LinkError { msg: format!("{:?}", cause) })
     }
 }
 

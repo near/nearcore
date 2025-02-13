@@ -1,6 +1,6 @@
 //! Provides functions for setting up a mock network from configs and home dirs.
 
-use crate::{MockNetworkConfig, MockPeer};
+use crate::{MockNetworkConfig, MockNode};
 use anyhow::Context;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::GenesisValidationMode;
@@ -9,18 +9,27 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::tcp;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
+use near_primitives::version::ProtocolVersion;
+use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::StoreAdapter;
+
 use near_time::Clock;
+
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+
 use std::cmp::min;
 use std::path::Path;
+use std::sync::Arc;
 
 pub(crate) fn setup_mock_peer(
     chain: Chain,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     config: NearConfig,
     network_start_height: Option<BlockHeight>,
     network_config: MockNetworkConfig,
     target_height: BlockHeight,
     shard_layout: ShardLayout,
+    handshake_protocol_version: Option<ProtocolVersion>,
 ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
     let network_start_height = match network_start_height {
         None => target_height,
@@ -35,9 +44,11 @@ pub(crate) fn setup_mock_peer(
         Some(a) => a,
         None => tcp::ListenerAddr::new("127.0.0.1".parse().unwrap()),
     };
-    let mock_peer = actix::spawn(async move {
-        let mock = MockPeer::new(
-            chain,
+    let mock_peer = tokio::spawn(async move {
+        let mock = MockNode::new(
+            ChainStoreAdapter::new(chain.chain_store().store()),
+            epoch_manager,
+            *chain.genesis().hash(),
             secret_key,
             listen_addr,
             chain_id,
@@ -46,6 +57,7 @@ pub(crate) fn setup_mock_peer(
             shard_layout,
             network_start_height,
             network_config,
+            handshake_protocol_version,
         )
         .await?;
         mock.run(target_height).await
@@ -63,6 +75,7 @@ pub fn setup_mock_node(
     network_config: MockNetworkConfig,
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
+    handshake_protocol_version: Option<ProtocolVersion>,
 ) -> anyhow::Result<tokio::task::JoinHandle<anyhow::Result<()>>> {
     let near_config = nearcore::config::load_config(home_dir, GenesisValidationMode::Full)
         .context("Error loading config")?;
@@ -105,10 +118,12 @@ pub fn setup_mock_node(
 
     Ok(setup_mock_peer(
         chain,
+        epoch_manager,
         near_config,
         network_start_height,
         network_config,
         target_height,
         shard_layout,
+        handshake_protocol_version,
     ))
 }

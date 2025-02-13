@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::accounts_from_dir;
+use crate::account::{accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
@@ -27,26 +27,43 @@ pub struct BenchmarkArgs {
     /// Acts as upper bound on the number of concurrently open RPC requests.
     #[arg(long)]
     pub channel_buffer_size: usize,
-    /// After each tick (in microseconds) a transaction is sent. If the hardware cannot keep up with
-    /// that or if the NEAR node is congested, transactions are sent at a slower rate.
+
+    /// Upper bound on request rate to the network for transaction (and other auxiliary) calls. The actual rate may be lower in case of congestions.
     #[arg(long)]
-    pub interval_duration_micros: u64,
+    pub requests_per_second: u64,
+
     #[arg(long)]
     pub amount: u128,
+
+    /// If set, this flag updates the nonce values from the network.
+    #[arg(default_value_t = false, long)]
+    pub read_nonces_from_network: bool,
 }
 
 pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let mut accounts = accounts_from_dir(&args.user_data_dir)?;
     assert!(accounts.len() >= 2);
 
-    let mut interval = time::interval(Duration::from_micros(args.interval_duration_micros));
+    let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
     let timer = Instant::now();
 
     let between = Uniform::from(0..accounts.len());
     let mut rng = rand::thread_rng();
 
     let client = JsonRpcClient::connect(&args.rpc_url);
+
     let block_service = Arc::new(BlockService::new(client.clone()).await);
+
+    if args.read_nonces_from_network {
+        accounts = update_account_nonces(
+            client.clone(),
+            accounts,
+            args.requests_per_second,
+            Some(&args.user_data_dir),
+        )
+        .await?;
+    }
+
     block_service.clone().start().await;
 
     // Before a request is made, a permit to send into the channel is awaited. Hence buffer size

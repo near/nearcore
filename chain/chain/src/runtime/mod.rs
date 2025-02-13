@@ -137,9 +137,8 @@ impl NightshadeRuntime {
         shard_id: ShardId,
         prev_hash: &CryptoHash,
     ) -> Result<ShardUId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        let shard_version = epoch_manager.get_shard_layout(&epoch_id)?.version();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_version = self.epoch_manager.get_shard_layout(&epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
@@ -355,9 +354,10 @@ impl NightshadeRuntime {
 
         let total_balance_burnt = apply_result
             .stats
+            .balance
             .tx_burnt_amount
-            .checked_add(apply_result.stats.other_burnt_amount)
-            .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
+            .checked_add(apply_result.stats.balance.other_burnt_amount)
+            .and_then(|result| result.checked_add(apply_result.stats.balance.slashed_burnt_amount))
             .ok_or_else(|| {
                 Error::Other("Integer overflow during burnt balance summation".to_string())
             })?;
@@ -370,7 +370,6 @@ impl NightshadeRuntime {
                 shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
-                block_hash,
                 apply_state.block_height,
             ),
             new_root: apply_result.state_root,
@@ -387,6 +386,7 @@ impl NightshadeRuntime {
             bandwidth_requests: apply_result.bandwidth_requests,
             bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
             contract_updates: apply_result.contract_updates,
+            stats: apply_result.stats,
         };
 
         Ok(result)
@@ -608,7 +608,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: PrepareTransactionsChunkContext,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
@@ -1228,8 +1228,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+        Ok(self.epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {

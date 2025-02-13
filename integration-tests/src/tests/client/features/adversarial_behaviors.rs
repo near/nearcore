@@ -199,9 +199,8 @@ fn slow_test_non_adversarial_case() {
     let final_prev_block_hash = test.env.clients[0].chain.head().unwrap().prev_block_hash;
     let final_epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
-    let final_block_producers = epoch_manager
-        .get_epoch_block_producers_ordered(&final_epoch_id, &final_prev_block_hash)
-        .unwrap();
+    let final_block_producers =
+        epoch_manager.get_epoch_block_producers_ordered(&final_epoch_id).unwrap();
     // No producers should be kicked out.
     assert_eq!(final_block_producers.len(), 4);
     let final_chunk_producers = epoch_manager.get_epoch_chunk_producers(&final_epoch_id).unwrap();
@@ -355,9 +354,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     let final_prev_block_hash = test.env.clients[0].chain.head().unwrap().prev_block_hash;
     let final_epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(&final_prev_block_hash).unwrap();
-    let final_block_producers = epoch_manager
-        .get_epoch_block_producers_ordered(&final_epoch_id, &final_prev_block_hash)
-        .unwrap();
+    let final_block_producers =
+        epoch_manager.get_epoch_block_producers_ordered(&final_epoch_id).unwrap();
     assert!(final_block_producers.len() >= 3); // 3 validators if the bad validator was a block producer
     let final_chunk_producers = epoch_manager.get_epoch_chunk_producers(&final_epoch_id).unwrap();
     assert_eq!(final_chunk_producers.len(), 7);
@@ -368,7 +366,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 fn slow_test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
-    test.env.clients[7].produce_invalid_chunks = true;
+    test.env.clients[7].chunk_producer.produce_invalid_chunks = true;
     test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
 }
 
@@ -380,7 +378,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     if !relaxed_chunk_validation {
         init_test_logger();
         let mut test = AdversarialBehaviorTestData::new();
-        test.env.clients[7].produce_invalid_tx_in_chunks = true;
+        test.env.clients[7].chunk_producer.produce_invalid_tx_in_chunks = true;
         test_banning_chunk_producer_when_seeing_invalid_chunk_base(test);
     }
     // Otherwise the chunks aren't considered invalid and there will be no banning.

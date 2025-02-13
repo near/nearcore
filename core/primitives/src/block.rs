@@ -348,6 +348,7 @@ impl Block {
         let (time, vrf_value, vrf_proof, random_value) = optimistic_block
             .as_ref()
             .map(|ob| {
+                tracing::debug!(target: "client", "Taking metadata from optimistic block");
                 (
                     ob.inner.block_timestamp,
                     ob.inner.vrf_value,
@@ -791,6 +792,13 @@ impl<'a> Chunks<'a> {
         };
 
         Self { chunks, block_height: block.header().height() }
+    }
+
+    pub fn from_chunk_headers(
+        chunk_headers: &'a [ShardChunkHeader],
+        block_height: BlockHeight,
+    ) -> Self {
+        Self { chunks: ChunksCollection::V2(chunk_headers), block_height }
     }
 
     pub fn len(&self) -> usize {

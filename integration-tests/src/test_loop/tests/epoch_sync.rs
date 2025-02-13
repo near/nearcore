@@ -203,11 +203,11 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
             let head_height = client.chain.head().unwrap().height;
             tracing::info!(
                 "New node sync status: {:?}, header head height: {:?}, head height: {:?}",
-                client.sync_status,
+                client.sync_handler.sync_status,
                 header_head_height,
                 head_height
             );
-            let sync_status = client.sync_status.as_variant_name();
+            let sync_status = client.sync_handler.sync_status.as_variant_name();
             let mut history = sync_status_history.borrow_mut();
             if history.last().map(|s| s as &str) != Some(sync_status) {
                 history.push(sync_status.to_string());
