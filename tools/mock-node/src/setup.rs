@@ -21,6 +21,13 @@ use std::cmp::min;
 use std::path::Path;
 use std::sync::Arc;
 
+/// Starts a mock server listening on the addr specified in `config`
+/// The `archival` field does not refer to whether the database is archival
+/// (which is still controlled by `config`), but tells whether the mock server should
+/// advertise itself as archival in handshakes with peers. We might want to use the mock
+/// server with clients with `state_sync_enabled=false` in the config and with a head
+/// more than one epoch behind ours. In that case, if the client believes we're not archival,
+/// it wont send us any chunk part requests for old chunks.
 pub(crate) fn setup_mock_peer(
     chain: Chain,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
