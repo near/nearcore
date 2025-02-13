@@ -63,8 +63,10 @@ pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
         if file_extension.is_none() || file_extension.unwrap() != "json" {
             continue;
         }
-        let account = Account::from_file(&path)?;
-        accounts.push(account);
+        match Account::from_file(&path) {
+            Ok(account) => accounts.push(account),
+            Err(err) => tracing::debug!("{err}"),
+        }
     }
 
     Ok(accounts)
