@@ -8,14 +8,13 @@ use near_primitives::types::BlockReference;
 use near_primitives::views::BlockView;
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use node_runtime::metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL;
-use rand::SeedableRng;
 use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
+use rand::SeedableRng;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task;
-
 
 pub mod account;
 #[cfg(feature = "with_actix")]
@@ -30,7 +29,7 @@ pub struct TxGeneratorConfig {
 
 impl Default for TxGeneratorConfig {
     fn default() -> Self {
-        Self { tps: 0, volume: 40000, accounts_path: "".into() }
+        Self { tps: 0, volume: 0, accounts_path: "".into() }
     }
 }
 
@@ -161,40 +160,36 @@ impl TxGenerator {
             *block_hash,
         );
 
-        tracing::trace!(target: "transaction-generator", "generated");
         match client_sender
             .tx_request_sender
             .send_async(ProcessTxRequest { transaction, is_forwarded: false, check_only: false })
             .await
         {
-            Ok(res) => {
-                match res {
-                    ProcessTxResponse::NoResponse => {
-                        stats.rejected += 1;
-                        tracing::debug!(target: "transaction-generator",
+            Ok(res) => match res {
+                ProcessTxResponse::NoResponse => {
+                    stats.rejected += 1;
+                    tracing::debug!(target: "transaction-generator",
                             processTxRequest="NoResponse", "error");
-                    }
-                    ProcessTxResponse::ValidTx => {
-                        stats.accepted += 1;
-                    }
-                    ProcessTxResponse::InvalidTx(err) => {
-                        stats.rejected += 1;
-                        tracing::debug!(target: "transaction-generator",
-                            processTxRequest=format!("{err:?}"), "error");
-                    }
-                    ProcessTxResponse::RequestRouted => {
-                        stats.rejected += 1;
-                        tracing::debug!(target: "transaction-generator",
-                            processTxRequest="routed", "error");
-                    }
-                    ProcessTxResponse::DoesNotTrackShard => {
-                        stats.rejected += 1;
-                        tracing::debug!(target: "transaction-generator",
-                            processTxRequest="DoesNotTrackShard", "error");
-                    }
                 }
-                tracing::trace!(target: "transaction-generator", "transaction pushed");
-            }
+                ProcessTxResponse::ValidTx => {
+                    stats.accepted += 1;
+                }
+                ProcessTxResponse::InvalidTx(err) => {
+                    stats.rejected += 1;
+                    tracing::debug!(target: "transaction-generator",
+                            processTxRequest=format!("{err:?}"), "error");
+                }
+                ProcessTxResponse::RequestRouted => {
+                    stats.rejected += 1;
+                    tracing::debug!(target: "transaction-generator",
+                            processTxRequest="routed", "error");
+                }
+                ProcessTxResponse::DoesNotTrackShard => {
+                    stats.rejected += 1;
+                    tracing::debug!(target: "transaction-generator",
+                            processTxRequest="DoesNotTrackShard", "error");
+                }
+            },
             Err(err) => {
                 stats.rejected += 1;
                 tracing::debug!(target: "transaction-generator",
