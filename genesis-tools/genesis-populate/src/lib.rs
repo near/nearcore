@@ -10,7 +10,7 @@ use near_chain::{Block, Chain, ChainStore};
 use near_chain_configs::Genesis;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::block::{genesis_chunks, Tip};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -339,7 +339,7 @@ impl GenesisBuilder {
         let account = Account::new(
             testing_init_balance,
             testing_init_stake,
-            self.additional_accounts_code_hash,
+            AccountContract::from_local_code_hash(self.additional_accounts_code_hash),
             0,
         );
         set_account(&mut state_update, account_id.clone(), &account);
