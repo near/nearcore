@@ -73,7 +73,7 @@ impl TxGenerator {
         if self.params.tps == 0 {
             anyhow::bail!("target TPS should be > 0");
         }
-        let mut count_tx_accepted: u64 = 0; 
+        let mut count_tx_accepted: u64 = 0;
         let mut tx_interval =
             tokio::time::interval(Duration::from_micros(1_000_000 / self.params.tps));
         let mut block_interval = tokio::time::interval(Duration::from_secs(5));
@@ -110,13 +110,13 @@ impl TxGenerator {
                     //         Ok(_) => {
                     //             tracing::trace!(target: "transaction-generator",
                     //                 "received stop signal");
-                    //             break;        
+                    //             break;
                     //         },
                     //         Err(_) => {
                     //             tracing::trace!(target: "transaction-generator",
                     //                 "transmitter died (or just moved?)");
                     //             },
-                    //     }      
+                    //     }
                     // }
                 }
             }
@@ -172,22 +172,22 @@ impl TxGenerator {
                     ProcessTxResponse::NoResponse => {
                         tracing::debug!(target: "transaction-generator",
                             processTxRequest="NoResponse", "error");
-                    },
+                    }
                     ProcessTxResponse::ValidTx => {
                         *count_tx_accepted += 1;
-                    },
+                    }
                     ProcessTxResponse::InvalidTx(err) => {
                         tracing::debug!(target: "transaction-generator",
                             processTxRequest=format!("{err:?}"), "error");
-                    },
+                    }
                     ProcessTxResponse::RequestRouted => {
                         tracing::debug!(target: "transaction-generator",
                             processTxRequest="routed", "error");
-                    },
+                    }
                     ProcessTxResponse::DoesNotTrackShard => {
                         tracing::debug!(target: "transaction-generator",
                             processTxRequest="DoesNotTrackShard", "error");
-                    },
+                    }
                 }
                 tracing::trace!(target: "transaction-generator", "transaction pushed");
             }
