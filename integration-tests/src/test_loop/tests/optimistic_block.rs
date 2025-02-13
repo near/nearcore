@@ -59,12 +59,9 @@ fn test_optimistic_block() {
         // There should be at least one optimistic block result in the cache.
         assert!(chain.apply_chunk_results_cache.len() > 0);
         // Optimistic block result should be used at every height.
-        // We do not process the genesis block nor the last block.
+        // We do not process the first 2 blocks of the network.
         let expected_hits = chain.head().map_or(0, |t| t.height - 2);
         assert!(chain.apply_chunk_results_cache.hits() >= (expected_hits as usize));
-
-        // Current logic queries cache multiple times. It is ok to see misses.
-        assert!(chain.apply_chunk_results_cache.misses() > 0);
     }
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
