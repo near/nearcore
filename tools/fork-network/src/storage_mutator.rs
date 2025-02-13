@@ -7,7 +7,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, BlockHeight, ShardIndex, StateRoot, StoreKey, StoreValue};
+use near_primitives::types::{
+    AccountId, BlockHeight, ShardId, ShardIndex, StateRoot, StoreKey, StoreValue,
+};
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::flat::{FlatStateChanges, FlatStorageStatus};
@@ -15,6 +17,7 @@ use near_store::{DBCol, ShardTries};
 use nearcore::NightshadeRuntime;
 
 use anyhow::Context;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// Stores the state root and next height we want to pass to apply_memtrie_changes() and delete_until_height()
@@ -67,6 +70,24 @@ impl ShardUpdateState {
                 update_height: max_delta_height + 1,
             })),
         })
+    }
+
+    pub(crate) fn new_sharded(
+        flat_store: &FlatStoreAdapter,
+        shard_layout: &ShardLayout,
+        state_roots: HashMap<ShardId, CryptoHash>,
+    ) -> anyhow::Result<Vec<Self>> {
+        assert_eq!(state_roots.len(), shard_layout.shard_ids().count());
+        let mut update_state = vec![None; state_roots.len()];
+        for (shard_id, state_root) in state_roots {
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+            let state = Self::new(&flat_store, shard_uid, state_root)?;
+
+            let shard_idx = shard_layout.get_shard_index(shard_id).unwrap();
+            assert!(update_state[shard_idx].is_none());
+            update_state[shard_idx] = Some(state);
+        }
+        Ok(update_state.into_iter().map(|s| s.unwrap()).collect())
     }
 
     pub(crate) fn state_root(&self) -> CryptoHash {
