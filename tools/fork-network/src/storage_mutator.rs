@@ -1,5 +1,6 @@
 use near_chain::types::RuntimeAdapter;
 use near_crypto::PublicKey;
+use near_mirror::key_mapping::map_account;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
@@ -90,6 +91,7 @@ impl ShardUpdates {
 
 /// Object that updates the existing state. Combines all changes, commits them
 /// and returns new state roots.
+// TODO: add stats on how many keys are updated/removed/left in place and log it in commit()
 pub(crate) struct StorageMutator {
     updates: Vec<ShardUpdates>,
     shard_tries: ShardTries,
@@ -128,6 +130,28 @@ impl StorageMutator {
         self.set(shard_idx, TrieKey::Account { account_id }, borsh::to_vec(&value)?)
     }
 
+    pub(crate) fn map_account(
+        &mut self,
+        source_shard_idx: ShardIndex,
+        trie_key: Vec<u8>,
+        account_id: AccountId,
+        account: Account,
+    ) -> anyhow::Result<()> {
+        let new_account_id = map_account(&account_id, None);
+        let new_shard_id = self.shard_layout.account_id_to_shard_id(&new_account_id);
+        let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
+
+        if new_account_id != account_id || source_shard_idx != new_shard_idx {
+            self.remove(source_shard_idx, trie_key)?;
+            self.set(
+                new_shard_idx,
+                TrieKey::Account { account_id: new_account_id },
+                borsh::to_vec(&account).unwrap(),
+            )?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn set_access_key(
         &mut self,
         shard_idx: ShardIndex,
@@ -142,27 +166,45 @@ impl StorageMutator {
         )
     }
 
-    pub(crate) fn set_data(
+    pub(crate) fn map_data(
         &mut self,
-        shard_idx: ShardIndex,
+        source_shard_idx: ShardIndex,
+        trie_key: Vec<u8>,
         account_id: AccountId,
         data_key: &StoreKey,
         value: StoreValue,
     ) -> anyhow::Result<()> {
-        self.set(
-            shard_idx,
-            TrieKey::ContractData { account_id, key: data_key.to_vec() },
-            borsh::to_vec(&value)?,
-        )
+        let new_account_id = map_account(&account_id, None);
+        let new_shard_id = self.shard_layout.account_id_to_shard_id(&new_account_id);
+        let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
+
+        if new_account_id != account_id || source_shard_idx != new_shard_idx {
+            self.remove(source_shard_idx, trie_key)?;
+            self.set(
+                new_shard_idx,
+                TrieKey::ContractData { account_id: new_account_id, key: data_key.to_vec() },
+                borsh::to_vec(&value)?,
+            )?;
+        }
+        Ok(())
     }
 
-    pub(crate) fn set_code(
+    pub(crate) fn map_code(
         &mut self,
-        shard_idx: ShardIndex,
+        source_shard_idx: ShardIndex,
+        trie_key: Vec<u8>,
         account_id: AccountId,
         value: Vec<u8>,
     ) -> anyhow::Result<()> {
-        self.set(shard_idx, TrieKey::ContractCode { account_id }, value)
+        let new_account_id = map_account(&account_id, None);
+        let new_shard_id = self.shard_layout.account_id_to_shard_id(&new_account_id);
+        let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
+
+        if new_account_id != account_id || source_shard_idx != new_shard_idx {
+            self.remove(source_shard_idx, trie_key)?;
+            self.set(new_shard_idx, TrieKey::ContractCode { account_id: new_account_id }, value)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn set_postponed_receipt(
@@ -180,18 +222,27 @@ impl StorageMutator {
         )
     }
 
-    pub(crate) fn set_received_data(
+    pub(crate) fn map_received_data(
         &mut self,
-        shard_idx: ShardIndex,
+        source_shard_idx: ShardIndex,
+        trie_key: Vec<u8>,
         account_id: AccountId,
         data_id: CryptoHash,
         data: &Option<Vec<u8>>,
     ) -> anyhow::Result<()> {
-        self.set(
-            shard_idx,
-            TrieKey::ReceivedData { receiver_id: account_id, data_id },
-            borsh::to_vec(data)?,
-        )
+        let new_account_id = map_account(&account_id, None);
+        let new_shard_id = self.shard_layout.account_id_to_shard_id(&new_account_id);
+        let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
+
+        if new_account_id != account_id || source_shard_idx != new_shard_idx {
+            self.remove(source_shard_idx, trie_key)?;
+            self.set(
+                new_shard_idx,
+                TrieKey::ReceivedData { receiver_id: new_account_id, data_id },
+                borsh::to_vec(data)?,
+            )?;
+        }
+        Ok(())
     }
 
     pub(crate) fn should_commit(&self, batch_size: u64) -> bool {

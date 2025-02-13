@@ -644,16 +644,9 @@ impl ForkNetworkCommand {
             DelayedReceiptTracker::new(shard_uid, shard_layout.shard_ids().count());
 
         // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
-        let mut index_delayed_receipt = 0;
         let mut ref_keys_retrieved = 0;
         let mut records_not_parsed = 0;
         let mut records_parsed = 0;
-        let mut access_keys_updated = 0;
-        let mut accounts_implicit_updated = 0;
-        let mut contract_data_updated = 0;
-        let mut contract_code_updated = 0;
-        let mut postponed_receipts_updated = 0;
-        let mut received_data_updated = 0;
 
         for item in store.flat_store().iter(shard_uid) {
             let (key, value) = match item {
@@ -685,49 +678,16 @@ impl ForkNetworkCommand {
                             replacement.public_key(),
                             access_key.clone(),
                         )?;
-                        access_keys_updated += 1;
                     }
 
                     StateRecord::Account { account_id, account } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            let new_shard_id = shard_layout.account_id_to_shard_id(&new_account_id);
-                            let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
-
-                            storage_mutator.remove(shard_idx, key)?;
-                            storage_mutator.set_account(new_shard_idx, new_account_id, account)?;
-                            accounts_implicit_updated += 1;
-                        }
+                        storage_mutator.map_account(shard_idx, key, account_id, account)?;
                     }
                     StateRecord::Data { account_id, data_key, value } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            let new_shard_id = shard_layout.account_id_to_shard_id(&new_account_id);
-                            let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
-
-                            storage_mutator.remove(shard_idx, key)?;
-                            storage_mutator.set_data(
-                                new_shard_idx,
-                                new_account_id,
-                                &data_key,
-                                value,
-                            )?;
-                            contract_data_updated += 1;
-                        }
+                        storage_mutator.map_data(shard_idx, key, account_id, &data_key, value)?;
                     }
                     StateRecord::Contract { account_id, code } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            let new_shard_id = shard_layout.account_id_to_shard_id(&new_account_id);
-                            let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
-
-                            storage_mutator.remove(shard_idx, key)?;
-                            storage_mutator.set_code(new_shard_idx, new_account_id, code)?;
-                            contract_code_updated += 1;
-                        }
+                        storage_mutator.map_code(shard_idx, key, account_id, code)?;
                     }
                     StateRecord::PostponedReceipt(mut receipt) => {
                         storage_mutator.remove(shard_idx, key)?;
@@ -738,24 +698,10 @@ impl ForkNetworkCommand {
                         let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
 
                         storage_mutator.set_postponed_receipt(new_shard_idx, &receipt)?;
-                        postponed_receipts_updated += 1;
                     }
                     StateRecord::ReceivedData { account_id, data_id, data } => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if account_id.get_account_type() == AccountType::NearImplicitAccount {
-                            let new_account_id = map_account(&account_id, None);
-                            let new_shard_id = shard_layout.account_id_to_shard_id(&new_account_id);
-                            let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
-
-                            storage_mutator.remove(shard_idx, key)?;
-                            storage_mutator.set_received_data(
-                                new_shard_idx,
-                                new_account_id,
-                                data_id,
-                                &data,
-                            )?;
-                            received_data_updated += 1;
-                        }
+                        storage_mutator
+                            .map_received_data(shard_idx, key, account_id, data_id, &data)?;
                     }
                     StateRecord::DelayedReceipt(receipt) => {
                         let new_account_id = map_account(receipt.receipt.receiver_id(), None);
@@ -766,7 +712,6 @@ impl ForkNetworkCommand {
                         // serialized StateRecords
                         let index = receipt.index.unwrap();
                         receipts_tracker.push(new_shard_idx, index);
-                        index_delayed_receipt += 1;
                     }
                 }
                 records_parsed += 1;
@@ -774,18 +719,7 @@ impl ForkNetworkCommand {
                 records_not_parsed += 1;
             }
             if storage_mutator.should_commit(batch_size) {
-                tracing::info!(
-                    ?shard_uid,
-                    ref_keys_retrieved,
-                    records_parsed,
-                    updated = access_keys_updated
-                        + accounts_implicit_updated
-                        + contract_data_updated
-                        + contract_code_updated
-                        + postponed_receipts_updated
-                        + index_delayed_receipt
-                        + received_data_updated,
-                );
+                tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
                 storage_mutator.commit()?;
                 storage_mutator = make_storage_mutator(update_state.clone())?;
             }
@@ -793,18 +727,7 @@ impl ForkNetworkCommand {
 
         // Commit the remaining updates.
         if storage_mutator.should_commit(1) {
-            tracing::info!(
-                ?shard_uid,
-                ref_keys_retrieved,
-                records_parsed,
-                updated = access_keys_updated
-                    + accounts_implicit_updated
-                    + contract_data_updated
-                    + contract_code_updated
-                    + postponed_receipts_updated
-                    + index_delayed_receipt
-                    + received_data_updated,
-            );
+            tracing::info!(?shard_uid, ref_keys_retrieved, records_parsed,);
             storage_mutator.commit()?;
             storage_mutator = make_storage_mutator(update_state.clone())?;
         }
@@ -814,13 +737,6 @@ impl ForkNetworkCommand {
             ref_keys_retrieved,
             records_parsed,
             records_not_parsed,
-            accounts_implicit_updated,
-            access_keys_updated,
-            contract_code_updated,
-            contract_data_updated,
-            postponed_receipts_updated,
-            delayed_receipts_updated = index_delayed_receipt,
-            received_data_updated,
             num_has_full_key = has_full_key.len(),
             "Pass 1 done"
         );
