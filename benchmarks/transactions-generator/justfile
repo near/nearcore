@@ -1,15 +1,19 @@
 script_dir := `pwd`
 neard := script_dir / "./neard"
-near_localnet_home := script_dir / ".near/"
+near_localnet_home := script_dir / ".near"
+near_accounts_path := script_dir / "user-data"
+near_config_file := near_localnet_home / "config.json"
 rpc_url := "http://127.0.0.1:3030"
 
 init_localnet:
-    rm -rf {{near_localnet_home}} && {{neard}} --home {{near_localnet_home}} init --chain-id localnet
+    rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
+    {{neard}} --home {{near_localnet_home}} init --chain-id localnet
 
-run_localnet:
+run_localnet loglevel="info":
+    RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create_sub_accounts:
+create_accounts:
     RUST_LOG=info \
     ../synth-bm/target/release/near-synth-bm create-sub-accounts \
         --rpc-url {{rpc_url}} \
@@ -21,3 +25,17 @@ create_sub_accounts:
         --channel-buffer-size 1200 \
         --requests-per-second 1250 \
         --user-data-dir user-data
+
+enable_tx tps:
+    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp.json
+    mv tmp.json {{near_config_file}}
+
+do_it tps:
+    just init_localnet
+    killall neard
+    nohup {{neard}} --home {{near_localnet_home}} run &
+    sleep 8
+    just create_accounts
+    killall neard
+    just enable_tx {{tps}}
+    just run_localnet
