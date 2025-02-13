@@ -42,7 +42,7 @@ near-chain-primitives.workspace = true
 near-client.workspace = true
 near-client-primitives.workspace = true
 near-epoch-manager.workspace = true
-near-jsonrpc-client.workspace = true
+near-jsonrpc-client-internal.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-indexer-primitives.workspace = true
 near-indexer.workspace = true
@@ -63,7 +63,7 @@ nightly = [
   "near-epoch-manager/nightly",
   "near-indexer-primitives/nightly",
   "near-indexer/nightly",
-  "near-jsonrpc-client/nightly",
+  "near-jsonrpc-client-internal/nightly",
   "near-jsonrpc-primitives/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
@@ -82,7 +82,7 @@ nightly_protocol = [
   "near-epoch-manager/nightly_protocol",
   "near-indexer-primitives/nightly_protocol",
   "near-indexer/nightly_protocol",
-  "near-jsonrpc-client/nightly_protocol",
+  "near-jsonrpc-client-internal/nightly_protocol",
   "near-jsonrpc-primitives/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",

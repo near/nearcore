@@ -119,7 +119,7 @@ pub(crate) async fn keys_from_rpc(
 ) -> anyhow::Result<Vec<SecretAccessKey>> {
     let account_id: AccountId = account_id.parse().context("bad account ID")?;
 
-    let rpc_client = near_jsonrpc_client::new_client(rpc_url);
+    let rpc_client = near_jsonrpc_client_internal::new_client(rpc_url);
 
     let block_reference = match block_height {
         Some(h) => BlockReference::BlockId(BlockId::Height(h)),

@@ -17,7 +17,7 @@ use near_client::{
     ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
 };
 use near_client_primitives::types::GetSplitStorageInfo;
-pub use near_jsonrpc_client as client;
+pub use near_jsonrpc_client_internal as client;
 pub use near_jsonrpc_primitives as primitives;
 use near_jsonrpc_primitives::errors::{RpcError, RpcErrorKind};
 use near_jsonrpc_primitives::message::{Message, Request};
