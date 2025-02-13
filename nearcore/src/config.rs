@@ -339,12 +339,6 @@ pub struct Config {
     /// which can cause extra load on the database. This option is not recommended for production use,
     /// as a large number of incoming witnesses could cause denial of service.
     pub save_latest_witnesses: bool,
-    /// TODO(#10584): Temporary flag to enable optimistic block production.
-    #[serde(skip_serializing_if = "is_false")]
-    pub produce_optimistic_block: bool,
-    /// TODO(#10584): Temporary flag to enable optimistic block processing.
-    #[serde(skip_serializing_if = "is_false")]
-    pub process_optimistic_block: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -580,8 +574,6 @@ impl NearConfig {
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
                 orphan_state_witness_max_size: config.orphan_state_witness_max_size,
                 save_latest_witnesses: config.save_latest_witnesses,
-                produce_optimistic_block: config.produce_optimistic_block,
-                process_optimistic_block: config.process_optimistic_block,
             },
             network_config: NetworkConfig::new(
                 config.network,

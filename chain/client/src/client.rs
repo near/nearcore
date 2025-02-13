@@ -594,11 +594,6 @@ impl Client {
             tracing::debug_span!(target: "client", "produce_optimistic_block_on_head", height)
                 .entered();
 
-        if !self.config.produce_optimistic_block {
-            debug!(target: "client", height, "Optimistic block production is disabled.");
-            return Ok(None);
-        }
-
         let head = self.chain.head()?;
         assert_eq!(
             head.epoch_id,

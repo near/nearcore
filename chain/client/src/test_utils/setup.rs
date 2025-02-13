@@ -39,9 +39,7 @@ use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, OptimisticBlockMessage, SetNetworkInfo,
-    StateRequestHeader, StateRequestPart, StateResponseReceived,
+    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse, ChunkEndorsementMessage, OptimisticBlockMessage, SetNetworkInfo, StateRequestHeader, StateRequestPart, StateResponseReceived
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
