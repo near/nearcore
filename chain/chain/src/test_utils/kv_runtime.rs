@@ -455,6 +455,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(Default::default())
     }
 
+    fn get_epoch_config_from_protocol_version(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> EpochConfig {
+        EpochConfig::mock(self.epoch_length, self.get_shard_layout(&EpochId::default()).unwrap())
+    }
+
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
         Ok(EpochConfig::mock(self.epoch_length, self.get_shard_layout(epoch_id).unwrap()))
     }

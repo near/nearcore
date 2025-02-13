@@ -1,5 +1,7 @@
 mod random_epochs;
 
+use std::cmp::Ordering;
+
 use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
@@ -1726,19 +1728,25 @@ fn test_compare_epoch_id() {
     let amount_staked = 1_000_000;
     let validators =
         vec![("test1".parse().unwrap(), amount_staked), ("test2".parse().unwrap(), amount_staked)];
-    let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 90, 60);
+    let epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 90, 60).into_handle();
     let h = hash_range(8);
-    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    record_block(&mut epoch_manager.write(), CryptoHash::default(), h[0], 0, vec![]);
     // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
-    record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1".parse().unwrap(), 0)]);
     record_block(
-        &mut epoch_manager,
+        &mut epoch_manager.write(),
+        h[0],
+        h[1],
+        1,
+        vec![stake("test1".parse().unwrap(), 0)],
+    );
+    record_block(
+        &mut epoch_manager.write(),
         h[1],
         h[2],
         2,
         vec![stake("test1".parse().unwrap(), amount_staked)],
     );
-    record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+    record_block(&mut epoch_manager.write(), h[2], h[3], 3, vec![]);
     let epoch_id0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
     let epoch_id1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
     let epoch_id2 = epoch_manager.get_next_epoch_id(&h[1]).unwrap();
