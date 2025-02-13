@@ -3,7 +3,9 @@ neard := script_dir / "./neard"
 near_localnet_home := script_dir / ".near"
 near_accounts_path := script_dir / "user-data"
 near_config_file := near_localnet_home / "config.json"
+near_genesis_file := near_localnet_home / "genesis.json"
 rpc_url := "http://127.0.0.1:3030"
+
 
 init_localnet:
     rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
@@ -27,14 +29,23 @@ create_accounts:
         --user-data-dir user-data
 
 enable_tx tps:
-    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp.json
-    mv tmp.json {{near_config_file}}
+    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp_config.json
+    mv tmp_config.json {{near_config_file}}
+
+unlimit:
+    jq '.chain_id="benchmarknet" | .gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json
+    mv tmp_genesis.json {{near_genesis_file}}
+    jq '.view_client_threads=8 \
+     | .store.load_mem_tries_for_tracked_shards=true \
+     | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 800000000}' {{near_config_file}} > tmp_config.json
+    mv tmp_config.json {{near_config_file}}
 
 do_it tps:
     just init_localnet
-    killall neard
+    just unlimit
+    killall neard || echo "all clear!"
     nohup {{neard}} --home {{near_localnet_home}} run &
-    sleep 8
+    sleep 5
     just create_accounts
     killall neard
     just enable_tx {{tps}}
