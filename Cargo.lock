@@ -5207,6 +5207,7 @@ dependencies = [
  "near-crypto",
  "near-network",
  "near-primitives",
+ "node-runtime",
  "rand",
  "serde",
  "serde_json",

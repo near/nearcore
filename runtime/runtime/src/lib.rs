@@ -85,7 +85,7 @@ pub mod config;
 mod congestion_control;
 mod conversions;
 pub mod ext;
-mod metrics;
+pub mod metrics;
 mod pipelining;
 mod prefetch;
 pub mod receipt_manager;

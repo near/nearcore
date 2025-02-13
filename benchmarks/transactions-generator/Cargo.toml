@@ -20,6 +20,7 @@ near-network = { workspace = true, optional = true }
 near-primitives = { workspace = true, features = ["clock", "test_utils"] }
 near-client.workspace = true
 near-client-primitives.workspace = true
+node-runtime.workspace=true
 
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }

@@ -6,13 +6,16 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;
 use near_primitives::views::BlockView;
+use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
+use node_runtime::metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL;
+use rand::SeedableRng;
 use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
-use rand::SeedableRng;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task;
+
 
 pub mod account;
 #[cfg(feature = "with_actix")]
@@ -111,6 +114,8 @@ impl TxGenerator {
                         tracing::info!(target: "transaction-generator",
                             pool_accepted=stats.accepted,
                             pool_rejected=stats.rejected,
+                            total_processed=TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.get(),
+                            total_failed=TRANSACTION_PROCESSED_FAILED_TOTAL.get(),
                             "transactions",);
                     }
                     // r = &mut rx => {} // triggered out of control
@@ -197,4 +202,4 @@ impl TxGenerator {
             }
         }
     }
-}
+} // impl TxGenerator
