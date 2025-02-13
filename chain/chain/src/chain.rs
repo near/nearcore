@@ -3966,7 +3966,9 @@ impl Chain {
             self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
         let will_shard_layout_change =
             self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        let next_block_epoch =
+            self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
 
         let tries = self.runtime_adapter.get_tries();
         let snapshot_config = tries.state_snapshot_config();
@@ -3981,11 +3983,8 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    let is_sync_prev = crate::state_sync::is_sync_prev_hash(
-                        &self.chain_store.store(),
-                        &head.last_block_hash,
-                        &head.prev_block_hash,
-                    )?;
+                    let is_sync_prev =
+                        crate::state_sync::is_sync_prev_hash(&self.chain_store, &head)?;
                     if is_sync_prev {
                         // Here the head block is the prev block of what the sync hash will be, and the previous
                         // block is the point in the chain we want to snapshot state for
