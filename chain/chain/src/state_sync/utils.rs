@@ -218,6 +218,11 @@ pub(crate) fn update_sync_hashes<T: ChainStoreAccess>(
 /// This is used when making state snapshots, because in that case we don't need to wait for the "sync_hash"
 /// block to be finalized to take a snapshot of the state as of its prev prev block
 pub(crate) fn is_sync_prev_hash(chain_store: &ChainStoreAdapter, tip: &Tip) -> Result<bool, Error> {
+    // Usually, if we're returning true from this function, this call to get_current_epoch_sync_hash()
+    // will return None because we're calling it during block preprocessing and the sync hash hasn't been
+    // found yet. But we still need to check this because it's possible that the sync hash was found
+    // during header sync, in which case the contents of the StateSyncNewChunks column will have been cleared,
+    // and the conditions below can't be checked.
     if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id)? {
         let sync_header = chain_store.get_block_header(&sync_hash)?;
         return Ok(sync_header.prev_hash() == &tip.last_block_hash);
