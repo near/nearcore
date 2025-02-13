@@ -514,6 +514,7 @@ pub fn derive_eth_implicit_account_id(public_key: &Secp256K1PublicKey) -> Accoun
 }
 
 /// Returns the block metadata used to create an optimistic block.
+#[cfg(feature = "clock")]
 pub fn get_block_metadata(
     prev_block_header: &BlockHeader,
     signer: &crate::validator_signer::ValidatorSigner,
