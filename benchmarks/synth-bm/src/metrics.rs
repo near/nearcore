@@ -15,14 +15,24 @@ use tokio::time::Interval;
 /// ```
 pub type Report<'a> = &'a str;
 
+/// Functions required to facilitate the handling of metrics. Should be implemented by every metric
+/// handled in this module.
 trait Metric: Sized {
+    /// Returns the name the metric has in a [`Report`].
     fn name_in_report() -> &'static str;
+    /// Extracts the metric from a [`Report`].
     fn from_report(report: Report, time: Instant) -> anyhow::Result<Self>;
 }
 
+/// Counts the number of transactions a node has successfully processed since it was started.
+///
+/// Note that here successful refers to the conversion of a transaction to receipts. It does not
+/// take the status of the receipts into account.
 #[derive(PartialEq, Debug, Clone, Copy)]
 struct SuccessfulTxsMetric {
+    /// Successfully processed transactions since the node was started.
     num: u64,
+    /// The time when the measurement was taken.
     time: Instant,
 }
 
@@ -57,6 +67,7 @@ impl Metric for SuccessfulTxsMetric {
     }
 }
 
+// TODO remove obsolete types
 /// Defines metrics for which parsing from a `Report` has been implemented.
 #[derive(Copy, Clone, Debug)]
 pub enum MetricName {
