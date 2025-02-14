@@ -67,47 +67,6 @@ impl Metric for SuccessfulTxsMetric {
     }
 }
 
-// TODO remove obsolete types
-/// Defines metrics for which parsing from a `Report` has been implemented.
-#[derive(Copy, Clone, Debug)]
-pub enum MetricName {
-    /// The number of successfull transactions since the node was started.
-    SuccessfulTransactions,
-}
-
-impl MetricName {
-    fn report_name(self) -> &'static str {
-        match self {
-            MetricName::SuccessfulTransactions => "near_transaction_processed_successfully_total",
-        }
-    }
-}
-
-#[derive(PartialEq, Copy, Clone, Debug)]
-pub enum MetricValue {
-    SuccessfulTransactions {
-        /// Absence of the metric in a [`Report`] implies the node has not (yet) successfully
-        /// processed any transactions.
-        num: u64,
-    },
-}
-
-pub fn get_metric(name: MetricName, report: Report) -> anyhow::Result<MetricValue> {
-    let lines = report.lines();
-    match name {
-        MetricName::SuccessfulTransactions => {
-            let line = lines.filter(|line| line.starts_with(name.report_name())).next();
-            let num = if let Some(line) = line {
-                parse_at_eol(line)?
-            } else {
-                // Absence means the node did not yet process successful transactions.
-                0
-            };
-            Ok(MetricValue::SuccessfulTransactions { num })
-        }
-    }
-}
-
 /// Parses `F` on the last word in the `line`.
 fn parse_at_eol<F>(line: &str) -> anyhow::Result<F>
 where
@@ -119,18 +78,6 @@ where
         Some((_, last_word)) => last_word.parse(),
     };
     result.map_err(|err| anyhow::anyhow!("Failed to parse at end of line: {:?}", err))
-}
-
-#[derive(Debug, Copy, Clone)]
-struct SuccessfulTxsData {
-    num: u64,
-    time: Instant,
-}
-
-impl SuccessfulTxsData {
-    fn new_now(num: u64) -> Self {
-        Self { num, time: Instant::now() }
-    }
 }
 
 /// Provides information regarding the status of transactions.
@@ -169,21 +116,17 @@ impl TransactionStatisticsService {
     pub async fn start(mut self) {
         // TODO return result and get rid of unwraps.
         // Wait for transaction processing to start.
-        let initial_count = self.data_t0.num;
+        let report = self.get_report().await.unwrap();
+        let initial_count = SuccessfulTxsMetric::from_report(&report, Instant::now()).unwrap();
         let mut interval_wait_txs_start = time::interval(Duration::from_millis(100));
         info!("Waiting for transaction processing to start");
         loop {
             interval_wait_txs_start.tick().await;
             let report = self.get_report().await.unwrap();
-            let metric = get_metric(MetricName::SuccessfulTransactions, report.as_ref()).unwrap();
-            // TODO refactor `Metric*` to avoid such matching.
-            let num = match metric {
-                MetricValue::SuccessfulTransactions { num } => num,
-            };
-            if num > initial_count {
-                let start_time = Instant::now();
-                self.data_t0 = SuccessfulTxsMetric::new(0, start_time);
-                self.data_t1 = SuccessfulTxsMetric::new(0, start_time);
+            let metric = SuccessfulTxsMetric::from_report(&report, Instant::now()).unwrap();
+            if metric.num > initial_count.num {
+                self.data_t0 = metric;
+                self.data_t1 = metric;
                 info!("Observed successful transactions");
                 break;
             }
