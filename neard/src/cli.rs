@@ -66,6 +66,7 @@ impl NeardCmd {
             target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
+            commit = crate::NEARD_COMMIT,
             latest_protocol = near_primitives::version::PROTOCOL_VERSION
         );
 

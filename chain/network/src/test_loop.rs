@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::client::{
     BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest, BlockResponse,
-    ChunkEndorsementMessage, EpochSyncRequestMessage, EpochSyncResponseMessage, ProcessTxRequest,
-    ProcessTxResponse,
+    ChunkEndorsementMessage, EpochSyncRequestMessage, EpochSyncResponseMessage,
+    OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse,
 };
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::state_witness::{
@@ -37,6 +37,7 @@ pub struct ClientSenderForTestLoopNetwork {
     pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
     pub epoch_sync_request: Sender<EpochSyncRequestMessage>,
     pub epoch_sync_response: Sender<EpochSyncResponseMessage>,
+    pub optimistic_block_receiver: Sender<OptimisticBlockMessage>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom)]
@@ -238,6 +239,20 @@ fn network_message_to_client_handler(
                             was_requested: false,
                         });
                     drop(future);
+                }
+            }
+            None
+        }
+        NetworkRequests::OptimisticBlock { optimistic_block } => {
+            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
+            for account_id in shared_state.accounts() {
+                if account_id != &my_account_id {
+                    let _ = shared_state.senders_for_account(account_id).client_sender.send(
+                        OptimisticBlockMessage {
+                            optimistic_block: optimistic_block.clone(),
+                            from_peer: my_peer_id.clone(),
+                        },
+                    );
                 }
             }
             None

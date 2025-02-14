@@ -24,7 +24,7 @@
 [ci-badge-master]: https://badge.buildkite.com/a81147cb62c585cc434459eedd1d25e521453120ead9ee6c64.svg?branch=master
 [ci-url]: https://buildkite.com/nearprotocol/nearcore
 [codecov-badge]: https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg
-[codecov-url]: https://codecov.io/gh/nearprotocol/nearcore
+[codecov-url]: https://codecov.io/gh/near/nearcore
 [discord-badge]: https://img.shields.io/discord/490367152054992913.svg
 [discord-url]: https://near.chat
 [telegram-badge]: https://cdn.jsdelivr.net/gh/Patrolavia/telegram-badge@8fe3382b3fd3a1c533ba270e608035a27e430c2e/chat.svg

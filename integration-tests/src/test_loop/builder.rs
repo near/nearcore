@@ -604,7 +604,6 @@ impl TestLoopBuilder {
             runtime_adapter.get_flat_storage_manager(),
             network_adapter.as_multi_sender(),
             runtime_adapter.get_tries(),
-            state_snapshot_adapter.as_multi_sender(),
         );
 
         let delete_snapshot_callback =
