@@ -34,12 +34,12 @@
 
 NEAR's purpose is to enable community-driven innovation to benefit people around the world.
 
-To achieve this purpose, *NEAR* provides a developer platform where developers and entrepreneurs can create apps that put users back in control of their data and assets, which is the foundation of ["Open Web" movement][open-web-url].
+To achieve this purpose, *NEAR* provides a developer platform where developers and entrepreneurs can create apps that put users back in control of their data and assets, forming the foundation of the ["Open Web" movement][open-web-url].
 
 One of the components of *NEAR* is the NEAR Protocol, an infrastructure for server-less applications and smart contracts powered by a blockchain.
-NEAR Protocol is built to deliver usability and scalability of modern PaaS like Firebase at fraction of the prices that blockchains like Ethereum charge.
+NEAR Protocol is built to deliver the usability and scalability of modern PaaS like Firebase at a fraction of the price that blockchains like Ethereum charge.
 
-Overall, *NEAR* provides a wide range of tools for developers to easily build applications:
+Overall, *NEAR* provides a wide range of tools to help developers build applications easily:
  - [JS Client library][js-api] to connect to NEAR Protocol from your applications.
  - [Rust][rust-sdk] and [JavaScript/TypeScript][js-sdk] SDKs to write smart contracts and stateful server-less functions.
  - [Several essential repositories](https://github.com/near/dx) to guide you in building across Near's Open Web Platform.
@@ -57,7 +57,7 @@ Overall, *NEAR* provides a wide range of tools for developers to easily build ap
 
 ## Join the Network
 
-The easiest way to join the network, is by using the `nearup` command, which you can install as follows:
+The easiest way to join the network, is by using the `nearup` command which you can install as follows:
 
 ```bash
 pip3 install --user nearup
@@ -68,13 +68,13 @@ You can join all the active networks:
 * testnet: `nearup run testnet`
 * betanet: `nearup run betanet`
 
-Check the `nearup` repository for [more details](https://github.com/near/nearup) on how to run with or without docker.
+Check the `nearup` repository for [more details](https://github.com/near/nearup) on how to run it with or without docker.
 
 To learn how to become a validator, checkout [documentation](https://docs.near.org/docs/develop/node/validator/staking-and-delegation).
 
 ## Contributing
 
-The workflow and details of setup to contribute are described in [CONTRIBUTING.md](CONTRIBUTING.md), and security policy is described in [SECURITY.md](SECURITY.md).
+The workflow and setup details for contributing are described in [CONTRIBUTING.md](CONTRIBUTING.md), and the security policy is described in [SECURITY.md](SECURITY.md).
 To propose new protocol changes or standards use [Specification & Standards repository](https://github.com/nearprotocol/NEPs).
 
 ## Getting in Touch
