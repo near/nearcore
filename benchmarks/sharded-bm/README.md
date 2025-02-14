@@ -18,30 +18,35 @@ Each scenario has a set of overrides for the node configuration and genesis conf
 
 The basic flow is the following:
 
-1. Make sure `neard` is built and stopped
-2. Clear the database, if the node run beforehand
-
-    ```sh
-    ./bench.sh reset <BENCH CASE>
-    ```
-
-3. Prepare the network
+1. Make sure `neard` binary is built (default path `/home/ubuntu/neard`)
+2. Prepare the network
 
     ```sh
     ./bench.sh init <BENCH CASE>
     ```
 
-4. Start `neard`
-5. Create the test accounts
+3. Start all nodes
+
+    ```sh
+    ./bench.sh start-nodes <BENCH CASE>
+    ```
+
+4. Create the test accounts
 
     ```sh
     ./bench.sh create-accounts <BENCH CASE>
     ```
 
-6. Run the benchmark
+5. Run the benchmark
 
     ```sh
     ./bench.sh native-transfers <BENCH CASE>
+    ```
+
+6. Cleanup when finished
+
+    ```sh
+    ./bench.sh reset <BENCH CASE>
     ```
 
 ### Other commands
@@ -58,12 +63,6 @@ The basic flow is the following:
     ./bench.sh tweak-config <BENCH CASE>
     ```
 
-- Start all nodes
-
-    ```sh
-    ./bench.sh start-nodes <BENCH CASE>
-    ```
-
 - Stop all nodes
 
     ```sh
@@ -74,7 +73,6 @@ The basic flow is the following:
 
 ```sh
 export CASE=cases/local/1_node_5_shard
-./bench.sh reset
 ./bench.sh init
 ./bench.sh start-nodes
 ./bench.sh create-accounts
