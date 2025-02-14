@@ -560,6 +560,7 @@ const KickoutReason = ({ reason }: { reason: ValidatorKickoutReason | null }) =>
         kickoutSummary = '#Chunks';
         kickoutReason = `Validator did not produce enough chunks: expected ${reason.NotEnoughChunks.expected}, actually produced ${reason.NotEnoughChunks.produced}`;
     } else if ('NotEnoughChunkEndorsements' in reason) {
+        {/* cspell: words Endors */}
         kickoutSummary = '#Endors';
         kickoutReason = `Validator did not produce enough chunk endorsements: expected ${reason.NotEnoughChunkEndorsements.expected}, actually produced ${reason.NotEnoughChunkEndorsements.produced}`;
     } else if ('NotEnoughStake' in reason) {
