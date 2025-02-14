@@ -16,7 +16,6 @@ use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
-use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
@@ -306,10 +305,9 @@ impl ForkNetworkCommand {
         );
 
         // Move flat storage to the max height for consistency across shards.
-        let (block_height, desired_block_hash) =
-            fork_heads.iter().map(|head| (head.height, head.hash)).max().unwrap();
+        let desired_flat_head = fork_heads.iter().max_by_key(|b| b.height).unwrap();
 
-        let desired_block_header = chain.get_block_header(&desired_block_hash)?;
+        let desired_block_header = chain.get_block_header(&desired_flat_head.hash)?;
         let epoch_id = desired_block_header.epoch_id();
         let flat_storage_manager = FlatStorageManager::new(store.flat_store());
 
@@ -323,8 +321,9 @@ impl ForkNetworkCommand {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
-                flat_storage.update_flat_head(&desired_block_hash).unwrap();
-                let chunk_extra = chain.get_chunk_extra(&desired_block_hash, &shard_uid).unwrap();
+                flat_storage.update_flat_head(&desired_flat_head.hash).unwrap();
+                let chunk_extra =
+                    chain.get_chunk_extra(&desired_flat_head.hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);
                 (shard_id, *state_root)
@@ -333,18 +332,15 @@ impl ForkNetworkCommand {
 
         // Increment height to represent that some changes were made to the original state.
         tracing::info!(
-            block_height,
-            ?desired_block_hash,
+            ?desired_flat_head,
             ?state_roots,
             ?epoch_id,
             "Moved flat heads to a common block"
         );
-        let block_height = block_height + 1;
 
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
-        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH", &desired_block_hash)?;
-        store_update.set(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT", &block_height.to_le_bytes());
+        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD", &desired_flat_head)?;
         for (shard_id, state_root) in state_roots.iter() {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_id), state_root)?;
         }
@@ -389,9 +385,9 @@ impl ForkNetworkCommand {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let (prev_state_roots, prev_hash, epoch_id, _block_height) =
+        let (prev_state_roots, flat_head, epoch_id) =
             self.get_state_roots_and_hash(store.clone(), &epoch_manager)?;
-        tracing::info!(?prev_state_roots, ?epoch_id, ?prev_hash);
+        tracing::info!(?prev_state_roots, ?epoch_id, ?flat_head);
 
         let source_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         let all_shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
@@ -467,7 +463,7 @@ impl ForkNetworkCommand {
             Some(home_dir),
         );
 
-        let (prev_state_roots, _prev_hash, epoch_id, block_height) =
+        let (prev_state_roots, flat_head, epoch_id) =
             self.get_state_roots_and_hash(store.clone(), &epoch_manager)?;
 
         let runtime = NightshadeRuntime::from_config(
@@ -520,7 +516,7 @@ impl ForkNetworkCommand {
             protocol_version,
             epoch_length,
             num_seats,
-            block_height,
+            flat_head.height + 1,
             chain_id_suffix,
             chain_id,
             new_state_roots.clone(),
@@ -557,11 +553,9 @@ impl ForkNetworkCommand {
         &self,
         store: Store,
         epoch_manager: &EpochManagerHandle,
-    ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, CryptoHash, EpochId, BlockHeight)> {
+    ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
-        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
-        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
-        let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
+        let flat_head = store.get_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD")?.unwrap();
         let shard_layout = epoch_manager
             .get_shard_layout(&epoch_id)
             .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
@@ -574,8 +568,8 @@ impl ForkNetworkCommand {
 
             state_roots.insert(shard_uid, state_root);
         }
-        tracing::info!(?state_roots, ?block_hash, ?epoch_id, block_height);
-        Ok((state_roots, block_hash, epoch_id, block_height))
+        tracing::info!(?state_roots, ?flat_head, ?epoch_id);
+        Ok((state_roots, flat_head, epoch_id))
     }
 
     /// Checks that `~/.near/data/fork-snapshot/data` exists.
