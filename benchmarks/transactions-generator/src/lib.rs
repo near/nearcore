@@ -50,9 +50,24 @@ pub struct TxGenerator {
     runner: Option<(task::JoinHandle<()>, oneshot::Sender<bool>)>,
 }
 
+#[derive(Debug, Clone)]
 struct Stats {
-    accepted: u64,
-    rejected: u64,
+    pool_accepted: u64,
+    pool_rejected: u64,
+    processed: u64,
+    failed: u64,
+}
+
+impl std::ops::Sub for Stats {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self {
+        Self {
+            pool_accepted: self.pool_accepted - other.pool_accepted,
+            pool_rejected: self.pool_rejected - other.pool_rejected,
+            processed: self.processed - other.processed,
+            failed: self.failed - other.failed,
+        }
+    }
 }
 
 impl TxGenerator {
@@ -80,7 +95,8 @@ impl TxGenerator {
         if self.params.tps == 0 {
             anyhow::bail!("target TPS should be > 0");
         }
-        let mut stats = Stats { accepted: 0, rejected: 0 };
+        let mut stats = Stats { pool_accepted: 0, pool_rejected: 0, processed: 0, failed: 0 };
+        let mut stats_prev = stats.clone();
         let mut tx_interval =
             tokio::time::interval(Duration::from_micros(1_000_000 / self.params.tps));
         let mut block_interval = tokio::time::interval(Duration::from_secs(5));
@@ -110,12 +126,13 @@ impl TxGenerator {
                         }
                     }
                     _ = report_interval.tick() => {
+                        stats.processed = TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.get();
+                        stats.failed = TRANSACTION_PROCESSED_FAILED_TOTAL.get();
                         tracing::info!(target: "transaction-generator",
-                            pool_accepted=stats.accepted,
-                            pool_rejected=stats.rejected,
-                            total_processed=TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.get(),
-                            total_failed=TRANSACTION_PROCESSED_FAILED_TOTAL.get(),
-                            "transactions",);
+                            total=format!("{stats:?}"),);
+                        tracing::info!(target: "transaction-generator",
+                            diff=format!("{:?}", stats.clone() - stats_prev),);
+                        stats_prev = stats.clone();
                     }
                     // r = &mut rx => {} // triggered out of control
                 }
@@ -167,31 +184,31 @@ impl TxGenerator {
         {
             Ok(res) => match res {
                 ProcessTxResponse::NoResponse => {
-                    stats.rejected += 1;
+                    stats.pool_rejected += 1;
                     tracing::debug!(target: "transaction-generator",
                             processTxRequest="NoResponse", "error");
                 }
                 ProcessTxResponse::ValidTx => {
-                    stats.accepted += 1;
+                    stats.pool_accepted += 1;
                 }
                 ProcessTxResponse::InvalidTx(err) => {
-                    stats.rejected += 1;
+                    stats.pool_rejected += 1;
                     tracing::debug!(target: "transaction-generator",
                             processTxRequest=format!("{err:?}"), "error");
                 }
                 ProcessTxResponse::RequestRouted => {
-                    stats.rejected += 1;
+                    stats.pool_rejected += 1;
                     tracing::debug!(target: "transaction-generator",
                             processTxRequest="routed", "error");
                 }
                 ProcessTxResponse::DoesNotTrackShard => {
-                    stats.rejected += 1;
+                    stats.pool_rejected += 1;
                     tracing::debug!(target: "transaction-generator",
                             processTxRequest="DoesNotTrackShard", "error");
                 }
             },
             Err(err) => {
-                stats.rejected += 1;
+                stats.pool_rejected += 1;
                 tracing::debug!(target: "transaction-generator",
                     processTxRequest=format!("{err}"), "error");
             }
