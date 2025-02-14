@@ -37,6 +37,7 @@ struct SuccessfulTxsMetric {
 }
 
 impl SuccessfulTxsMetric {
+    #[allow(dead_code)] // so far only used in tests
     fn new(num: u64, time: Instant) -> Self {
         Self { num, time }
     }
@@ -54,8 +55,8 @@ impl Metric for SuccessfulTxsMetric {
     }
 
     fn from_report(report: Report, time: Instant) -> anyhow::Result<Self> {
-        let lines = report.lines();
-        let line = lines.filter(|line| line.starts_with(Self::name_in_report())).next();
+        let mut lines = report.lines();
+        let line = lines.find(|line| line.starts_with(Self::name_in_report()));
         let num = if let Some(line) = line {
             parse_at_eol(line)?
         } else {
@@ -140,7 +141,7 @@ impl TransactionStatisticsService {
             let report = self.get_report().await?;
             let new_metric = SuccessfulTxsMetric::from_report(&report, Instant::now())?;
 
-            if !(new_metric.num > self.data_t2.num) {
+            if new_metric.num <= self.data_t2.num {
                 // No progress since the last observation, so assuming the workload is finished.
                 break;
             }
@@ -172,7 +173,7 @@ impl TransactionStatisticsService {
         // Using `data_t1` as transaction processing was still ongoing at `t1`.
         // Don't use `t2` as processing might have stopped before `t2`, see field doc comments.
         let elapsed_secs = (self.data_t1.time - self.data_t0.time).as_secs();
-        if !(elapsed_secs > 0) {
+        if elapsed_secs == 0 {
             return 0;
         }
         let num = self.data_t1.num - self.data_t0.num;
