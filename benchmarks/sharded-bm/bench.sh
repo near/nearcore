@@ -57,7 +57,33 @@ else
     VALIDATOR_KEY=${NEAR_HOMES[0]}/validator_key.json
 fi
 
+start_nodes() {
+    echo "=> Starting all nodes"
+    if [ "${NUM_NODES}" -eq "1" ]; then
+        sudo systemctl start neard
+    else 
+        mkdir -p ${LOG_DIR}
+        for node in "${NEAR_HOMES[@]}"; do
+            log="${LOG_DIR}/$(basename ${node})"
+            echo "Starting node: ${node}, log: ${log}"
+            nohup ${NEARD} --home ${node} run 2> ${log} &
+        done
+    fi
+    echo "=> Done"
+}
+
+stop_nodes() {
+    echo "=> Stopping all nodes"
+    if [ "${NUM_NODES}" -eq "1" ]; then
+        sudo systemctl stop neard
+    else 
+        pkill -f neard
+    fi
+    echo "=> Done"
+}
+
 reset() {
+    stop_nodes
     echo "=> Resetting chain history, user accounts and clearing the database"
     if [ "${NUM_NODES}" -eq "1" ]; then
         rm -rf ${NEAR_HOME}/data/* 
@@ -218,31 +244,6 @@ monitor() {
 
         mpstat 10 1 | grep -v Linux
     done
-}
-
-start_nodes() {
-    echo "=> Starting all nodes"
-    if [ "${NUM_NODES}" -eq "1" ]; then
-        sudo systemctl start neard
-    else 
-        mkdir -p ${LOG_DIR}
-        for node in "${NEAR_HOMES[@]}"; do
-            log="${LOG_DIR}/$(basename ${node})"
-            echo "Starting node: ${node}, log: ${log}"
-            nohup ${NEARD} --home ${node} run 2> ${log} &
-        done
-    fi
-    echo "=> Done"
-}
-
-stop_nodes() {
-    echo "=> Stopping all nodes"
-    if [ "${NUM_NODES}" -eq "1" ]; then
-        sudo systemctl stop neard
-    else 
-        pkill -f neard
-    fi
-    echo "=> Done"
 }
 
 case "$1" in

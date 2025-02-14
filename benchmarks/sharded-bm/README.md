@@ -74,7 +74,6 @@ The basic flow is the following:
 
 ```sh
 export CASE=cases/local/1_node_5_shard
-./bench.sh stop-nodes
 ./bench.sh reset
 ./bench.sh init
 ./bench.sh start-nodes
