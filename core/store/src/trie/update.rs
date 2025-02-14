@@ -359,9 +359,6 @@ impl TrieUpdate {
         // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
         // This avoids recording contracts that do not exist or are newly-deployed to the account.
         // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
-        if account_contract.is_none() {
-            return Ok(());
-        }
         let trie_key = match account_contract {
             AccountContract::None => return Ok(()),
             AccountContract::Local(_) => TrieKey::ContractCode { account_id },

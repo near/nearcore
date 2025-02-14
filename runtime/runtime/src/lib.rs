@@ -504,7 +504,7 @@ impl Runtime {
                         let key =
                             TrieKey::GlobalContractCode { identifier: identifier.clone().into() };
                         let value_ref = state_update
-                            .get_ref_no_side_effects(&key, KeyLookupMode::FlatStorage)?
+                            .get_ref(&key, KeyLookupMode::FlatStorage)?
                             .ok_or(RuntimeError::GlobalContractError(
                                 GlobalContractError::IdentifierNotFound(identifier),
                             ))?;

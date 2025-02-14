@@ -13,11 +13,7 @@ use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
-#[cfg(feature = "nightly_protocol")]
-use near_primitives::action::{
-    Action, DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
-    UseGlobalContractAction,
-};
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -308,7 +304,6 @@ pub fn deploy_contract(
     tx_hash
 }
 
-#[cfg(feature = "nightly_protocol")]
 pub fn deploy_global_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &[TestData],
@@ -321,17 +316,13 @@ pub fn deploy_global_contract(
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
     let signer = create_user_test_signer(&account_id);
 
-    let tx = SignedTransaction::from_actions(
+    let tx = SignedTransaction::deploy_global_contract(
         nonce,
-        account_id.clone(),
-        account_id.clone(),
+        account_id,
+        code,
         &signer,
-        vec![Action::DeployGlobalContract(DeployGlobalContractAction {
-            code: code.into(),
-            deploy_mode,
-        })],
         block_hash,
-        0,
+        deploy_mode,
     );
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
@@ -339,7 +330,6 @@ pub fn deploy_global_contract(
     tx_hash
 }
 
-#[cfg(feature = "nightly_protocol")]
 pub fn use_global_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &[TestData],
@@ -351,16 +341,12 @@ pub fn use_global_contract(
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
     let signer = create_user_test_signer(&account_id);
 
-    let tx = SignedTransaction::from_actions(
+    let tx = SignedTransaction::use_global_contract(
         nonce,
-        account_id.clone(),
-        account_id.clone(),
+        account_id,
         &signer,
-        vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
-            contract_identifier: global_contract_identifier,
-        }))],
         block_hash,
-        0,
+        global_contract_identifier,
     );
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
