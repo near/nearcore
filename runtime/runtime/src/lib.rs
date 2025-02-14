@@ -19,15 +19,15 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::Account;
+use near_primitives::account::{Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, GlobalContractError, IntegerOverflowError,
+    InvalidTxError, RuntimeError, TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -60,8 +60,8 @@ use near_store::{
     get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure,
     get_received_data, has_received_data, remove_account, remove_postponed_receipt,
     remove_promise_yield_receipt, set, set_access_key, set_account, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data, PartialStorage, StorageError, Trie, TrieAccess,
-    TrieChanges, TrieUpdate,
+    set_promise_yield_receipt, set_received_data, KeyLookupMode, PartialStorage, StorageError,
+    Trie, TrieAccess, TrieChanges, TrieUpdate,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
@@ -413,6 +413,7 @@ impl Runtime {
         action_index: usize,
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
+        stats: &mut ChunkApplyStatsV0,
     ) -> Result<ActionResult, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -478,15 +479,45 @@ impl Runtime {
                     apply_state,
                     deploy_global_contract,
                     &mut result,
+                    stats,
                 );
             }
             Action::UseGlobalContract(use_global_contract) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                action_use_global_contract(state_update, account, use_global_contract)?;
+                action_use_global_contract(
+                    state_update,
+                    account_id,
+                    account,
+                    use_global_contract,
+                    apply_state.current_protocol_version,
+                    &mut result,
+                )?;
             }
             Action::FunctionCall(function_call) => {
                 let account = account.as_mut().expect(EXPECT_ACCOUNT_EXISTS);
-                let code_hash = account.local_contract_hash().unwrap_or_default();
+                let account_contract = account.contract();
+
+                let code_hash = match account_contract.as_ref() {
+                    AccountContract::None => CryptoHash::default(),
+                    AccountContract::Local(code_hash) | AccountContract::Global(code_hash) => {
+                        *code_hash
+                    }
+                    AccountContract::GlobalByAccount(account_id) => {
+                        let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
+                        let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
+                        let value_ref = state_update
+                            .get_ref(&key, KeyLookupMode::FlatStorage)?
+                            .ok_or_else(|| {
+                                let TrieKey::GlobalContractCode { identifier } = key else {
+                                    unreachable!()
+                                };
+                                RuntimeError::GlobalContractError(
+                                    GlobalContractError::IdentifierNotFound(identifier.into()),
+                                )
+                            })?;
+                        value_ref.value_hash()
+                    }
+                };
                 let contract =
                     preparation_pipeline.get_contract(receipt, code_hash, action_index, None);
                 let is_last_action = action_index + 1 == actions.len();
@@ -664,6 +695,7 @@ impl Runtime {
                 action_index,
                 &action_receipt.actions,
                 epoch_info_provider,
+                stats,
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {

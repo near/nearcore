@@ -1,4 +1,8 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account};
+use crate::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
+};
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
@@ -268,6 +272,52 @@ impl SignedTransaction {
             receiver_id,
             signer,
             vec![Action::DeployContract(DeployContractAction { code })],
+            block_hash,
+            0,
+        )
+    }
+
+    pub fn deploy_global_contract(
+        nonce: Nonce,
+        contract_id: AccountId,
+        code: Vec<u8>,
+        signer: &Signer,
+        block_hash: CryptoHash,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> SignedTransaction {
+        let signer_id = contract_id.clone();
+        let receiver_id = contract_id;
+        SignedTransaction::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            &signer,
+            vec![Action::DeployGlobalContract(DeployGlobalContractAction {
+                code: code.into(),
+                deploy_mode,
+            })],
+            block_hash,
+            0,
+        )
+    }
+
+    pub fn use_global_contract(
+        nonce: Nonce,
+        contract_id: &AccountId,
+        signer: &Signer,
+        block_hash: CryptoHash,
+        contract_identifier: GlobalContractIdentifier,
+    ) -> SignedTransaction {
+        let signer_id = contract_id.clone();
+        let receiver_id = contract_id.clone();
+        SignedTransaction::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            &signer,
+            vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier,
+            }))],
             block_hash,
             0,
         )
