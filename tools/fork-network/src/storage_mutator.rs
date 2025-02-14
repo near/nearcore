@@ -16,8 +16,13 @@ use nearcore::NightshadeRuntime;
 use anyhow::Context;
 use std::sync::{Arc, Mutex};
 
+/// Stores the state root and next height we want to pass to apply_memtrie_changes() and delete_until_height()
+/// When multiple StorageMutators in different threads want to commit changes to the same shard, they'll first
+/// lock this and then update the fields with the result of the trie change.
 struct InProgressRoot {
     state_root: StateRoot,
+    // When we apply changes with apply_memtrie_changes(), we then call delete_until_height()
+    // in order to garbage collect unneeded memtrie nodes.
     update_height: BlockHeight,
 }
 
@@ -29,9 +34,7 @@ pub(crate) struct ShardUpdateState {
 impl ShardUpdateState {
     // here we set the given state root as the one we start with, and we set Self::update_height to be
     // one bigger than the highest block height we have flat state for. The reason for this is that the
-    // memtries will initially be loaded with nodes referenced by each block height we have deltas for. So when
-    // we apply changes with apply_memtrie_changes(), we pass a height greater than all delta heights. Then
-    // when we commit changes, we call delete_until_height() in order to garbage collect unneeded memtrie nodes.
+    // memtries will initially be loaded with nodes referenced by each block height we have deltas for.
     pub(crate) fn new(
         flat_store: &FlatStoreAdapter,
         shard_uid: ShardUId,
