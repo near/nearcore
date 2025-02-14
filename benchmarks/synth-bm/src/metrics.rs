@@ -185,6 +185,7 @@ impl TransactionStatisticsService {
 
 #[cfg(test)]
 mod tests {
+    // cspell:words indoc
     use indoc::indoc;
 
     use super::*;
