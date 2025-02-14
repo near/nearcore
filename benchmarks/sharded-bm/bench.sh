@@ -10,52 +10,119 @@ if ! [[ -d $CASE ]]; then
     exit 1
 fi
 
-NUM_NODES=$(jq '.nodes' ${BM_PARAMS} 2> /dev/null) || true
-NEARD="${NEARD:-/home/ubuntu/neard}"
-NEAR_HOME="${NEAR_HOME:-/home/ubuntu/.near}"
+NUM_CHUNK_PRODUCERS=$(jq '.chunk_producers' ${BM_PARAMS})
+NUM_RPCS=$(jq '.rpcs' ${BM_PARAMS})
+NUM_NODES=$((NUM_CHUNK_PRODUCERS+NUM_RPCS))
 
+if [ "${NUM_RPCS}" -gt "1" ]; then
+    echo "no more than 1 rpc node is currently supported"
+    exit 1
+fi
+
+NEARD="${NEARD:-/home/ubuntu/neard}"
+
+echo "Test case: ${CASE}"
+echo "Num nodes: ${NUM_NODES}"
+echo "neard path: ${NEARD}"
+
+NEAR_HOME="${NEAR_HOME:-/home/ubuntu/.near}"
 GENESIS=${NEAR_HOME}/genesis.json
 CONFIG=${NEAR_HOME}/config.json
+LOG_CONFIG=${NEAR_HOME}/log_config.json
 
+BASE_GENESIS_PATCH=${CASE}/$(jq -r '.base_genesis_patch' ${BM_PARAMS})
+BASE_CONFIG_PATCH=${CASE}/$(jq -r '.base_config_patch' ${BM_PARAMS})
+BASE_LOG_CONFIG_PATCH=cases/log_patch.json
 GENESIS_PATCH=${CASE}/genesis_patch.json
 CONFIG_PATCH=${CASE}/config_patch.json
 
 USERS_DATA_DIR="${USERS_DATA_DIR:-user-data}"
 LOG_DIR="${LOG_DIR:-logs}"
+BENCHNET_DIR="${BENCHNET_DIR:-$HOME/bench}"
 
-RPC_URL="${RPC_URL:-http://127.0.0.1:4040}"
+RPC_ADDR="127.0.0.1:4040"
+RPC_URL="http://${RPC_ADDR}"
 SYNTH_BM_PATH="../synth-bm/Cargo.toml"
-NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS})
+
+if [ "${NUM_NODES}" -eq "1" ]; then
+    NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true 
+    VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
+else
+    for i in $(seq 0 $((NUM_NODES-1))); do
+        NEAR_HOMES=("${NEAR_HOMES[@]}" ${BENCHNET_DIR}/node${i})
+    done
+    NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${NEAR_HOMES[0]}/genesis.json 2>/dev/null) || true
+    VALIDATOR_KEY=${NEAR_HOMES[0]}/validator_key.json
+fi
 
 reset() {
     echo "=> Resetting chain history, user accounts and clearing the database"
-    rm -rf ${NEAR_HOME}/data/*
+    if [ "${NUM_NODES}" -eq "1" ]; then
+        rm -rf ${NEAR_HOME}/data/* 
+    else 
+        rm -rf ${BENCHNET_DIR}
+    fi
     rm -rf ${USERS_DATA_DIR}
     echo "=> Done"
 }
 
 init() {
-    echo "=> Initializing network"
+    echo "=> Initializing ${NUM_NODES} node network"
     reset
-    rm ${CONFIG} ${GENESIS}
-    /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
+    if [ "${NUM_NODES}" -eq "1" ]; then
+        rm ${CONFIG} ${GENESIS}
+        /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
+    else
+        ~/neard --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} --tracked-shards=none
+    fi
     tweak_config
     echo "=> Done"
 }
 
+edit_genesis() {
+    echo "editing ${1}"
+    jq -s 'reduce .[] as $item ({}; . * $item)' \
+        ${1} ${BASE_GENESIS_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    jq -s 'reduce .[] as $item ({}; . * $item)' \
+        ${1} ${GENESIS_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    # remove quotes around "gas_limit" (workaround for jq 1.6 bigint bug)
+    sed -i 's/"gas_limit": "\(.*\)"/"gas_limit": \1/' ${1}
+}
+
+edit_config() {
+    echo "editing ${1}"
+    jq -s 'reduce .[] as $item ({}; . * $item)' \
+        ${1} ${BASE_CONFIG_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+    jq -s 'reduce .[] as $item ({}; . * $item)' \
+        ${1} ${CONFIG_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+}
+
+edit_log_config() {
+    echo "editing ${1}"
+    touch ${1}
+    jq -s 'reduce .[] as $item ({}; . * $item)' \
+        ${1} ${BASE_LOG_CONFIG_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
+}
+
 tweak_config() {
     echo "===> Applying configuration changes"
-
-    echo "editing ${GENESIS}"
-    jq -s 'reduce .[] as $item ({}; . * $item)' \
-        ${GENESIS} ${GENESIS_PATCH} > tmp.$$.json && mv tmp.$$.json ${GENESIS} || rm tmp.$$.json
-    # remove quotes around "gas_limit" (workaround for jq 1.6 bigint bug)
-    sed -i 's/"gas_limit": "\(.*\)"/"gas_limit": \1/' ${GENESIS}
-
-    echo "editing ${CONFIG}"
-    jq -s 'reduce .[] as $item ({}; . * $item)' \
-        ${CONFIG} ${CONFIG_PATCH} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
-
+    if [ "${NUM_NODES}" -eq "1" ]; then
+        edit_genesis ${GENESIS}
+        edit_config ${CONFIG}
+        edit_log_config ${LOG_CONFIG}
+        # set single node RPC port to known value
+        jq --arg newval "${RPC_ADDR}" \
+            '.rpc.addr |= $newval' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    else
+        for node in "${NEAR_HOMES[@]}"; do
+            edit_genesis ${node}/genesis.json
+            edit_config ${node}/config.json
+            edit_log_config ${node}/log_config.json
+        done
+        # set single node RPC port to known value
+        jq --arg newval "${RPC_ADDR}" \
+            '.rpc.addr |= $newval' ${NEAR_HOMES[-1]}/config.json > tmp.$$.json && mv tmp.$$.json ${NEAR_HOMES[-1]}/config.json || rm tmp.$$.json
+    fi
     echo "===> Done"
 }
 
@@ -75,7 +142,7 @@ create_accounts() {
         RUST_LOG=info \
         cargo run --manifest-path ${SYNTH_BM_PATH} --release -- create-sub-accounts \
             --rpc-url ${RPC_URL} \
-            --signer-key-path ${NEAR_HOME}/validator_key.json \
+            --signer-key-path ${VALIDATOR_KEY} \
             --nonce ${nonce} \
             --sub-account-prefix ${prefix} \
             --num-sub-accounts ${num_accounts} \
@@ -151,6 +218,31 @@ monitor() {
     done
 }
 
+start_nodes() {
+    echo "=> Starting all nodes"
+    if [ "${NUM_NODES}" -eq "1" ]; then
+        sudo systemctl start neard
+    else 
+        mkdir -p ${LOG_DIR}
+        for node in "${NEAR_HOMES[@]}"; do
+            log="${LOG_DIR}/$(basename ${node})"
+            echo "Starting node: ${node}, log: ${log}"
+            nohup ${NEARD} --home ${node} run 2> ${log} &
+        done
+    fi
+    echo "=> Done"
+}
+
+stop_nodes() {
+    echo "=> Stopping all nodes"
+    if [ "${NUM_NODES}" -eq "1" ]; then
+        sudo systemctl stop neard
+    else 
+        pkill -f neard
+    fi
+    echo "=> Done"
+}
+
 case "$1" in
     reset)
         reset
@@ -176,7 +268,15 @@ case "$1" in
         monitor
         ;;
 
+    start-nodes)
+        start_nodes
+        ;;
+
+    stop-nodes)
+        stop_nodes
+        ;;
+
     *)
-        echo "Usage: $0 {reset|init|tweak-config|create-accounts|native-transfers|monitor} <BENCH CASE>"
+        echo "Usage: $0 {reset|init|tweak-config|create-accounts|native-transfers|monitor|start-nodes|stop-nodes} <BENCH CASE>"
         ;;
 esac

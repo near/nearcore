@@ -58,14 +58,26 @@ The basic flow is the following:
     ./bench.sh tweak-config <BENCH CASE>
     ```
 
+- Start all nodes
+
+    ```sh
+    ./bench.sh start-nodes <BENCH CASE>
+    ```
+
+- Stop all nodes
+
+    ```sh
+    ./bench.sh stop-nodes <BENCH CASE>
+    ```
+
 ### TL;DR - run a benchmark
 
 ```sh
 export CASE=cases/local/1_node_5_shard
-sudo systemctl stop neard
+./bench.sh stop-nodes
 ./bench.sh reset
 ./bench.sh init
-sudo systemctl restart neard
+./bench.sh start-nodes
 ./bench.sh create-accounts
 ./bench.sh native-transfers
 ```
