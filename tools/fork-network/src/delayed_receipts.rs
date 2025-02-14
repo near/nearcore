@@ -118,6 +118,7 @@ pub(crate) fn write_delayed_receipts(
         })
         .collect::<Vec<_>>();
 
+    // TODO: commit these updates periodically so we don't read everything to memory, which might be too much.
     let mut trie_updates = vec![HashMap::new(); update_state.len()];
     let mut next_index = vec![0; update_state.len()];
 
