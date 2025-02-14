@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{metrics, ActionResult, ApplyState};
+use crate::{metrics, ActionResult, ApplyState, ChunkApplyStatsV0};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
@@ -632,6 +632,7 @@ pub(crate) fn action_deploy_global_contract(
     apply_state: &ApplyState,
     deploy_contract: &DeployGlobalContractAction,
     result: &mut ActionResult,
+    stats: &mut ChunkApplyStatsV0,
 ) {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
 
@@ -649,6 +650,8 @@ pub(crate) fn action_deploy_global_contract(
         .into());
         return;
     };
+    stats.balance.global_actions_burnt_amount =
+        stats.balance.global_actions_burnt_amount.saturating_add(storage_cost);
     account.set_amount(updated_balance);
 
     let id = match deploy_contract.deploy_mode {

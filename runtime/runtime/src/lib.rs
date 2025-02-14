@@ -413,6 +413,7 @@ impl Runtime {
         action_index: usize,
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
+        stats: &mut ChunkApplyStatsV0,
     ) -> Result<ActionResult, RuntimeError> {
         let _span = tracing::debug_span!(
             target: "runtime",
@@ -478,6 +479,7 @@ impl Runtime {
                     apply_state,
                     deploy_global_contract,
                     &mut result,
+                    stats,
                 );
             }
             Action::UseGlobalContract(use_global_contract) => {
@@ -688,6 +690,7 @@ impl Runtime {
                 action_index,
                 &action_receipt.actions,
                 epoch_info_provider,
+                stats,
             )?;
             if new_result.result.is_ok() {
                 if let Err(e) = new_result.new_receipts.iter().try_for_each(|receipt| {

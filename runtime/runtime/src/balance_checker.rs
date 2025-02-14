@@ -43,7 +43,6 @@ fn get_delayed_receipts(
 fn receipt_cost(
     config: &RuntimeConfig,
     receipt: &Receipt,
-    is_outgoing: bool,
 ) -> Result<Balance, IntegerOverflowError> {
     Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
@@ -67,19 +66,9 @@ fn receipt_cost(
             }
             total_cost
         }
-        ReceiptEnum::GlobalContractDistribution(contract_data) => {
-            // Cost is only paid when the outgoing receipt is generated
-            if is_outgoing {
-                config
-                    .fees
-                    .storage_usage_config
-                    .global_contract_storage_amount_per_byte
-                    .saturating_mul(contract_data.code.len() as u128)
-            } else {
-                0
-            }
-        }
-        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
+        ReceiptEnum::GlobalContractDistribution(_)
+        | ReceiptEnum::Data(_)
+        | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 
@@ -87,10 +76,9 @@ fn receipt_cost(
 fn total_receipts_cost(
     config: &RuntimeConfig,
     receipts: &[Receipt],
-    is_outgoing: bool,
 ) -> Result<Balance, IntegerOverflowError> {
     receipts.iter().try_fold(0, |accumulator, receipt| {
-        let cost = receipt_cost(config, receipt, is_outgoing)?;
+        let cost = receipt_cost(config, receipt)?;
         safe_add_balance(accumulator, cost)
     })
 }
@@ -128,13 +116,13 @@ fn total_postponed_receipts_cost(
             PostponedReceiptType::Action => {
                 match get_postponed_receipt(state, account_id, *lookup_id)? {
                     None => return Ok(total),
-                    Some(receipt) => receipt_cost(config, &receipt, false)?,
+                    Some(receipt) => receipt_cost(config, &receipt)?,
                 }
             }
             PostponedReceiptType::PromiseYield => {
                 match get_promise_yield_receipt(state, account_id, *lookup_id)? {
                     None => return Ok(total),
-                    Some(receipt) => receipt_cost(config, &receipt, false)?,
+                    Some(receipt) => receipt_cost(config, &receipt)?,
                 }
             }
         };
@@ -332,17 +320,16 @@ pub(crate) fn check_balance(
         validator_accounts_update.as_ref().map(validator_rewards).transpose()?.unwrap_or(0);
 
     // Receipts
-    let receipts_cost =
-        |receipts: &[Receipt], is_outgoing: bool| -> Result<Balance, IntegerOverflowError> {
-            total_receipts_cost(config, receipts, is_outgoing)
-        };
+    let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
+        total_receipts_cost(config, receipts)
+    };
     let incoming_receipts_balance =
-        receipts_cost(incoming_receipts, false)? + receipts_cost(yield_timeout_receipts, false)?;
-    let outgoing_receipts_balance = receipts_cost(outgoing_receipts, true)?;
-    let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts, false)?;
-    let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts, false)?;
-    let forwarded_buffered_receipts_balance = receipts_cost(&forwarded_receipts, false)?;
-    let new_buffered_receipts_balance = receipts_cost(&new_buffered_receipts, false)?;
+        receipts_cost(incoming_receipts)? + receipts_cost(yield_timeout_receipts)?;
+    let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
+    let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
+    let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
+    let forwarded_buffered_receipts_balance = receipts_cost(&forwarded_receipts)?;
+    let new_buffered_receipts_balance = receipts_cost(&new_buffered_receipts)?;
 
     // Postponed actions receipts.
     let all_potential_postponed_receipt_ids = potential_postponed_receipt_ids(
@@ -374,7 +361,8 @@ pub(crate) fn check_balance(
         stats.tx_burnt_amount,
         stats.slashed_burnt_amount,
         new_buffered_receipts_balance,
-        stats.other_burnt_amount
+        stats.other_burnt_amount,
+        stats.global_actions_burnt_amount
     );
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
@@ -577,6 +565,7 @@ mod tests {
                 gas_deficit_amount: 0,
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
+                global_actions_burnt_amount: 0,
             },
         )
         .unwrap();
@@ -772,6 +761,7 @@ mod tests {
                 gas_deficit_amount: 0,
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
+                global_actions_burnt_amount: 0,
             },
         )
         .unwrap();
