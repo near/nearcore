@@ -61,6 +61,8 @@ mod metrics;
 pub mod migrations;
 pub mod state_sync;
 pub mod test_utils;
+#[cfg(feature = "tx_generator")]
+use near_transactions_generator::actix_actor::TxGeneratorActor;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -213,6 +215,8 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
+    #[cfg(feature = "tx_generator")]
+    pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
@@ -509,9 +513,18 @@ pub fn start_with_config_and_synchronization(
         arbiters.push(db_metrics_arbiter);
     }
 
+    #[cfg(feature = "tx_generator")]
+    let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
+        config.tx_generator.unwrap_or_default(),
+        client_actor.clone().with_auto_span_context().into_multi_sender(),
+        view_client_addr.clone().with_auto_span_context().into_multi_sender(),
+    );
+
     Ok(NearNode {
         client: client_actor,
         view_client: view_client_addr,
+        #[cfg(feature = "tx_generator")]
+        tx_generator,
         rpc_servers,
         arbiters,
         cold_store_loop_handle,
