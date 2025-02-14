@@ -7,15 +7,15 @@ near_genesis_file := near_localnet_home / "genesis.json"
 rpc_url := "http://127.0.0.1:3030"
 
 
-init_localnet:
+init-localnet:
     rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
     {{neard}} --home {{near_localnet_home}} init --chain-id localnet
 
-run_localnet loglevel="info":
+run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
     {{neard}} --home {{near_localnet_home}} run
 
-create_accounts:
+create-accounts:
     RUST_LOG=info \
     ../synth-bm/target/release/near-synth-bm create-sub-accounts \
         --rpc-url {{rpc_url}} \
@@ -28,7 +28,7 @@ create_accounts:
         --requests-per-second 1250 \
         --user-data-dir user-data
 
-enable_tx tps:
+enable-tx tps:
     jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp_config.json
     mv tmp_config.json {{near_config_file}}
 
@@ -40,13 +40,13 @@ unlimit:
      | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 800000000}' {{near_config_file}} > tmp_config.json
     mv tmp_config.json {{near_config_file}}
 
-do_it tps:
-    just init_localnet
+do-it tps:
+    just init-localnet
     just unlimit
     killall neard || echo "all clear!"
     nohup {{neard}} --home {{near_localnet_home}} run &
     sleep 5
-    just create_accounts
+    just create-accounts
     killall neard
-    just enable_tx {{tps}}
-    just run_localnet
+    just enable-tx {{tps}}
+    just run-localnet
