@@ -31,6 +31,8 @@ The basic flow is the following:
     ./bench.sh start-nodes <BENCH CASE>
     ```
 
+    I advice checking that the network started correctly before proceeding, especially if there are multiple nodes.
+
 4. Create the test accounts
 
     ```sh
@@ -78,3 +80,11 @@ export CASE=cases/local/1_node_5_shard
 ./bench.sh create-accounts
 ./bench.sh native-transfers
 ```
+
+## Monitoring
+
+`neard` logs are inside `logs` for a localnet or in `journalctl` for a single node.
+
+`synth-bm` logs are inside `logs`
+
+Debug UI works, just use the machine public IP.
