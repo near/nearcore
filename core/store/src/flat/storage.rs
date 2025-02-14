@@ -495,7 +495,10 @@ impl FlatStorage {
         guard.shard_uid
     }
 
-    /// Updates `move_head_enabled` and returns whether the change was done.
+    /// Updates `move_head_enabled`. If false, this will prevent flat storage updates and deltas will accumulate
+    /// until this is called again with `enabled=true`.
+    /// TODO: This could be improved by setting a maximum block height instead of a bool that disables all updates,
+    /// by using the `want_snapshot` field of the flat storage manager we already have.
     pub fn set_flat_head_update_mode(&self, enabled: bool) {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
         guard.move_head_enabled = enabled;
