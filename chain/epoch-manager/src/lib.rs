@@ -32,7 +32,6 @@ use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
 use num_rational::BigRational;
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -1098,12 +1097,6 @@ impl EpochManager {
         self.get_next_epoch_id_from_info(&block_info)
     }
 
-    pub fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let block_info = self.get_block_info(block_hash)?;
-        let epoch_first_block_info = self.get_block_info(block_info.epoch_first_block())?;
-        self.get_epoch_id(epoch_first_block_info.prev_hash())
-    }
-
     pub fn get_epoch_info_from_hash(
         &self,
         block_hash: &CryptoHash,
@@ -1510,27 +1503,6 @@ impl EpochManager {
         self.record_block_info(block_info, rng_seed)
     }
 
-    /// Compare two epoch ids based on their start height. This works because finality gadget
-    /// guarantees that we cannot have two different epochs on two forks
-    pub fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, EpochError> {
-        if epoch_id.0 == other_epoch_id.0 {
-            return Ok(Ordering::Equal);
-        }
-        match (
-            self.get_epoch_start_from_epoch_id(epoch_id),
-            self.get_epoch_start_from_epoch_id(other_epoch_id),
-        ) {
-            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            (Ok(_), Err(_)) => self.get_epoch_info(other_epoch_id).map(|_| Ordering::Less),
-            (Err(_), Ok(_)) => self.get_epoch_info(epoch_id).map(|_| Ordering::Greater),
-            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds(*epoch_id)), // other_epoch_id may be out of bounds as well
-        }
-    }
-
     /// Get minimum stake allowed at current block. Attempts to stake with a lower stake will be
     /// rejected.
     pub fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
@@ -1859,25 +1831,5 @@ impl EpochManager {
 
             cur_hash = prev_hash;
         }))
-    }
-
-    pub fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        let cur_epoch_info = self.get_epoch_info_from_hash(&block_hash)?;
-        let next_epoch_id = self.get_next_epoch_id(&block_hash)?;
-        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
-        if cur_epoch_info.protocol_version() != next_epoch_info.protocol_version() {
-            let block_info = self.get_block_info(&block_hash)?;
-            let epoch_length =
-                self.config.for_protocol_version(cur_epoch_info.protocol_version()).epoch_length;
-            let estimated_next_epoch_start =
-                self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
-
-            Ok(Some(estimated_next_epoch_start))
-        } else {
-            Ok(None)
-        }
     }
 }
