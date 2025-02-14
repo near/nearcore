@@ -30,7 +30,8 @@ benchmark_native_transfers:
         --num-transfers 200 \
         --channel-buffer-size 30000 \
         --requests-per-second 2000 \
-        --amount 1
+        --amount 1 \
+        --transaction-statistics-service
 
 benchmark_mpc_sign:
     RUST_LOG=info \
