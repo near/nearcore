@@ -109,8 +109,19 @@ impl RpcResponseHandler {
                 timer = Some(Instant::now());
             }
 
-            let rpc_response = response.expect("rpc call should succeed");
-            check_tx_response(rpc_response, self.wait_until.clone(), self.response_check_severity);
+            match response {
+                Ok(rpc_response) => {
+                    check_tx_response(
+                        rpc_response,
+                        self.wait_until.clone(),
+                        self.response_check_severity,
+                    );
+                }
+                Err(err) => {
+                    let msg = format!("RPC call failed: {}", err);
+                    warn_or_panic(&msg, self.response_check_severity);
+                }
+            }
         }
 
         if let Some(timer) = timer {
