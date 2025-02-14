@@ -142,6 +142,13 @@ fn make_state_roots_key(shard_id: ShardId) -> Vec<u8> {
     format!("{FORKED_ROOTS_KEY_PREFIX}{shard_id}").into_bytes()
 }
 
+/// The minimum set of columns that will be needed to start a node after the `finalize` command runs
+const COLUMNS_TO_KEEP: &[DBCol] = &[DBCol::DbVersion, DBCol::Misc, DBCol::State, DBCol::FlatState];
+
+/// Extra columns needed in the setup before the `finalize` command
+const SETUP_COLUMNS_TO_KEEP: &[DBCol] =
+    &[DBCol::EpochInfo, DBCol::FlatStorageStatus, DBCol::ChunkExtra];
+
 #[derive(clap::Parser)]
 struct ResetCmd;
 
@@ -265,7 +272,7 @@ impl ForkNetworkCommand {
     // Snapshots the DB.
     // Determines parameters that will be used to initialize the new chain.
     // After this completes, almost every DB column can be removed, however this command doesn't delete anything itself.
-    fn init(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+    fn write_fork_info(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
@@ -334,6 +341,24 @@ impl ForkNetworkCommand {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_id), state_root)?;
         }
         store_update.commit()?;
+        Ok(())
+    }
+
+    fn init(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+        self.write_fork_info(near_config, home_dir)?;
+        let mut unwanted_cols = Vec::new();
+        for col in DBCol::iter() {
+            if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {
+                unwanted_cols.push(col);
+            }
+        }
+        near_store::clear_columns(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.archival_config(),
+            &unwanted_cols,
+        )
+        .context("failed deleting unwanted columns")?;
         Ok(())
     }
 
@@ -472,19 +497,20 @@ impl ForkNetworkCommand {
 
     /// Deletes DB columns that are not needed in the new chain.
     fn finalize(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        // Open storage with migration
-        let storage = open_storage(&home_dir, near_config).unwrap();
-        let store = storage.get_hot_store();
-
         tracing::info!("Delete unneeded columns in the original DB");
-        let mut update = store.store_update();
+        let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
-            match col {
-                DBCol::DbVersion | DBCol::Misc | DBCol::State | DBCol::FlatState => {}
-                _ => update.delete_all(col),
+            if !COLUMNS_TO_KEEP.contains(&col) {
+                unwanted_cols.push(col);
             }
         }
-        update.commit()?;
+        near_store::clear_columns(
+            home_dir,
+            &near_config.config.store,
+            near_config.config.archival_config(),
+            &unwanted_cols,
+        )
+        .context("failed deleting unwanted columns")?;
         Ok(())
     }
 
