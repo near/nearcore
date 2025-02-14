@@ -1031,9 +1031,11 @@ impl Client {
         res
     }
 
-    #[allow(unused)]
-    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock) {
+    /// Check optimistic block and start processing if is valid.
+    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, _peer_id: PeerId) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
+        // TODO(#10584): Validate the optimistic block.
+        // TODO(#10584): Discard the block if it is not from the the block producer.
         self.chain.optimistic_block_chunks.add_block(block);
         self.maybe_process_optimistic_block();
     }
@@ -1688,7 +1690,15 @@ impl Client {
                 next_height,
                 shard_id,
                 Some(signer),
-                &self.chain.transaction_validity_check(block.header().clone()),
+                &|tx| {
+                    #[cfg(features = "test_features")]
+                    match self.adv_produce_chunks {
+                        Some(AdvProduceChunksMode::ProduceWithoutTxValidityCheck) => true,
+                        _ => chain.transaction_validity_check(block.header().clone())(tx),
+                    }
+                    #[cfg(not(features = "test_features"))]
+                    self.chain.transaction_validity_check(block.header().clone())(tx)
+                },
             );
             match result {
                 Ok(Some(result)) => {

@@ -12,8 +12,6 @@ publish = false
 workspace = true
 
 [dependencies]
-actix-rt.workspace = true
-actix.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
@@ -26,7 +24,6 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-near-actix-test-utils.workspace = true
 near-time.workspace = true
 near-chain.workspace = true
 near-chain-configs.workspace = true

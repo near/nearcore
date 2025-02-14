@@ -10,7 +10,7 @@ use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::account::id::AccountIdRef;
-use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+use near_primitives::account::{AccessKeyPermission, AccountContract, FunctionCallPermission};
 use near_primitives::action::{Action, AddKeyAction, TransferAction};
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
@@ -25,7 +25,6 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, NumSeats};
 use near_store::test_utils::create_test_store;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -110,7 +109,7 @@ fn run_chunk_validation_test(
         let staked = if i < num_validators { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
+            account: Account::new(initial_balance, staked, AccountContract::None, 0),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),

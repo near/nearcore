@@ -178,6 +178,8 @@ pub enum ConnectError {
     UnexpectedFirstMessage(Box<PeerMessage>),
     #[error(transparent)]
     TcpConnect(anyhow::Error),
+    #[error(transparent)]
+    Accept(std::io::Error),
 }
 
 impl From<RecvError> for ConnectError {
@@ -233,7 +235,7 @@ impl Connection {
         genesis_hash: CryptoHash,
         head_height: BlockHeight,
         tracked_shards: Vec<ShardId>,
-        recv_timeout: Duration,
+        recv_timeout: Option<Duration>,
     ) -> Result<Self, ConnectError> {
         let secret_key = SecretKey::from_random(KeyType::ED25519);
         let my_peer_id = PeerId::new(secret_key.public_key());
@@ -279,7 +281,8 @@ impl Connection {
         head_height: BlockHeight,
         tracked_shards: Vec<ShardId>,
         archival: bool,
-        recv_timeout: Duration,
+        recv_timeout: Option<Duration>,
+        protocol_version: Option<ProtocolVersion>,
     ) -> Result<Self, ConnectError> {
         let mut stream = PeerStream::new(stream, recv_timeout);
         let mut borsh_message_expected = true;
@@ -293,9 +296,11 @@ impl Connection {
             Err(RecvError::IO(e)) => return Err(ConnectError::IO(e)),
         };
 
-        let (peer_id, nonce) = match message {
+        let (peer_id, nonce, handshake_protocol_version) = match message {
             // TODO: maybe check the handshake for sanity
-            PeerMessage::Tier2Handshake(h) => (h.sender_peer_id, h.partial_edge_info.nonce),
+            PeerMessage::Tier2Handshake(h) => {
+                (h.sender_peer_id, h.partial_edge_info.nonce, h.protocol_version)
+            }
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
                 return Err(ConnectError::HandshakeFailure(reason))
             }
@@ -309,7 +314,7 @@ impl Connection {
             &peer_id,
             stream.stream.local_addr.port(),
             nonce,
-            PROTOCOL_VERSION,
+            protocol_version.unwrap_or(handshake_protocol_version),
             chain_id,
             genesis_hash,
             head_height,
@@ -538,7 +543,7 @@ enum RecvError {
 struct PeerStream {
     stream: tcp::Stream,
     buf: BytesMut,
-    recv_timeout: Duration,
+    recv_timeout: Option<Duration>,
 }
 
 impl std::fmt::Debug for PeerStream {
@@ -548,7 +553,7 @@ impl std::fmt::Debug for PeerStream {
 }
 
 impl PeerStream {
-    fn new(stream: tcp::Stream, recv_timeout: Duration) -> Self {
+    fn new(stream: tcp::Stream, recv_timeout: Option<Duration>) -> Self {
         Self { stream, buf: BytesMut::with_capacity(1024), recv_timeout }
     }
 
@@ -560,11 +565,13 @@ impl PeerStream {
     }
 
     async fn do_read(&mut self) -> io::Result<()> {
-        let n = tokio::time::timeout(
-            self.recv_timeout.try_into().unwrap(),
-            self.stream.stream.read_buf(&mut self.buf),
-        )
-        .await??;
+        let read = self.stream.stream.read_buf(&mut self.buf);
+        let n = if let Some(recv_timeout) = self.recv_timeout {
+            tokio::time::timeout(recv_timeout.try_into().unwrap(), read).await??
+        } else {
+            read.await?
+        };
+
         tracing::trace!(target: "network", "Read {} bytes from {:?}", n, self.stream.peer_addr);
         if n == 0 {
             return Err(io::Error::new(
@@ -625,7 +632,8 @@ pub struct Listener {
     head_height: BlockHeight,
     tracked_shards: Vec<ShardId>,
     archival: bool,
-    recv_timeout: Duration,
+    recv_timeout: Option<Duration>,
+    handshake_protocol_version: Option<ProtocolVersion>,
 }
 
 impl Listener {
@@ -637,7 +645,8 @@ impl Listener {
         head_height: BlockHeight,
         tracked_shards: Vec<ShardId>,
         archival: bool,
-        recv_timeout: Duration,
+        recv_timeout: Option<Duration>,
+        handshake_protocol_version: Option<ProtocolVersion>,
     ) -> io::Result<Self> {
         Ok(Self {
             listener: addr.listener()?,
@@ -648,6 +657,7 @@ impl Listener {
             tracked_shards,
             archival,
             recv_timeout,
+            handshake_protocol_version,
         })
     }
 
@@ -655,7 +665,7 @@ impl Listener {
         // TODO: get rid of this listener type and make Connection::on_accept() pub. That way
         // the calling code can just accept in a loop and then call Connection::on_accept() in
         // different tasks
-        let stream = self.listener.accept().await.map_err(ConnectError::IO)?;
+        let stream = self.listener.accept().await.map_err(ConnectError::Accept)?;
         Connection::on_accept(
             stream,
             self.secret_key.clone(),
@@ -665,6 +675,7 @@ impl Listener {
             self.tracked_shards.clone(),
             self.archival,
             self.recv_timeout,
+            self.handshake_protocol_version,
         )
         .await
     }

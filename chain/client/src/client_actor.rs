@@ -6,7 +6,7 @@
 //! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
-use crate::chunk_producer::AdvProduceChunksMode;
+pub use crate::chunk_producer::AdvProduceChunksMode;
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
@@ -52,8 +52,9 @@ use near_client_primitives::types::{
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage, ProcessTxRequest,
-    ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponseReceived,
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
+    OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
+    StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -407,6 +408,7 @@ pub enum AdvProduceBlockHeightSelection {
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
+    AdvInsertInvalidTransactions(bool),
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
@@ -486,6 +488,11 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
                 self.client.chunk_producer.adv_produce_chunks = Some(adv_produce_chunks);
                 None
             }
+            NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
+                info!(target: "adversary", on, "invalid transactions");
+                self.client.chunk_producer.produce_invalid_tx_in_chunks = on;
+                None
+            }
         }
     }
 }
@@ -494,6 +501,15 @@ impl Handler<ProcessTxRequest> for ClientActorInner {
     fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.client.process_tx(transaction, is_forwarded, check_only)
+    }
+}
+
+impl Handler<OptimisticBlockMessage> for ClientActorInner {
+    fn handle(&mut self, msg: OptimisticBlockMessage) {
+        let OptimisticBlockMessage { optimistic_block, from_peer } = msg;
+        debug!(target: "client", block_height = optimistic_block.inner.block_height, prev_block_hash = ?optimistic_block.inner.prev_block_hash, ?from_peer, "OptimisticBlockMessage");
+
+        self.client.receive_optimistic_block(optimistic_block, from_peer);
     }
 }
 
@@ -1379,11 +1395,10 @@ impl ClientActorInner {
             return Ok(());
         };
 
-        /* TODO(#10584): If we produced the optimistic block, send it out before we save it.
+        // If we produced the optimistic block, send it out before we save it.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::OptimisticBlock { optimistic_block: block.clone() },
+            NetworkRequests::OptimisticBlock { optimistic_block: optimistic_block.clone() },
         ));
-        */
 
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
