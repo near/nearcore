@@ -16,6 +16,8 @@ use near_primitives::{
 };
 use near_time::Utc;
 use std::collections::HashMap;
+use std::str::FromStr;
+use strum::Display;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct TrackedShardsView {
@@ -174,6 +176,68 @@ pub struct ValidatorStatus {
     pub banned_chunk_producers: Vec<(EpochId, Vec<AccountId>)>,
 }
 
+#[derive(Debug, Display)]
+pub enum DebugBlocksMode {
+    All,
+    JumpToBlockMiss,
+    JumpToChunkMiss,
+    JumpToBlockProduced,
+    JumpToAllChunksIncluded,
+}
+
+impl FromStr for DebugBlocksMode {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<DebugBlocksMode, Self::Err> {
+        match input {
+            "all" => Ok(DebugBlocksMode::All),
+            "first_block_miss" => Ok(DebugBlocksMode::JumpToBlockMiss),
+            "first_chunk_miss" => Ok(DebugBlocksMode::JumpToChunkMiss),
+            "first_block_produced" => Ok(DebugBlocksMode::JumpToBlockProduced),
+            "all_chunks_included" => Ok(DebugBlocksMode::JumpToAllChunksIncluded),
+            "first_skip" => Ok(DebugBlocksMode::JumpToBlockMiss),
+            _ => Err(format!("Invalid input: {}", input)),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DebugBlocksMode {
+    fn deserialize<D>(deserializer: D) -> Result<DebugBlocksMode, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        DebugBlocksMode::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct DebugBlockStatusQuery {
+    pub starting_height: Option<u64>,
+    #[serde(default = "default_block_status_mode")]
+    pub mode: DebugBlocksMode,
+    #[serde(default = "default_block_status_num_blocks")]
+    pub num_blocks: u64,
+}
+
+impl Default for DebugBlockStatusQuery {
+    fn default() -> Self {
+        Self {
+            starting_height: None,
+            mode: default_block_status_mode(),
+            num_blocks: default_block_status_num_blocks(),
+        }
+    }
+}
+
+fn default_block_status_mode() -> DebugBlocksMode {
+    DebugBlocksMode::All
+}
+
+fn default_block_status_num_blocks() -> u64 {
+    50
+}
+
 // Different debug requests that can be sent by HTML pages, via GET.
 #[derive(Debug)]
 pub enum DebugStatus {
@@ -184,7 +248,7 @@ pub enum DebugStatus {
     // Detailed information about last couple epochs.
     EpochInfo,
     // Detailed information about last couple blocks.
-    BlockStatus(Option<BlockHeight>),
+    BlockStatus(DebugBlockStatusQuery),
     // Consensus related information.
     ValidatorStatus,
     // Request for the current catchup status
