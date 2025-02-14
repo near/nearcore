@@ -8,12 +8,10 @@ use near_primitives::types::BlockReference;
 use near_primitives::views::BlockView;
 use node_runtime::metrics::TRANSACTION_PROCESSED_FAILED_TOTAL;
 use node_runtime::metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL;
-use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::sync::oneshot;
 use tokio::task;
 
 pub mod account;
@@ -47,7 +45,7 @@ pub struct TxGenerator {
     pub params: TxGeneratorConfig,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-    runner: Option<(task::JoinHandle<()>, oneshot::Sender<bool>)>,
+    runner: Option<task::JoinHandle<()>>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +58,7 @@ struct Stats {
 
 impl std::ops::Sub for Stats {
     type Output = Self;
+
     fn sub(self, other: Self) -> Self {
         Self {
             pool_accepted: self.pool_accepted - other.pool_accepted,
@@ -80,7 +79,7 @@ impl TxGenerator {
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
-        if let Some(_) = self.runner {
+        if self.runner.is_some() {
             anyhow::bail!("attempt to (re)start the running transaction generator");
         }
         // TODO(slavas): generate accounts on the fly?
@@ -90,7 +89,6 @@ impl TxGenerator {
         }
         let client_sender = self.client_sender.clone();
         let view_client_sender = self.view_client_sender.clone();
-        let (tx, mut _rx) = oneshot::channel::<bool>();
 
         if self.params.tps == 0 {
             anyhow::bail!("target TPS should be > 0");
@@ -134,12 +132,11 @@ impl TxGenerator {
                             diff=format!("{:?}", stats.clone() - stats_prev),);
                         stats_prev = stats.clone();
                     }
-                    // r = &mut rx => {} // triggered out of control
                 }
             }
         });
 
-        self.runner = Some((handle, tx));
+        self.runner = Some(handle);
         Ok(())
     }
 
@@ -153,21 +150,14 @@ impl TxGenerator {
     ) {
         const AMOUNT: near_primitives::types::Balance = 1_000;
 
-        let id_sender = Uniform::from(0..accounts.len()).sample(rnd);
-        let id_recv = loop {
-            let candidate = Uniform::from(0..accounts.len()).sample(rnd);
-            if candidate != id_sender {
-                break candidate;
-            }
-        };
-
-        let sender = &mut accounts[id_sender];
+        let idx = rand::seq::index::sample(rnd, accounts.len(), 2);
+        let sender = &mut accounts[idx.index(0)];
         sender.nonce += 1;
         let nonce = sender.nonce;
         let sender_id = sender.id.clone();
         let signer = sender.as_signer();
 
-        let receiver = &accounts[id_recv];
+        let receiver = &accounts[idx.index(1)];
         let transaction = SignedTransaction::send_money(
             nonce,
             sender_id,

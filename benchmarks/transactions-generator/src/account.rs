@@ -43,14 +43,10 @@ impl Account {
     pub fn as_signer(&self) -> Signer {
         Signer::from(InMemorySigner::from_secret_key(self.id.clone(), self.secret_key.clone()))
     }
-} // impl Account
+}
 
 /// Tries to deserialize all json files in `dir` as [`Account`].
 pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
-    if !dir.is_dir() {
-        anyhow::bail!("{:?} is not a directory", dir);
-    }
-
     let mut accounts = vec![];
     for entry in fs::read_dir(dir)? {
         let entry = entry?;

@@ -1,5 +1,4 @@
 use crate::{ClientSender, TxGenerator, TxGeneratorConfig, ViewClientSender};
-
 use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::futures::DelayedActionRunner;
