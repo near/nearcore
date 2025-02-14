@@ -17,6 +17,8 @@ use std::collections::{BTreeSet, HashMap};
 
 // Keeps track of the mapping of delayed receipts from a source shard to the
 // shards their receivers will belong to in the forked chain
+// We keep only the indices to save on memory usage even though we could store the receipts themselves.
+// Later when we commit the changes we read the receipts from the trie again.
 pub(crate) struct DelayedReceiptTracker {
     source_shard_uid: ShardUId,
     // indices[target_shard_idx] contains the delayed receipt indices in self.source_shard_uid that
