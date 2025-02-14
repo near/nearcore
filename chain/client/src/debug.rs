@@ -9,8 +9,8 @@ use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Block, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData,
-    DebugBlockStatusQuery, DebugBlocksMode, DebugStatus, DebugStatusResponse, MissedHeightInfo,
-    ProductionAtHeight, ValidatorStatus,
+    DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatus, DebugStatusResponse,
+    MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
 };
 use near_client_primitives::types::Error;
 use near_client_primitives::{
@@ -48,9 +48,13 @@ use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
 
-// Constants for debug requests.
+// Maximum number of blocks to search for the first block to display.
 const DEBUG_MAX_BLOCKS_TO_SEARCH: u64 = 10000;
+
+// Maximum number of blocks to fetch when displaying block status.
 const DEBUG_MAX_BLOCKS_TO_FETCH: u64 = 1000;
+
+// Number of epochs to fetch when displaying epoch info.
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 
 // How many old blocks (before HEAD) should be shown in debug page.
@@ -218,10 +222,10 @@ fn get_block_hashes_to_fetch(
 fn find_first_height_to_fetch(
     chain_store: &ChainStoreAdapter,
     mut height_to_fetch: BlockHeight,
-    mode: DebugBlocksMode,
+    mode: DebugBlocksStartingMode,
     final_height: BlockHeight,
 ) -> Result<BlockHeight, near_chain_primitives::Error> {
-    if matches!(mode, DebugBlocksMode::All) {
+    if matches!(mode, DebugBlocksStartingMode::All) {
         return Ok(height_to_fetch);
     }
 
@@ -232,24 +236,27 @@ fn find_first_height_to_fetch(
     while height_to_fetch > min_height_to_search {
         let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
         if block_hashes.is_empty() {
-            if matches!(mode, DebugBlocksMode::JumpToBlockMiss | DebugBlocksMode::JumpToChunkMiss) {
+            if matches!(
+                mode,
+                DebugBlocksStartingMode::JumpToBlockMiss | DebugBlocksStartingMode::JumpToChunkMiss
+            ) {
                 break;
             }
             height_to_fetch -= 1;
             continue;
         }
-        if matches!(mode, DebugBlocksMode::JumpToBlockProduced) {
+        if matches!(mode, DebugBlocksStartingMode::JumpToBlockProduced) {
             break;
         }
 
         let block_header = chain_store.get_block_header(&block_hashes[0])?;
         let all_chunks_included = block_header.chunk_mask().iter().all(|&x| x);
         if all_chunks_included {
-            if matches!(mode, DebugBlocksMode::JumpToAllChunksIncluded) {
+            if matches!(mode, DebugBlocksStartingMode::JumpToAllChunksIncluded) {
                 break;
             }
         } else {
-            if matches!(mode, DebugBlocksMode::JumpToChunkMiss) {
+            if matches!(mode, DebugBlocksStartingMode::JumpToChunkMiss) {
                 break;
             }
         }

@@ -16,7 +16,7 @@ use near_client::{
     GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
     ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
 };
-use near_client_primitives::debug::{DebugBlockStatusQuery, DebugBlocksMode};
+use near_client_primitives::debug::{DebugBlockStatusQuery, DebugBlocksStartingMode};
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
 pub use near_jsonrpc_primitives as primitives;
@@ -1466,7 +1466,6 @@ async fn debug_block_status_handler(
     query: web::Query<DebugBlockStatusQuery>,
     handler: web::Data<JsonRpcHandler>,
 ) -> Result<HttpResponse, HttpError> {
-    tracing::debug!(target: "chain", "DEBUGDEBUG debug_block_status_handler: {:?}", query.0);
     match handler.debug_block_status(query.0).await {
         Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
@@ -1474,6 +1473,7 @@ async fn debug_block_status_handler(
     }
 }
 
+#[deprecated(since = "2.6.0", note = "Use debug_block_status_handler instead")]
 async fn deprecated_debug_block_status_handler(
     path: web::Path<u64>,
     handler: web::Data<JsonRpcHandler>,
@@ -1481,7 +1481,7 @@ async fn deprecated_debug_block_status_handler(
     match handler
         .debug_block_status(DebugBlockStatusQuery {
             starting_height: Some(*path),
-            mode: DebugBlocksMode::All,
+            mode: DebugBlocksStartingMode::All,
             num_blocks: 50,
         })
         .await
@@ -1490,12 +1490,6 @@ async fn deprecated_debug_block_status_handler(
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct DebugRpcEpochInfoRequest {
-    #[serde(flatten)]
-    pub epoch_id: near_primitives::types::EpochId,
 }
 
 async fn health_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
@@ -1668,10 +1662,12 @@ pub fn start_http(
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
-            .service(
-                web::resource("/debug/api/block_status/{starting_height}")
-                    .route(web::get().to(deprecated_debug_block_status_handler)),
-            )
+            .service(web::resource("/debug/api/block_status/{starting_height}").route(
+                web::get().to(
+                    #[allow(deprecated)]
+                    deprecated_debug_block_status_handler,
+                ),
+            ))
             .service(
                 web::resource("/debug/api/block_status")
                     .route(web::get().to(debug_block_status_handler)),
