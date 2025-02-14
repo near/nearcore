@@ -668,8 +668,7 @@ pub fn clear_columns<'a>(
     }
     drop(hot_db);
     // Here we call open_dbs() to recreate the dropped columns, which should now be empty.
-    let (_hot_db, _hot_snapshot, _cold_db, _cold_snapshot) =
-        opener.open_dbs(Mode::ReadWriteExisting)?;
+    let _ = opener.open_dbs(Mode::ReadWriteExisting)?;
     Ok(())
 }
 
