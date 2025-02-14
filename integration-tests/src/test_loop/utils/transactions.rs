@@ -351,7 +351,6 @@ pub fn use_global_contract(
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
 
-    tracing::debug!(target: "test", ?account_id, ?tx_hash, "used global contract");
     tx_hash
 }
 
