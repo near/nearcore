@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# cspell:word benchnet mpstat
+
 set -o errexit
 
 CASE="${2:-$CASE}"
@@ -111,8 +113,8 @@ tweak_config() {
         edit_config ${CONFIG}
         edit_log_config ${LOG_CONFIG}
         # set single node RPC port to known value
-        jq --arg newval "${RPC_ADDR}" \
-            '.rpc.addr |= $newval' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+        jq --arg val "${RPC_ADDR}" \
+            '.rpc.addr |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     else
         for node in "${NEAR_HOMES[@]}"; do
             edit_genesis ${node}/genesis.json
@@ -120,8 +122,8 @@ tweak_config() {
             edit_log_config ${node}/log_config.json
         done
         # set single node RPC port to known value
-        jq --arg newval "${RPC_ADDR}" \
-            '.rpc.addr |= $newval' ${NEAR_HOMES[-1]}/config.json > tmp.$$.json && mv tmp.$$.json ${NEAR_HOMES[-1]}/config.json || rm tmp.$$.json
+        jq --arg val "${RPC_ADDR}" \
+            '.rpc.addr |= $val' ${NEAR_HOMES[-1]}/config.json > tmp.$$.json && mv tmp.$$.json ${NEAR_HOMES[-1]}/config.json || rm tmp.$$.json
     fi
     echo "===> Done"
 }
