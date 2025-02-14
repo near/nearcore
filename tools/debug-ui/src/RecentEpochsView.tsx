@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { parse } from 'date-fns';
 import { EpochInfoView, fetchEpochInfo, fetchFullStatus } from './api';
-import { formatDurationInMillis } from './utils';
 import './RecentEpochsView.scss';
+import { formatDurationInMillis } from './utils';
 
 type RecentEpochsViewProps = {
     addr: string;
@@ -13,7 +13,7 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
         data: epochData,
         error: epochError,
         isLoading: epochIsLoading,
-    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr));
+    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr, null));
     const {
         data: statusData,
         error: statusError,
@@ -43,7 +43,6 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                     <th>Block Producers</th>
                     <th>Chunk Producers</th>
                     <th>Chunk Validators</th>
-                    <th>Chunk-only Producers</th>
                 </tr>
             </thead>
             <tbody>
@@ -104,9 +103,12 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
                             <td>{firstBlockColumn}</td>
                             <td>{epochStartColumn}</td>
                             <td>{epochInfo.block_producers.length}</td>
-                            <td>{getChunkProducersTotal(epochInfo)}</td>
-                            <td>{getChunkValidatorsTotal(epochInfo)}</td>
-                            <td>{epochInfo.chunk_only_producers.length}</td>
+                            <td>
+                                {epochInfo.chunk_producers?.length || getChunkProducersTotal(epochInfo)}
+                            </td>
+                            <td>
+                                {epochInfo.chunk_validators?.length || getChunkValidatorsTotal(epochInfo)}
+                            </td>
                         </tr>
                     );
                 })}
@@ -115,6 +117,7 @@ export const RecentEpochsView = ({ addr }: RecentEpochsViewProps) => {
     );
 };
 
+// TODO(2.6): remove as superseded by chunk_producers field.
 function getChunkProducersTotal(epochInfo: EpochInfoView) {
     return (
         epochInfo.validator_info?.current_validators.reduce((acc, it) => {
@@ -126,6 +129,7 @@ function getChunkProducersTotal(epochInfo: EpochInfoView) {
     );
 }
 
+// TODO(2.6): remove as superseded by chunk_validators field.
 function getChunkValidatorsTotal(epochInfo: EpochInfoView) {
     return (
         epochInfo.validator_info?.current_validators.reduce((acc, it) => {

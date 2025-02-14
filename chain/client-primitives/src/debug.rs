@@ -30,7 +30,8 @@ pub struct EpochInfoView {
     pub height: BlockHeight,
     pub first_block: Option<(CryptoHash, Utc)>,
     pub block_producers: Vec<ValidatorInfo>,
-    pub chunk_only_producers: Vec<String>,
+    pub chunk_producers: Vec<String>,
+    pub chunk_validators: Vec<String>,
     pub validator_info: Option<EpochValidatorInfo>,
     pub protocol_version: u32,
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
@@ -182,7 +183,7 @@ pub enum DebugStatus {
     // Request currently tracked shards
     TrackedShards,
     // Detailed information about last couple epochs.
-    EpochInfo,
+    EpochInfo(Option<EpochId>),
     // Detailed information about last couple blocks.
     BlockStatus(Option<BlockHeight>),
     // Consensus related information.

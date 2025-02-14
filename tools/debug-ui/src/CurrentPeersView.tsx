@@ -1,8 +1,8 @@
-import { MouseEvent, useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { MouseEvent, useCallback, useMemo, useState } from 'react';
 import { PeerInfoView, fetchEpochInfo, fetchFullStatus } from './api';
-import { addDebugPortLink, formatDurationInMillis, formatTraffic } from './utils';
 import './CurrentPeersView.scss';
+import { addDebugPortLink, formatDurationInMillis, formatTraffic } from './utils';
 
 type NetworkInfoViewProps = {
     addr: string;
@@ -55,7 +55,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
         data: epochInfo,
         error: epochInfoError,
         isLoading: epochInfoLoading,
-    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr));
+    } = useQuery(['epochInfo', addr], () => fetchEpochInfo(addr, null));
 
     const { blockProducers, chunkProducers, knownSet, reachableSet, numPeersByStatus, peers } =
         useMemo(() => {
@@ -75,7 +75,7 @@ export const CurrentPeersView = ({ addr }: NetworkInfoViewProps) => {
                         blockProducers = new Set(
                             oneEpoch.block_producers.map((bp) => bp.account_id)
                         );
-                        chunkProducers = new Set(oneEpoch.chunk_only_producers);
+                        chunkProducers = new Set(oneEpoch.chunk_producers || []);
                         break;
                     }
                 }

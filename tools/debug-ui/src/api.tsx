@@ -182,7 +182,8 @@ export interface EpochInfoView {
     height: number;
     first_block: null | [string, string];
     block_producers: ValidatorInfo[];
-    chunk_only_producers: string[];
+    chunk_producers: string[];
+    chunk_validators: string[];
     validator_info: EpochValidatorInfo;
     protocol_version: number;
     shards_size_and_parts: [number, number, boolean][];
@@ -236,6 +237,7 @@ export type ValidatorKickoutReason =
     | 'Slashed'
     | { NotEnoughBlocks: { produced: number; expected: number } }
     | { NotEnoughChunks: { produced: number; expected: number } }
+    | { NotEnoughChunkEndorsements: { produced: number; expected: number } }
     | 'Unstaked'
     | { NotEnoughStake: { stake: string; threshold: string } }
     | 'DidNotGetASeat';
@@ -442,8 +444,17 @@ export async function fetchBlockStatus(
     return await response.json();
 }
 
-export async function fetchEpochInfo(addr: string): Promise<EpochInfoResponse> {
-    const response = await fetch(`http://${addr}/debug/api/epoch_info`);
+export async function fetchEpochInfo(
+    addr: string, 
+    epochId: string | null
+): Promise<EpochInfoResponse> {
+    const trailing = epochId ? `/${epochId}` : '';
+    const response = await fetch(`http://${addr}/debug/api/epoch_info${trailing}`);
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch epoch info: ${response.statusText}`);
+    }
+
     return await response.json();
 }
 
