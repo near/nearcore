@@ -113,17 +113,16 @@ impl TransactionStatisticsService {
     /// transactions.
     ///
     /// Should be called inside a tokio task, as it waits for transaction processing to end.
-    pub async fn start(mut self) {
-        // TODO return result and get rid of unwraps.
+    pub async fn start(mut self) -> anyhow::Result<()> {
         // Wait for transaction processing to start.
-        let report = self.get_report().await.unwrap();
-        let initial_count = SuccessfulTxsMetric::from_report(&report, Instant::now()).unwrap();
+        let report = self.get_report().await?;
+        let initial_count = SuccessfulTxsMetric::from_report(&report, Instant::now())?;
         let mut interval_wait_txs_start = time::interval(Duration::from_millis(100));
         info!("Waiting for transaction processing to start");
         loop {
             interval_wait_txs_start.tick().await;
-            let report = self.get_report().await.unwrap();
-            let metric = SuccessfulTxsMetric::from_report(&report, Instant::now()).unwrap();
+            let report = self.get_report().await?;
+            let metric = SuccessfulTxsMetric::from_report(&report, Instant::now())?;
             if metric.num > initial_count.num {
                 self.data_t0 = metric;
                 self.data_t1 = metric;
@@ -138,8 +137,8 @@ impl TransactionStatisticsService {
         self.refresh_interval.tick().await;
         loop {
             self.refresh_interval.tick().await;
-            let report = self.get_report().await.unwrap();
-            let new_metric = SuccessfulTxsMetric::from_report(&report, Instant::now()).unwrap();
+            let report = self.get_report().await?;
+            let new_metric = SuccessfulTxsMetric::from_report(&report, Instant::now())?;
 
             if !(new_metric.num > self.data_t2.num) {
                 // No progress since the last observation, so assuming the workload is finished.
@@ -159,6 +158,8 @@ impl TransactionStatisticsService {
             Hence for workloads running more than a few secs, TPS are representative.
         "#
         );
+
+        Ok(())
     }
 
     async fn get_report(&self) -> anyhow::Result<String> {
@@ -169,7 +170,7 @@ impl TransactionStatisticsService {
     /// the lifetime of `self`. Reports TPS of zero if the observation period is less than 1 second.
     fn log_tps(&self) -> u64 {
         // Using `data_t1` as transaction processing was still ongoing at `t1`.
-        // Don't use `t2` as processing might have stopped before `t2`, see the fields doc comments.
+        // Don't use `t2` as processing might have stopped before `t2`, see field doc comments.
         let elapsed_secs = (self.data_t1.time - self.data_t0.time).as_secs();
         if !(elapsed_secs > 0) {
             return 0;
