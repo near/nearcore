@@ -490,6 +490,7 @@ impl Runtime {
                     account,
                     use_global_contract,
                     apply_state.current_protocol_version,
+                    &mut result,
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -503,13 +504,17 @@ impl Runtime {
                     }
                     AccountContract::GlobalByAccount(account_id) => {
                         let identifier = GlobalContractIdentifier::AccountId(account_id.clone());
-                        let key =
-                            TrieKey::GlobalContractCode { identifier: identifier.clone().into() };
+                        let key = TrieKey::GlobalContractCode { identifier: identifier.into() };
                         let value_ref = state_update
                             .get_ref(&key, KeyLookupMode::FlatStorage)?
-                            .ok_or(RuntimeError::GlobalContractError(
-                                GlobalContractError::IdentifierNotFound(identifier),
-                            ))?;
+                            .ok_or_else(|| {
+                                let TrieKey::GlobalContractCode { identifier } = key else {
+                                    unreachable!()
+                                };
+                                RuntimeError::GlobalContractError(
+                                    GlobalContractError::IdentifierNotFound(identifier.into()),
+                                )
+                            })?;
                         value_ref.value_hash()
                     }
                 };

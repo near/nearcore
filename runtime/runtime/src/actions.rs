@@ -15,9 +15,7 @@ use near_primitives::action::{
 };
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
-use near_primitives::errors::{
-    ActionError, ActionErrorKind, GlobalContractError, InvalidAccessKeyError, RuntimeError,
-};
+use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
@@ -676,13 +674,16 @@ pub(crate) fn action_use_global_contract(
     account: &mut Account,
     action: &UseGlobalContractAction,
     current_protocol_version: ProtocolVersion,
+    result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
     if !state_update.contains_key(&key)? {
-        return Err(RuntimeError::GlobalContractError(GlobalContractError::IdentifierNotFound(
-            action.contract_identifier.clone(),
-        )));
+        result.result = Err(ActionErrorKind::GlobalContractIdentifierNotFound {
+            identifier: action.contract_identifier.clone(),
+        }
+        .into());
+        return Ok(());
     }
     if let AccountContract::Local(code_hash) = account.contract().as_ref() {
         let prev_code_len = get_code_len_or_default(
@@ -692,8 +693,7 @@ pub(crate) fn action_use_global_contract(
             current_protocol_version,
         )?;
         account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
-        let key = TrieKey::ContractCode { account_id: account_id.clone() };
-        state_update.remove(key);
+        state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
     }
     let contract = match &action.contract_identifier {
         GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),

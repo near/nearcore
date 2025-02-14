@@ -318,7 +318,7 @@ pub fn deploy_global_contract(
 
     let tx = SignedTransaction::deploy_global_contract(
         nonce,
-        account_id,
+        account_id.clone(),
         code,
         &signer,
         block_hash,
