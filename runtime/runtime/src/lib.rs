@@ -66,9 +66,9 @@ use near_store::{
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
-use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
+use near_vm_runner::{precompile_contract, ContractCode};
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
@@ -920,6 +920,8 @@ impl Runtime {
     fn apply_global_contract_distribution_receipt(
         &self,
         receipt: &Receipt,
+        config: Arc<near_parameters::vm::Config>,
+        cache: Option<&dyn ContractRuntimeCache>,
         state_update: &mut TrieUpdate,
     ) {
         let _span = tracing::debug_span!(
@@ -946,6 +948,11 @@ impl Runtime {
         state_update.set(trie_key, global_contract_data.code.to_vec());
         state_update
             .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+        let _ = precompile_contract(
+            &ContractCode::new(global_contract_data.code.to_vec(), None),
+            config,
+            cache,
+        );
     }
 
     fn generate_refund_receipts(
@@ -1221,7 +1228,12 @@ impl Runtime {
                 }
             }
             ReceiptEnum::GlobalContractDistribution(_) => {
-                self.apply_global_contract_distribution_receipt(receipt, state_update);
+                self.apply_global_contract_distribution_receipt(
+                    receipt,
+                    processing_state.apply_state.config.wasm_config.clone(),
+                    processing_state.apply_state.cache.as_deref(),
+                    state_update,
+                );
                 return Ok(None);
             }
         };
