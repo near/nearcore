@@ -8,6 +8,8 @@ use contract::BenchmarkMpcSignArgs;
 mod metrics;
 mod native_transfer;
 mod rpc;
+mod workloads;
+use workloads::sweat::BenchmarkSweatArgs;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -23,6 +25,7 @@ enum Commands {
     CreateSubAccounts(CreateSubAccountsArgs),
     BenchmarkNativeTransfers(native_transfer::BenchmarkArgs),
     BenchmarkMpcSign(BenchmarkMpcSignArgs),
+    BenchmarkSweat(BenchmarkSweatArgs),
 }
 
 #[tokio::main]
@@ -41,6 +44,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::BenchmarkMpcSign(args) => {
             contract::benchmark_mpc_sign(args).await?;
+        }
+        Commands::BenchmarkSweat(args) => {
+            workloads::sweat::benchmark_sweat(args).await?;
         }
     }
     Ok(())
