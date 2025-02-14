@@ -195,9 +195,7 @@ impl StorageMutator {
         self.updates.len() >= batch_size as usize
     }
 
-    /// The fake block height is used to allow memtries to garbage collect.
-    /// Otherwise it would take significantly more memory holding old nodes.
-
+    /// Commits any pending trie changes for all shards
     pub(crate) fn commit(self) -> anyhow::Result<()> {
         let Self { updates, shard_tries, shard_layout } = self;
 
