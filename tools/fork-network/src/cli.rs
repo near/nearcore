@@ -663,7 +663,7 @@ impl ForkNetworkCommand {
                         let new_shard_id = shard_layout.account_id_to_shard_id(&new_account_id);
                         let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
 
-                        storage_mutator.remove(shard_idx, key)?;
+                        storage_mutator.remove_access_key(shard_idx, account_id, public_key)?;
                         storage_mutator.set_access_key(
                             new_shard_idx,
                             new_account_id,
@@ -673,16 +673,20 @@ impl ForkNetworkCommand {
                     }
 
                     StateRecord::Account { account_id, account } => {
-                        storage_mutator.map_account(shard_idx, key, account_id, account)?;
+                        storage_mutator.map_account(shard_idx, account_id, account)?;
                     }
                     StateRecord::Data { account_id, data_key, value } => {
-                        storage_mutator.map_data(shard_idx, key, account_id, &data_key, value)?;
+                        storage_mutator.map_data(shard_idx, account_id, &data_key, value)?;
                     }
                     StateRecord::Contract { account_id, code } => {
-                        storage_mutator.map_code(shard_idx, key, account_id, code)?;
+                        storage_mutator.map_code(shard_idx, account_id, code)?;
                     }
                     StateRecord::PostponedReceipt(mut receipt) => {
-                        storage_mutator.remove(shard_idx, key)?;
+                        storage_mutator.remove_postponed_receipt(
+                            shard_idx,
+                            receipt.receiver_id().clone(),
+                            *receipt.receipt_id(),
+                        )?;
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
 
                         let new_shard_id =
@@ -692,8 +696,7 @@ impl ForkNetworkCommand {
                         storage_mutator.set_postponed_receipt(new_shard_idx, &receipt)?;
                     }
                     StateRecord::ReceivedData { account_id, data_id, data } => {
-                        storage_mutator
-                            .map_received_data(shard_idx, key, account_id, data_id, &data)?;
+                        storage_mutator.map_received_data(shard_idx, account_id, data_id, &data)?;
                     }
                     StateRecord::DelayedReceipt(receipt) => {
                         let new_account_id = map_account(receipt.receipt.receiver_id(), None);

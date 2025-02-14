@@ -97,15 +97,15 @@ impl ShardUpdateState {
 
 struct ShardUpdates {
     update_state: ShardUpdateState,
-    updates: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    updates: Vec<(TrieKey, Option<Vec<u8>>)>,
 }
 
 impl ShardUpdates {
     fn set(&mut self, key: TrieKey, value: Vec<u8>) {
-        self.updates.push((key.to_vec(), Some(value)));
+        self.updates.push((key, Some(value)));
     }
 
-    fn remove(&mut self, key: Vec<u8>) {
+    fn remove(&mut self, key: TrieKey) {
         self.updates.push((key, None));
     }
 }
@@ -137,7 +137,7 @@ impl StorageMutator {
         Ok(())
     }
 
-    pub(crate) fn remove(&mut self, shard_idx: ShardIndex, key: Vec<u8>) -> anyhow::Result<()> {
+    pub(crate) fn remove(&mut self, shard_idx: ShardIndex, key: TrieKey) -> anyhow::Result<()> {
         self.updates[shard_idx].remove(key);
         Ok(())
     }
@@ -154,7 +154,6 @@ impl StorageMutator {
     pub(crate) fn map_account(
         &mut self,
         source_shard_idx: ShardIndex,
-        trie_key: Vec<u8>,
         account_id: AccountId,
         account: Account,
     ) -> anyhow::Result<()> {
@@ -163,7 +162,7 @@ impl StorageMutator {
         let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
 
         if new_account_id != account_id || source_shard_idx != new_shard_idx {
-            self.remove(source_shard_idx, trie_key)?;
+            self.remove(source_shard_idx, TrieKey::Account { account_id })?;
             self.set(
                 new_shard_idx,
                 TrieKey::Account { account_id: new_account_id },
@@ -171,6 +170,15 @@ impl StorageMutator {
             )?;
         }
         Ok(())
+    }
+
+    pub(crate) fn remove_access_key(
+        &mut self,
+        shard_idx: ShardIndex,
+        account_id: AccountId,
+        public_key: PublicKey,
+    ) -> anyhow::Result<()> {
+        self.remove(shard_idx, TrieKey::AccessKey { account_id, public_key })
     }
 
     pub(crate) fn set_access_key(
@@ -190,7 +198,6 @@ impl StorageMutator {
     pub(crate) fn map_data(
         &mut self,
         source_shard_idx: ShardIndex,
-        trie_key: Vec<u8>,
         account_id: AccountId,
         data_key: &StoreKey,
         value: StoreValue,
@@ -200,7 +207,10 @@ impl StorageMutator {
         let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
 
         if new_account_id != account_id || source_shard_idx != new_shard_idx {
-            self.remove(source_shard_idx, trie_key)?;
+            self.remove(
+                source_shard_idx,
+                TrieKey::ContractData { account_id, key: data_key.to_vec() },
+            )?;
             self.set(
                 new_shard_idx,
                 TrieKey::ContractData { account_id: new_account_id, key: data_key.to_vec() },
@@ -213,7 +223,6 @@ impl StorageMutator {
     pub(crate) fn map_code(
         &mut self,
         source_shard_idx: ShardIndex,
-        trie_key: Vec<u8>,
         account_id: AccountId,
         value: Vec<u8>,
     ) -> anyhow::Result<()> {
@@ -222,10 +231,19 @@ impl StorageMutator {
         let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
 
         if new_account_id != account_id || source_shard_idx != new_shard_idx {
-            self.remove(source_shard_idx, trie_key)?;
+            self.remove(source_shard_idx, TrieKey::ContractCode { account_id })?;
             self.set(new_shard_idx, TrieKey::ContractCode { account_id: new_account_id }, value)?;
         }
         Ok(())
+    }
+
+    pub(crate) fn remove_postponed_receipt(
+        &mut self,
+        shard_idx: ShardIndex,
+        receiver_id: AccountId,
+        receipt_id: CryptoHash,
+    ) -> anyhow::Result<()> {
+        self.remove(shard_idx, TrieKey::PostponedReceipt { receiver_id, receipt_id })
     }
 
     pub(crate) fn set_postponed_receipt(
@@ -246,7 +264,6 @@ impl StorageMutator {
     pub(crate) fn map_received_data(
         &mut self,
         source_shard_idx: ShardIndex,
-        trie_key: Vec<u8>,
         account_id: AccountId,
         data_id: CryptoHash,
         data: &Option<Vec<u8>>,
@@ -256,7 +273,10 @@ impl StorageMutator {
         let new_shard_idx = self.shard_layout.get_shard_index(new_shard_id).unwrap();
 
         if new_account_id != account_id || source_shard_idx != new_shard_idx {
-            self.remove(source_shard_idx, trie_key)?;
+            self.remove(
+                source_shard_idx,
+                TrieKey::ReceivedData { receiver_id: account_id, data_id },
+            )?;
             self.set(
                 new_shard_idx,
                 TrieKey::ReceivedData { receiver_id: new_account_id, data_id },
@@ -287,11 +307,13 @@ pub(crate) fn commit_shard(
     shard_uid: ShardUId,
     shard_tries: &ShardTries,
     update_state: &ShardUpdateState,
-    updates: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    updates: Vec<(TrieKey, Option<Vec<u8>>)>,
 ) -> anyhow::Result<()> {
     if updates.is_empty() {
         return Ok(());
     }
+    let updates =
+        updates.into_iter().map(|(trie_key, value)| (trie_key.to_vec(), value)).collect::<Vec<_>>();
 
     let mut root = update_state.root.lock().unwrap();
     let num_updates = updates.len();

@@ -42,10 +42,8 @@ impl DelayedReceiptTracker {
     }
 }
 
-fn remove_source_receipt_index(trie_updates: &mut HashMap<Vec<u8>, Option<Vec<u8>>>, index: u64) {
-    let key = TrieKey::DelayedReceipt { index };
-
-    if let Entry::Vacant(e) = trie_updates.entry(key.to_vec()) {
+fn remove_source_receipt_index(trie_updates: &mut HashMap<u64, Option<Vec<u8>>>, index: u64) {
+    if let Entry::Vacant(e) = trie_updates.entry(index) {
         e.insert(None);
     }
 }
@@ -77,20 +75,17 @@ fn read_delayed_receipt(
 }
 
 fn set_target_delayed_receipt(
-    trie_updates: &mut HashMap<Vec<u8>, Option<Vec<u8>>>,
+    trie_updates: &mut HashMap<u64, Option<Vec<u8>>>,
     target_index: &mut u64,
     mut receipt: Receipt,
     default_key: &PublicKey,
 ) {
-    let target_key = TrieKey::DelayedReceipt { index: *target_index };
-    let target_key = target_key.to_vec();
-    *target_index += 1;
-
     near_mirror::genesis::map_receipt(&mut receipt, None, default_key);
 
     let value = ReceiptOrStateStoredReceipt::Receipt(Cow::Owned(receipt));
     let value = borsh::to_vec(&value).unwrap();
-    trie_updates.insert(target_key, Some(value));
+    trie_updates.insert(*target_index, Some(value));
+    *target_index += 1;
 }
 
 // This should be called after push() has been called on each DelayedReceiptTracker in `trackers`
@@ -160,13 +155,15 @@ pub(crate) fn write_delayed_receipts(
         let shard_id = shard_layout.get_shard_id(shard_idx).unwrap();
         let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
 
-        let mut updates = updates.into_iter().collect::<Vec<_>>();
+        let mut updates = updates
+            .into_iter()
+            .map(|(index, value)| (TrieKey::DelayedReceipt { index }, value))
+            .collect::<Vec<_>>();
 
         let next_available_index = next_index[shard_idx];
-        let key = TrieKey::DelayedReceiptIndices.to_vec();
         let indices = TrieQueueIndices { first_index: 0, next_available_index };
         let value = borsh::to_vec(&indices).unwrap();
-        updates.push((key, Some(value)));
+        updates.push((TrieKey::DelayedReceiptIndices, Some(value)));
         crate::storage_mutator::commit_shard(shard_uid, &shard_tries, update_state, updates)
             .context("failed committing trie changes")?
     }
