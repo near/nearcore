@@ -6,8 +6,7 @@ use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
@@ -23,7 +22,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
+    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, StateRoot,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
@@ -40,7 +39,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
@@ -130,18 +128,20 @@ struct SetValidatorsCmd {
     pub num_seats: Option<NumSeats>,
 }
 
-const FORKED_ROOTS_KEY_PREFIX: &str = "FORK_TOOL_SHARD_ID:";
+const FORKED_ROOTS_KEY_PREFIX: &[u8; 20] = b"FORK_TOOL_SHARD_UID:";
 
-fn parse_state_roots_key(key: &[u8]) -> anyhow::Result<ShardId> {
-    let key = std::str::from_utf8(key)?;
+fn parse_state_roots_key(key: &[u8]) -> anyhow::Result<ShardUId> {
     // Sanity check assertion since we should be iterating based on this prefix
     assert!(key.starts_with(FORKED_ROOTS_KEY_PREFIX));
-    let int_part = &key[FORKED_ROOTS_KEY_PREFIX.len()..];
-    ShardId::from_str(int_part).with_context(|| format!("Failed parsing ShardId from {}", int_part))
+    let shard_uid_part = &key[FORKED_ROOTS_KEY_PREFIX.len()..];
+    borsh::from_slice(shard_uid_part)
+        .with_context(|| format!("Failed parsing ShardUId from fork tool key {:?}", key))
 }
 
-fn make_state_roots_key(shard_id: ShardId) -> Vec<u8> {
-    format!("{FORKED_ROOTS_KEY_PREFIX}{shard_id}").into_bytes()
+pub(crate) fn make_state_roots_key(shard_uid: ShardUId) -> Vec<u8> {
+    let mut key = FORKED_ROOTS_KEY_PREFIX.to_vec();
+    key.append(&mut borsh::to_vec(&shard_uid).unwrap());
+    key
 }
 
 /// The minimum set of columns that will be needed to start a node after the `finalize` command runs
@@ -313,11 +313,9 @@ impl ForkNetworkCommand {
 
         // Advance flat heads to the same (max) block height to ensure
         // consistency of state across the shards.
-        let state_roots: Vec<(ShardId, StateRoot)> = shard_layout
-            .shard_ids()
-            .map(|shard_id| {
-                let shard_uid =
-                    shard_id_to_uid(epoch_manager.as_ref(), shard_id, epoch_id).unwrap();
+        let state_roots: Vec<(ShardUId, StateRoot)> = shard_layout
+            .shard_uids()
+            .map(|shard_uid| {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
                     flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
@@ -325,8 +323,8 @@ impl ForkNetworkCommand {
                 let chunk_extra =
                     chain.get_chunk_extra(&desired_flat_head.hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
-                tracing::info!(?shard_id, ?epoch_id, ?state_root);
-                (shard_id, *state_root)
+                tracing::info!(?shard_uid, ?epoch_id, ?state_root);
+                (shard_uid, *state_root)
             })
             .collect();
 
@@ -341,8 +339,8 @@ impl ForkNetworkCommand {
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD", &desired_flat_head)?;
-        for (shard_id, state_root) in state_roots.iter() {
-            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_id), state_root)?;
+        for (shard_uid, state_root) in state_roots.iter() {
+            store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
         store_update.commit()?;
         Ok(())
@@ -386,7 +384,7 @@ impl ForkNetworkCommand {
             Some(home_dir),
         );
         let (prev_state_roots, flat_head, epoch_id) =
-            self.get_state_roots_and_hash(store.clone(), &epoch_manager)?;
+            self.get_state_roots_and_hash(store.clone())?;
         tracing::info!(?prev_state_roots, ?epoch_id, ?flat_head);
 
         let source_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
@@ -464,7 +462,7 @@ impl ForkNetworkCommand {
         );
 
         let (prev_state_roots, flat_head, epoch_id) =
-            self.get_state_roots_and_hash(store.clone(), &epoch_manager)?;
+            self.get_state_roots_and_hash(store.clone())?;
 
         let runtime = NightshadeRuntime::from_config(
             home_dir,
@@ -552,18 +550,13 @@ impl ForkNetworkCommand {
     fn get_state_roots_and_hash(
         &self,
         store: Store,
-        epoch_manager: &EpochManagerHandle,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
         let flat_head = store.get_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD")?.unwrap();
-        let shard_layout = epoch_manager
-            .get_shard_layout(&epoch_id)
-            .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
         let mut state_roots = HashMap::new();
-        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
+        for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let (key, value) = item?;
-            let shard_id = parse_state_roots_key(&key)?;
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            let shard_uid = parse_state_roots_key(&key)?;
             let state_root: StateRoot = borsh::from_slice(&value)?;
 
             state_roots.insert(shard_uid, state_root);

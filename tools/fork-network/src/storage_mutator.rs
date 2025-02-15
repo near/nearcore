@@ -411,11 +411,8 @@ fn commit_to_existing_state(
     root.state_root = state_root;
 
     tracing::info!(?shard_uid, num_updates, "committing");
-    update.store_update().set_ser(
-        DBCol::Misc,
-        format!("FORK_TOOL_SHARD_ID:{}", shard_uid.shard_id).as_bytes(),
-        &state_root,
-    )?;
+    let key = crate::cli::make_state_roots_key(shard_uid);
+    update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
 
     update.commit()?;
     tracing::info!(?shard_uid, ?state_root, "Commit is done");
@@ -446,11 +443,8 @@ fn commit_to_new_state(
     let state_root = shard_tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     FlatStateChanges::from_state_changes(&state_changes)
         .apply_to_flat_state(&mut store_update.flat_store_update(), shard_uid);
-    store_update.store_update().set_ser(
-        DBCol::Misc,
-        format!("FORK_TOOL_SHARD_ID:{}", shard_uid.shard_id).as_bytes(),
-        &state_root,
-    )?;
+    let key = crate::cli::make_state_roots_key(shard_uid);
+    store_update.store_update().set_ser(DBCol::Misc, &key, &state_root)?;
     tracing::info!(?shard_uid, "committing initial state to new shard");
     store_update
         .commit()
