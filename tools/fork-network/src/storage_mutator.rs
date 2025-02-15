@@ -1,7 +1,9 @@
-use near_chain::types::RuntimeAdapter;
 use near_crypto::PublicKey;
 use near_mirror::key_mapping::map_account;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::bandwidth_scheduler::{
+    BandwidthSchedulerState, BandwidthSchedulerStateV1, LinkAllowance,
+};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -12,10 +14,9 @@ use near_primitives::types::{
 };
 use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::flat::{FlatStateChanges, FlatStorageStatus};
+use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{DBCol, ShardTries};
-use nearcore::NightshadeRuntime;
 
 use anyhow::Context;
 use std::collections::{HashMap, HashSet};
@@ -84,18 +85,18 @@ impl ShardUpdateState {
         flat_store: &FlatStoreAdapter,
         source_shard_layout: &ShardLayout,
         target_shard_layout: &ShardLayout,
-        state_roots: HashMap<ShardUId, CryptoHash>,
+        state_roots: &HashMap<ShardUId, CryptoHash>,
     ) -> anyhow::Result<Vec<Self>> {
         let source_shards = source_shard_layout.shard_uids().collect::<HashSet<_>>();
         assert_eq!(&source_shards, &state_roots.iter().map(|(k, _v)| *k).collect::<HashSet<_>>());
         let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
         let mut update_state = vec![None; target_shards.len()];
-        for (shard_uid, state_root) in state_roots {
-            if !target_shards.contains(&shard_uid) {
+        for (shard_uid, state_root) in state_roots.iter() {
+            if !target_shards.contains(shard_uid) {
                 continue;
             }
 
-            let state = Self::new(&flat_store, shard_uid, state_root)?;
+            let state = Self::new(&flat_store, *shard_uid, *state_root)?;
 
             let shard_idx = target_shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
             assert!(update_state[shard_idx].is_none());
@@ -141,7 +142,6 @@ impl ShardUpdates {
 pub(crate) struct StorageMutator {
     updates: Vec<ShardUpdates>,
     shard_tries: ShardTries,
-    source_shard_layout: ShardLayout,
     target_shard_layout: ShardLayout,
     // For efficiency/convenience
     target_shards: HashSet<ShardUId>,
@@ -156,9 +156,8 @@ struct MappedAccountId {
 
 impl StorageMutator {
     pub(crate) fn new(
-        runtime: &NightshadeRuntime,
+        shard_tries: ShardTries,
         update_state: Vec<ShardUpdateState>,
-        source_shard_layout: ShardLayout,
         target_shard_layout: ShardLayout,
     ) -> anyhow::Result<Self> {
         let updates = update_state
@@ -166,13 +165,7 @@ impl StorageMutator {
             .map(|update_state| ShardUpdates { update_state, updates: Vec::new() })
             .collect();
         let target_shards = target_shard_layout.shard_uids().collect();
-        Ok(Self {
-            updates,
-            shard_tries: runtime.get_tries(),
-            source_shard_layout,
-            target_shard_layout,
-            target_shards,
-        })
+        Ok(Self { updates, shard_tries, target_shard_layout, target_shards })
     }
 
     fn set(&mut self, shard_idx: ShardIndex, key: TrieKey, value: Vec<u8>) -> anyhow::Result<()> {
@@ -360,6 +353,14 @@ impl StorageMutator {
         Ok(())
     }
 
+    fn set_bandwidth_scheduler_state(
+        &mut self,
+        shard_idx: ShardIndex,
+        state: BandwidthSchedulerState,
+    ) -> anyhow::Result<()> {
+        self.set(shard_idx, TrieKey::BandwidthSchedulerState, borsh::to_vec(&state)?)
+    }
+
     pub(crate) fn should_commit(&self, batch_size: u64) -> bool {
         self.updates.len() >= batch_size as usize
     }
@@ -478,11 +479,78 @@ pub(crate) fn commit_shard(
     Ok(())
 }
 
+pub(crate) fn write_bandwidth_scheduler_state(
+    shard_tries: &ShardTries,
+    source_shard_layout: &ShardLayout,
+    target_shard_layout: &ShardLayout,
+    state_roots: &HashMap<ShardUId, StateRoot>,
+    update_state: &[ShardUpdateState],
+) -> anyhow::Result<()> {
+    let source_shards = source_shard_layout.shard_uids().collect::<HashSet<_>>();
+    let target_shards = target_shard_layout.shard_uids().collect::<HashSet<_>>();
+
+    if source_shards == target_shards {
+        return Ok(());
+    }
+    let (shard_uid, state_root) = state_roots.iter().next().unwrap();
+    let trie = shard_tries.get_trie_for_shard(*shard_uid, *state_root);
+    let Some(BandwidthSchedulerState::V1(state)) = near_store::get_bandwidth_scheduler_state(&trie)
+        .with_context(|| format!("failed getting bandwidth scheduler state for {}", shard_uid))?
+    else {
+        return Ok(());
+    };
+
+    let mut link_allowances = Vec::new();
+    // TODO: maybe do something other than this
+    let allowance = state.link_allowances[0].allowance;
+    for sender in target_shard_layout.shard_ids() {
+        for receiver in target_shard_layout.shard_ids() {
+            link_allowances.push(LinkAllowance { sender, receiver, allowance })
+        }
+    }
+    let new_state = BandwidthSchedulerState::V1(BandwidthSchedulerStateV1 {
+        link_allowances,
+        sanity_check_hash: state.sanity_check_hash,
+    });
+    let mut mutator = StorageMutator::new(
+        shard_tries.clone(),
+        update_state.to_vec(),
+        target_shard_layout.clone(),
+    )?;
+    for shard_idx in target_shard_layout.shard_indexes() {
+        mutator.set_bandwidth_scheduler_state(shard_idx, new_state.clone())?;
+    }
+    mutator.commit()
+}
+
 // After we rewrite everything in the trie to the target shards, remove all state that belongs to
-// source shards not in the target shard layout
-// pub(crate) fn delete_old_shard_state(
-//     shard_tries: &ShardTries,
-//     source_shard_layout: &ShardLayout,
-//     target_shard_layout: &ShardLayout,
-// ) -> anyhow::Result<()> {
-// }
+// source shards not in the target shard layout, and write flat storage statuses for new shards
+pub(crate) fn finalize_state(
+    shard_tries: &ShardTries,
+    source_shard_layout: &ShardLayout,
+    target_shard_layout: &ShardLayout,
+    flat_head: BlockInfo,
+) -> anyhow::Result<()> {
+    let source_shards = source_shard_layout.shard_uids().collect::<HashSet<_>>();
+
+    for shard_uid in target_shard_layout.shard_uids() {
+        if source_shards.contains(&shard_uid) {
+            continue;
+        }
+
+        let mut trie_update = shard_tries.store_update();
+        let store_update = trie_update.store_update();
+        store_update
+            .set_ser(
+                DBCol::FlatStorageStatus,
+                &shard_uid.to_bytes(),
+                &FlatStorageStatus::Ready(FlatStorageReadyStatus { flat_head }),
+            )
+            .unwrap();
+        trie_update
+            .commit()
+            .with_context(|| format!("failed writing flat storage status for {}", shard_uid))?;
+        tracing::info!(?shard_uid, "wrote flat storage status for new shard");
+    }
+    Ok(())
+}

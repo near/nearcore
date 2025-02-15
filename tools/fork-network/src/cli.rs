@@ -81,7 +81,11 @@ enum SubCommand {
 }
 
 #[derive(clap::Parser)]
-struct InitCmd;
+struct InitCmd {
+    /// If given, the shard layout in this file will be used to generate the forked genesis state
+    #[arg(long)]
+    pub shard_layout_file: Option<PathBuf>,
+}
 
 #[derive(clap::Parser)]
 struct FinalizeCmd;
@@ -90,9 +94,6 @@ struct FinalizeCmd;
 struct AmendAccessKeysCmd {
     #[arg(short, long, default_value = "2000000")]
     batch_size: u64,
-    /// If given, the shard layout in this file will be used to generate the forked genesis state
-    #[arg(long)]
-    pub shard_layout_file: Option<PathBuf>,
 }
 
 #[derive(clap::Parser)]
@@ -211,16 +212,11 @@ impl ForkNetworkCommand {
         near_config.config.store.state_snapshot_enabled = false;
 
         match &self.command {
-            SubCommand::Init(InitCmd) => {
-                self.init(near_config, home_dir)?;
+            SubCommand::Init(InitCmd { shard_layout_file }) => {
+                self.init(near_config, home_dir, shard_layout_file.as_deref())?;
             }
-            SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size, shard_layout_file }) => {
-                self.amend_access_keys(
-                    *batch_size,
-                    near_config,
-                    home_dir,
-                    shard_layout_file.as_deref(),
-                )?;
+            SubCommand::AmendAccessKeys(AmendAccessKeysCmd { batch_size }) => {
+                self.amend_access_keys(*batch_size, near_config, home_dir)?;
             }
             SubCommand::SetValidators(SetValidatorsCmd {
                 genesis_time,
@@ -279,7 +275,12 @@ impl ForkNetworkCommand {
     // Snapshots the DB.
     // Determines parameters that will be used to initialize the new chain.
     // After this completes, almost every DB column can be removed, however this command doesn't delete anything itself.
-    fn write_fork_info(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
+    fn write_fork_info(
+        &self,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+        shard_layout_file: Option<&Path>,
+    ) -> anyhow::Result<()> {
         // Open storage with migration
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
@@ -293,6 +294,19 @@ impl ForkNetworkCommand {
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
         let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
+
+        let target_shard_layout = match shard_layout_file {
+            Some(shard_layout_file) => {
+                let layout = std::fs::read_to_string(shard_layout_file).with_context(|| {
+                    format!("failed reading shard layout file at {}", shard_layout_file.display())
+                })?;
+                serde_json::from_str(&layout).with_context(|| {
+                    format!("failed parsing shard layout file at {}", shard_layout_file.display())
+                })?
+            }
+            None => shard_layout.clone(),
+        };
+
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .
         let fork_heads = get_fork_heads(&all_shard_uids, store.clone())?;
@@ -339,6 +353,7 @@ impl ForkNetworkCommand {
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD", &desired_flat_head)?;
+        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_SHARD_LAYOUT", &target_shard_layout)?;
         for (shard_uid, state_root) in state_roots.iter() {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
@@ -346,8 +361,13 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
-    fn init(&self, near_config: &mut NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        self.write_fork_info(near_config, home_dir)?;
+    fn init(
+        &self,
+        near_config: &mut NearConfig,
+        home_dir: &Path,
+        shard_layout_file: Option<&Path>,
+    ) -> anyhow::Result<()> {
+        self.write_fork_info(near_config, home_dir, shard_layout_file)?;
         let mut unwanted_cols = Vec::new();
         for col in DBCol::iter() {
             if !COLUMNS_TO_KEEP.contains(&col) && !SETUP_COLUMNS_TO_KEEP.contains(&col) {
@@ -371,7 +391,6 @@ impl ForkNetworkCommand {
         batch_size: u64,
         near_config: &mut NearConfig,
         home_dir: &Path,
-        shard_layout_file: Option<&Path>,
     ) -> anyhow::Result<Vec<StateRoot>> {
         // Open storage with migration
         near_config.config.store.load_memtries_for_tracked_shards = true;
@@ -383,7 +402,7 @@ impl ForkNetworkCommand {
             &near_config.genesis.config,
             Some(home_dir),
         );
-        let (prev_state_roots, flat_head, epoch_id) =
+        let (prev_state_roots, flat_head, epoch_id, target_shard_layout) =
             self.get_state_roots_and_hash(store.clone())?;
         tracing::info!(?prev_state_roots, ?epoch_id, ?flat_head);
 
@@ -391,17 +410,6 @@ impl ForkNetworkCommand {
         let all_shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(all_shard_uids.len(), prev_state_roots.len());
 
-        let target_shard_layout = match shard_layout_file {
-            Some(shard_layout_file) => {
-                let layout = std::fs::read_to_string(shard_layout_file).with_context(|| {
-                    format!("failed reading shard layout file at {}", shard_layout_file.display())
-                })?;
-                serde_json::from_str(&layout).with_context(|| {
-                    format!("failed parsing shard layout file at {}", shard_layout_file.display())
-                })?
-            }
-            None => source_shard_layout.clone(),
-        };
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
@@ -411,16 +419,10 @@ impl ForkNetworkCommand {
             .load_memtries_for_enabled_shards(&all_shard_uids, &[].into(), true)
             .unwrap();
 
-        let runtime2 = runtime.clone();
-        let source_shard_layout2 = source_shard_layout.clone();
+        let shard_tries = runtime.get_tries();
         let target_shard_layout2 = target_shard_layout.clone();
         let make_storage_mutator: MakeSingleShardStorageMutatorFn = Arc::new(move |update_state| {
-            StorageMutator::new(
-                &runtime2.clone(),
-                update_state,
-                source_shard_layout2.clone(),
-                target_shard_layout2.clone(),
-            )
+            StorageMutator::new(shard_tries.clone(), update_state, target_shard_layout2.clone())
         });
 
         let new_state_roots = self.prepare_state(
@@ -428,6 +430,7 @@ impl ForkNetworkCommand {
             store,
             source_shard_layout,
             target_shard_layout,
+            flat_head,
             prev_state_roots,
             make_storage_mutator.clone(),
             runtime,
@@ -461,7 +464,7 @@ impl ForkNetworkCommand {
             Some(home_dir),
         );
 
-        let (prev_state_roots, flat_head, epoch_id) =
+        let (prev_state_roots, flat_head, _epoch_id, target_shard_layout) =
             self.get_state_roots_and_hash(store.clone())?;
 
         let runtime = NightshadeRuntime::from_config(
@@ -475,10 +478,7 @@ impl ForkNetworkCommand {
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
 
-        let shard_layout = epoch_manager
-            .get_shard_layout(&epoch_id)
-            .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
-        let shard_uids = shard_layout.shard_uids().collect::<Vec<_>>();
+        let shard_uids = target_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(
             shard_uids.iter().collect::<HashSet<_>>(),
             prev_state_roots.iter().map(|(k, _v)| k).collect::<HashSet<_>>()
@@ -486,24 +486,24 @@ impl ForkNetworkCommand {
 
         let flat_store = store.flat_store();
         // Here we use the same shard layout for source and target, because we assume that amend-access-keys has already
-        // modified the genesis file with the new shard layout if one was given.
+        // written the new shard layout to the FORK_TOOL_SHARD_LAYOUT key, and in any case we're not mapping things from
+        // source shards to target shards in this function
         let update_state = ShardUpdateState::new_update_state(
             &flat_store,
-            &shard_layout,
-            &shard_layout,
-            prev_state_roots,
+            &target_shard_layout,
+            &target_shard_layout,
+            &prev_state_roots,
         )?;
         let storage_mutator = StorageMutator::new(
-            &runtime,
+            runtime.get_tries(),
             update_state.clone(),
-            shard_layout.clone(),
-            shard_layout.clone(),
+            target_shard_layout.clone(),
         )?;
         let new_validator_accounts = self.add_validator_accounts(
             validators,
             runtime_config,
             home_dir,
-            &shard_layout,
+            &target_shard_layout,
             storage_mutator,
         )?;
         let new_state_roots = update_state.into_iter().map(|u| u.state_root()).collect::<Vec<_>>();
@@ -512,6 +512,7 @@ impl ForkNetworkCommand {
         self.make_and_write_genesis(
             genesis_time,
             protocol_version,
+            target_shard_layout,
             epoch_length,
             num_seats,
             flat_head.height + 1,
@@ -550,9 +551,10 @@ impl ForkNetworkCommand {
     fn get_state_roots_and_hash(
         &self,
         store: Store,
-    ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId)> {
+    ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
         let flat_head = store.get_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD")?.unwrap();
+        let shard_layout = store.get_ser(DBCol::Misc, b"FORK_TOOL_SHARD_LAYOUT")?.unwrap();
         let mut state_roots = HashMap::new();
         for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let (key, value) = item?;
@@ -562,7 +564,7 @@ impl ForkNetworkCommand {
             state_roots.insert(shard_uid, state_root);
         }
         tracing::info!(?state_roots, ?flat_head, ?epoch_id);
-        Ok((state_roots, flat_head, epoch_id))
+        Ok((state_roots, flat_head, epoch_id, shard_layout))
     }
 
     /// Checks that `~/.near/data/fork-snapshot/data` exists.
@@ -639,6 +641,8 @@ impl ForkNetworkCommand {
         Ok(first_config)
     }
 
+    /// Returns info on delayed receipts mapped from this shard, and this shard's state root after
+    /// all updates are applied.
     fn prepare_shard_state(
         &self,
         batch_size: u64,
@@ -659,7 +663,7 @@ impl ForkNetworkCommand {
         let trie_storage = TrieDBStorage::new(store.trie_store(), shard_uid);
 
         let mut receipts_tracker =
-            DelayedReceiptTracker::new(shard_uid, source_shard_layout.shard_ids().count());
+            DelayedReceiptTracker::new(shard_uid, target_shard_layout.shard_ids().count());
 
         // Iterate over the whole flat storage and do the necessary changes to have access to all accounts.
         let mut ref_keys_retrieved = 0;
@@ -819,20 +823,35 @@ impl ForkNetworkCommand {
         Ok(receipts_tracker)
     }
 
+    // TODO: instead of calling this every time, this could be integrated into StorageMutator or something
+    fn update_source_state_roots(
+        source_state_roots: &mut HashMap<ShardUId, StateRoot>,
+        target_shard_layout: &ShardLayout,
+        update_state: &[ShardUpdateState],
+    ) {
+        for (shard_uid, state_root) in source_state_roots.iter_mut() {
+            if target_shard_layout.shard_uids().any(|s| s == *shard_uid) {
+                let shard_idx = target_shard_layout.get_shard_index(shard_uid.shard_id()).unwrap();
+                *state_root = update_state[shard_idx].state_root();
+            }
+        }
+    }
+
     fn prepare_state(
         &self,
         batch_size: u64,
         store: Store,
         source_shard_layout: ShardLayout,
         target_shard_layout: ShardLayout,
-        prev_state_roots: HashMap<ShardUId, StateRoot>,
+        flat_head: BlockInfo,
+        mut source_state_roots: HashMap<ShardUId, StateRoot>,
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
         runtime: Arc<NightshadeRuntime>,
     ) -> anyhow::Result<Vec<StateRoot>> {
         let shard_uids = source_shard_layout.shard_uids().collect::<Vec<_>>();
         assert_eq!(
             shard_uids.iter().collect::<HashSet<_>>(),
-            prev_state_roots.iter().map(|(k, _v)| k).collect::<HashSet<_>>()
+            source_state_roots.iter().map(|(k, _v)| k).collect::<HashSet<_>>()
         );
 
         let flat_store = store.flat_store();
@@ -840,7 +859,7 @@ impl ForkNetworkCommand {
             &flat_store,
             &source_shard_layout,
             &target_shard_layout,
-            prev_state_roots,
+            &source_state_roots,
         )?;
 
         // the try_fold().try_reduce() will give a Vec<> of the return values and return early if one fails
@@ -870,13 +889,39 @@ impl ForkNetworkCommand {
                 },
             )?;
 
+        Self::update_source_state_roots(
+            &mut source_state_roots,
+            &target_shard_layout,
+            &update_state,
+        );
+        let shard_tries = runtime.get_tries();
+        crate::storage_mutator::write_bandwidth_scheduler_state(
+            &shard_tries,
+            &source_shard_layout,
+            &target_shard_layout,
+            &source_state_roots,
+            &update_state,
+        )?;
+
         let default_key = near_mirror::key_mapping::default_extra_key(None).public_key();
+        Self::update_source_state_roots(
+            &mut source_state_roots,
+            &target_shard_layout,
+            &update_state,
+        );
         crate::delayed_receipts::write_delayed_receipts(
-            runtime.as_ref(),
+            &shard_tries,
             &update_state,
             receipt_trackers,
-            &source_shard_layout,
+            &source_state_roots,
+            &target_shard_layout,
             &default_key,
+        )?;
+        crate::storage_mutator::finalize_state(
+            &shard_tries,
+            &source_shard_layout,
+            &target_shard_layout,
+            flat_head,
         )?;
 
         let state_roots = update_state.into_iter().map(|u| u.state_root()).collect();
@@ -942,6 +987,7 @@ impl ForkNetworkCommand {
         &self,
         genesis_time: DateTime<Utc>,
         protocol_version: Option<ProtocolVersion>,
+        shard_layout: ShardLayout,
         epoch_length: u64,
         num_seats: &Option<NumSeats>,
         height: BlockHeight,
@@ -973,14 +1019,29 @@ impl ForkNetworkCommand {
 
         let original_config = near_config.genesis.config.clone();
 
+        // TODO: consider doing something smarter with these two
+        let num_block_producer_seats_per_shard = vec![
+            original_config
+                .num_block_producer_seats_per_shard[0];
+            shard_layout.num_shards() as usize
+        ];
+        let avg_hidden_validator_seats_per_shard =
+            if original_config.avg_hidden_validator_seats_per_shard.is_empty() {
+                Vec::new()
+            } else {
+                vec![
+                    original_config.avg_hidden_validator_seats_per_shard[0];
+                    shard_layout.num_shards() as usize
+                ]
+            };
         let new_config = GenesisConfig {
             chain_id: new_chain_id,
             genesis_height: height,
             genesis_time,
             epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
-            num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
-            avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
+            num_block_producer_seats_per_shard,
+            avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
             chunk_validator_only_kickout_threshold: 0,
@@ -991,7 +1052,7 @@ impl ForkNetworkCommand {
             fishermen_threshold: epoch_config.fishermen_threshold,
             minimum_stake_divisor: epoch_config.minimum_stake_divisor,
             protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
-            shard_layout: epoch_config.shard_layout.clone(),
+            shard_layout,
             num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
             minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.minimum_stake_ratio,
