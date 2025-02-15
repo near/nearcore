@@ -523,8 +523,8 @@ pub(crate) fn write_bandwidth_scheduler_state(
     mutator.commit()
 }
 
-// After we rewrite everything in the trie to the target shards, remove all state that belongs to
-// source shards not in the target shard layout, and write flat storage statuses for new shards
+// After we rewrite everything in the trie to the target shards, write flat storage statuses for new shards
+// TODO: remove all state that belongs to source shards not in the target shard layout
 pub(crate) fn finalize_state(
     shard_tries: &ShardTries,
     source_shard_layout: &ShardLayout,
