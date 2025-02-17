@@ -3,13 +3,10 @@ use clap::{Parser, Subcommand};
 mod account;
 use account::{create_sub_accounts, CreateSubAccountsArgs};
 mod block_service;
-mod contract;
-use contract::BenchmarkMpcSignArgs;
 mod metrics;
 mod native_transfer;
 mod rpc;
 mod workloads;
-use workloads::sweat::BenchmarkSweatArgs;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -24,8 +21,8 @@ enum Commands {
     /// Creates sub accounts for the signer.
     CreateSubAccounts(CreateSubAccountsArgs),
     BenchmarkNativeTransfers(native_transfer::BenchmarkArgs),
-    BenchmarkMpcSign(BenchmarkMpcSignArgs),
-    BenchmarkSweat(BenchmarkSweatArgs),
+    BenchmarkMpcSign(workloads::mpc::BenchmarkMpcSignArgs),
+    BenchmarkSweat(workloads::sweat::BenchmarkSweatArgs),
 }
 
 #[tokio::main]
@@ -43,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
             native_transfer::benchmark(args).await?;
         }
         Commands::BenchmarkMpcSign(args) => {
-            contract::benchmark_mpc_sign(args).await?;
+            workloads::mpc::benchmark_mpc_sign(args).await?;
         }
         Commands::BenchmarkSweat(args) => {
             workloads::sweat::benchmark_sweat(args).await?;

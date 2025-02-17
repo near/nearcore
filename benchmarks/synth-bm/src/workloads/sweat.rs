@@ -1,6 +1,17 @@
+use crate::account::Account;
+use crate::block_service::BlockService;
 use clap::Args;
+use log::info;
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
+use near_jsonrpc_client::JsonRpcClient;
+use near_primitives::action::{Action, FunctionCallAction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use rand::seq::SliceRandom;
+use rand::Rng;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 use tokio::time;
 
 #[derive(Args, Debug)]
@@ -12,7 +23,7 @@ pub struct BenchmarkSweatArgs {
     pub sweat_contract_id: String,
 
     #[arg(long)]
-    pub oracle_key_path: String,
+    pub oracle_account_id: String,
 
     #[arg(long, default_value = "1000")]
     pub num_users: u64,
@@ -34,7 +45,10 @@ pub struct BenchmarkSweatArgs {
 }
 
 pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
-    let oracle_signer = InMemorySigner::from_file(&args.oracle_key_path)?;
+    // Generate random key for oracle
+    let secret_key = SecretKey::from_random(KeyType::ED25519);
+    let oracle_signer =
+        InMemorySigner::from_secret_key(args.oracle_account_id.parse()?, secret_key);
     let client = JsonRpcClient::connect(&args.rpc_url);
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
@@ -59,30 +73,32 @@ pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
             .choose_multiple(&mut rng, args.batch_size as usize)
             .map(|user| {
                 let steps = rng.gen_range(args.steps_min..=args.steps_max);
-                (user.account_id.clone(), steps)
+                (user.id.clone(), steps)
             })
             .collect();
 
         // Create SweatMintBatch transaction
-        let tx = Transaction::new(
+        let transaction = SignedTransaction::call(
+            i,
             oracle_signer.account_id.clone(),
-            oracle_signer.public_key.clone(),
             args.sweat_contract_id.parse()?,
-            i, // nonce
+            &oracle_signer.as_signer(),
+            0,
+            "record_batch".to_string(),
+            serde_json::to_vec(&batch_receivers)?,
+            300_000_000_000_000,
             block_service.get_block_hash(),
-            vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "record_batch".to_string(),
-                args: serde_json::to_vec(&batch_receivers)?,
-                gas: 300_000_000_000_000, // 300 TGas
-                deposit: 0,
-            })],
         );
+        let request = RpcSendTransactionRequest {
+            signed_transaction: transaction,
+            wait_until: wait_until.clone(),
+        };
 
         let client = client.clone();
-        let tx_sender = tx.clone();
+        let tx_sender = transaction.clone();
 
         tokio::spawn(async move {
-            let result = client.broadcast_tx_async(tx).await;
+            let result = client.broadcast_tx_async(transaction).await;
             tx_sender.send(result).await.unwrap();
         });
     }
@@ -104,4 +120,5 @@ async fn create_sweat_users(
     // Implementation similar to create_sub_accounts but with
     // Sweat contract registration
     // ...
+    Ok(vec![])
 }
