@@ -1,12 +1,13 @@
-neard := "../../target/release/neard"
+# Point the `NEARD_PATH` environment variable to the binary or place it here.
+neard := env('NEARD_PATH', "./neard")
 near_localnet_home := ".near/"
 rpc_url := "http://127.0.0.1:3030"
 
 init_localnet:
-    ./{{neard}} --home {{near_localnet_home}} init --chain-id localnet
+    {{neard}} --home {{near_localnet_home}} init --chain-id localnet
 
 run_localnet:
-    ./{{neard}} --home {{near_localnet_home}} run
+    {{neard}} --home {{near_localnet_home}} run
 
 create_sub_accounts:
     RUST_LOG=info \
