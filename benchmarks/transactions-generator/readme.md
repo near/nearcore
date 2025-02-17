@@ -23,7 +23,8 @@ For a more fine-grained control feel free to dive into the `justfile` for the co
 ...
 2025-02-12T16:42:37.351118Z  INFO stats: #    1584 6nxZon12xBTmARmUm3ngtgaA2K7V9dX1J13EtPZ2kEhe Validator | 1 validator 0 peers ⬇ 0 B/s ⬆ 0 B/s 1.60 bps 131 Tgas/s CPU: 70%, Mem: 2.98 GB
 ...
-2025-02-13T16:42:38.175452Z  INFO transaction-generator: transactions pool_accepted=189571 pool_rejected=2 total_processed=186494 total_failed=0
+2025-02-18T13:04:29.790195Z  INFO transaction-generator: total="Stats { pool_accepted: 158247, pool_rejected: 237, processed: 155338, failed:0 }"
+2025-02-18T13:04:29.790208Z  INFO transaction-generator: diff="Stats { pool_accepted: 6049, pool_rejected: 0, processed: 6439, failed: 0 }"
 ...
 ```
 - see the number of processed transactions in the metrics
