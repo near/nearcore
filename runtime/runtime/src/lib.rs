@@ -948,8 +948,12 @@ impl Runtime {
         state_update.set(trie_key, global_contract_data.code.to_vec());
         state_update
             .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+        let code_hash = match global_contract_data.id {
+            GlobalContractIdentifier::CodeHash(hash) => Some(hash),
+            GlobalContractIdentifier::AccountId(_) => None,
+        };
         let _ = precompile_contract(
-            &ContractCode::new(global_contract_data.code.to_vec(), None),
+            &ContractCode::new(global_contract_data.code.to_vec(), code_hash),
             config,
             cache,
         );
