@@ -48,7 +48,7 @@ pub struct CreateSubAccountsArgs {
     /// - `a_user_<i>.<signer_account_id>` if `sub_account_prefixes == Some("a")`
     /// - `a_user_<i>.<signer_account_id>,b_user_<i>.<signer_account_id>`
     ///   if `sub_account_prefixes == Some("a,b")`
-    #[arg(long, alias = "sub_account_prefix", use_value_delimiter = true)]
+    #[arg(long, alias = "sub-account-prefix", use_value_delimiter = true)]
     pub sub_account_prefixes: Option<Vec<String>>,
     /// Number of sub accounts to create.
     #[arg(long)]
