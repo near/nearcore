@@ -236,10 +236,7 @@ fn find_first_height_to_fetch(
     while height_to_fetch > min_height_to_search {
         let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
         if block_hashes.is_empty() {
-            if matches!(
-                mode,
-                DebugBlocksStartingMode::JumpToBlockMiss | DebugBlocksStartingMode::JumpToChunkMiss
-            ) {
+            if matches!(mode, DebugBlocksStartingMode::JumpToBlockMiss) {
                 break;
             }
             height_to_fetch -= 1;
@@ -249,16 +246,24 @@ fn find_first_height_to_fetch(
             break;
         }
 
-        let block_header = chain_store.get_block_header(&block_hashes[0])?;
-        let all_chunks_included = block_header.chunk_mask().iter().all(|&x| x);
-        if all_chunks_included {
-            if matches!(mode, DebugBlocksStartingMode::JumpToAllChunksIncluded) {
-                break;
+        let mut found_block = false;
+        for block_hash in block_hashes {
+            let block_header = chain_store.get_block_header(&block_hash)?;
+            let all_chunks_included = block_header.chunk_mask().iter().all(|&x| x);
+            if all_chunks_included {
+                if matches!(mode, DebugBlocksStartingMode::JumpToAllChunksIncluded) {
+                    found_block = true;
+                    break;
+                }
+            } else {
+                if matches!(mode, DebugBlocksStartingMode::JumpToChunkMiss) {
+                    found_block = true;
+                    break;
+                }
             }
-        } else {
-            if matches!(mode, DebugBlocksStartingMode::JumpToChunkMiss) {
-                break;
-            }
+        }
+        if found_block {
+            break;
         }
 
         height_to_fetch -= 1;
