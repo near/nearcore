@@ -786,7 +786,7 @@ impl JsonRpcHandler {
                         self.client_send(DebugStatus::CatchupStatus).await?.rpc_into()
                     }
                     "/debug/api/epoch_info" => {
-                        self.client_send(DebugStatus::EpochInfo).await?.rpc_into()
+                        self.client_send(DebugStatus::EpochInfo(None)).await?.rpc_into()
                     }
                     "/debug/api/block_status" => {
                         self.client_send(DebugStatus::BlockStatus(None)).await?.rpc_into()
@@ -850,6 +850,23 @@ impl JsonRpcHandler {
         if self.enable_debug_rpc {
             let debug_status =
                 self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response: debug_status,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn debug_epoch_info(
+        &self,
+        epoch_id: Option<near_primitives::types::EpochId>,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let debug_status = self.client_send(DebugStatus::EpochInfo(epoch_id)).await?.rpc_into();
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
             }))
@@ -1472,6 +1489,24 @@ async fn debug_block_status_handler(
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct DebugRpcEpochInfoRequest {
+    #[serde(flatten)]
+    pub epoch_id: near_primitives::types::EpochId,
+}
+
+async fn debug_epoch_info_handler(
+    path: web::Path<String>,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    let epoch_id: near_primitives::types::EpochId = path.into_inner().parse().unwrap();
+    match handler.debug_epoch_info(Some(epoch_id)).await {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
 async fn health_handler(handler: web::Data<JsonRpcHandler>) -> Result<HttpResponse, HttpError> {
     match handler.health().await {
         Ok(value) => Ok(HttpResponse::Ok().json(&value)),
@@ -1642,10 +1677,14 @@ pub fn start_http(
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
+            .service(
+                web::resource("/debug/api/block_status")
+                    .route(web::get().to(debug_block_status_handler)),
+            )
             .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(
-                web::resource("/debug/api/block_status/{starting_height}")
-                    .route(web::get().to(debug_block_status_handler)),
+                web::resource("/debug/api/epoch_info/{epoch_id}")
+                    .route(web::get().to(debug_epoch_info_handler)),
             )
             .service(
                 web::resource("/debug/client_config").route(web::get().to(client_config_handler)),

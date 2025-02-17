@@ -36,17 +36,20 @@ pub struct CreateSubAccountsArgs {
     // TODO remove this field and get nonce from rpc
     #[arg(long, default_value_t = 1)]
     pub nonce: u64,
-    /// Optional prefix for sub account names to avoid generating accounts that already exist on
+    /// Optional prefixes for sub account names to avoid generating accounts that already exist on
     /// subsequent invocations.
+    /// Prefixes are separated by commas.
     ///
     /// # Example
     ///
     /// The name of the `i`-th sub account will be:
     ///
-    /// - `user_<i>.<signer_account_id>` if `sub_account_prefix == None`
-    /// - `a_user_<i>.<signer_account_id>` if `sub_account_prefix == Some("a")`
-    #[arg(long)]
-    pub sub_account_prefix: Option<String>,
+    /// - `user_<i>.<signer_account_id>` if `sub_account_prefixes == None`
+    /// - `a_user_<i>.<signer_account_id>` if `sub_account_prefixes == Some("a")`
+    /// - `a_user_<i>.<signer_account_id>,b_user_<i>.<signer_account_id>`
+    ///   if `sub_account_prefixes == Some("a,b")`
+    #[arg(long, alias = "sub-account-prefix", use_value_delimiter = true)]
+    pub sub_account_prefixes: Option<Vec<String>>,
     /// Number of sub accounts to create.
     #[arg(long)]
     pub num_sub_accounts: u64,
@@ -214,7 +217,8 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         let sub_account_key = SecretKey::from_random(KeyType::ED25519);
         let sub_account_id: AccountId = {
             // cspell:words subname
-            let subname = if let Some(prefix) = &args.sub_account_prefix {
+            let subname = if let Some(prefixes) = &args.sub_account_prefixes {
+                let prefix = &prefixes[(i as usize) % prefixes.len()];
                 format!("{prefix}_user_{i}")
             } else {
                 format!("user_{i}")
