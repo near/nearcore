@@ -86,7 +86,7 @@ reset() {
     stop_nodes
     echo "=> Resetting chain history, user accounts and clearing the database"
     if [ "${NUM_NODES}" -eq "1" ]; then
-        rm -rf ${NEAR_HOME}/data/* 
+        find ${NEAR_HOME}/data -mindepth 1 -delete
     else 
         rm -rf ${BENCHNET_DIR}
     fi
