@@ -221,7 +221,7 @@ monitor() {
     do 
         date
         now=$(date +%s%3N)
-        processed=$(curl -s localhost:3030/metrics | grep transaction_processed_total | grep -v "#" | awk '{ print $2 }')
+        processed=$(curl -s localhost:3030/metrics | grep near_transaction_processed_successfully_total | grep -v "#" | awk '{ print $2 }')
         
         if [ $old_now -ne 0 ]; then
             elapsed=$((now-old_now))
