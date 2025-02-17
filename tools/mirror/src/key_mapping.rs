@@ -108,6 +108,7 @@ pub fn map_key(key: &PublicKey, secret: Option<&[u8; crate::secret::SECRET_LEN]>
 // maps that and then returns the resulting implicit account. Otherwise does nothing.
 // We do this so that transactions creating an implicit account
 // by sending money will generate an account that we can control.
+// TODO: return a Cow<> since this usually just clones the account.
 pub fn map_account(
     account_id: &AccountId,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,

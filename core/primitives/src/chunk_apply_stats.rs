@@ -206,6 +206,7 @@ pub struct BalanceStats {
     /// This is a negative amount. This amount was not charged from the account that issued
     /// the transaction. It's likely due to the delayed queue of the receipts.
     pub gas_deficit_amount: Balance,
+    pub global_actions_burnt_amount: Balance,
 }
 
 /// Convert a bandwidth request from the bitmap representation to a list of requested values.
