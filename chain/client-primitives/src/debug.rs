@@ -34,6 +34,7 @@ pub struct EpochInfoView {
     pub chunk_validators: Vec<String>,
     pub validator_info: Option<EpochValidatorInfo>,
     pub protocol_version: u32,
+    pub sync_hash: Option<CryptoHash>,
     pub shards_size_and_parts: Vec<(u64, u64, bool)>,
 }
 

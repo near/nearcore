@@ -275,8 +275,15 @@ impl ClientActorInner {
         let (block_producers, chunk_producers, chunk_validators) =
             self.get_validators_for_epoch(&epoch_id)?;
 
+        let sync_hash =
+            self.client.chain.get_sync_hash(epoch_start_block_header.hash()).ok().flatten();
+        let hash_to_compute_shard_sizes = match &sync_hash {
+            Some(sync_hash) => sync_hash,
+            None => epoch_start_block_header.hash(),
+        };
+
         let shards_size_and_parts: Vec<(u64, u64)> = if let Ok(block) =
-            self.client.chain.get_block(epoch_start_block_header.hash())
+            self.client.chain.get_block(hash_to_compute_shard_sizes)
         {
             block
                 .chunks()
@@ -356,6 +363,7 @@ impl ClientActorInner {
                 .epoch_manager
                 .get_epoch_protocol_version(epoch_id)
                 .unwrap_or(0),
+            sync_hash,
             shards_size_and_parts,
         })
     }
@@ -390,6 +398,7 @@ impl ClientActorInner {
                 .client
                 .epoch_manager
                 .get_epoch_protocol_version(next_epoch_id)?,
+            sync_hash: None,
             shards_size_and_parts: vec![],
         })
     }
