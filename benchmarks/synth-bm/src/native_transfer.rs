@@ -4,9 +4,10 @@ use std::time::{Duration, Instant};
 
 use crate::account::{accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
+use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use log::info;
+use log::{error, info};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
@@ -38,6 +39,10 @@ pub struct BenchmarkArgs {
     /// If set, this flag updates the nonce values from the network.
     #[arg(default_value_t = false, long)]
     pub read_nonces_from_network: bool,
+
+    /// Enable measuring and reports of transaction statistics.
+    #[arg(default_value_t = false, long)]
+    pub transaction_statistics_service: bool,
 }
 
 pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
@@ -83,6 +88,14 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
         );
         rpc_response_handler.handle_all_responses().await;
     });
+
+    let transaction_stat_handle = if args.transaction_statistics_service {
+        let service =
+            TransactionStatisticsService::new(args.rpc_url.clone(), Duration::from_secs(1));
+        Some(tokio::spawn(async move { service.start().await }))
+    } else {
+        None
+    };
 
     for i in 0..args.num_transfers {
         let idx_sender = usize::try_from(i % u64::try_from(accounts.len()).unwrap()).unwrap();
@@ -140,6 +153,13 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
 
     // Ensure all rpc responses are handled.
     response_handler_task.await.expect("response handler tasks should succeed");
+
+    if let Some(handle) = transaction_stat_handle {
+        // Ensure transaction stats are collected until all transactions are processed.
+        if let Err(err) = handle.await {
+            error!("Transaction statistics service failed with: {err}");
+        }
+    }
 
     Ok(())
 }

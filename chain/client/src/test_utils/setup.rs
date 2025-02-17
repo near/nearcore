@@ -40,8 +40,8 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, SetNetworkInfo, StateRequestHeader, StateRequestPart,
-    StateResponseReceived,
+    BlockResponse, ChunkEndorsementMessage, OptimisticBlockMessage, SetNetworkInfo,
+    StateRequestHeader, StateRequestPart, StateResponseReceived,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::{
@@ -510,6 +510,18 @@ fn process_peer_manager_message_default(
             *my_height = max(*my_height, block.header().height());
 
             hash_to_height.write().unwrap().insert(*block.header().hash(), block.header().height());
+        }
+        NetworkRequests::OptimisticBlock { optimistic_block } => {
+            // TODO(#10584): maybe go through an adapter to facilitate testing.
+            for actor_handles in connectors {
+                actor_handles.client_actor.do_send(
+                    OptimisticBlockMessage {
+                        optimistic_block: optimistic_block.clone(),
+                        from_peer: PeerInfo::random().id,
+                    }
+                    .with_span_context(),
+                );
+            }
         }
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
             send_chunks(

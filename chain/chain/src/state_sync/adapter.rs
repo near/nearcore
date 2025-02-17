@@ -9,6 +9,7 @@ use crate::{byzantine_assert, metrics, ReceiptFilter};
 use near_async::time::{Clock, Instant};
 use near_chain_primitives::error::{Error, LogTransientStorageError};
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::sharding::{
@@ -544,5 +545,10 @@ impl ChainStateSyncAdapter {
 
     pub fn get_requested_state_parts(&self) -> Vec<RequestedStatePartsView> {
         self.requested_state_parts.get_requested_state_parts()
+    }
+
+    /// Returns whether `tip.last_block_hash` is the block that will appear immediately before the "sync_hash" block.
+    pub fn is_sync_prev_hash(&self, tip: &Tip) -> Result<bool, Error> {
+        crate::state_sync::utils::is_sync_prev_hash(&self.chain_store, tip)
     }
 }
