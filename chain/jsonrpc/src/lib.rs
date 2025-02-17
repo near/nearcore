@@ -16,6 +16,7 @@ use near_client::{
     GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
     ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
 };
+use near_client_primitives::debug::{DebugBlockStatusQuery, DebugBlocksStartingMode};
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client as client;
 pub use near_jsonrpc_primitives as primitives;
@@ -36,7 +37,7 @@ use near_network::tcp::{self, ListenerAddr};
 use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference};
+use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -788,9 +789,10 @@ impl JsonRpcHandler {
                     "/debug/api/epoch_info" => {
                         self.client_send(DebugStatus::EpochInfo(None)).await?.rpc_into()
                     }
-                    "/debug/api/block_status" => {
-                        self.client_send(DebugStatus::BlockStatus(None)).await?.rpc_into()
-                    }
+                    "/debug/api/block_status" => self
+                        .client_send(DebugStatus::BlockStatus(DebugBlockStatusQuery::default()))
+                        .await?
+                        .rpc_into(),
                     "/debug/api/validator_status" => {
                         self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
                     }
@@ -842,14 +844,13 @@ impl JsonRpcHandler {
 
     pub async fn debug_block_status(
         &self,
-        starting_height: Option<BlockHeight>,
+        query: DebugBlockStatusQuery,
     ) -> Result<
         Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            let debug_status =
-                self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
+            let debug_status = self.client_send(DebugStatus::BlockStatus(query)).await?.rpc_into();
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
             }))
@@ -1479,10 +1480,29 @@ async fn handle_entity_debug_readonly(
 }
 
 async fn debug_block_status_handler(
+    query: web::Query<DebugBlockStatusQuery>,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    match handler.debug_block_status(query.0).await {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
+#[deprecated(since = "2.6.0", note = "Use debug_block_status_handler instead")]
+async fn deprecated_debug_block_status_handler(
     path: web::Path<u64>,
     handler: web::Data<JsonRpcHandler>,
 ) -> Result<HttpResponse, HttpError> {
-    match handler.debug_block_status(Some(*path)).await {
+    match handler
+        .debug_block_status(DebugBlockStatusQuery {
+            starting_height: Some(*path),
+            mode: DebugBlocksStartingMode::All,
+            num_blocks: 50,
+        })
+        .await
+    {
         Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
@@ -1677,15 +1697,21 @@ pub fn start_http(
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
+            .service(web::resource("/debug/api/block_status/{starting_height}").route(
+                web::get().to(
+                    #[allow(deprecated)]
+                    deprecated_debug_block_status_handler,
+                ),
+            ))
             .service(
                 web::resource("/debug/api/block_status")
                     .route(web::get().to(debug_block_status_handler)),
             )
-            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(
                 web::resource("/debug/api/epoch_info/{epoch_id}")
                     .route(web::get().to(debug_epoch_info_handler)),
             )
+            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(
                 web::resource("/debug/client_config").route(web::get().to(client_config_handler)),
             )

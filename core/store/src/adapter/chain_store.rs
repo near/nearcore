@@ -47,6 +47,10 @@ impl ChainStoreAdapter {
         Self { store, genesis_height }
     }
 
+    pub fn genesis_height(&self) -> BlockHeight {
+        self.genesis_height
+    }
+
     /// The chain head.
     pub fn head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(DBCol::BlockMisc, HEAD_KEY), "HEAD")

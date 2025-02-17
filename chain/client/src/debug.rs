@@ -8,8 +8,9 @@ use near_async::time::{Clock, Instant};
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Block, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
-    ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
-    DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
+    ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData,
+    DebugBlockStatusQuery, DebugBlocksStartingMode, DebugStatus, DebugStatusResponse,
+    MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
 };
 use near_client_primitives::types::Error;
 use near_client_primitives::{
@@ -33,6 +34,7 @@ use near_primitives::{
     types::EpochId,
     views::ValidatorInfo,
 };
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::DBCol;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
@@ -46,8 +48,13 @@ use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
 
-// Constants for debug requests.
-const DEBUG_BLOCKS_TO_FETCH: u32 = 50;
+// Maximum number of blocks to search for the first block to display.
+const DEBUG_MAX_BLOCKS_TO_SEARCH: u64 = 10000;
+
+// Maximum number of blocks to fetch when displaying block status.
+const DEBUG_MAX_BLOCKS_TO_FETCH: u64 = 1000;
+
+// Number of epochs to fetch when displaying epoch info.
 const DEBUG_EPOCHS_TO_FETCH: u32 = 5;
 
 // How many old blocks (before HEAD) should be shown in debug page.
@@ -177,8 +184,8 @@ impl Handler<DebugStatus> for ClientActorInner {
             DebugStatus::EpochInfo(epoch_id) => {
                 Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info(epoch_id)?))
             }
-            DebugStatus::BlockStatus(height) => {
-                Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info(height)?))
+            DebugStatus::BlockStatus(query) => {
+                Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info(query)?))
             }
             DebugStatus::ValidatorStatus => {
                 Ok(DebugStatusResponse::ValidatorStatus(self.get_validator_status()?))
@@ -194,6 +201,75 @@ impl Handler<DebugStatus> for ClientActorInner {
             )),
         }
     }
+}
+
+fn get_block_hashes_to_fetch(
+    chain_store: &ChainStoreAdapter,
+    height_to_fetch: BlockHeight,
+    final_height: BlockHeight,
+) -> Vec<CryptoHash> {
+    if height_to_fetch >= final_height {
+        chain_store
+            .get_all_header_hashes_by_height(height_to_fetch)
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    } else {
+        chain_store.get_block_hash_by_height(height_to_fetch).ok().into_iter().collect()
+    }
+}
+
+fn find_first_height_to_fetch(
+    chain_store: &ChainStoreAdapter,
+    mut height_to_fetch: BlockHeight,
+    mode: DebugBlocksStartingMode,
+    final_height: BlockHeight,
+) -> Result<BlockHeight, near_chain_primitives::Error> {
+    if matches!(mode, DebugBlocksStartingMode::All) {
+        return Ok(height_to_fetch);
+    }
+
+    let min_height_to_search = max(
+        height_to_fetch as i64 - DEBUG_MAX_BLOCKS_TO_SEARCH as i64,
+        chain_store.genesis_height() as i64,
+    ) as u64;
+    while height_to_fetch > min_height_to_search {
+        let block_hashes = get_block_hashes_to_fetch(chain_store, height_to_fetch, final_height);
+        if block_hashes.is_empty() {
+            if matches!(mode, DebugBlocksStartingMode::JumpToBlockMiss) {
+                break;
+            }
+            height_to_fetch -= 1;
+            continue;
+        }
+        if matches!(mode, DebugBlocksStartingMode::JumpToBlockProduced) {
+            break;
+        }
+
+        let mut found_block = false;
+        for block_hash in block_hashes {
+            let block_header = chain_store.get_block_header(&block_hash)?;
+            let all_chunks_included = block_header.chunk_mask().iter().all(|&x| x);
+            if all_chunks_included {
+                if matches!(mode, DebugBlocksStartingMode::JumpToAllChunksIncluded) {
+                    found_block = true;
+                    break;
+                }
+            } else {
+                if matches!(mode, DebugBlocksStartingMode::JumpToChunkMiss) {
+                    found_block = true;
+                    break;
+                }
+            }
+        }
+        if found_block {
+            break;
+        }
+
+        height_to_fetch -= 1;
+    }
+
+    Ok(height_to_fetch)
 }
 
 fn get_epoch_start_height(
@@ -470,29 +546,33 @@ impl ClientActorInner {
 
     fn get_last_blocks_info(
         &mut self,
-        starting_height: Option<BlockHeight>,
+        query: DebugBlockStatusQuery,
     ) -> Result<DebugBlockStatusData, near_chain_primitives::Error> {
+        let DebugBlockStatusQuery { starting_height, mode, mut num_blocks } = query;
+        num_blocks = min(num_blocks, DEBUG_MAX_BLOCKS_TO_FETCH);
+
         let head = self.client.chain.head()?;
         let header_head = self.client.chain.header_head()?;
+        let final_head = self.client.chain.final_head()?;
 
         let mut blocks: HashMap<CryptoHash, DebugBlockStatus> = HashMap::new();
         let mut missed_heights: Vec<MissedHeightInfo> = Vec::new();
         let mut last_epoch_id = head.epoch_id;
         let initial_gas_price = self.client.chain.genesis_block().header().next_gas_price();
 
+        let chain_store = self.client.chain.chain_store();
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
+        height_to_fetch =
+            find_first_height_to_fetch(chain_store, height_to_fetch, mode, final_head.height)?;
         let min_height_to_fetch =
-            max(height_to_fetch as i64 - DEBUG_BLOCKS_TO_FETCH as i64, 0) as u64;
+            max(height_to_fetch as i64 - num_blocks as i64, chain_store.genesis_height() as i64)
+                as u64;
+
         let mut block_hashes_to_force_fetch = HashSet::new();
         while height_to_fetch > min_height_to_fetch || !block_hashes_to_force_fetch.is_empty() {
             let block_hashes = if height_to_fetch > min_height_to_fetch {
-                let block_hashes: Vec<CryptoHash> = self
-                    .client
-                    .chain
-                    .chain_store()
-                    .get_all_header_hashes_by_height(height_to_fetch)?
-                    .into_iter()
-                    .collect();
+                let block_hashes =
+                    get_block_hashes_to_fetch(chain_store, height_to_fetch, final_head.height);
                 if block_hashes.is_empty() {
                     missed_heights.push(MissedHeightInfo {
                         block_height: height_to_fetch,
@@ -628,11 +708,16 @@ impl ClientActorInner {
                 }
             }
         }
+
+        let mut blocks = blocks.into_values().collect_vec();
+        blocks.sort_by_key(|block| block.block_height);
+        blocks.reverse();
+
         Ok(DebugBlockStatusData {
             head: head.last_block_hash,
             header_head: header_head.last_block_hash,
             missed_heights,
-            blocks: blocks.into_values().collect(),
+            blocks,
         })
     }
 
