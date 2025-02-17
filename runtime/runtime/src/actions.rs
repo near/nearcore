@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{metrics, ActionResult, ApplyState};
+use crate::{metrics, ActionResult, ApplyState, ChunkApplyStatsV0};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
@@ -24,6 +24,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
@@ -185,9 +186,11 @@ pub(crate) fn action_function_call(
         .into());
     }
 
+    let account_contract = account.contract();
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,
+        account_contract.as_ref(),
         apply_state.apply_reason.clone(),
         apply_state.current_protocol_version,
     )?;
@@ -627,6 +630,7 @@ pub(crate) fn action_deploy_global_contract(
     apply_state: &ApplyState,
     deploy_contract: &DeployGlobalContractAction,
     result: &mut ActionResult,
+    stats: &mut ChunkApplyStatsV0,
 ) {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
 
@@ -644,6 +648,8 @@ pub(crate) fn action_deploy_global_contract(
         .into());
         return;
     };
+    stats.balance.global_actions_burnt_amount =
+        stats.balance.global_actions_burnt_amount.saturating_add(storage_cost);
     account.set_amount(updated_balance);
 
     let id = match deploy_contract.deploy_mode {
@@ -663,12 +669,37 @@ pub(crate) fn action_deploy_global_contract(
 }
 
 pub(crate) fn action_use_global_contract(
-    _state_update: &mut TrieUpdate,
-    _account: &mut Account,
-    _action: &UseGlobalContractAction,
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    action: &UseGlobalContractAction,
+    current_protocol_version: ProtocolVersion,
+    result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    // TODO(#12716): implement global contract usage
+    let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
+    if !state_update.contains_key(&key)? {
+        result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
+            identifier: action.contract_identifier.clone(),
+        }
+        .into());
+        return Ok(());
+    }
+    if let AccountContract::Local(code_hash) = account.contract().as_ref() {
+        let prev_code_len = get_code_len_or_default(
+            state_update,
+            account_id.clone(),
+            *code_hash,
+            current_protocol_version,
+        )?;
+        account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+        state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    }
+    let contract = match &action.contract_identifier {
+        GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
+        GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
+    };
+    account.set_contract(contract);
     Ok(())
 }
 
