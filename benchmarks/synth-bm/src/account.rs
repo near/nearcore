@@ -48,8 +48,8 @@ pub struct CreateSubAccountsArgs {
     /// - `a_user_<i>.<signer_account_id>` if `sub_account_prefixes == Some("a")`
     /// - `a_user_<i>.<signer_account_id>,b_user_<i>.<signer_account_id>`
     ///   if `sub_account_prefixes == Some("a,b")`
-    #[arg(long, alias = "sub_account_prefix")]
-    pub sub_account_prefixes: Option<String>,
+    #[arg(long, alias = "sub_account_prefix", use_value_delimiter = true)]
+    pub sub_account_prefixes: Option<Vec<String>>,
     /// Number of sub accounts to create.
     #[arg(long)]
     pub num_sub_accounts: u64,
@@ -213,17 +213,12 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         rpc_response_handler.handle_all_responses().await;
     });
 
-    let prefixes = args
-        .sub_account_prefixes
-        .as_ref()
-        .map(|p| p.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect::<Vec<&str>>());
-
     for i in 0..args.num_sub_accounts {
         let sub_account_key = SecretKey::from_random(KeyType::ED25519);
         let sub_account_id: AccountId = {
             // cspell:words subname
-            let subname = if let Some(prefixes) = &prefixes {
-                let prefix = prefixes[(i as usize) % prefixes.len()];
+            let subname = if let Some(prefixes) = &args.sub_account_prefixes {
+                let prefix = &prefixes[(i as usize) % prefixes.len()];
                 format!("{prefix}_user_{i}")
             } else {
                 format!("user_{i}")
