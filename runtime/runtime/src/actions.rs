@@ -679,7 +679,7 @@ pub(crate) fn action_use_global_contract(
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
     if !state_update.contains_key(&key)? {
-        result.result = Err(ActionErrorKind::GlobalContractIdentifierNotFound {
+        result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
             identifier: action.contract_identifier.clone(),
         }
         .into());

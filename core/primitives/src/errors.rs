@@ -627,7 +627,7 @@ pub enum ActionErrorKind {
         delegate_nonce: Nonce,
         upper_bound: Nonce,
     },
-    GlobalContractIdentifierNotFound {
+    GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifier,
     },
 }
@@ -970,7 +970,7 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
             ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
-            ActionErrorKind::GlobalContractIdentifierNotFound { identifier } => write!(f, "Global contract identifier {:?} not found", identifier),
+            ActionErrorKind::GlobalContractDoesNotExist { identifier } => write!(f, "Global contract identifier {:?} not found", identifier),
         }
     }
 }

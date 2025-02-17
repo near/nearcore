@@ -26,8 +26,8 @@ use near_primitives::checked_feature;
 use near_primitives::chunk_apply_stats::{BalanceStats, ChunkApplyStatsV0};
 use near_primitives::congestion_info::{BlockCongestionInfo, CongestionInfo};
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, EpochError, GlobalContractError, IntegerOverflowError,
-    InvalidTxError, RuntimeError, TxExecutionError,
+    ActionError, ActionErrorKind, EpochError, IntegerOverflowError, InvalidTxError, RuntimeError,
+    TxExecutionError,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -511,9 +511,12 @@ impl Runtime {
                                 let TrieKey::GlobalContractCode { identifier } = key else {
                                     unreachable!()
                                 };
-                                RuntimeError::GlobalContractError(
-                                    GlobalContractError::IdentifierNotFound(identifier.into()),
-                                )
+                                RuntimeError::StorageError(StorageError::StorageInconsistentState(
+                                    format!(
+                                        "Global contract identifier not found {:?}",
+                                        identifier
+                                    ),
+                                ))
                             })?;
                         value_ref.value_hash()
                     }
