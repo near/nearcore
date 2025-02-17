@@ -1,0 +1,52 @@
+script_dir := `pwd`
+neard := script_dir / "./neard"
+near_localnet_home := script_dir / ".near"
+near_accounts_path := script_dir / "user-data"
+near_config_file := near_localnet_home / "config.json"
+near_genesis_file := near_localnet_home / "genesis.json"
+rpc_url := "http://127.0.0.1:3030"
+
+
+init-localnet:
+    rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
+    {{neard}} --home {{near_localnet_home}} init --chain-id localnet
+
+run-localnet loglevel="info":
+    RUST_LOG={{loglevel}} \
+    {{neard}} --home {{near_localnet_home}} run
+
+create-accounts:
+    RUST_LOG=info \
+    ../synth-bm/target/release/near-synth-bm create-sub-accounts \
+        --rpc-url {{rpc_url}} \
+        --signer-key-path {{near_localnet_home}}/validator_key.json \
+        --nonce 1 \
+        --sub-account-prefix 'a' \
+        --num-sub-accounts 100 \
+        --deposit 953060601875000000010000 \
+        --channel-buffer-size 1200 \
+        --requests-per-second 1250 \
+        --user-data-dir user-data
+
+enable-tx tps:
+    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp_config.json
+    mv tmp_config.json {{near_config_file}}
+
+unlimit:
+    jq '.chain_id="benchmarknet" | .gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json
+    mv tmp_genesis.json {{near_genesis_file}}
+    jq '.view_client_threads=8 \
+     | .store.load_mem_tries_for_tracked_shards=true \
+     | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 800000000}' {{near_config_file}} > tmp_config.json
+    mv tmp_config.json {{near_config_file}}
+
+do-it tps:
+    just init-localnet
+    just unlimit
+    killall neard || echo "all clear!"
+    nohup {{neard}} --home {{near_localnet_home}} run &
+    sleep 5
+    just create-accounts
+    killall neard
+    just enable-tx {{tps}}
+    just run-localnet

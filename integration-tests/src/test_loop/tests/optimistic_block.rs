@@ -58,12 +58,10 @@ fn test_optimistic_block() {
         assert!(chain.optimistic_block_chunks.num_chunks() <= 3 * num_shards);
         // There should be at least one optimistic block result in the cache.
         assert!(chain.apply_chunk_results_cache.len() > 0);
-        // Optimistic block result should be used at least once.
-        assert!(chain.apply_chunk_results_cache.hits() > 0);
-        // Because there is no optimistic block distribution yet, there should
-        // be at least one miss for each shard.
-        // TODO: after distribution is implemented, this may change.
-        assert!(chain.apply_chunk_results_cache.misses() > 0);
+        // Optimistic block result should be used at every height.
+        // We do not process the first 2 blocks of the network.
+        let expected_hits = chain.head().map_or(0, |t| t.height - 2);
+        assert!(chain.apply_chunk_results_cache.hits() >= (expected_hits as usize));
     }
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));

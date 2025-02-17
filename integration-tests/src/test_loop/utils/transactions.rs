@@ -13,6 +13,7 @@ use near_client::test_utils::test_loop::ClientQueries;
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::Signer;
 use near_network::client::ProcessTxRequest;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::block::Tip;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -300,6 +301,56 @@ pub fn deploy_contract(
     submit_tx(node_datas, rpc_id, tx);
 
     tracing::debug!(target: "test", ?contract_id, ?tx_hash, "deployed contract");
+    tx_hash
+}
+
+pub fn deploy_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    account_id: &AccountId,
+    code: Vec<u8>,
+    deploy_mode: GlobalContractDeployMode,
+    nonce: u64,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+    let signer = create_user_test_signer(&account_id);
+
+    let tx = SignedTransaction::deploy_global_contract(
+        nonce,
+        account_id.clone(),
+        code,
+        &signer,
+        block_hash,
+        deploy_mode,
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
+    tx_hash
+}
+
+pub fn use_global_contract(
+    test_loop: &mut TestLoopV2,
+    node_datas: &[TestData],
+    rpc_id: &AccountId,
+    account_id: &AccountId,
+    global_contract_identifier: GlobalContractIdentifier,
+    nonce: u64,
+) -> CryptoHash {
+    let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
+    let signer = create_user_test_signer(&account_id);
+
+    let tx = SignedTransaction::use_global_contract(
+        nonce,
+        account_id,
+        &signer,
+        block_hash,
+        global_contract_identifier,
+    );
+    let tx_hash = tx.get_hash();
+    submit_tx(node_datas, rpc_id, tx);
+
     tx_hash
 }
 
