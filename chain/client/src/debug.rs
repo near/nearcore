@@ -2,6 +2,7 @@
 //! without backwards compatibility.
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::client_actor::ClientActorInner;
+use itertools::Itertools;
 use near_async::messaging::Handler;
 use near_async::time::{Clock, Instant};
 use near_chain::crypto_hash_timer::CryptoHashTimer;
@@ -173,8 +174,8 @@ impl Handler<DebugStatus> for ClientActorInner {
             DebugStatus::TrackedShards => {
                 Ok(DebugStatusResponse::TrackedShards(self.get_tracked_shards_view()?))
             }
-            DebugStatus::EpochInfo => {
-                Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info()?))
+            DebugStatus::EpochInfo(epoch_id) => {
+                Ok(DebugStatusResponse::EpochInfo(self.get_recent_epoch_info(epoch_id)?))
             }
             DebugStatus::BlockStatus(height) => {
                 Ok(DebugStatusResponse::BlockStatus(self.get_last_blocks_info(height)?))
@@ -195,86 +196,130 @@ impl Handler<DebugStatus> for ClientActorInner {
     }
 }
 
+fn get_epoch_start_height(
+    epoch_manager: &dyn EpochManagerAdapter,
+    epoch_identifier: &ValidatorInfoIdentifier,
+) -> Result<BlockHeight, EpochError> {
+    match epoch_identifier {
+        ValidatorInfoIdentifier::EpochId(epoch_id) => {
+            epoch_manager.get_epoch_start_from_epoch_id(epoch_id)
+        }
+        ValidatorInfoIdentifier::BlockHash(block_hash) => {
+            epoch_manager.get_epoch_start_height(block_hash)
+        }
+    }
+}
+
+fn get_prev_epoch_identifier(
+    chain: &Chain,
+    first_block: Option<CryptoHash>,
+) -> Option<ValidatorInfoIdentifier> {
+    let epoch_start_block_header = chain.get_block_header(first_block.as_ref()?).ok()?;
+    if epoch_start_block_header.is_genesis() {
+        return None;
+    }
+    let prev_epoch_last_block_hash = epoch_start_block_header.prev_hash();
+    let prev_epoch_last_block_header = chain.get_block_header(prev_epoch_last_block_hash).ok()?;
+    if prev_epoch_last_block_header.is_genesis() {
+        return None;
+    }
+    Some(ValidatorInfoIdentifier::EpochId(*prev_epoch_last_block_header.epoch_id()))
+}
+
 impl ClientActorInner {
-    // Gets a list of block producers and chunk-only producers for a given epoch.
-    fn get_producers_for_epoch(
+    // Gets a list of block producers, chunk producers and chunk validators for a given epoch.
+    fn get_validators_for_epoch(
         &self,
         epoch_id: &EpochId,
-    ) -> Result<(Vec<ValidatorInfo>, Vec<String>), Error> {
-        let mut block_producers_set = HashSet::new();
+    ) -> Result<(Vec<ValidatorInfo>, Vec<String>, Vec<String>), Error> {
+        let all_validators = self
+            .client
+            .epoch_manager
+            .get_epoch_all_validators(epoch_id)?
+            .into_iter()
+            .map(|validator_stake| validator_stake.take_account_id().to_string())
+            .collect_vec();
         let block_producers: Vec<ValidatorInfo> = self
             .client
             .epoch_manager
             .get_epoch_block_producers_ordered(epoch_id)?
             .into_iter()
-            .map(|validator_stake| {
-                block_producers_set.insert(validator_stake.account_id().as_str().to_owned());
-                ValidatorInfo { account_id: validator_stake.take_account_id(), is_slashed: false }
+            .map(|validator_stake| ValidatorInfo {
+                account_id: validator_stake.take_account_id(),
+                is_slashed: false,
             })
             .collect();
-        let chunk_only_producers = self
+        let chunk_producers = self
             .client
             .epoch_manager
             .get_epoch_chunk_producers(&epoch_id)?
-            .iter()
-            .filter_map(|producer| {
-                if block_producers_set.contains(&producer.account_id().to_string()) {
-                    None
-                } else {
-                    Some(producer.account_id().to_string())
-                }
-            })
-            .collect::<Vec<_>>();
-        Ok((block_producers, chunk_only_producers))
+            .into_iter()
+            .map(|validator_stake| validator_stake.take_account_id().to_string())
+            .collect_vec();
+        // Note that currently all validators are chunk validators.
+        Ok((block_producers, chunk_producers, all_validators))
     }
 
     /// Gets the information about the epoch that contains a given block.
-    /// Also returns the hash of the last block of the previous epoch.
     fn get_epoch_info_view(
         &mut self,
-        current_block: CryptoHash,
-        is_current_block_head: bool,
-    ) -> Result<(EpochInfoView, CryptoHash), Error> {
+        epoch_identifier: &ValidatorInfoIdentifier,
+    ) -> Result<EpochInfoView, Error> {
         let epoch_start_height =
-            self.client.epoch_manager.get_epoch_start_height(&current_block)?;
-
-        let block = self.client.chain.get_block_by_height(epoch_start_height)?;
-        let epoch_id = block.header().epoch_id();
+            get_epoch_start_height(self.client.epoch_manager.as_ref(), epoch_identifier)?;
+        let epoch_start_block_header =
+            self.client.chain.get_block_header_by_height(epoch_start_height)?;
+        let epoch_id = epoch_start_block_header.epoch_id();
         let shard_layout = self.client.epoch_manager.get_shard_layout(&epoch_id)?;
 
-        let (validators, chunk_only_producers) = self.get_producers_for_epoch(&epoch_id)?;
+        let (block_producers, chunk_producers, chunk_validators) =
+            self.get_validators_for_epoch(&epoch_id)?;
 
-        let shards_size_and_parts: Vec<(u64, u64)> = block
-            .chunks()
-            .iter_deprecated()
-            .enumerate()
-            .map(|(shard_index, chunk)| {
-                let shard_id = shard_layout.get_shard_id(shard_index);
-                let Ok(shard_id) = shard_id else {
-                    tracing::error!("Failed to get shard id for shard index {}", shard_index);
-                    return (0, 0);
-                };
+        let sync_hash =
+            self.client.chain.get_sync_hash(epoch_start_block_header.hash()).ok().flatten();
+        let hash_to_compute_shard_sizes = match &sync_hash {
+            Some(sync_hash) => sync_hash,
+            None => epoch_start_block_header.hash(),
+        };
 
-                let state_root_node = self.client.runtime_adapter.get_state_root_node(
-                    shard_id,
-                    block.hash(),
-                    &chunk.prev_state_root(),
-                );
-                if let Ok(state_root_node) = state_root_node {
-                    (
-                        state_root_node.memory_usage,
-                        get_num_state_parts(state_root_node.memory_usage),
-                    )
-                } else {
-                    (0, 0)
-                }
-            })
-            .collect();
+        let shards_size_and_parts: Vec<(u64, u64)> = if let Ok(block) =
+            self.client.chain.get_block(hash_to_compute_shard_sizes)
+        {
+            block
+                .chunks()
+                .iter_raw()
+                .enumerate()
+                .map(|(shard_index, chunk)| {
+                    let shard_id = shard_layout.get_shard_id(shard_index);
+                    let Ok(shard_id) = shard_id else {
+                        tracing::error!("Failed to get shard id for shard index {}", shard_index);
+                        return (0, 0);
+                    };
+
+                    let state_root_node = self.client.runtime_adapter.get_state_root_node(
+                        shard_id,
+                        epoch_start_block_header.hash(),
+                        &chunk.prev_state_root(),
+                    );
+                    if let Ok(state_root_node) = state_root_node {
+                        (
+                            state_root_node.memory_usage,
+                            get_num_state_parts(state_root_node.memory_usage),
+                        )
+                    } else {
+                        (0, 0)
+                    }
+                })
+                .collect()
+        } else {
+            epoch_start_block_header.chunk_mask().iter().map(|_| (0, 0)).collect()
+        };
 
         let state_header_exists: Vec<bool> = shard_layout
             .shard_ids()
             .map(|shard_id| {
-                let key = borsh::to_vec(&StateHeaderKey(shard_id, *block.hash()));
+                let key =
+                    borsh::to_vec(&StateHeaderKey(shard_id, *epoch_start_block_header.hash()));
                 match key {
                     Ok(key) => {
                         matches!(
@@ -297,64 +342,63 @@ impl ClientActorInner {
             .map(|((a, b), c)| (*a, *b, *c))
             .collect();
 
-        let validator_info = if is_current_block_head {
-            self.client
+        let validator_info =
+            self.client.epoch_manager.get_validator_info(epoch_identifier.clone())?;
+        let epoch_height =
+            self.client.epoch_manager.get_epoch_info(&epoch_id).map(|info| info.epoch_height())?;
+        Ok(EpochInfoView {
+            epoch_height,
+            epoch_id: epoch_id.0,
+            height: epoch_start_block_header.height(),
+            first_block: Some((
+                *epoch_start_block_header.hash(),
+                epoch_start_block_header.timestamp(),
+            )),
+            block_producers,
+            chunk_producers,
+            chunk_validators,
+            validator_info: Some(validator_info),
+            protocol_version: self
+                .client
                 .epoch_manager
-                .get_validator_info(ValidatorInfoIdentifier::BlockHash(current_block))?
-        } else {
-            self.client
-                .epoch_manager
-                .get_validator_info(ValidatorInfoIdentifier::EpochId(*epoch_id))?
-        };
-        return Ok((
-            EpochInfoView {
-                epoch_height: self
-                    .client
-                    .epoch_manager
-                    .get_epoch_info(&epoch_id)
-                    .map(|info| info.epoch_height())?,
-                epoch_id: epoch_id.0,
-                height: block.header().height(),
-                first_block: Some((*block.header().hash(), block.header().timestamp())),
-                block_producers: validators.to_vec(),
-                chunk_only_producers,
-                validator_info: Some(validator_info),
-                protocol_version: self
-                    .client
-                    .epoch_manager
-                    .get_epoch_protocol_version(epoch_id)
-                    .unwrap_or(0),
-                shards_size_and_parts,
-            },
-            // Last block of the previous epoch.
-            *block.header().prev_hash(),
-        ));
+                .get_epoch_protocol_version(epoch_id)
+                .unwrap_or(0),
+            sync_hash,
+            shards_size_and_parts,
+        })
     }
 
-    fn get_next_epoch_view(&self) -> Result<EpochInfoView, Error> {
-        let head = self.client.chain.head()?;
+    /// Get information about the next epoch, which may not have started yet.
+    fn get_next_epoch_view(
+        &self,
+        epoch_identifier: &ValidatorInfoIdentifier,
+    ) -> Result<EpochInfoView, Error> {
         let epoch_start_height =
-            self.client.epoch_manager.get_epoch_start_height(&head.last_block_hash)?;
-        let (validators, chunk_only_producers) =
-            self.get_producers_for_epoch(&head.next_epoch_id)?;
+            get_epoch_start_height(self.client.epoch_manager.as_ref(), epoch_identifier)?;
+        let epoch_first_block = self.client.chain.get_block_header_by_height(epoch_start_height)?;
+        let next_epoch_id = epoch_first_block.next_epoch_id();
+        let (block_producers, chunk_producers, chunk_validators) =
+            self.get_validators_for_epoch(next_epoch_id)?;
 
         Ok(EpochInfoView {
             epoch_height: self
                 .client
                 .epoch_manager
-                .get_epoch_info(&head.next_epoch_id)
+                .get_epoch_info(next_epoch_id)
                 .map(|info| info.epoch_height())?,
-            epoch_id: head.next_epoch_id.0,
+            epoch_id: next_epoch_id.0,
             // Expected height of the next epoch.
             height: epoch_start_height + self.client.config.epoch_length,
             first_block: None,
-            block_producers: validators,
-            chunk_only_producers,
+            block_producers,
+            chunk_producers,
+            chunk_validators,
             validator_info: None,
             protocol_version: self
                 .client
                 .epoch_manager
-                .get_epoch_protocol_version(&head.next_epoch_id)?,
+                .get_epoch_protocol_version(next_epoch_id)?,
+            sync_hash: None,
             shards_size_and_parts: vec![],
         })
     }
@@ -386,25 +430,41 @@ impl ClientActorInner {
 
     fn get_recent_epoch_info(
         &mut self,
+        epoch_id: Option<EpochId>,
     ) -> Result<Vec<EpochInfoView>, near_chain_primitives::Error> {
-        // Next epoch id
         let mut epochs_info: Vec<EpochInfoView> = Vec::new();
 
-        if let Ok(next_epoch) = self.get_next_epoch_view() {
+        let head = self.client.chain.head()?;
+        let epoch_identifier = match epoch_id {
+            // Use epoch id if the epoch is already finalized.
+            Some(epoch_id) if head.epoch_id != epoch_id => {
+                ValidatorInfoIdentifier::EpochId(epoch_id)
+            }
+            // Otherwise use the last block hash.
+            _ => ValidatorInfoIdentifier::BlockHash(self.client.chain.head()?.last_block_hash),
+        };
+
+        // Fetch the next epoch info
+        if let Ok(next_epoch) = self.get_next_epoch_view(&epoch_identifier) {
             epochs_info.push(next_epoch);
         }
-        let head = self.client.chain.head()?;
-        let mut current_block = head.last_block_hash;
-        for i in 0..DEBUG_EPOCHS_TO_FETCH {
-            if let Ok((epoch_view, block_previous_epoch)) =
-                self.get_epoch_info_view(current_block, i == 0)
-            {
-                current_block = block_previous_epoch;
-                epochs_info.push(epoch_view);
-            } else {
+
+        let mut current_epoch_identifier = epoch_identifier;
+        for _ in 0..DEBUG_EPOCHS_TO_FETCH {
+            let Ok(epoch_view) = self.get_epoch_info_view(&current_epoch_identifier) else {
                 break;
-            }
+            };
+            let first_block = epoch_view.first_block.map(|(hash, _)| hash);
+            epochs_info.push(epoch_view);
+
+            let Some(prev_epoch_identifier) =
+                get_prev_epoch_identifier(&self.client.chain, first_block)
+            else {
+                break;
+            };
+            current_epoch_identifier = prev_epoch_identifier;
         }
+
         Ok(epochs_info)
     }
 
