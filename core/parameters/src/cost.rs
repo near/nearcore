@@ -558,7 +558,7 @@ impl RuntimeFeesConfig {
                 ActionCosts::action_use_global_contract_byte => Fee {
                     send_sir: 7_000_000,
                     send_not_sir: 7_000_000,
-                    execution: 7_000_000,
+                    execution: 70_000_000,
                 },
             },
         }
