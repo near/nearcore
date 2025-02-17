@@ -18,7 +18,7 @@ Keep shared configuration overrides in the base directory, example `base_config_
     "base_genesis_patch": "../../50_shards_genesis_patch.json",
     // configuration for synth-bm, check the tool's docs for more details
     "num_accounts": 20,
-    "channel_buffer_size": 6000,
+    "requests_per_second": 6000,
     "interval_duration_micros": 23000,
     "num_transfers": 6000
 }

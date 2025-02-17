@@ -176,7 +176,7 @@ create_accounts() {
             --num-sub-accounts ${num_accounts} \
             --deposit 953060601875000000010000 \
             --channel-buffer-size 1200 \
-            --interval-duration-micros 800 \
+            --requests-per-second 500 \
             --user-data-dir ${data_dir}
     done
 
@@ -191,9 +191,10 @@ native_transfers() {
 
     num_transfers=$(jq '.num_transfers' ${BM_PARAMS})
     buffer_size=$(jq '.channel_buffer_size' ${BM_PARAMS})
-    interval=$(jq '.interval_duration_micros' ${BM_PARAMS})
+    rps=$(jq '.requests_per_second' ${BM_PARAMS})
+    rps=$(bc <<< "scale=0;${rps}/${NUM_SHARDS}")
 
-    echo "Config: num_transfers: ${num_transfers}, buffer_size: ${buffer_size}, interval: ${interval}"
+    echo "Config: num_transfers: ${num_transfers}, buffer_size: ${buffer_size}, RPS: ${rps}"
 
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     for i in $(seq 0 $((NUM_SHARDS-1))); do
@@ -206,7 +207,7 @@ native_transfers() {
             --user-data-dir ${data_dir}/ \
             --num-transfers ${num_transfers} \
             --channel-buffer-size ${buffer_size} \
-            --interval-duration-micros ${interval} \
+            --requests-per-second ${rps} \
             --amount 1 &> ${log} &
     done
     wait

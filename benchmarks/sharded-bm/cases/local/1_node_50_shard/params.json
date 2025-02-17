@@ -5,6 +5,6 @@
     "base_genesis_patch": "../../50_shards_genesis_patch.json",
     "num_accounts": 20,
     "channel_buffer_size": 6000,
-    "interval_duration_micros": 23000,
+    "requests_per_second": 2200,
     "num_transfers": 6000
 }
