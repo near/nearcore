@@ -236,6 +236,8 @@ pub enum Parameter {
     GlobalContractStorageAmountPerByte,
 
     ActionUseGlobalContract,
+    ActionUseGlobalContractPerByte,
+    GlobalContractUsageStorageAmountPerByte,
 }
 
 #[derive(
