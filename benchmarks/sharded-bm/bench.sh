@@ -77,7 +77,7 @@ stop_nodes() {
     if [ "${NUM_NODES}" -eq "1" ]; then
         sudo systemctl stop neard
     else 
-        pkill -f neard
+        killall --wait neard || true
     fi
     echo "=> Done"
 }
