@@ -68,8 +68,6 @@ pub enum RuntimeError {
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
     ValidatorError(EpochError),
-    /// Global contract errors.
-    GlobalContractError(GlobalContractError),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -972,18 +970,6 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
             ActionErrorKind::GlobalContractDoesNotExist { identifier } => write!(f, "Global contract identifier {:?} not found", identifier),
         }
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub enum GlobalContractError {
-    IdentifierNotFound(GlobalContractIdentifier),
-}
-
-impl Display for GlobalContractError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let Self::IdentifierNotFound(id) = self;
-        write!(f, "GlobalContractError: {:?}", id)
     }
 }
 
