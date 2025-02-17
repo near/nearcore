@@ -24,3 +24,16 @@ action_deploy_global_contract_per_byte: {
   }
 }
 global_contract_storage_amount_per_byte: { old: 999_999_999_999_999_999_999_999_999, new: 100_000_000_000_000_000_000 }
+action_use_global_contract: {
+  old: {
+    send_sir: 999_999_999_999_999,
+    send_not_sir: 999_999_999_999_999,
+    execution: 999_999_999_999_999,
+  },
+  new: {
+    send_sir: 100_000_000_000,
+    send_not_sir: 100_000_000_000,
+    execution: 100_000_000_000,
+  }
+}
+global_contract_usage_storage_amount_per_byte: { old: 999_999_999_999_999_999_999_999_999, new: 100_000_000_000_000_000_000 }
