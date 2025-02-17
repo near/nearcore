@@ -305,7 +305,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     global_contract_storage_amount_per_byte: params
                         .get(Parameter::GlobalContractStorageAmountPerByte)?,
                     global_contract_usage_storage_amount_per_byte: params
-                        .get(Parameter::ActionUseGlobalContract)?,
+                        .get(Parameter::GlobalContractUsageStorageAmountPerByte)?,
                 },
             }),
             wasm_config: Arc::new(Config {
