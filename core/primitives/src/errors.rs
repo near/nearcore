@@ -1,3 +1,4 @@
+use crate::action::GlobalContractIdentifier;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::shard_layout::ShardLayoutError;
@@ -517,9 +518,13 @@ impl std::error::Error for ActionError {}
 )]
 pub enum ActionErrorKind {
     /// Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage
-    AccountAlreadyExists { account_id: AccountId },
+    AccountAlreadyExists {
+        account_id: AccountId,
+    },
     /// Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)
-    AccountDoesNotExist { account_id: AccountId },
+    AccountDoesNotExist {
+        account_id: AccountId,
+    },
     /// A top-level account ID can only be created by registrar.
     CreateAccountOnlyByRegistrar {
         account_id: AccountId,
@@ -528,16 +533,30 @@ pub enum ActionErrorKind {
     },
 
     /// A newly created account must be under a namespace of the creator account
-    CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
+    CreateAccountNotAllowed {
+        account_id: AccountId,
+        predecessor_id: AccountId,
+    },
     /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
     /// or the first TX action is a `CreateAccount` action
-    ActorNoPermission { account_id: AccountId, actor_id: AccountId },
+    ActorNoPermission {
+        account_id: AccountId,
+        actor_id: AccountId,
+    },
     /// Account tries to remove an access key that doesn't exist
-    DeleteKeyDoesNotExist { account_id: AccountId, public_key: Box<PublicKey> },
+    DeleteKeyDoesNotExist {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    },
     /// The public key is already used for an existing access key
-    AddKeyAlreadyExists { account_id: AccountId, public_key: Box<PublicKey> },
+    AddKeyAlreadyExists {
+        account_id: AccountId,
+        public_key: Box<PublicKey>,
+    },
     /// Account is staking and can not be deleted
-    DeleteAccountStaking { account_id: AccountId },
+    DeleteAccountStaking {
+        account_id: AccountId,
+    },
     /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
     LackBalanceForState {
         /// An account which needs balance
@@ -547,7 +566,9 @@ pub enum ActionErrorKind {
         amount: Balance,
     },
     /// Account is not yet staked, but tries to unstake
-    TriesToUnstake { account_id: AccountId },
+    TriesToUnstake {
+        account_id: AccountId,
+    },
     /// The account doesn't have enough balance to increase the stake.
     TriesToStake {
         account_id: AccountId,
@@ -576,21 +597,37 @@ pub enum ActionErrorKind {
     ///
     /// TODO(#8598): This error is named very poorly. A better name would be
     /// `OnlyNamedAccountCreationAllowed`.
-    OnlyImplicitAccountCreationAllowed { account_id: AccountId },
+    OnlyImplicitAccountCreationAllowed {
+        account_id: AccountId,
+    },
     /// Delete account whose state is large is temporarily banned.
-    DeleteAccountWithLargeState { account_id: AccountId },
+    DeleteAccountWithLargeState {
+        account_id: AccountId,
+    },
     /// Signature does not match the provided actions and given signer public key.
     DelegateActionInvalidSignature,
     /// Receiver of the transaction doesn't match Sender of the delegate action
-    DelegateActionSenderDoesNotMatchTxReceiver { sender_id: AccountId, receiver_id: AccountId },
+    DelegateActionSenderDoesNotMatchTxReceiver {
+        sender_id: AccountId,
+        receiver_id: AccountId,
+    },
     /// Delegate action has expired. `max_block_height` is less than actual block height.
     DelegateActionExpired,
     /// The given public key doesn't exist for Sender account
     DelegateActionAccessKeyError(InvalidAccessKeyError),
     /// DelegateAction nonce must be greater sender[public_key].nonce
-    DelegateActionInvalidNonce { delegate_nonce: Nonce, ak_nonce: Nonce },
+    DelegateActionInvalidNonce {
+        delegate_nonce: Nonce,
+        ak_nonce: Nonce,
+    },
     /// DelegateAction nonce is larger than the upper bound given by the block height
-    DelegateActionNonceTooLarge { delegate_nonce: Nonce, upper_bound: Nonce },
+    DelegateActionNonceTooLarge {
+        delegate_nonce: Nonce,
+        upper_bound: Nonce,
+    },
+    GlobalContractDoesNotExist {
+        identifier: GlobalContractIdentifier,
+    },
 }
 
 impl From<ActionErrorKind> for ActionError {
@@ -931,6 +968,7 @@ impl Display for ActionErrorKind {
             ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
             ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
             ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
+            ActionErrorKind::GlobalContractDoesNotExist { identifier } => write!(f, "Global contract identifier {:?} not found", identifier),
         }
     }
 }

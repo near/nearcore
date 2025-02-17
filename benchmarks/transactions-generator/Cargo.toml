@@ -1,0 +1,51 @@
+[package]
+name = "near-transactions-generator"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+nightly_protocol = [
+  "near-async/nightly_protocol",
+  "near-client-primitives/nightly_protocol",
+  "near-client/nightly_protocol",
+  "near-network/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "node-runtime/nightly_protocol",
+]
+nightly = [
+  "near-async/nightly",
+  "near-client-primitives/nightly",
+  "near-client/nightly",
+  "near-network/nightly",
+  "near-primitives/nightly",
+  "nightly_protocol",
+  "node-runtime/nightly",
+]
+default = ["with_actix"]
+with_actix = ["near-async", "near-network", "actix"]
+
+[dependencies]
+actix = { workspace = true, optional = true }
+anyhow.workspace = true
+near-async = {workspace = true, optional = true }
+near-crypto = { workspace = true }
+near-network = { workspace = true, optional = true }
+near-primitives = { workspace = true, features = ["clock", "test_utils"] }
+near-client.workspace = true
+near-client-primitives.workspace = true
+node-runtime.workspace=true
+
+rand.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true, features = ["std"] }
+
+
+[lints]
+workspace = true

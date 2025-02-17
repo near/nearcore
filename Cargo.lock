@@ -5196,6 +5196,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-transactions-generator"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "near-async",
+ "near-client",
+ "near-client-primitives",
+ "near-crypto",
+ "near-network",
+ "near-primitives",
+ "node-runtime",
+ "rand",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "near-undo-block"
 version = "0.0.0"
 dependencies = [
@@ -5498,6 +5518,7 @@ dependencies = [
  "near-rosetta-rpc",
  "near-store",
  "near-telemetry",
+ "near-transactions-generator",
  "near-vm-runner",
  "node-runtime",
  "num-rational 0.3.2",

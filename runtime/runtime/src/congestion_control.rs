@@ -29,13 +29,13 @@ use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 
 /// Handle receipt forwarding for different protocol versions.
-pub(crate) enum ReceiptSink {
+pub enum ReceiptSink {
     V1(ReceiptSinkV1),
     V2(ReceiptSinkV2),
 }
 
 /// Always put receipt to the outgoing receipts.
-pub(crate) struct ReceiptSinkV1 {
+pub struct ReceiptSinkV1 {
     pub(crate) outgoing_receipts: Vec<Receipt>,
 }
 
@@ -48,7 +48,7 @@ pub(crate) struct ReceiptSinkV1 {
 /// This is for congestion control, allowing to apply backpressure from the
 /// receiving shard and stopping us from sending more receipts to it than its
 /// nodes can keep in memory.
-pub(crate) struct ReceiptSinkV2 {
+pub struct ReceiptSinkV2 {
     /// Keeps track of the local shard's congestion info while adding and
     /// removing buffered or delayed receipts. At the end of applying receipts,
     /// it will be a field in the [`ApplyResult`]. For this chunk, it is not

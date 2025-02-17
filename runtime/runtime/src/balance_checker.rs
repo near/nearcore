@@ -343,8 +343,8 @@ pub(crate) fn check_balance(
         total_postponed_receipts_cost(initial_state, config, &all_potential_postponed_receipt_ids)?;
     let final_postponed_receipts_balance =
         total_postponed_receipts_cost(final_state, config, &all_potential_postponed_receipt_ids)?;
-    // Sum it up
 
+    // Sum it up
     let initial_balance = safe_add_balance_apply!(
         incoming_validator_rewards,
         initial_accounts_balance,
@@ -361,7 +361,8 @@ pub(crate) fn check_balance(
         stats.tx_burnt_amount,
         stats.slashed_burnt_amount,
         new_buffered_receipts_balance,
-        stats.other_burnt_amount
+        stats.other_burnt_amount,
+        stats.global_actions_burnt_amount
     );
     if initial_balance != final_balance {
         Err(BalanceMismatchError {
@@ -564,6 +565,7 @@ mod tests {
                 gas_deficit_amount: 0,
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
+                global_actions_burnt_amount: 0,
             },
         )
         .unwrap();
@@ -759,6 +761,7 @@ mod tests {
                 gas_deficit_amount: 0,
                 other_burnt_amount: 0,
                 slashed_burnt_amount: 0,
+                global_actions_burnt_amount: 0,
             },
         )
         .unwrap();
