@@ -671,6 +671,7 @@ pub(crate) fn action_deploy_global_contract(
 pub(crate) fn action_use_global_contract(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
+    apply_state: &ApplyState,
     account: &mut Account,
     action: &UseGlobalContractAction,
     current_protocol_version: ProtocolVersion,
@@ -695,10 +696,27 @@ pub(crate) fn action_use_global_contract(
         account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
         state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
     }
-    let contract = match &action.contract_identifier {
-        GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
-        GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
+    let (contract, length) = match &action.contract_identifier {
+        GlobalContractIdentifier::CodeHash(code_hash) => (AccountContract::Global(*code_hash), 32),
+        GlobalContractIdentifier::AccountId(id) => {
+            (AccountContract::GlobalByAccount(id.clone()), id.len())
+        }
     };
+    let storage_cost = apply_state
+        .config
+        .fees
+        .storage_usage_config
+        .global_contract_storage_amount_per_byte
+        .saturating_mul(length as u128);
+    let Some(updated_balance) = account.amount().checked_sub(storage_cost) else {
+        result.result = Err(ActionErrorKind::LackBalanceForState {
+            account_id: account_id.clone(),
+            amount: storage_cost,
+        }
+        .into());
+        return Ok(());
+    };
+    account.set_amount(updated_balance);
     account.set_contract(contract);
     Ok(())
 }

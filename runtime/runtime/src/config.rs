@@ -1,7 +1,7 @@
 //! Settings of the parameters of the runtime.
 
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::DeployGlobalContractAction;
+use near_primitives::action::{DeployGlobalContractAction, GlobalContractIdentifier};
 use near_primitives::errors::IntegerOverflowError;
 use near_primitives::version::FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION;
 use near_primitives_core::types::ProtocolVersion;
@@ -146,9 +146,16 @@ pub fn total_send_fees(
                         .send_fee(sender_is_receiver)
                         * num_bytes
             }
-            UseGlobalContract(_) => {
-                // TODO(#12717): implement send fees for global contracts
-                1
+            UseGlobalContract(action) => {
+                let num_bytes = match &action.contract_identifier {
+                    GlobalContractIdentifier::CodeHash(_) => 32,
+                    GlobalContractIdentifier::AccountId(id) => id.len(),
+                } as u64;
+                fees.fee(ActionCosts::action_use_global_contract_base).send_fee(sender_is_receiver)
+                    + fees
+                        .fee(ActionCosts::action_use_global_contract_byte)
+                        .send_fee(sender_is_receiver)
+                        * num_bytes
             }
         };
         result = safe_add_gas(result, delta)?;
@@ -236,9 +243,13 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             fees.fee(ActionCosts::deploy_global_contract_base).exec_fee()
                 + fees.fee(ActionCosts::deploy_global_contract_byte).exec_fee() * num_bytes
         }
-        UseGlobalContract(_) => {
-            // TODO(#12717): implement exec fees for global contracts
-            1
+        UseGlobalContract(action) => {
+            let num_bytes = match &action.contract_identifier {
+                GlobalContractIdentifier::CodeHash(_) => 32,
+                GlobalContractIdentifier::AccountId(id) => id.len(),
+            } as u64;
+            fees.fee(ActionCosts::action_use_global_contract_base).exec_fee()
+                + fees.fee(ActionCosts::action_use_global_contract_byte).exec_fee() * num_bytes
         }
     }
 }
