@@ -424,6 +424,7 @@ impl Error {
             Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
             Error::ReshardingError(_) => "resharding_error",
+
             Error::BadHeaderForProtocolVersion(_) => "bad_header_for_protocol_version",
         }
     }
