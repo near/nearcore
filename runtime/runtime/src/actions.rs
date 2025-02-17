@@ -676,6 +676,7 @@ pub(crate) fn action_use_global_contract(
     action: &UseGlobalContractAction,
     current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
+    stats: &mut ChunkApplyStatsV0,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
@@ -714,6 +715,8 @@ pub(crate) fn action_use_global_contract(
         .into());
         return Ok(());
     };
+    stats.balance.global_actions_burnt_amount =
+        stats.balance.global_actions_burnt_amount.saturating_add(storage_cost);
     account.set_amount(updated_balance);
     account.set_contract(contract);
     Ok(())

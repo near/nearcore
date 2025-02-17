@@ -492,6 +492,7 @@ impl Runtime {
                     use_global_contract,
                     apply_state.current_protocol_version,
                     &mut result,
+                    stats,
                 )?;
             }
             Action::FunctionCall(function_call) => {
