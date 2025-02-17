@@ -351,6 +351,7 @@ mod test {
             deploy_global_contract_base -> 1016
             deploy_global_contract_byte -> 1017
             use_global_contract_base -> 1018
+            use_global_contract_byte -> 1019
             ------------------------------
         "#]]
         .assert_eq(&pretty_debug_str)
