@@ -551,14 +551,14 @@ impl RuntimeFeesConfig {
                     execution: 70_000_000,
                 },
                 ActionCosts::use_global_contract_base => Fee {
-                    send_sir: 100_000_000_000,
-                    send_not_sir: 100_000_000_000,
-                    execution: 100_000_000_000,
+                    send_sir: 184_765_750_000,
+                    send_not_sir: 184_765_750_000,
+                    execution: 184_765_750_000,
                 },
                 ActionCosts::use_global_contract_byte => Fee {
-                    send_sir: 7_000_000,
-                    send_not_sir: 7_000_000,
-                    execution: 70_000_000,
+                    send_sir: 6_812_999,
+                    send_not_sir: 47_683_715,
+                    execution: 64_572_944,
                 },
             },
         }
