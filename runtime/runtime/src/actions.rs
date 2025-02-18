@@ -705,7 +705,7 @@ pub(crate) fn action_use_global_contract(
         .config
         .fees
         .storage_usage_config
-        .global_contract_usage_storage_amount_per_byte
+        .global_contract_usage_storage_amount_per_identifier_byte
         .saturating_mul(action.contract_identifier.len() as u128);
     let Some(updated_balance) = account.amount().checked_sub(storage_cost) else {
         result.result = Err(ActionErrorKind::LackBalanceForState {

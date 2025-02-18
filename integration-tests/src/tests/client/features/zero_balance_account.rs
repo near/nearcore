@@ -127,7 +127,7 @@ fn test_zero_balance_account_add_key() {
         num_bytes_account: 100,
         num_extra_bytes_record: 40,
         global_contract_storage_amount_per_byte: 10u128.pow(20),
-        global_contract_usage_storage_amount_per_byte: 10u128.pow(20),
+        global_contract_usage_storage_amount_per_identifier_byte: 10u128.pow(20),
     };
     let wasm_config = Arc::make_mut(&mut runtime_config.wasm_config);
     wasm_config.ext_costs = ExtCostsConfig::test();
