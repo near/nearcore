@@ -148,7 +148,6 @@ fn setup_network_node(
         epoch_manager,
         runtime,
         Arc::new(RayonAsyncComputationSpawner),
-        Arc::new(RayonAsyncComputationSpawner),
     ));
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
     let peer_manager = PeerManagerActor::spawn(
