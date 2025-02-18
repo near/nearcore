@@ -101,7 +101,7 @@ init() {
         rm -f ${CONFIG} ${GENESIS} 
         /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
     else
-        ~/neard --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} --tracked-shards=none
+        /${NEARD} --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} --tracked-shards=none
     fi
     tweak_config
     echo "=> Done"
