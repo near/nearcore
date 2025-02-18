@@ -1,21 +1,25 @@
-use crate::account::Account;
+use crate::account::{accounts_from_dir, create_sub_accounts, Account, CreateSubAccountsArgs};
 use crate::block_service::BlockService;
+use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
 use log::info;
-use near_crypto::{InMemorySigner, KeyType, SecretKey};
+use near_crypto::{KeyType, SecretKey};
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
-use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::views::TxExecutionStatus;
 use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::{thread_rng, Rng};
+use serde::Serialize;
+use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time;
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum SweatCommand {
     /// Creates oracle accounts
     CreateOracles(CreateOraclesArgs),
@@ -41,6 +45,9 @@ pub struct CreateOraclesArgs {
 
     #[arg(long)]
     pub user_data_dir: PathBuf,
+
+    #[arg(long)]
+    pub signer_key_path: PathBuf,
 }
 
 #[derive(Args, Debug)]
@@ -59,6 +66,9 @@ pub struct CreateUsersArgs {
 
     #[arg(long)]
     pub user_data_dir: PathBuf,
+
+    #[arg(long)]
+    pub deposit: u128,
 }
 
 #[derive(Args, Debug)]
@@ -97,6 +107,14 @@ pub struct BenchmarkSweatArgs {
     pub command: SweatCommand,
 }
 
+const TOTAL_GAS: u64 = 300_000_000_000_000; // 300 TGAS
+const CHUNK_SIZE: usize = 150;
+
+#[derive(Serialize)]
+struct StepsBatch {
+    steps_batch: Vec<(AccountId, u64)>,
+}
+
 pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
     match &args.command {
         SweatCommand::CreateOracles(create_args) => create_oracles(create_args).await,
@@ -105,27 +123,20 @@ pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
     }
 }
 
-async fn create_sweat_users(
-    client: &JsonRpcClient,
-    block_service: &Arc<BlockService>,
-    oracle: &InMemorySigner,
-    num_users: u64,
-) -> anyhow::Result<Vec<Account>> {
-    // Implementation similar to create_sub_accounts but with
-    // Sweat contract registration
-    // ...
-    Ok(vec![])
-}
-
 pub async fn create_oracles(args: &CreateOraclesArgs) -> anyhow::Result<()> {
     // Use existing create_sub_accounts with oracle prefix
     let create_args = CreateSubAccountsArgs {
         rpc_url: args.rpc_url.clone(),
         num_sub_accounts: args.num_oracles,
         deposit: args.oracle_deposit,
-        sub_account_prefixes: Some(vec!["oracle".to_string()]),
+        sub_account_prefixes: Some(
+            ["2", "c", "h", "m", "x"].into_iter().map(|s| s.to_string()).collect(),
+        ),
         user_data_dir: args.user_data_dir.clone(),
-        // ... other fields
+        channel_buffer_size: 1000,
+        requests_per_second: 10, // we don't have many oracles anyway
+        nonce: 1,
+        signer_key_path: args.signer_key_path.clone(),
     };
 
     create_sub_accounts(&create_args).await
@@ -148,6 +159,7 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
             &args.sweat_contract_id,
             args.users_per_oracle,
             1000,
+            args.deposit,
         )
         .await?;
 
@@ -167,29 +179,46 @@ async fn create_passive_users(
     sweat_contract_id: &str,
     num_users: u64,
     channel_size: usize,
+    deposit: u128,
 ) -> anyhow::Result<Vec<Account>> {
     let mut users = Vec::with_capacity(num_users as usize);
     let (tx, rx) = mpsc::channel(channel_size);
 
     // Similar to create_sub_accounts but with FT registration
     let mut interval = time::interval(Duration::from_micros(1_000_000 / 100)); // 100 TPS
+    let wait_until = TxExecutionStatus::ExecutedOptimistic;
+    let wait_until_channel = wait_until.clone();
+    let num_expected_responses = num_users * 2; // Two transactions per user
+    let response_handler_task = tokio::task::spawn(async move {
+        let mut rpc_response_handler = RpcResponseHandler::new(
+            rx,
+            wait_until_channel,
+            ResponseCheckSeverity::Assert,
+            num_expected_responses,
+        );
+        rpc_response_handler.handle_all_responses().await;
+    });
 
     for i in 0..num_users {
         interval.tick().await;
 
         let user_key = SecretKey::from_random(KeyType::ED25519);
-        let user_id = format!("user_{}.{}", i, oracle.id).parse()?;
+        let user_id: AccountId = format!("user_{}.{}", i, oracle.id).parse()?;
 
         // Create user account
         let create_account_tx = SignedTransaction::create_account(
             oracle.nonce + i,
             oracle.id.clone(),
             user_id.clone(),
-            INIT_BALANCE,
+            deposit,
             user_key.public_key(),
-            block_service.get_block_hash(),
             &oracle.as_signer(),
+            block_service.get_block_hash(),
         );
+        let create_account_request = RpcSendTransactionRequest {
+            signed_transaction: create_account_tx,
+            wait_until: wait_until.clone(),
+        };
 
         // Register user in Sweat contract
         let register_tx = SignedTransaction::call(
@@ -205,6 +234,10 @@ async fn create_passive_users(
             300_000_000_000_000,
             block_service.get_block_hash(),
         );
+        let register_request = RpcSendTransactionRequest {
+            signed_transaction: register_tx,
+            wait_until: wait_until.clone(),
+        };
 
         let client1 = client.clone();
         let client2 = client.clone();
@@ -212,12 +245,12 @@ async fn create_passive_users(
         let tx2 = tx.clone();
 
         tokio::spawn(async move {
-            let res = client1.broadcast_tx_async(create_account_tx).await;
+            let res = client1.call(create_account_request).await;
             tx1.send(res).await.unwrap();
         });
 
         tokio::spawn(async move {
-            let res = client2.broadcast_tx_async(register_tx).await;
+            let res = client2.call(register_request).await;
             tx2.send(res).await.unwrap();
         });
 
@@ -225,8 +258,7 @@ async fn create_passive_users(
     }
 
     // Wait for all transactions
-    let response_handler = spawn_response_handler(rx, num_users * 2);
-    response_handler.await?;
+    response_handler_task.await.expect("response handler tasks should succeed");
 
     Ok(users)
 }
@@ -253,12 +285,13 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
 
     let wait_until = TxExecutionStatus::ExecutedOptimistic;
     let wait_until_channel = wait_until.clone();
+    let num_expected_responses = args.total_batches;
     let response_handler_task = tokio::task::spawn(async move {
         let mut rpc_response_handler = RpcResponseHandler::new(
             channel_rx,
             wait_until_channel,
             ResponseCheckSeverity::Log,
-            args.total_batches,
+            num_expected_responses,
         );
         rpc_response_handler.handle_all_responses().await;
     });
@@ -278,17 +311,36 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
             })
             .collect();
 
-        // Create record_batch transaction
-        let transaction = SignedTransaction::call(
+        // Split into chunks to match Python implementation's chunking
+        let chunks: Vec<Vec<(AccountId, u64)>> =
+            batch_receivers.chunks(CHUNK_SIZE).map(|c| c.to_vec()).collect();
+
+        // Create multiple function calls in a single transaction
+        let actions: Vec<near_primitives::transaction::Action> = chunks
+            .iter()
+            .map(|chunk| -> Result<near_primitives::transaction::Action, serde_json::Error> {
+                let steps_batch = StepsBatch { steps_batch: chunk.to_vec() };
+                let args = serde_json::to_vec(&steps_batch)?;
+                Ok(near_primitives::transaction::Action::FunctionCall(Box::new(
+                    near_primitives::transaction::FunctionCallAction {
+                        method_name: "record_batch".to_string(),
+                        args,
+                        gas: TOTAL_GAS / chunks.len() as u64, // Split gas equally between calls
+                        deposit: 0,
+                    },
+                )))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Create single transaction with multiple actions
+        let transaction = SignedTransaction::from_actions(
             oracle.nonce + (i / oracles.len() as u64),
             oracle.id.clone(),
             args.sweat_contract_id.parse()?,
             &oracle.as_signer(),
-            0,
-            "record_batch".to_string(),
-            serde_json::to_vec(&batch_receivers)?,
-            300_000_000_000_000,
+            actions,
             block_service.get_block_hash(),
+            0,
         );
 
         let request = RpcSendTransactionRequest {
@@ -315,7 +367,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     );
 
     // Wait for all responses
-    response_handler_task.await.expect("response handler task should succeed");
+    response_handler_task.await.expect("response handler tasks should succeed");
     info!("Received all RPC responses after {:.2} seconds", timer.elapsed().as_secs_f64());
 
     Ok(())

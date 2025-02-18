@@ -54,7 +54,8 @@ create_sweat_oracles:
         --num-oracles 4 \
         --oracle-deposit 100000000000000000000000 \
         --sweat-contract-id sweat.near \
-        --user-data-dir oracles/
+        --user-data-dir oracles/ \
+        --signer-key-path {{near_localnet_home}}/validator_key.json
 
 create_sweat_users:
     RUST_LOG=info \
