@@ -1,4 +1,3 @@
-use crate::blacklist;
 use crate::concurrency::rate;
 use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
@@ -10,11 +9,9 @@ use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
 use near_async::time;
-use near_chain_configs::MutableConfigValue;
 use near_chain_configs::MutableValidatorSigner;
-use near_crypto::{KeyType, SecretKey};
+use near_crypto::SecretKey;
 use near_primitives::network::PeerId;
-use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use std::collections::HashSet;
@@ -393,78 +390,6 @@ impl NetworkConfig {
         PeerId::new(self.node_key.public_key())
     }
 
-    /// TEST-ONLY: Returns network config with given seed used for peer id.
-    pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
-        let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
-        let validator = ValidatorConfig {
-            signer: MutableConfigValue::new(
-                Some(Arc::new(create_test_signer(seed))),
-                "validator_signer",
-            ),
-            proxies: ValidatorProxies::Static(vec![PeerAddr {
-                addr: *node_addr,
-                peer_id: PeerId::new(node_key.public_key()),
-            }]),
-        };
-        NetworkConfig {
-            node_addr: Some(node_addr),
-            node_key,
-            validator,
-            peer_store: peer_store::Config {
-                boot_nodes: vec![],
-                blacklist: blacklist::Blacklist::default(),
-                peer_states_cache_size: 1000,
-                ban_window: time::Duration::seconds(1),
-                peer_expiration_duration: time::Duration::seconds(60 * 60),
-                connect_only_to_boot_nodes: false,
-            },
-            snapshot_hosts: snapshot_hosts::Config {
-                snapshot_hosts_cache_size: 1000,
-                part_selection_cache_batch_size: 10,
-            },
-            whitelist_nodes: vec![],
-            handshake_timeout: time::Duration::seconds(5),
-            connect_to_reliable_peers_on_startup: true,
-            monitor_peers_max_period: time::Duration::seconds(100),
-            max_num_peers: 40,
-            minimum_outbound_peers: 5,
-            ideal_connections_lo: 30,
-            ideal_connections_hi: 35,
-            socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
-            peer_recent_time_window: time::Duration::seconds(600),
-            safe_set_size: 20,
-            archival_peer_connections_lower_bound: 10,
-            max_send_peers: PEERS_RESPONSE_MAX_PEERS,
-            peer_stats_period: time::Duration::seconds(5),
-            ttl_account_id_router: time::Duration::seconds(60 * 60),
-            routed_message_ttl: ROUTED_MESSAGE_TTL,
-            max_routes_to_store: 1,
-            highest_peer_horizon: 5,
-            push_info_period: time::Duration::milliseconds(100),
-            outbound_disabled: false,
-            inbound_disabled: false,
-            archive: false,
-            accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
-            snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
-            routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
-            tier1: Some(Tier1 {
-                // Interval is very large, so that it doesn't happen spontaneously in tests.
-                // It should rather be triggered manually in tests.
-                connect_interval: time::Duration::hours(1000),
-                new_connections_per_attempt: 10000,
-                advertise_proxies_interval: time::Duration::hours(1000),
-                enable_inbound: true,
-                enable_outbound: true,
-            }),
-            skip_tombstones: None,
-            received_messages_rate_limits: messages_limits::Config::default(),
-            #[cfg(test)]
-            event_sink: near_async::messaging::IntoSender::into_sender(
-                near_async::messaging::noop(),
-            ),
-        }
-    }
-
     pub fn verify(self) -> anyhow::Result<VerifiedConfig> {
         if !(self.ideal_connections_lo <= self.ideal_connections_hi) {
             anyhow::bail!(
@@ -547,7 +472,8 @@ impl std::ops::Deref for VerifiedConfig {
 
 #[cfg(test)]
 mod test {
-    use super::UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE;
+    use super::{NetworkConfig, ValidatorConfig, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE};
+    use crate::blacklist;
     use crate::config;
     use crate::config_json::NetworkConfigOverrides;
     use crate::network_protocol;
@@ -559,6 +485,83 @@ mod test {
     use crate::tcp;
     use crate::testonly::make_rng;
     use near_async::time;
+    use near_chain_configs::MutableConfigValue;
+    use near_crypto::KeyType;
+    use near_primitives::test_utils::create_test_signer;
+
+    impl NetworkConfig {
+        /// TEST-ONLY: Returns network config with given seed used for peer id.
+        pub fn from_seed(seed: &str, node_addr: tcp::ListenerAddr) -> Self {
+            let node_key = SecretKey::from_seed(KeyType::ED25519, seed);
+            let validator = ValidatorConfig {
+                signer: MutableConfigValue::new(
+                    Some(Arc::new(create_test_signer(seed))),
+                    "validator_signer",
+                ),
+                proxies: ValidatorProxies::Static(vec![PeerAddr {
+                    addr: *node_addr,
+                    peer_id: PeerId::new(node_key.public_key()),
+                }]),
+            };
+            NetworkConfig {
+                node_addr: Some(node_addr),
+                node_key,
+                validator,
+                peer_store: peer_store::Config {
+                    boot_nodes: vec![],
+                    blacklist: blacklist::Blacklist::default(),
+                    peer_states_cache_size: 1000,
+                    ban_window: time::Duration::seconds(1),
+                    peer_expiration_duration: time::Duration::seconds(60 * 60),
+                    connect_only_to_boot_nodes: false,
+                },
+                snapshot_hosts: snapshot_hosts::Config {
+                    snapshot_hosts_cache_size: 1000,
+                    part_selection_cache_batch_size: 10,
+                },
+                whitelist_nodes: vec![],
+                handshake_timeout: time::Duration::seconds(5),
+                connect_to_reliable_peers_on_startup: true,
+                monitor_peers_max_period: time::Duration::seconds(100),
+                max_num_peers: 40,
+                minimum_outbound_peers: 5,
+                ideal_connections_lo: 30,
+                ideal_connections_hi: 35,
+                socket_options: SocketOptions { recv_buffer_size: None, send_buffer_size: None },
+                peer_recent_time_window: time::Duration::seconds(600),
+                safe_set_size: 20,
+                archival_peer_connections_lower_bound: 10,
+                max_send_peers: PEERS_RESPONSE_MAX_PEERS,
+                peer_stats_period: time::Duration::seconds(5),
+                ttl_account_id_router: time::Duration::seconds(60 * 60),
+                routed_message_ttl: ROUTED_MESSAGE_TTL,
+                max_routes_to_store: 1,
+                highest_peer_horizon: 5,
+                push_info_period: time::Duration::milliseconds(100),
+                outbound_disabled: false,
+                inbound_disabled: false,
+                archive: false,
+                accounts_data_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+                snapshot_hosts_broadcast_rate_limit: rate::Limit { qps: 100., burst: 1000000 },
+                routing_table_update_rate_limit: rate::Limit { qps: 10., burst: 1 },
+                tier1: Some(Tier1 {
+                    // Interval is very large, so that it doesn't happen spontaneously in tests.
+                    // It should rather be triggered manually in tests.
+                    connect_interval: time::Duration::hours(1000),
+                    new_connections_per_attempt: 10000,
+                    advertise_proxies_interval: time::Duration::hours(1000),
+                    enable_inbound: true,
+                    enable_outbound: true,
+                }),
+                skip_tombstones: None,
+                received_messages_rate_limits: messages_limits::Config::default(),
+                #[cfg(test)]
+                event_sink: near_async::messaging::IntoSender::into_sender(
+                    near_async::messaging::noop(),
+                ),
+            }
+        }
+    }
 
     #[test]
     fn test_network_config() {
