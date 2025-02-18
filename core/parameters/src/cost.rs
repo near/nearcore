@@ -592,7 +592,7 @@ impl StorageUsageConfig {
             num_extra_bytes_record: 40,
             storage_amount_per_byte: 909 * 100_000_000_000_000_000,
             global_contract_storage_amount_per_byte: 100_000_000_000_000_000_000,
-            global_contract_usage_storage_amount_per_identifier_byte: 100_000_000_000_000_000_000,
+            global_contract_usage_storage_amount_per_identifier_byte: 10_000_000_000_000_000_000,
         }
     }
 
