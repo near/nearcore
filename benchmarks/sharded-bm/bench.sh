@@ -98,7 +98,7 @@ init() {
     echo "=> Initializing ${NUM_NODES} node network"
     reset
     if [ "${NUM_NODES}" -eq "1" ]; then
-        rm ${CONFIG} ${GENESIS}
+        rm -f ${CONFIG} ${GENESIS} 
         /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
     else
         ~/neard --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} --tracked-shards=none
