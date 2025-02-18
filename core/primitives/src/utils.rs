@@ -288,7 +288,7 @@ pub fn create_receipt_id_from_action_hash(
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     block_height: BlockHeight,
-    receipt_index: usize,
+    receipt_index: u64,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
@@ -296,7 +296,7 @@ pub fn create_receipt_id_from_action_hash(
         prev_block_hash,
         block_hash,
         block_height,
-        receipt_index as u64,
+        receipt_index,
     )
 }
 
