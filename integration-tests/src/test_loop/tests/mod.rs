@@ -10,6 +10,7 @@ mod epoch_sync;
 mod fix_chunk_producer_stake_threshold;
 mod fix_min_stake_ratio;
 mod fix_stake_threshold;
+mod global_contracts;
 mod in_memory_tries;
 mod malicious_chunk_producer;
 mod max_receipt_size;
