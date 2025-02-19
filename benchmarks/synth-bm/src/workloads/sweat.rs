@@ -464,14 +464,24 @@ async fn create_passive_users(
 
 async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
     // Load oracle accounts
-    let oracles = accounts_from_dir(&args.oracle_data_dir)?;
+    let mut oracles = accounts_from_dir(&args.oracle_data_dir)?;
     assert!(!oracles.is_empty(), "at least one oracle required");
+
+    let client = JsonRpcClient::connect(&args.rpc_url);
+
+    // Update oracle nonces from network before starting
+    oracles = update_account_nonces(
+        client.clone(),
+        oracles,
+        10, // Lower RPS for nonce updates
+        Some(&args.oracle_data_dir),
+    )
+    .await?;
 
     // Load user accounts that will receive steps
     let users = accounts_from_dir(&args.user_data_dir)?;
     assert!(users.len() >= args.batch_size as usize, "need at least as many users as batch_size");
 
-    let client = JsonRpcClient::connect(&args.rpc_url);
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
 
@@ -533,7 +543,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
 
         // Create single transaction with multiple actions
         let transaction = SignedTransaction::from_actions(
-            oracle.nonce + (i / oracles.len() as u64),
+            oracle.nonce + 1 + (i / oracles.len() as u64),
             oracle.id.clone(),
             oracle.id.clone(),
             &oracle.as_signer(),
