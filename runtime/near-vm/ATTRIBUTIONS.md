@@ -6,7 +6,7 @@ Listed below are notable sections of code that are licensed
 from other projects and the relevant license of those projects.
 
 These are the projects that were used as inspiration and/or that we are using code from.
-Each of the subcrates we have has an `Aknowledgements` section with more details.
+Each of the subcrates we have has an `Acknowledgements` section with more details.
 
 Projects:
 
@@ -62,11 +62,11 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 The contents of [Test/spec](Test/spec) is covered by the license in [Test/spec/LICENSE](Test/spec/LICENSE).
 
-[Source/ThirdParty/dtoa/dtoa.c](Source/ThirdParty/dtoa/dtoa.c) is covered by the license in that file.
+[Source/third party, third-party/dtoa/dtoa.c](Source/third party, third-party/dtoa/dtoa.c) is covered by the license in that file.
 
-[Source/ThirdParty/libunwind](Source/ThirdParty/libunwind) is covered by the license in [Source/ThirdParty/libunwind/LICENSE.TXT](Source/ThirdParty/libunwind/LICENSE.TXT).
+[Source/third party, third-party/libunwind](Source/third party, third-party/libunwind) is covered by the license in [Source/third party, third-party/libunwind/LICENSE.TXT](Source/third party, third-party/libunwind/LICENSE.TXT).
 
-[Source/ThirdParty/xxhash](Source/ThirdParty/xxhash) is covered by the license in [Source/ThirdParty/xxhash/LICENSE](Source/ThirdParty/xxhash/LICENSE).
+[Source/third party, third-party/xxhash](Source/third party, third-party/xxhash) is covered by the license in [Source/third party, third-party/xxhash/LICENSE](Source/third party, third-party/xxhash/LICENSE).
 ```
 
 ### Greenwasm
