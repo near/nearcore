@@ -4,8 +4,6 @@ use crate::account::{
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
@@ -187,6 +185,12 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
 
         match client.call(deploy_request).await {
             Ok(outcome) => {
+                if let Some(final_outcome) = outcome.final_execution_outcome {
+                    if let FinalExecutionStatus::Failure(err) = final_outcome.status {
+                        log::error!("Deploy failed for {}: {:?}", oracle.id, err);
+                        return Err(anyhow::anyhow!("Deploy failed for {}: {:?}", oracle.id, err));
+                    }
+                }
                 info!("Deploy successful for {}: {:?}", oracle.id, outcome);
             }
             Err(e) => {

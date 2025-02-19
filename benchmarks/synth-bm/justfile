@@ -52,7 +52,7 @@ create_sweat_oracles:
     cargo run --release -- benchmark-sweat create-contracts \
         --rpc-url {{rpc_url}} \
         --num-oracles 4 \
-        --oracle-deposit 1000000000000000000000000 \
+        --oracle-deposit 10000000000000000000000000 \
         --user-data-dir oracles/ \
         --signer-key-path {{near_localnet_home}}/validator_key.json \
         --wasm-file res/sweat.wasm
