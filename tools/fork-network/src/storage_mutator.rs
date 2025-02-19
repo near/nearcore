@@ -117,7 +117,7 @@ impl ShardUpdateState {
     }
 
     pub(crate) fn state_root(&self) -> CryptoHash {
-        self.root.lock().unwrap().as_ref().map_or(CryptoHash::default(), |s| s.state_root)
+        self.root.lock().unwrap().as_ref().map_or_else(CryptoHash::default, |s| s.state_root)
     }
 }
 

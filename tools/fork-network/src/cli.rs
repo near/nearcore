@@ -304,7 +304,7 @@ impl ForkNetworkCommand {
                     format!("failed parsing shard layout file at {}", shard_layout_file.display())
                 })?
             }
-            None => shard_layout.clone(),
+            None => shard_layout,
         };
 
         // Flat state can be at different heights for different shards.
@@ -327,8 +327,8 @@ impl ForkNetworkCommand {
 
         // Advance flat heads to the same (max) block height to ensure
         // consistency of state across the shards.
-        let state_roots: Vec<(ShardUId, StateRoot)> = shard_layout
-            .shard_uids()
+        let state_roots: Vec<(ShardUId, StateRoot)> = all_shard_uids
+            .into_iter()
             .map(|shard_uid| {
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 let flat_storage =
@@ -467,13 +467,9 @@ impl ForkNetworkCommand {
         let (prev_state_roots, flat_head, _epoch_id, target_shard_layout) =
             self.get_state_roots_and_hash(store.clone())?;
 
-        let runtime = NightshadeRuntime::from_config(
-            home_dir,
-            store.clone(),
-            &near_config,
-            epoch_manager.clone(),
-        )
-        .context("could not create the transaction runtime")?;
+        let runtime =
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?;
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
