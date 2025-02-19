@@ -246,6 +246,43 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
                 return Err(anyhow::anyhow!("Init failed for {}: {}", oracle.id, e));
             }
         }
+
+        // Register the oracle account
+        let register_oracle_args = json!({
+            "account_id": oracle.id
+        });
+
+        let register_oracle_tx = SignedTransaction::call(
+            oracle.nonce + 3,
+            oracle.id.clone(),
+            oracle.id.clone(),
+            &oracle.as_signer(),
+            0,
+            "add_oracle".to_string(),
+            serde_json::to_vec(&register_oracle_args)?,
+            TOTAL_GAS,
+            block_service.get_block_hash(),
+        );
+
+        let register_oracle_request = RpcSendTransactionRequest {
+            signed_transaction: register_oracle_tx,
+            wait_until: TxExecutionStatus::ExecutedOptimistic,
+        };
+
+        match client.call(register_oracle_request).await {
+            Ok(outcome) => {
+                info!("Oracle registration result for {}: {:?}", oracle.id, outcome);
+                check_tx_response(
+                    outcome,
+                    TxExecutionStatus::ExecutedOptimistic,
+                    ResponseCheckSeverity::Assert,
+                );
+            }
+            Err(e) => {
+                log::error!("Oracle registration failed for {}: {}", oracle.id, e);
+                return Err(anyhow::anyhow!("Oracle registration failed for {}: {}", oracle.id, e));
+            }
+        }
     }
 
     info!("Updating nonces after deployment");
