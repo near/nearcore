@@ -434,7 +434,7 @@ async fn create_passive_users(
 
         let register_request = RpcSendTransactionRequest {
             signed_transaction: register_tx,
-            wait_until: TxExecutionStatus::Included,
+            wait_until: wait_until.clone(),
         };
 
         // Send register transaction and wait for response
