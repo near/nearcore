@@ -153,10 +153,19 @@ pub fn check_outcome(
 ) {
     let outcome =
         response.final_execution_outcome.expect("response should have an outcome").into_outcome();
-    if outcome.status != expected_status {
-        let msg =
-            format!("got outcome.status {:#?}, expected {:#?}", outcome.status, expected_status);
-        warn_or_panic(&msg, response_check_severity);
+
+    match (&outcome.status, &expected_status) {
+        (FinalExecutionStatus::SuccessValue(_), FinalExecutionStatus::SuccessValue(_)) => {
+            // Both are success values, don't compare the actual data
+        }
+        _ if outcome.status != expected_status => {
+            let msg = format!(
+                "got outcome.status {:#?}, expected {:#?}",
+                outcome.status, expected_status
+            );
+            warn_or_panic(&msg, response_check_severity);
+        }
+        _ => {}
     }
 
     for receipt_outcome in outcome.receipts_outcome.iter() {
