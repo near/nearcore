@@ -25,7 +25,7 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::ShardUId;
+use near_store::{ShardUId, TrieUpdate};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -50,6 +50,8 @@ pub struct ProduceChunkResult {
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
     pub transactions_storage_proof: Option<PartialState>,
+    /// State update acumulated during chunk production.
+    pub state_update: TrieUpdate,
 }
 
 /// Handles chunk production.
@@ -255,7 +257,7 @@ impl ChunkProducer {
                 ))
             })?;
         let last_chunk = self.chain.get_chunk(&last_chunk_header.chunk_hash())?;
-        let prepared_transactions = {
+        let (prepared_transactions, state_update) = {
             #[cfg(feature = "test_features")]
             match self.adv_produce_chunks {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions {
@@ -357,6 +359,7 @@ impl ChunkProducer {
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
             transactions_storage_proof: prepared_transactions.storage_proof,
+            state_update,
         }))
     }
 
@@ -368,9 +371,9 @@ impl ChunkProducer {
         last_chunk: &ShardChunk,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<(PreparedTransactions, TrieUpdate), Error> {
         let shard_id = shard_uid.shard_id();
-        let (prepared_transactions, _state_update) = if let Some(mut iter) =
+        let (prepared_transactions, state_update) = if let Some(mut iter) =
             self.sharded_tx_pool.get_pool_iterator(shard_uid)
         {
             let storage_config = RuntimeStorageConfig {
@@ -421,6 +424,9 @@ impl ChunkProducer {
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }
-        Ok(prepared_transactions)
+        Ok((
+            prepared_transactions,
+            state_update.expect("runtime adapter should return state update"),
+        ))
     }
 }

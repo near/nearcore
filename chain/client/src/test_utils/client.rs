@@ -188,6 +188,7 @@ pub fn create_chunk(
         encoded_chunk_parts_paths: mut merkle_paths,
         receipts,
         transactions_storage_proof,
+        state_update,
     } = client
         .chunk_producer
         .produce_chunk(
@@ -290,6 +291,7 @@ pub fn create_chunk(
             encoded_chunk_parts_paths: merkle_paths,
             receipts,
             transactions_storage_proof,
+            state_update,
         },
         block,
     )
