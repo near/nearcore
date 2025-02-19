@@ -235,11 +235,6 @@ pub async fn build_streamer_message(
         }
 
         chunk_receipts.extend(chunk_non_local_receipts);
-        // Find the shard index for the chunk by shard_id
-        let shard_index = protocol_config_view
-            .shard_layout
-            .get_shard_index(header.shard_id)
-            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
 
         // If the chunk is missing the data from the header contains the
         // previous new chunk in the shard. In this case there is no need to
@@ -249,6 +244,12 @@ pub async fn build_streamer_message(
         if !header.is_new_chunk(block.header.height) {
             continue;
         }
+
+        // Find the shard index for the chunk by shard_id
+        let shard_index = protocol_config_view
+            .shard_layout
+            .get_shard_index(header.shard_id)
+            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
 
         // Add receipt_execution_outcomes into corresponding indexer shard
         indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
