@@ -340,7 +340,7 @@ async fn create_passive_users(
 
     // Create accounts sequentially for this oracle
     for i in 0..num_users {
-        if i > 0 && i % 100 == 0 {
+        if i > 0 && i % 10 == 0 {
             info!("Created {}/{} users for oracle {}", i, num_users, oracle.id);
         }
         interval.tick().await;
