@@ -228,7 +228,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         let tx = Transaction::V0(TransactionV0 {
             signer_id: signer.account_id.clone(),
             public_key: signer.public_key().clone(),
-            nonce: args.nonce + i,
+            nonce: i,
             receiver_id: sub_account_id.clone(),
             block_hash: block_service.get_block_hash(),
             actions: new_create_subaccount_actions(
@@ -250,7 +250,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
             permit.send(res);
         });
 
-        sub_accounts.push(Account::new(sub_account_id, sub_account_key, 0));
+        sub_accounts.push(Account::new(sub_account_id, sub_account_key, i));
     }
 
     info!("Sent {} txs in {:.2} seconds", args.num_sub_accounts, timer.elapsed().as_secs_f64());

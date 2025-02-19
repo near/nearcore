@@ -46,7 +46,7 @@ pub struct CreateContractsArgs {
     #[arg(long)]
     pub signer_key_path: PathBuf,
 
-    #[arg(long, default_value = "../../../../pytest/tests/loadtest/locust/res/sweat.wasm")]
+    #[arg(long)]
     pub wasm_file: PathBuf,
 
     #[arg(long, default_value = "1")]

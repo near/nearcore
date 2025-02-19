@@ -49,7 +49,7 @@ benchmark_mpc_sign:
 
 create_sweat_oracles:
     RUST_LOG=info \
-    cargo run --release -- benchmark-sweat create-oracles \
+    cargo run --release -- benchmark-sweat create-contracts \
         --rpc-url {{rpc_url}} \
         --num-oracles 4 \
         --oracle-deposit 100000000000000000000000 \
