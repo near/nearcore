@@ -283,7 +283,7 @@ pub struct BandwidthSchedulerConfig {
 }
 
 impl BandwidthSchedulerConfig {
-    /// Creates a config that effectively disables BandwithScheduler related limits by setting them
+    /// Creates a config that effectively disables BandwidthScheduler related limits by setting them
     /// to max values. This can be useful for tests and benchmarks.
     pub fn test_disabled() -> Self {
         Self {
