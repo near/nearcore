@@ -146,7 +146,7 @@ fn tx_execution_level(status: &TxExecutionStatus) -> u8 {
 }
 
 /// For now not inspecting success values or receipt ids.
-fn check_outcome(
+pub fn check_outcome(
     response: RpcTransactionResponse,
     expected_status: FinalExecutionStatus,
     response_check_severity: ResponseCheckSeverity,

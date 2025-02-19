@@ -2,7 +2,7 @@ use crate::account::{
     accounts_from_dir, create_sub_accounts, update_account_nonces, Account, CreateSubAccountsArgs,
 };
 use crate::block_service::BlockService;
-use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
+use crate::rpc::{check_outcome, check_tx_response, ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
 use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -10,7 +10,7 @@ use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_primitives::views::TxExecutionStatus;
+use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use serde::Serialize;
@@ -185,13 +185,12 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
 
         match client.call(deploy_request).await {
             Ok(outcome) => {
-                if let Some(final_outcome) = outcome.final_execution_outcome {
-                    if let FinalExecutionStatus::Failure(err) = final_outcome.status {
-                        log::error!("Deploy failed for {}: {:?}", oracle.id, err);
-                        return Err(anyhow::anyhow!("Deploy failed for {}: {:?}", oracle.id, err));
-                    }
-                }
-                info!("Deploy successful for {}: {:?}", oracle.id, outcome);
+                info!("Deploy result for {}: {:?}", oracle.id, outcome);
+                check_tx_response(
+                    outcome,
+                    TxExecutionStatus::ExecutedOptimistic,
+                    ResponseCheckSeverity::Assert,
+                );
             }
             Err(e) => {
                 log::error!("Deploy failed for {}: {}", oracle.id, e);
