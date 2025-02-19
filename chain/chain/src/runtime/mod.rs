@@ -610,7 +610,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<(PreparedTransactions, Option<TrieUpdate>), Error> {
         let start_time = std::time::Instant::now();
         let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
 
@@ -828,7 +828,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
         result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
-        Ok(result)
+        Ok((result, Some(state_update)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {

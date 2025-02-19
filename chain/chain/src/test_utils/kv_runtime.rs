@@ -48,7 +48,7 @@ use near_primitives::views::{
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
     set_genesis_hash, set_genesis_height, set_genesis_state_roots, DBCol, ShardTries, Store,
-    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    StoreUpdate, Trie, TrieChanges, TrieUpdate, WrappedTrieChanges,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use node_runtime::SignedValidPeriodTransactions;
@@ -1021,13 +1021,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         _chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         _time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<(PreparedTransactions, Option<TrieUpdate>), Error> {
         let mut res = vec![];
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
         let storage_proof = Some(Default::default());
-        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
+        Ok((PreparedTransactions { transactions: res, limited_by: None, storage_proof }, None))
     }
 
     fn apply_chunk(

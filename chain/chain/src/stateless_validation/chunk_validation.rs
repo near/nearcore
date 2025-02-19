@@ -98,18 +98,20 @@ pub fn validate_prepared_transactions(
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
     let last_chunk_transactions_size = borsh::to_vec(last_chunk_transactions)?.len();
-    runtime_adapter.prepare_transactions(
-        storage_config,
-        crate::types::PrepareTransactionsChunkContext {
-            shard_id: chunk_header.shard_id(),
-            gas_limit: chunk_header.gas_limit(),
-            last_chunk_transactions_size,
-        },
-        (&parent_block).into(),
-        &mut TransactionGroupIteratorWrapper::new(transactions),
-        &mut chain.transaction_validity_check(parent_block.header().clone()),
-        None,
-    )
+    runtime_adapter
+        .prepare_transactions(
+            storage_config,
+            crate::types::PrepareTransactionsChunkContext {
+                shard_id: chunk_header.shard_id(),
+                gas_limit: chunk_header.gas_limit(),
+                last_chunk_transactions_size,
+            },
+            (&parent_block).into(),
+            &mut TransactionGroupIteratorWrapper::new(transactions),
+            &mut chain.transaction_validity_check(parent_block.header().clone()),
+            None,
+        )
+        .map(|(prepared_txs, _)| prepared_txs)
 }
 
 /// Parameters of implicit state transition, which is not resulted by

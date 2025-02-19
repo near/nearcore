@@ -370,7 +370,7 @@ impl ChunkProducer {
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
     ) -> Result<PreparedTransactions, Error> {
         let shard_id = shard_uid.shard_id();
-        let prepared_transactions = if let Some(mut iter) =
+        let (prepared_transactions, _state_update) = if let Some(mut iter) =
             self.sharded_tx_pool.get_pool_iterator(shard_uid)
         {
             let storage_config = RuntimeStorageConfig {
@@ -404,7 +404,14 @@ impl ChunkProducer {
                 self.chunk_transactions_time_limit.get(),
             )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }
+            (
+                PreparedTransactions {
+                    transactions: Vec::new(),
+                    limited_by: None,
+                    storage_proof: None,
+                },
+                None,
+            )
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
