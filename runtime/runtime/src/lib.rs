@@ -73,7 +73,7 @@ use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
 
@@ -259,11 +259,13 @@ impl Default for ActionResult {
     }
 }
 
-pub struct Runtime {}
+pub struct Runtime {
+    cp_state_updates: Arc<Mutex<HashMap<CryptoHash, TrieUpdate>>>,
+}
 
 impl Runtime {
     pub fn new() -> Self {
-        Self {}
+        Self { cp_state_updates: Default::default() }
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -2837,7 +2839,7 @@ pub mod estimator {
             apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
-        let apply_result = Runtime {}.apply_action_receipt(
+        let apply_result = Runtime { cp_state_updates: Default::default() }.apply_action_receipt(
             state_update,
             apply_state,
             &empty_pipeline,
