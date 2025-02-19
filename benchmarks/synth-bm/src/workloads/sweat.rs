@@ -164,7 +164,7 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
     for (i, oracle) in oracles.iter().enumerate() {
         // Deploy contract
         let deploy_tx = SignedTransaction::deploy_contract(
-            oracle.nonce,
+            oracle.nonce + 1,
             &oracle.id,
             wasm_bytes.clone(),
             &oracle.as_signer(),
@@ -180,7 +180,7 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
 
         // Initialize contract with proper metadata
         let init_tx = SignedTransaction::call(
-            oracle.nonce + 1,
+            oracle.nonce + 2,
             oracle.id.clone(),
             oracle.id.clone(),
             &oracle.as_signer(),
