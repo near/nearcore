@@ -487,12 +487,10 @@ impl Runtime {
                 action_use_global_contract(
                     state_update,
                     account_id,
-                    apply_state,
                     account,
                     use_global_contract,
                     apply_state.current_protocol_version,
                     &mut result,
-                    stats,
                 )?;
             }
             Action::FunctionCall(function_call) => {

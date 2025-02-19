@@ -444,8 +444,6 @@ pub struct StorageUsageConfig {
     pub num_extra_bytes_record: u64,
     /// Amount of yN burned per byte of deployed Global Contract code.
     pub global_contract_storage_amount_per_byte: Balance,
-    /// Amount of yN burned per byte of Global Contract AccountId in storage.
-    pub global_contract_usage_storage_amount_per_identifier_byte: Balance,
 }
 
 impl RuntimeFeesConfig {
@@ -592,7 +590,6 @@ impl StorageUsageConfig {
             num_extra_bytes_record: 40,
             storage_amount_per_byte: 909 * 100_000_000_000_000_000,
             global_contract_storage_amount_per_byte: 100_000_000_000_000_000_000,
-            global_contract_usage_storage_amount_per_identifier_byte: 10_000_000_000_000_000_000,
         }
     }
 
@@ -602,7 +599,6 @@ impl StorageUsageConfig {
             num_extra_bytes_record: 0,
             storage_amount_per_byte: 0,
             global_contract_storage_amount_per_byte: 0,
-            global_contract_usage_storage_amount_per_identifier_byte: 0,
         }
     }
 }

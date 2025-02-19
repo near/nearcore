@@ -589,13 +589,12 @@ pub(crate) fn action_deploy_contract(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
-    let prev_code_len = get_code_len_or_default(
+    clear_account_contract_storage_usage(
         state_update,
-        account_id.clone(),
-        account.local_contract_hash().unwrap_or_default(),
+        account_id,
+        account,
         current_protocol_version,
     )?;
-    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
 
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     account.set_storage_usage(
@@ -671,12 +670,10 @@ pub(crate) fn action_deploy_global_contract(
 pub(crate) fn action_use_global_contract(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-    apply_state: &ApplyState,
     account: &mut Account,
     action: &UseGlobalContractAction,
     current_protocol_version: ProtocolVersion,
     result: &mut ActionResult,
-    stats: &mut ChunkApplyStatsV0,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
     let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
@@ -687,37 +684,16 @@ pub(crate) fn action_use_global_contract(
         .into());
         return Ok(());
     }
-    if let AccountContract::Local(code_hash) = account.contract().as_ref() {
-        let prev_code_len = get_code_len_or_default(
-            state_update,
-            account_id.clone(),
-            *code_hash,
-            current_protocol_version,
-        )?;
-        account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
-        state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
-    }
+    clear_account_contract_storage_usage(
+        state_update,
+        account_id,
+        account,
+        current_protocol_version,
+    )?;
     let contract = match &action.contract_identifier {
         GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
         GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
     };
-    let storage_cost = apply_state
-        .config
-        .fees
-        .storage_usage_config
-        .global_contract_usage_storage_amount_per_identifier_byte
-        .saturating_mul(action.contract_identifier.len() as u128);
-    let Some(updated_balance) = account.amount().checked_sub(storage_cost) else {
-        result.result = Err(ActionErrorKind::LackBalanceForState {
-            account_id: account_id.clone(),
-            amount: storage_cost,
-        }
-        .into());
-        return Ok(());
-    };
-    stats.balance.global_actions_burnt_amount =
-        stats.balance.global_actions_burnt_amount.saturating_add(storage_cost);
-    account.set_amount(updated_balance);
     account.set_storage_usage(
         account.storage_usage().checked_add(action.contract_identifier.len() as u64).ok_or_else(
             || {
@@ -802,6 +778,36 @@ fn get_code_len_or_default(
         code_hash
     );
     Ok(code_len.unwrap_or_default().try_into().unwrap())
+}
+
+/// Clears the contract storage usage based on type for an account.
+fn clear_account_contract_storage_usage(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), StorageError> {
+    match account.contract().as_ref() {
+        AccountContract::None => {}
+        AccountContract::Local(code_hash) => {
+            let prev_code_len = get_code_len_or_default(
+                state_update,
+                account_id.clone(),
+                *code_hash,
+                current_protocol_version,
+            )?;
+            account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+            state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+        }
+        AccountContract::Global(_) => {
+            account.set_storage_usage(account.storage_usage().saturating_sub(32));
+        }
+        AccountContract::GlobalByAccount(account_id) => {
+            account
+                .set_storage_usage(account.storage_usage().saturating_sub(account_id.len() as u64));
+        }
+    };
+    Ok(())
 }
 
 pub(crate) fn action_delete_key(

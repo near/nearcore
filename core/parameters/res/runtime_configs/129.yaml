@@ -48,4 +48,3 @@ action_use_global_contract_per_identifier_byte: {
     execution: 64_572_944,
   }
 }
-global_contract_usage_storage_amount_per_identifier_byte: { old: 999_999_999_999_999_999_999_999_999, new: 10_000_000_000_000_000_000 }

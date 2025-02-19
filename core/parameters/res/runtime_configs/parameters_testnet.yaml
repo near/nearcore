@@ -291,4 +291,3 @@ action_use_global_contract_per_identifier_byte: {
   send_not_sir: 999_999_999_999_999,
   execution: 999_999_999_999_999,
 }
-global_contract_usage_storage_amount_per_identifier_byte: 999_999_999_999_999_999_999_999_999

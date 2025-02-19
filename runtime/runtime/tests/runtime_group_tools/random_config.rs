@@ -19,7 +19,6 @@ pub fn random_config() -> RuntimeConfig {
                 num_extra_bytes_record: rng.next_u64() % 10000,
                 storage_amount_per_byte: rng.next_u64() as u128,
                 global_contract_storage_amount_per_byte: rng.next_u64() as u128,
-                global_contract_usage_storage_amount_per_identifier_byte: rng.next_u64() as u128,
             },
             burnt_gas_reward: Rational32::new((rng.next_u32() % 100).try_into().unwrap(), 100),
             pessimistic_gas_price_inflation_ratio: Rational32::new(
