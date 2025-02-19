@@ -305,14 +305,14 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
         info!("Waiting for oracle task {}", i + 1);
         match handle.await {
             Ok(result) => match result {
-                Ok(_) => info!("Oracle task {}/{} completed successfully", i + 1, handles.len()),
+                Ok(_) => info!("Oracle task {} completed successfully", i + 1),
                 Err(e) => {
-                    log::error!("Oracle task {}/{} failed with error: {}", i + 1, handles.len(), e);
+                    log::error!("Oracle task {} failed with error: {}", i + 1, e);
                     return Err(e);
                 }
             },
             Err(e) => {
-                log::error!("Oracle task {}/{} join error: {}", i + 1, handles.len(), e);
+                log::error!("Oracle task {} join error: {}", i + 1, e);
                 return Err(anyhow::anyhow!("Join error: {}", e));
             }
         };
