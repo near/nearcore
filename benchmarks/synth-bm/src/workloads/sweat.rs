@@ -2,7 +2,7 @@ use crate::account::{
     accounts_from_dir, create_sub_accounts, update_account_nonces, Account, CreateSubAccountsArgs,
 };
 use crate::block_service::BlockService;
-use crate::rpc::{check_tx_response, ResponseCheckSeverity, RpcResponseHandler};
+use crate::rpc::{check_response, check_tx_response, ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
 use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -15,6 +15,7 @@ use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use serde::Serialize;
 use serde_json::json;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -112,6 +113,14 @@ const CHUNK_SIZE: usize = 150;
 #[derive(Serialize)]
 struct StepsBatch {
     steps_batch: Vec<(AccountId, u64)>,
+}
+
+#[derive(Debug)]
+enum AccountState {
+    ToCreate(Account),
+    Inflight(Account, u64), // Account and nonce used
+    ToRefresh(Account),
+    Done,
 }
 
 pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
@@ -370,37 +379,20 @@ async fn create_passive_users(
     oracle: &Account,
     sweat_contract_id: &str,
     num_users: u64,
-    channel_size: usize,
+    _channel_size: usize,
     deposit: u128,
     user_data_dir: &PathBuf,
 ) -> anyhow::Result<Vec<Account>> {
     info!("Starting to create {} users for oracle {}", num_users, oracle.id);
     let mut users = Vec::with_capacity(num_users as usize);
-    let (tx, rx) = mpsc::channel(channel_size);
 
-    let mut interval = time::interval(Duration::from_micros(1_000_000 / 100)); // 100 TPS
-    let wait_until = TxExecutionStatus::ExecutedOptimistic;
-    let wait_until_channel = wait_until.clone();
-    let num_expected_responses = num_users * 2; // Two transactions per user
-    let response_handler_task = tokio::task::spawn(async move {
-        let mut rpc_response_handler = RpcResponseHandler::new(
-            rx,
-            wait_until_channel,
-            ResponseCheckSeverity::Assert,
-            num_expected_responses,
-        );
-        rpc_response_handler.handle_all_responses().await;
-    });
-
+    // Track states for each account
+    let mut account_states = Vec::with_capacity(num_users as usize);
     let mut current_nonce = oracle.nonce;
+    let mut retry_accounts = HashSet::new();
 
-    // Create accounts sequentially for this oracle
+    // Initialize accounts and their states
     for i in 0..num_users {
-        if i > 0 && i % 10 == 0 {
-            info!("Created {}/{} users for oracle {}", i, num_users, oracle.id);
-        }
-        interval.tick().await;
-
         let user_key = SecretKey::from_random(KeyType::ED25519);
         let user_id: AccountId = format!("user_{}.{}", i, oracle.id).parse().map_err(|e| {
             log::error!("Failed to parse account ID for user_{}.{}: {}", i, oracle.id, e);
@@ -420,81 +412,168 @@ async fn create_passive_users(
             .await
             .is_ok();
 
-        if !account_exists {
-            // Create user account only if it doesn't exist
-            let create_account_tx = SignedTransaction::create_account(
-                current_nonce + 1,
-                oracle.id.clone(),
-                user_id.clone(),
-                deposit,
-                user_key.public_key(),
-                &oracle.as_signer(),
-                block_service.get_block_hash(),
-            );
-            let create_account_request = RpcSendTransactionRequest {
-                signed_transaction: create_account_tx,
-                wait_until: wait_until.clone(),
-            };
-
-            // Send create account transaction and wait for response
-            let res = client.call(create_account_request).await;
-            if let Err(e) = &res {
-                log::error!("Failed to create account for {}: {}", user_id, e);
-            }
-            tx.send(res).await.map_err(|e| {
-                log::error!("Failed to send create account response to channel: {}", e);
-                anyhow::anyhow!("Channel send error: {}", e)
-            })?;
-            current_nonce += 1;
-        } else {
-            info!("Account {} already exists, skipping creation", user_id);
+        if account_exists {
+            continue;
         }
 
-        // Register user in Sweat contract
-        let register_tx = SignedTransaction::call(
-            current_nonce + 1,
-            oracle.id.clone(),
-            sweat_contract_id.parse()?,
-            &oracle.as_signer(),
-            1_250_000_000_000_000_000_000, // Add 0.00125 NEAR as deposit
-            "storage_deposit".to_string(),
-            serde_json::to_vec(&json!({
-                "account_id": user_id
-            }))
-            .map_err(|e| {
-                log::error!("Failed to serialize storage_deposit args for {}: {}", user_id, e);
-                e
-            })?,
-            300_000_000_000_000,
-            block_service.get_block_hash(),
-        );
-
-        let register_request = RpcSendTransactionRequest {
-            signed_transaction: register_tx,
-            wait_until: wait_until.clone(),
-        };
-
-        // Send register transaction and wait for response
-        let res = client.call(register_request).await;
-        if let Err(e) = &res {
-            log::error!("Failed to register user {} in contract: {}", user_id, e);
-        }
-        tx.send(res).await.map_err(|e| {
-            log::error!("Failed to send register response to channel: {}", e);
-            anyhow::anyhow!("Channel send error: {}", e)
-        })?;
-        current_nonce += 1;
-
-        // Write user to file immediately after creation/registration
-        user.write_to_dir(user_data_dir)?;
-        users.push(user);
+        account_states.push((user.clone(), AccountState::ToCreate(user)));
+        expected_responses += 2; // Both create_account and storage_deposit needed
     }
 
-    // Wait for all transactions
-    match response_handler_task.await {
-        Ok(_) => info!("Successfully created all {} users for oracle {}", num_users, oracle.id),
-        Err(e) => log::error!("Response handler task failed for oracle {}: {}", oracle.id, e),
-    };
+    let wait_until = TxExecutionStatus::ExecutedOptimistic;
+
+    let mut interval = time::interval(Duration::from_micros(1_000_000 / 100)); // 100 TPS
+    const BATCH_SIZE: usize = 20;
+
+    // Process accounts through state machine in batches
+    while !account_states.iter().all(|(_, state)| matches!(state, AccountState::Done)) {
+        interval.tick().await;
+
+        // Process ToCreate states in batches
+        let to_create: Vec<_> = account_states
+            .iter_mut()
+            .filter(|(_, state)| matches!(state, AccountState::ToCreate(_)))
+            .take(BATCH_SIZE)
+            .collect();
+
+        if !to_create.is_empty() {
+            info!("Processing creation batch of {} accounts", to_create.len());
+        }
+
+        for (_, state) in to_create {
+            if let AccountState::ToCreate(account) = state {
+                if retry_accounts.contains(&account.id) {
+                    continue;
+                }
+
+                info!("Creating account {}", account.id);
+                let create_account_tx = SignedTransaction::create_account(
+                    current_nonce + 1,
+                    oracle.id.clone(),
+                    account.id.clone(),
+                    deposit,
+                    account.public_key.clone(),
+                    &oracle.as_signer(),
+                    block_service.get_block_hash(),
+                );
+
+                let create_request = RpcSendTransactionRequest {
+                    signed_transaction: create_account_tx,
+                    wait_until: wait_until.clone(),
+                };
+
+                match client.call(create_request).await {
+                    Ok(outcome) => {
+                        let response_success = check_response(outcome);
+                        match response_success {
+                            Ok(true) => {
+                                info!("Successfully created account {}", account.id);
+                                *state = AccountState::Inflight(account.clone(), current_nonce + 1);
+                                current_nonce += 1;
+                            }
+                            Ok(false) => {
+                                log::error!(
+                                    "Failed to create account {}: unknown error",
+                                    account.id
+                                );
+                                retry_accounts.insert(account.id.clone());
+                            }
+                            Err(e) => {
+                                log::error!("Failed to create account {}: {}", account.id, e);
+                                retry_accounts.insert(account.id.clone());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create account {}: {}", account.id, e);
+                        retry_accounts.insert(account.id.clone());
+                    }
+                }
+            }
+        }
+
+        // Process Inflight states in batches
+        let inflight: Vec<_> = account_states
+            .iter_mut()
+            .filter(|(_, state)| matches!(state, AccountState::Inflight(_, _)))
+            .take(BATCH_SIZE)
+            .collect();
+
+        if !inflight.is_empty() {
+            info!("Processing storage deposit batch of {} accounts", inflight.len());
+        }
+
+        for (_, state) in inflight {
+            if let AccountState::Inflight(account, _) = state {
+                let register_tx = SignedTransaction::call(
+                    current_nonce + 1,
+                    oracle.id.clone(),
+                    sweat_contract_id.parse()?,
+                    &oracle.as_signer(),
+                    1_250_000_000_000_000_000_000,
+                    "storage_deposit".to_string(),
+                    serde_json::to_vec(&json!({ "account_id": account.id }))?,
+                    300_000_000_000_000,
+                    block_service.get_block_hash(),
+                );
+
+                let register_request = RpcSendTransactionRequest {
+                    signed_transaction: register_tx,
+                    wait_until: wait_until.clone(),
+                };
+
+                match client.call(register_request).await {
+                    Ok(outcome) => {
+                        let response_success = check_response(outcome);
+                        match response_success {
+                            Ok(true) => {
+                                *state = AccountState::ToRefresh(account.clone());
+                                current_nonce += 1;
+                            }
+                            Ok(false) => {
+                                log::error!(
+                                    "Failed to register account {} in contract: unknown error",
+                                    account.id
+                                );
+                                retry_accounts.insert(account.id.clone());
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Failed to register account {} in contract: {}",
+                                    account.id,
+                                    e
+                                );
+                                retry_accounts.insert(account.id.clone());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to register account {} in contract: {}", account.id, e);
+                        retry_accounts.insert(account.id.clone());
+                        *state = AccountState::ToCreate(account.clone());
+                    }
+                }
+            }
+        }
+
+        // Process ToRefresh states in batches
+        let to_refresh: Vec<_> = account_states
+            .iter_mut()
+            .filter(|(_, state)| matches!(state, AccountState::ToRefresh(_)))
+            .take(BATCH_SIZE)
+            .collect();
+
+        for (_, state) in to_refresh {
+            if let AccountState::ToRefresh(account) = state {
+                account.write_to_dir(user_data_dir)?;
+                users.push(account.clone());
+                *state = AccountState::Done;
+            }
+        }
+
+        // Clear retry accounts for next iteration
+        retry_accounts.clear();
+    }
 
     Ok(users)
 }
@@ -547,6 +626,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
         interval.tick().await;
 
         let oracle = &oracles[i as usize % oracles.len()];
+        info!("Initiating batch {} with oracle {}", i + 1, oracle.id);
 
         // Generate random batch of users and steps
         let batch_receivers: Vec<(AccountId, u64)> = users
@@ -560,6 +640,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
         // Split into chunks to match Python implementation's chunking
         let chunks: Vec<Vec<(AccountId, u64)>> =
             batch_receivers.chunks(CHUNK_SIZE).map(|c| c.to_vec()).collect();
+        info!("Created batch {} with {} chunks", i + 1, chunks.len());
 
         // Create multiple function calls in a single transaction
         let actions: Vec<near_primitives::transaction::Action> = chunks
