@@ -353,7 +353,7 @@ async fn create_passive_users(
             e
         })?;
 
-        let user = Account::new(user_id.clone(), user_key, 0);
+        let user = Account::new(user_id.clone(), user_key.clone(), 0);
 
         // Check if account exists
         let account_exists = client
