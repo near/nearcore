@@ -125,6 +125,8 @@ pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
 }
 
 pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> {
+    info!("Starting contract creation with {} oracles", args.num_oracles);
+
     // First create the oracle accounts using existing functionality
     let create_args = CreateSubAccountsArgs {
         rpc_url: args.rpc_url.clone(),
@@ -146,8 +148,9 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
 
-    // Load created oracle accounts
+    info!("Created oracle accounts, loading from directory");
     let mut oracles = accounts_from_dir(&args.user_data_dir)?;
+    info!("Loaded {} oracle accounts", oracles.len());
     let master_signer = InMemorySigner::from_file(&args.signer_key_path)?;
 
     // Update nonces from network before deployment
@@ -159,11 +162,14 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
     )
     .await?;
 
-    // Read WASM bytes from the contract file
+    info!("Reading WASM bytes from {}", args.wasm_file.display());
     let wasm_bytes = std::fs::read(&args.wasm_file)?;
+    info!("Read {} bytes of WASM code", wasm_bytes.len());
 
     // Deploy contract to each oracle account
     for (i, oracle) in oracles.iter().enumerate() {
+        info!("Deploying contract to oracle {} ({}/{})", oracle.id, i + 1, oracles.len());
+
         // Deploy contract
         let deploy_tx = SignedTransaction::deploy_contract(
             oracle.nonce + 1,
@@ -173,34 +179,47 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
             block_service.get_block_hash(),
         );
 
+        info!("Sending deploy transaction for {}", oracle.id);
         let deploy_request = RpcSendTransactionRequest {
             signed_transaction: deploy_tx,
             wait_until: TxExecutionStatus::ExecutedOptimistic,
         };
 
-        client.call(deploy_request).await?;
+        match client.call(deploy_request).await {
+            Ok(outcome) => {
+                info!("Deploy successful for {}: {:?}", oracle.id, outcome);
+            }
+            Err(e) => {
+                log::error!("Deploy failed for {}: {}", oracle.id, e);
+                return Err(anyhow::anyhow!("Deploy failed for {}: {}", oracle.id, e));
+            }
+        }
 
+        info!("Initializing contract for {}", oracle.id);
         // Initialize contract with proper metadata
+        let init_args = json!({
+            "owner_id": master_signer.account_id,
+            "total_supply": format!("{}", 10u128.pow(33)),
+            "metadata": {
+                "spec": "ft-1.0.0",
+                "name": format!("SWEAT_{}", i),
+                "symbol": format!("SWEAT_{}", i),
+                "decimals": 18,
+                "icon": "",
+                "reference": "",
+                "reference_hash": ""
+            }
+        });
+        info!("Init args for {}: {}", oracle.id, init_args);
+
         let init_tx = SignedTransaction::call(
             oracle.nonce + 2,
             oracle.id.clone(),
             oracle.id.clone(),
             &oracle.as_signer(),
             0,
-            "new_default_meta".to_string(), // Changed from "new" to match Python
-            serde_json::to_vec(&json!({
-                "owner_id": master_signer.account_id,
-                "total_supply": format!("{}", 10u128.pow(33)), // Match Python's 10**33
-                "metadata": {
-                    "spec": "ft-1.0.0",
-                    "name": format!("SWEAT_{}", i),
-                    "symbol": format!("SWEAT_{}", i),
-                    "decimals": 18,
-                    "icon": "",
-                    "reference": "",
-                    "reference_hash": ""
-                }
-            }))?,
+            "new_default_meta".to_string(),
+            serde_json::to_vec(&init_args)?,
             TOTAL_GAS,
             block_service.get_block_hash(),
         );
@@ -210,12 +229,21 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
             wait_until: TxExecutionStatus::ExecutedOptimistic,
         };
 
-        client.call(init_request).await?;
+        match client.call(init_request).await {
+            Ok(outcome) => {
+                info!("Init successful for {}: {:?}", oracle.id, outcome);
+            }
+            Err(e) => {
+                log::error!("Init failed for {}: {}", oracle.id, e);
+                return Err(anyhow::anyhow!("Init failed for {}: {}", oracle.id, e));
+            }
+        }
     }
 
-    // Update nonces again after deployment and save to disk
+    info!("Updating nonces after deployment");
     update_account_nonces(client.clone(), oracles, 10, Some(&args.user_data_dir)).await?;
 
+    info!("Contract creation completed successfully");
     Ok(())
 }
 
