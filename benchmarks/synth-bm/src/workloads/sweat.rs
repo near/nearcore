@@ -225,7 +225,8 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
     block_service.clone().start().await;
 
     // Load oracle accounts
-    let oracles = accounts_from_dir(&args.oracle_data_dir)?;
+    let mut oracles = accounts_from_dir(&args.oracle_data_dir)?;
+    oracles = update_account_nonces(client.clone(), oracles, 10, Some(&args.user_data_dir)).await?;
 
     // Create users for all oracles in parallel
     let mut handles = Vec::new();
@@ -265,6 +266,9 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
     for handle in handles {
         handle.await??;
     }
+
+    let oracles = accounts_from_dir(&args.oracle_data_dir)?;
+    update_account_nonces(client.clone(), oracles, 10, Some(&args.oracle_data_dir)).await?;
 
     Ok(())
 }
