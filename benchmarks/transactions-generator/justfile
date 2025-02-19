@@ -4,12 +4,15 @@ near_localnet_home := script_dir / ".near"
 near_accounts_path := script_dir / "user-data"
 near_config_file := near_localnet_home / "config.json"
 near_genesis_file := near_localnet_home / "genesis.json"
-rpc_url := "http://127.0.0.1:3030"
+rpc_url := "http://127.0.0.1:4040"
 
 
 init-localnet:
     rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
     {{neard}} --home {{near_localnet_home}} init --chain-id localnet
+    jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json
+    mv tmp_config.json {{near_config_file}}
+
 
 run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
