@@ -4,7 +4,8 @@ use crate::account::{
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
-use futures;
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
@@ -279,7 +280,7 @@ async fn create_passive_users(
     const BATCH_SIZE: u64 = 50;
     for batch_start in (0..num_users).step_by(BATCH_SIZE as usize) {
         let batch_end = std::cmp::min(batch_start + BATCH_SIZE, num_users);
-        let mut batch_futures = Vec::new();
+        let mut batch_futures: Vec<BoxFuture<'_, ()>> = Vec::new();
 
         for i in batch_start..batch_end {
             interval.tick().await;
@@ -326,15 +327,18 @@ async fn create_passive_users(
             let tx1 = tx.clone();
             let tx2 = tx.clone();
 
-            // Create futures but don't spawn them yet
+            // Box the futures to make them the same type
             let create_future = async move {
                 let res = client1.call(create_account_request).await;
                 tx1.send(res).await.unwrap();
-            };
+            }
+            .boxed();
+
             let register_future = async move {
                 let res = client2.call(register_request).await;
                 tx2.send(res).await.unwrap();
-            };
+            }
+            .boxed();
 
             batch_futures.push(create_future);
             batch_futures.push(register_future);
@@ -342,7 +346,7 @@ async fn create_passive_users(
         }
 
         // Execute all futures in the batch concurrently
-        futures::future::join_all(batch_futures.into_iter().map(|f| tokio::spawn(f))).await?;
+        futures::future::join_all(batch_futures).await;
     }
 
     // Wait for all transactions
