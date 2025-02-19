@@ -3,7 +3,7 @@ use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
 use log::info;
-use near_crypto::{KeyType, SecretKey};
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
@@ -148,7 +148,7 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
 
     // Load created oracle accounts
     let oracles = accounts_from_dir(&args.user_data_dir)?;
-    let master_account = Account::from_file(&args.signer_key_path)?;
+    let master_signer = InMemorySigner::from_file(&args.signer_key_path)?;
 
     // Deploy contract to each oracle account
     for (i, oracle) in oracles.iter().enumerate() {
@@ -177,7 +177,7 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
             0,
             "new_default_meta".to_string(), // Changed from "new" to match Python
             serde_json::to_vec(&json!({
-                "owner_id": master_account.id,
+                "owner_id": master_signer.account_id,
                 "total_supply": format!("{}", 10u128.pow(33)), // Match Python's 10**33
                 "metadata": {
                     "spec": "ft-1.0.0",
