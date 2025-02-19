@@ -957,6 +957,12 @@ pub struct ChunkHeaderView {
     pub signature: Signature,
 }
 
+impl ChunkHeaderView {
+    pub fn is_new_chunk(&self, block_height: BlockHeight) -> bool {
+        self.height_included == block_height
+    }
+}
+
 impl From<ShardChunkHeader> for ChunkHeaderView {
     fn from(chunk: ShardChunkHeader) -> Self {
         let hash = chunk.chunk_hash();
