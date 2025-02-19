@@ -216,6 +216,15 @@ pub enum Cost {
     ActionDeployGlobalContractPerByteSendNotSir,
     ActionDeployGlobalContractPerByteSendSir,
     ActionDeployGlobalContractPerByteExec,
+    // Global contracts usage
+    ActionUseGlobalContractBase,
+    ActionUseGlobalContractBaseSendNotSir,
+    ActionUseGlobalContractBaseSendSir,
+    ActionUseGlobalContractBaseExec,
+    ActionUseGlobalContractPerIdentifierByte,
+    ActionUseGlobalContractPerIdentifierByteSendNotSir,
+    ActionUseGlobalContractPerIdentifierByteSendSir,
+    ActionUseGlobalContractPerIdentifierByteExec,
     /// Estimates `wasm_config.ext_costs.base` which is intended to be charged
     /// once on every host function call. However, this is currently
     /// inconsistent. First, we do not charge on Math API methods (`sha256`,

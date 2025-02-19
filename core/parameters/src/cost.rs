@@ -309,6 +309,8 @@ pub enum ActionCosts {
     delegate = 15,
     deploy_global_contract_base = 16,
     deploy_global_contract_byte = 17,
+    use_global_contract_base = 18,
+    use_global_contract_byte = 19,
 }
 
 impl ExtCosts {
@@ -545,6 +547,16 @@ impl RuntimeFeesConfig {
                     send_sir: 6_812_999,
                     send_not_sir: 6_812_999,
                     execution: 70_000_000,
+                },
+                ActionCosts::use_global_contract_base => Fee {
+                    send_sir: 184_765_750_000,
+                    send_not_sir: 184_765_750_000,
+                    execution: 184_765_750_000,
+                },
+                ActionCosts::use_global_contract_byte => Fee {
+                    send_sir: 6_812_999,
+                    send_not_sir: 47_683_715,
+                    execution: 64_572_944,
                 },
             },
         }
