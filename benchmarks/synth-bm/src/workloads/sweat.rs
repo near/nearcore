@@ -2,7 +2,7 @@ use crate::account::{
     accounts_from_dir, create_sub_accounts, update_account_nonces, Account, CreateSubAccountsArgs,
 };
 use crate::block_service::BlockService;
-use crate::rpc::{check_outcome, check_tx_response, ResponseCheckSeverity, RpcResponseHandler};
+use crate::rpc::{check_tx_response, ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
 use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -10,7 +10,7 @@ use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use near_primitives::views::{FinalExecutionStatus, TxExecutionStatus};
+use near_primitives::views::TxExecutionStatus;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use serde::Serialize;
@@ -351,39 +351,54 @@ async fn create_passive_users(
             e
         })?;
 
-        // Create user account
-        let create_account_tx = SignedTransaction::create_account(
-            current_nonce + 1,
-            oracle.id.clone(),
-            user_id.clone(),
-            deposit,
-            user_key.public_key(),
-            &oracle.as_signer(),
-            block_service.get_block_hash(),
-        );
-        let create_account_request = RpcSendTransactionRequest {
-            signed_transaction: create_account_tx,
-            wait_until: wait_until.clone(),
-        };
+        // Check if account exists
+        let account_exists = client
+            .call(near_jsonrpc_client::methods::query::RpcQueryRequest {
+                block_reference: near_primitives::types::Finality::Final.into(),
+                request: near_primitives::views::QueryRequest::ViewAccount {
+                    account_id: user_id.clone(),
+                },
+            })
+            .await
+            .is_ok();
 
-        // Send create account transaction and wait for response
-        let res = client.call(create_account_request).await;
-        if let Err(e) = &res {
-            log::error!("Failed to create account for {}: {}", user_id, e);
+        if !account_exists {
+            // Create user account only if it doesn't exist
+            let create_account_tx = SignedTransaction::create_account(
+                current_nonce + 1,
+                oracle.id.clone(),
+                user_id.clone(),
+                deposit,
+                user_key.public_key(),
+                &oracle.as_signer(),
+                block_service.get_block_hash(),
+            );
+            let create_account_request = RpcSendTransactionRequest {
+                signed_transaction: create_account_tx,
+                wait_until: wait_until.clone(),
+            };
+
+            // Send create account transaction and wait for response
+            let res = client.call(create_account_request).await;
+            if let Err(e) = &res {
+                log::error!("Failed to create account for {}: {}", user_id, e);
+            }
+            tx.send(res).await.map_err(|e| {
+                log::error!("Failed to send create account response to channel: {}", e);
+                anyhow::anyhow!("Channel send error: {}", e)
+            })?;
+            current_nonce += 1;
+        } else {
+            info!("Account {} already exists, skipping creation", user_id);
         }
-        tx.send(res).await.map_err(|e| {
-            log::error!("Failed to send create account response to channel: {}", e);
-            anyhow::anyhow!("Channel send error: {}", e)
-        })?;
-        current_nonce += 1;
 
         // Register user in Sweat contract
-        let register_tx = match SignedTransaction::call(
+        let register_tx = SignedTransaction::call(
             current_nonce + 1,
             oracle.id.clone(),
             sweat_contract_id.parse()?,
             &oracle.as_signer(),
-            0,
+            1_250_000_000_000_000_000_000, // Add 0.00125 NEAR as deposit
             "storage_deposit".to_string(),
             serde_json::to_vec(&json!({
                 "account_id": user_id
@@ -394,9 +409,7 @@ async fn create_passive_users(
             })?,
             300_000_000_000_000,
             block_service.get_block_hash(),
-        ) {
-            tx => tx,
-        };
+        );
 
         let register_request = RpcSendTransactionRequest {
             signed_transaction: register_tx,
