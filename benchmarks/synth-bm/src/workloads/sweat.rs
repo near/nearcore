@@ -218,8 +218,8 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
         let init_tx = SignedTransaction::call(
             oracle.nonce + 2,
             oracle.id.clone(),
-            &oracle.as_signer(),
             oracle.id.clone(),
+            &oracle.as_signer(),
             0,
             "new".to_string(),
             serde_json::to_vec(&init_args)?,
