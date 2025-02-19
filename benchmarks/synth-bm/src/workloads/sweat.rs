@@ -8,6 +8,7 @@ use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
@@ -118,9 +119,17 @@ struct StepsBatch {
 #[derive(Debug)]
 enum AccountState {
     ToCreate(Account),
-    Inflight(Account, u64), // Account and nonce used
+    InflightCreate(Account, CryptoHash),  // Account and tx hash
+    Created(Account),                     // Account successfully created
+    InflightStorage(Account, CryptoHash), // Account and tx hash
     ToRefresh(Account),
     Done,
+}
+
+struct PendingTransaction {
+    tx_hash: CryptoHash,
+    sender_id: AccountId,
+    timestamp: Instant,
 }
 
 pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
@@ -419,33 +428,20 @@ async fn create_passive_users(
         account_states.push((user.clone(), AccountState::ToCreate(user)));
     }
 
-    let wait_until = TxExecutionStatus::ExecutedOptimistic;
-
-    let mut interval = time::interval(Duration::from_micros(1_000_000 / 100)); // 100 TPS
     const BATCH_SIZE: usize = 20;
+    let mut current_nonce = oracle.nonce;
+    let mut pending_txs = Vec::new();
 
-    // Process accounts through state machine in batches
     while !account_states.iter().all(|(_, state)| matches!(state, AccountState::Done)) {
-        interval.tick().await;
-
-        // Process ToCreate states in batches
+        // Submit new create account transactions
         let to_create: Vec<_> = account_states
             .iter_mut()
             .filter(|(_, state)| matches!(state, AccountState::ToCreate(_)))
             .take(BATCH_SIZE)
             .collect();
 
-        if !to_create.is_empty() {
-            info!("Processing creation batch of {} accounts", to_create.len());
-        }
-
         for (_, state) in to_create {
             if let AccountState::ToCreate(account) = state {
-                if retry_accounts.contains(&account.id) {
-                    continue;
-                }
-
-                info!("Creating account {}", account.id);
                 let create_account_tx = SignedTransaction::create_account(
                     current_nonce + 1,
                     oracle.id.clone(),
@@ -457,53 +453,33 @@ async fn create_passive_users(
                 );
 
                 let create_request = RpcSendTransactionRequest {
-                    signed_transaction: create_account_tx,
-                    wait_until: wait_until.clone(),
+                    signed_transaction: create_account_tx.clone(),
+                    wait_until: TxExecutionStatus::None,
                 };
 
-                match client.call(create_request).await {
-                    Ok(outcome) => {
-                        let response_success = check_response(outcome);
-                        match response_success {
-                            Ok(true) => {
-                                info!("Successfully created account {}", account.id);
-                                *state = AccountState::Inflight(account.clone(), current_nonce + 1);
-                                current_nonce += 1;
-                            }
-                            Ok(false) => {
-                                log::error!(
-                                    "Failed to create account {}: unknown error",
-                                    account.id
-                                );
-                                retry_accounts.insert(account.id.clone());
-                            }
-                            Err(e) => {
-                                log::error!("Failed to create account {}: {}", account.id, e);
-                                retry_accounts.insert(account.id.clone());
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to create account {}: {}", account.id, e);
-                        retry_accounts.insert(account.id.clone());
-                    }
+                // Submit without waiting
+                if let Ok(outcome) = client.call(create_request).await {
+                    let tx_hash = create_account_tx.get_hash();
+                    pending_txs.push(PendingTransaction {
+                        tx_hash: tx_hash.clone(),
+                        sender_id: oracle.id.clone(),
+                        timestamp: Instant::now(),
+                    });
+                    *state = AccountState::InflightCreate(account.clone(), tx_hash);
+                    current_nonce += 1;
                 }
             }
         }
 
-        // Process Inflight states in batches
-        let inflight: Vec<_> = account_states
+        // Submit new storage deposit transactions
+        let to_storage: Vec<_> = account_states
             .iter_mut()
-            .filter(|(_, state)| matches!(state, AccountState::Inflight(_, _)))
+            .filter(|(_, state)| matches!(state, AccountState::InflightCreate(_, _)))
             .take(BATCH_SIZE)
             .collect();
 
-        if !inflight.is_empty() {
-            info!("Processing storage deposit batch of {} accounts", inflight.len());
-        }
-
-        for (_, state) in inflight {
-            if let AccountState::Inflight(account, _) = state {
+        for (_, state) in to_storage {
+            if let AccountState::InflightCreate(account, _) = state {
                 let register_tx = SignedTransaction::call(
                     current_nonce + 1,
                     oracle.id.clone(),
@@ -517,61 +493,136 @@ async fn create_passive_users(
                 );
 
                 let register_request = RpcSendTransactionRequest {
-                    signed_transaction: register_tx,
-                    wait_until: wait_until.clone(),
+                    signed_transaction: register_tx.clone(),
+                    wait_until: TxExecutionStatus::None,
                 };
 
-                match client.call(register_request).await {
-                    Ok(outcome) => {
-                        let response_success = check_response(outcome);
-                        match response_success {
-                            Ok(true) => {
-                                *state = AccountState::ToRefresh(account.clone());
-                                current_nonce += 1;
-                            }
-                            Ok(false) => {
-                                log::error!(
-                                    "Failed to register account {} in contract: unknown error",
-                                    account.id
-                                );
-                                retry_accounts.insert(account.id.clone());
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "Failed to register account {} in contract: {}",
-                                    account.id,
-                                    e
-                                );
-                                retry_accounts.insert(account.id.clone());
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to register account {} in contract: {}", account.id, e);
-                        retry_accounts.insert(account.id.clone());
-                        *state = AccountState::ToCreate(account.clone());
-                    }
+                if let Ok(_) = client.call(register_request).await {
+                    let tx_hash = register_tx.get_hash();
+                    pending_txs.push(PendingTransaction {
+                        tx_hash: tx_hash.clone(),
+                        sender_id: oracle.id.clone(),
+                        timestamp: Instant::now(),
+                    });
+                    *state = AccountState::InflightStorage(account.clone(), tx_hash);
+                    current_nonce += 1;
                 }
             }
         }
 
-        // Process ToRefresh states in batches
-        let to_refresh: Vec<_> = account_states
-            .iter_mut()
-            .filter(|(_, state)| matches!(state, AccountState::ToRefresh(_)))
-            .take(BATCH_SIZE)
-            .collect();
+        // Poll pending transactions
+        let mut i = 0;
+        while i < pending_txs.len() {
+            let tx = &pending_txs[i];
 
-        for (_, state) in to_refresh {
-            if let AccountState::ToRefresh(account) = state {
-                account.write_to_dir(user_data_dir)?;
-                users.push(account.clone());
-                *state = AccountState::Done;
+            match client.call(
+                near_jsonrpc_client::methods::EXPERIMENTAL_tx_status::RpcTransactionStatusRequest {
+                    transaction_info:
+                        near_jsonrpc_client::methods::EXPERIMENTAL_tx_status::TransactionInfo::TransactionId {
+                            tx_hash: tx.tx_hash.clone(),
+                            sender_account_id: tx.sender_id.clone(),
+                        },
+                    wait_until: TxExecutionStatus::None,
+                },
+            ).await {
+                Ok(outcome) => {
+                    // Update account states based on transaction outcome
+                    for (_, state) in account_states.iter_mut() {
+                        match state {
+                            AccountState::InflightCreate(account, hash) if hash == &tx.tx_hash => {
+                                match check_response(outcome) {
+                                    Ok(true) => {
+                                        // Move to Created state instead of immediately sending storage deposit
+                                        *state = AccountState::Created(account.clone());
+                                    }
+                                    Ok(false) => {
+                                        log::error!("Account creation failed for {}", account.id);
+                                        *state = AccountState::ToCreate(account.clone()); // Retry creation
+                                    }
+                                    Err(e) => {
+                                        log::error!("Error checking response for {}: {}", account.id, e);
+                                        *state = AccountState::ToCreate(account.clone()); // Retry creation
+                                    }
+                                }
+                            }
+                            AccountState::InflightStorage(account, hash) if hash == &tx.tx_hash => {
+                                match check_response(outcome) {
+                                    Ok(true) => {
+                                        *state = AccountState::Done;
+                                        users.push(account.clone());
+                                        account.write_to_dir(user_data_dir)?;
+                                    }
+                                    Ok(false) => {
+                                        log::error!("Storage deposit failed for {}", account.id);
+                                        // Go back to create state since storage deposit failed
+                                        *state = AccountState::InflightCreate(account.clone(), tx.tx_hash.clone());
+                                    }
+                                    Err(e) => {
+                                        log::error!("Error checking response for storage deposit {}: {}", account.id, e);
+                                        *state = AccountState::InflightCreate(account.clone(), tx.tx_hash.clone());
+                                    }
+                                }
+                            }
+                            AccountState::Created(account) => {
+                                let register_tx = SignedTransaction::call(
+                                    current_nonce + 1,
+                                    oracle.id.clone(),
+                                    sweat_contract_id.parse()?,
+                                    &oracle.as_signer(),
+                                    1_250_000_000_000_000_000_000,
+                                    "storage_deposit".to_string(),
+                                    serde_json::to_vec(&json!({ "account_id": account.id }))?,
+                                    300_000_000_000_000,
+                                    block_service.get_block_hash(),
+                                );
+
+                                let register_request = RpcSendTransactionRequest {
+                                    signed_transaction: register_tx.clone(),
+                                    wait_until: TxExecutionStatus::None,
+                                };
+
+                                if let Ok(_) = client.call(register_request).await {
+                                    let tx_hash = register_tx.get_hash();
+                                    pending_txs.push(PendingTransaction {
+                                        tx_hash: tx_hash.clone(),
+                                        sender_id: oracle.id.clone(),
+                                        timestamp: Instant::now(),
+                                    });
+                                    *state = AccountState::InflightStorage(account.clone(), tx_hash);
+                                    current_nonce += 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    // Remove this transaction from pending
+                    pending_txs.remove(i);
+                    continue;
+                }
+                Err(e) => {
+                    if tx.timestamp.elapsed() >= Duration::from_secs(30) {
+                        log::error!("Transaction timed out after 30s: {} for tx hash {}", e, tx.tx_hash);
+                        // Remove timed out transaction and retry the account
+                        for (_, state) in account_states.iter_mut() {
+                            match state {
+                                AccountState::InflightCreate(account, hash) if hash == &tx.tx_hash => {
+                                    *state = AccountState::ToCreate(account.clone());
+                                }
+                                AccountState::InflightStorage(account, hash) if hash == &tx.tx_hash => {
+                                    *state = AccountState::InflightCreate(account.clone(), tx.tx_hash.clone());
+                                }
+                                _ => {}
+                            }
+                        }
+                        pending_txs.remove(i);
+                        continue;
+                    }
+                }
             }
+            i += 1;
         }
 
-        // Clear retry accounts for next iteration
-        retry_accounts.clear();
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     Ok(users)
