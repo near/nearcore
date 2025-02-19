@@ -22,7 +22,7 @@ use tokio::time;
 #[derive(Subcommand, Debug)]
 pub enum SweatCommand {
     /// Creates oracle accounts
-    CreateOracles(CreateOraclesArgs),
+    CreateContracts(CreateContractsArgs),
     /// Creates passive users for each oracle
     CreateUsers(CreateUsersArgs),
     /// Runs the benchmark with batch recording
@@ -30,7 +30,7 @@ pub enum SweatCommand {
 }
 
 #[derive(Args, Debug)]
-pub struct CreateOraclesArgs {
+pub struct CreateContractsArgs {
     #[arg(long)]
     pub rpc_url: String,
 
@@ -41,22 +41,22 @@ pub struct CreateOraclesArgs {
     pub oracle_deposit: u128,
 
     #[arg(long)]
-    pub sweat_contract_id: String,
-
-    #[arg(long)]
     pub user_data_dir: PathBuf,
 
     #[arg(long)]
     pub signer_key_path: PathBuf,
+
+    #[arg(long, default_value = "../../../../pytest/tests/loadtest/locust/res/sweat.wasm")]
+    pub wasm_file: PathBuf,
+
+    #[arg(long, default_value = "1")]
+    pub nonce: u64,
 }
 
 #[derive(Args, Debug)]
 pub struct CreateUsersArgs {
     #[arg(long)]
     pub rpc_url: String,
-
-    #[arg(long)]
-    pub sweat_contract_id: String,
 
     #[arg(long)]
     pub oracle_data_dir: PathBuf,
@@ -75,9 +75,6 @@ pub struct CreateUsersArgs {
 pub struct RunBenchmarkArgs {
     #[arg(long)]
     pub rpc_url: String,
-
-    #[arg(long)]
-    pub sweat_contract_id: String,
 
     #[arg(long)]
     pub oracle_data_dir: PathBuf,
@@ -117,14 +114,14 @@ struct StepsBatch {
 
 pub async fn benchmark_sweat(args: &BenchmarkSweatArgs) -> anyhow::Result<()> {
     match &args.command {
-        SweatCommand::CreateOracles(create_args) => create_oracles(create_args).await,
+        SweatCommand::CreateContracts(create_args) => create_contracts(create_args).await,
         SweatCommand::CreateUsers(users_args) => create_users(users_args).await,
         SweatCommand::RunBenchmark(benchmark_args) => run_benchmark(benchmark_args).await,
     }
 }
 
-pub async fn create_oracles(args: &CreateOraclesArgs) -> anyhow::Result<()> {
-    // Use existing create_sub_accounts with oracle prefix
+pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> {
+    // First create the oracle accounts using existing functionality
     let create_args = CreateSubAccountsArgs {
         rpc_url: args.rpc_url.clone(),
         num_sub_accounts: args.num_oracles,
@@ -134,12 +131,77 @@ pub async fn create_oracles(args: &CreateOraclesArgs) -> anyhow::Result<()> {
         ),
         user_data_dir: args.user_data_dir.clone(),
         channel_buffer_size: 1000,
-        requests_per_second: 10, // we don't have many oracles anyway
-        nonce: 1,
+        requests_per_second: 10,
+        nonce: args.nonce,
         signer_key_path: args.signer_key_path.clone(),
     };
 
-    create_sub_accounts(&create_args).await
+    create_sub_accounts(&create_args).await?;
+
+    // Now deploy contracts to these accounts
+    let client = JsonRpcClient::connect(&args.rpc_url);
+    let block_service = Arc::new(BlockService::new(client.clone()).await);
+    block_service.clone().start().await;
+
+    // Read WASM bytes from the contract file
+    let wasm_bytes = std::fs::read(&args.wasm_file)?;
+
+    // Load created oracle accounts
+    let oracles = accounts_from_dir(&args.user_data_dir)?;
+    let master_account = Account::from_file(&args.signer_key_path)?;
+
+    // Deploy contract to each oracle account
+    for (i, oracle) in oracles.iter().enumerate() {
+        // Deploy contract
+        let deploy_tx = SignedTransaction::deploy_contract(
+            oracle.nonce,
+            &oracle.id,
+            wasm_bytes.clone(),
+            &oracle.as_signer(),
+            block_service.get_block_hash(),
+        );
+
+        let deploy_request = RpcSendTransactionRequest {
+            signed_transaction: deploy_tx,
+            wait_until: TxExecutionStatus::ExecutedOptimistic,
+        };
+
+        client.call(deploy_request).await?;
+
+        // Initialize contract with proper metadata
+        let init_tx = SignedTransaction::call(
+            oracle.nonce + 1,
+            oracle.id.clone(),
+            oracle.id.clone(),
+            &oracle.as_signer(),
+            0,
+            "new_default_meta".to_string(), // Changed from "new" to match Python
+            serde_json::to_vec(&json!({
+                "owner_id": master_account.id,
+                "total_supply": format!("{}", 10u128.pow(33)), // Match Python's 10**33
+                "metadata": {
+                    "spec": "ft-1.0.0",
+                    "name": format!("SWEAT_{}", i),
+                    "symbol": format!("SWEAT_{}", i),
+                    "decimals": 18,
+                    "icon": "",
+                    "reference": "",
+                    "reference_hash": ""
+                }
+            }))?,
+            TOTAL_GAS,
+            block_service.get_block_hash(),
+        );
+
+        let init_request = RpcSendTransactionRequest {
+            signed_transaction: init_tx,
+            wait_until: TxExecutionStatus::ExecutedOptimistic,
+        };
+
+        client.call(init_request).await?;
+    }
+
+    Ok(())
 }
 
 pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
@@ -156,7 +218,7 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
             &client,
             &block_service,
             &oracle,
-            &args.sweat_contract_id,
+            oracle.id.as_str(),
             args.users_per_oracle,
             1000,
             args.deposit,
@@ -336,7 +398,7 @@ async fn run_benchmark(args: &RunBenchmarkArgs) -> anyhow::Result<()> {
         let transaction = SignedTransaction::from_actions(
             oracle.nonce + (i / oracles.len() as u64),
             oracle.id.clone(),
-            args.sweat_contract_id.parse()?,
+            oracle.id.clone(),
             &oracle.as_signer(),
             actions,
             block_service.get_block_hash(),

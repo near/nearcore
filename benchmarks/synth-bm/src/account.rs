@@ -213,13 +213,13 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         rpc_response_handler.handle_all_responses().await;
     });
 
-    for i in 0..args.num_sub_accounts {
+    for i in args.nonce..args.nonce + args.num_sub_accounts {
         let sub_account_key = SecretKey::from_random(KeyType::ED25519);
         let sub_account_id: AccountId = {
             // cspell:words subname
             let subname = if let Some(prefixes) = &args.sub_account_prefixes {
                 let prefix = &prefixes[(i as usize) % prefixes.len()];
-                format!("{prefix}_user_{i}")
+                format!("{prefix}u{i}")
             } else {
                 format!("user_{i}")
             };
