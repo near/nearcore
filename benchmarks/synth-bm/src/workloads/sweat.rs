@@ -417,7 +417,6 @@ async fn create_passive_users(
         }
 
         account_states.push((user.clone(), AccountState::ToCreate(user)));
-        expected_responses += 2; // Both create_account and storage_deposit needed
     }
 
     let wait_until = TxExecutionStatus::ExecutedOptimistic;
