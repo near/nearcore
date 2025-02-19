@@ -135,6 +135,9 @@ def copy_near_home(source_home_dir, target_home_dir):
     shutil.copytree(source_home_dir / 'data', target_home_dir / 'data')
 
 
+FORK_NET_EPOCH_LENGTH = 10
+
+
 def fork_network(node_dir, neard_path, validator_key):
     logger.info(f'running fork-network commands on {node_dir}')
     run_cmd([
@@ -173,7 +176,7 @@ def fork_network(node_dir, neard_path, validator_key):
         '--chain-id-suffix',
         'local-forknet',
         '--epoch-length',
-        '200',
+        str(FORK_NET_EPOCH_LENGTH),
     ])
     run_cmd([
         neard_path,
@@ -213,12 +216,12 @@ def run_forked_network(fork_dir, config, validator_key, num_original_nodes):
                        boot_node=validator)
 
     # TODO: start a mirror binary and check that traffic is sent
-    # For now we just check that the nodes start and some blocks get produced
-    num_blocks = 0
-    for height, block_hash in utils.poll_blocks(rpc, timeout=200):
-        print(f'fork {height}')
-        num_blocks += 1
-        if num_blocks > 3:
+    # For now we just check that the nodes start and a couple epochs pass
+    num_epochs = 0
+    for height in utils.poll_epochs(rpc, epoch_length=FORK_NET_EPOCH_LENGTH):
+        print(f'fork epoch {height}')
+        num_epochs += 1
+        if num_epochs > 2:
             break
 
 
