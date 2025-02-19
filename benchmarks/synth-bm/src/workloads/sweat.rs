@@ -300,12 +300,29 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
     }
 
     // Wait for all oracles to finish creating their users
-    for handle in handles {
-        handle.await??;
+    info!("Waiting for all oracle user creation tasks to complete...");
+    for (i, handle) in handles.iter().enumerate() {
+        info!("Waiting for oracle task {}/{}", i + 1, handles.len());
+        match handle.await {
+            Ok(result) => match result {
+                Ok(_) => info!("Oracle task {}/{} completed successfully", i + 1, handles.len()),
+                Err(e) => {
+                    log::error!("Oracle task {}/{} failed with error: {}", i + 1, handles.len(), e);
+                    return Err(e);
+                }
+            },
+            Err(e) => {
+                log::error!("Oracle task {}/{} join error: {}", i + 1, handles.len(), e);
+                return Err(anyhow::anyhow!("Join error: {}", e));
+            }
+        };
     }
 
+    info!("Loading oracle accounts for final nonce update");
     let oracles = accounts_from_dir(&args.oracle_data_dir)?;
+    info!("Updating final nonces for {} oracle accounts", oracles.len());
     update_account_nonces(client.clone(), oracles, 10, Some(&args.oracle_data_dir)).await?;
+    info!("User creation completed successfully");
 
     Ok(())
 }
@@ -396,57 +413,40 @@ async fn create_passive_users(
             info!("Account {} already exists, skipping creation", user_id);
         }
 
-        // Check if user is already registered in contract
-        let is_registered = client
-            .call(near_jsonrpc_client::methods::query::RpcQueryRequest {
-                block_reference: near_primitives::types::Finality::Final.into(),
-                request: near_primitives::views::QueryRequest::CallFunction {
-                    account_id: sweat_contract_id.parse()?,
-                    method_name: "storage_balance_of".to_string(),
-                    args: serde_json::to_vec(&json!({ "account_id": user_id }))?.into(),
-                },
-            })
-            .await
-            .is_ok();
+        // Register user in Sweat contract
+        let register_tx = SignedTransaction::call(
+            current_nonce + 1,
+            oracle.id.clone(),
+            sweat_contract_id.parse()?,
+            &oracle.as_signer(),
+            1_250_000_000_000_000_000_000, // Add 0.00125 NEAR as deposit
+            "storage_deposit".to_string(),
+            serde_json::to_vec(&json!({
+                "account_id": user_id
+            }))
+            .map_err(|e| {
+                log::error!("Failed to serialize storage_deposit args for {}: {}", user_id, e);
+                e
+            })?,
+            300_000_000_000_000,
+            block_service.get_block_hash(),
+        );
 
-        if !is_registered {
-            // Register user in Sweat contract
-            let register_tx = SignedTransaction::call(
-                current_nonce + 1,
-                oracle.id.clone(),
-                sweat_contract_id.parse()?,
-                &oracle.as_signer(),
-                1_250_000_000_000_000_000_000, // Add 0.00125 NEAR as deposit
-                "storage_deposit".to_string(),
-                serde_json::to_vec(&json!({
-                    "account_id": user_id
-                }))
-                .map_err(|e| {
-                    log::error!("Failed to serialize storage_deposit args for {}: {}", user_id, e);
-                    e
-                })?,
-                300_000_000_000_000,
-                block_service.get_block_hash(),
-            );
+        let register_request = RpcSendTransactionRequest {
+            signed_transaction: register_tx,
+            wait_until: TxExecutionStatus::Included,
+        };
 
-            let register_request = RpcSendTransactionRequest {
-                signed_transaction: register_tx,
-                wait_until: TxExecutionStatus::Included,
-            };
-
-            // Send register transaction and wait for response
-            let res = client.call(register_request).await;
-            if let Err(e) = &res {
-                log::error!("Failed to register user {} in contract: {}", user_id, e);
-            }
-            tx.send(res).await.map_err(|e| {
-                log::error!("Failed to send register response to channel: {}", e);
-                anyhow::anyhow!("Channel send error: {}", e)
-            })?;
-            current_nonce += 1;
-        } else {
-            info!("User {} already registered in contract, skipping registration", user_id);
+        // Send register transaction and wait for response
+        let res = client.call(register_request).await;
+        if let Err(e) = &res {
+            log::error!("Failed to register user {} in contract: {}", user_id, e);
         }
+        tx.send(res).await.map_err(|e| {
+            log::error!("Failed to send register response to channel: {}", e);
+            anyhow::anyhow!("Channel send error: {}", e)
+        })?;
+        current_nonce += 1;
 
         // Write user to file immediately after creation/registration
         user.write_to_dir(user_data_dir)?;
