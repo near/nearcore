@@ -1,4 +1,6 @@
-use crate::account::{accounts_from_dir, create_sub_accounts, Account, CreateSubAccountsArgs};
+use crate::account::{
+    accounts_from_dir, create_sub_accounts, update_account_nonces, Account, CreateSubAccountsArgs,
+};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
@@ -138,17 +140,25 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
 
     create_sub_accounts(&create_args).await?;
 
-    // Now deploy contracts to these accounts
     let client = JsonRpcClient::connect(&args.rpc_url);
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
 
+    // Load created oracle accounts
+    let mut oracles = accounts_from_dir(&args.user_data_dir)?;
+    let master_signer = InMemorySigner::from_file(&args.signer_key_path)?;
+
+    // Update nonces from network before deployment
+    oracles = update_account_nonces(
+        client.clone(),
+        oracles,
+        10, // Lower RPS for deployment
+        Some(&args.user_data_dir),
+    )
+    .await?;
+
     // Read WASM bytes from the contract file
     let wasm_bytes = std::fs::read(&args.wasm_file)?;
-
-    // Load created oracle accounts
-    let oracles = accounts_from_dir(&args.user_data_dir)?;
-    let master_signer = InMemorySigner::from_file(&args.signer_key_path)?;
 
     // Deploy contract to each oracle account
     for (i, oracle) in oracles.iter().enumerate() {
@@ -200,6 +210,9 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
 
         client.call(init_request).await?;
     }
+
+    // Update nonces again after deployment and save to disk
+    update_account_nonces(client.clone(), oracles, 10, Some(&args.user_data_dir)).await?;
 
     Ok(())
 }
