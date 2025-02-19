@@ -313,7 +313,7 @@ async fn create_passive_users(
 
         // Create user account
         let create_account_tx = SignedTransaction::create_account(
-            current_nonce,
+            current_nonce + 1,
             oracle.id.clone(),
             user_id.clone(),
             deposit,
@@ -339,7 +339,7 @@ async fn create_passive_users(
 
         // Register user in Sweat contract
         let register_tx = match SignedTransaction::call(
-            current_nonce,
+            current_nonce + 1,
             oracle.id.clone(),
             sweat_contract_id.parse()?,
             &oracle.as_signer(),
