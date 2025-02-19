@@ -4,6 +4,7 @@ use crate::account::{
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
+use futures;
 use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
@@ -274,62 +275,74 @@ async fn create_passive_users(
         rpc_response_handler.handle_all_responses().await;
     });
 
-    for i in 0..num_users {
-        interval.tick().await;
+    // Process users in smaller batches to maintain nonce ordering
+    const BATCH_SIZE: u64 = 50;
+    for batch_start in (0..num_users).step_by(BATCH_SIZE as usize) {
+        let batch_end = std::cmp::min(batch_start + BATCH_SIZE, num_users);
+        let mut batch_futures = Vec::new();
 
-        let user_key = SecretKey::from_random(KeyType::ED25519);
-        let user_id: AccountId = format!("user_{}.{}", i, oracle.id).parse()?;
+        for i in batch_start..batch_end {
+            interval.tick().await;
 
-        // Create user account
-        let create_account_tx = SignedTransaction::create_account(
-            oracle.nonce + i,
-            oracle.id.clone(),
-            user_id.clone(),
-            deposit,
-            user_key.public_key(),
-            &oracle.as_signer(),
-            block_service.get_block_hash(),
-        );
-        let create_account_request = RpcSendTransactionRequest {
-            signed_transaction: create_account_tx,
-            wait_until: wait_until.clone(),
-        };
+            let user_key = SecretKey::from_random(KeyType::ED25519);
+            let user_id: AccountId = format!("user_{}.{}", i, oracle.id).parse()?;
 
-        // Register user in Sweat contract
-        let register_tx = SignedTransaction::call(
-            oracle.nonce + i + num_users,
-            oracle.id.clone(),
-            sweat_contract_id.parse()?,
-            &oracle.as_signer(),
-            0,
-            "storage_deposit".to_string(),
-            serde_json::to_vec(&json!({
-                "account_id": user_id
-            }))?,
-            300_000_000_000_000,
-            block_service.get_block_hash(),
-        );
-        let register_request = RpcSendTransactionRequest {
-            signed_transaction: register_tx,
-            wait_until: wait_until.clone(),
-        };
+            // Create user account
+            let create_account_tx = SignedTransaction::create_account(
+                oracle.nonce + i * 2, // Use i * 2 to reserve space for both transactions
+                oracle.id.clone(),
+                user_id.clone(),
+                deposit,
+                user_key.public_key(),
+                &oracle.as_signer(),
+                block_service.get_block_hash(),
+            );
+            let create_account_request = RpcSendTransactionRequest {
+                signed_transaction: create_account_tx,
+                wait_until: wait_until.clone(),
+            };
 
-        let client1 = client.clone();
-        let client2 = client.clone();
-        let tx1 = tx.clone();
-        let tx2 = tx.clone();
+            // Register user in Sweat contract
+            let register_tx = SignedTransaction::call(
+                oracle.nonce + i * 2 + 1, // Consecutive nonce for second transaction
+                oracle.id.clone(),
+                sweat_contract_id.parse()?,
+                &oracle.as_signer(),
+                0,
+                "storage_deposit".to_string(),
+                serde_json::to_vec(&json!({
+                    "account_id": user_id
+                }))?,
+                300_000_000_000_000,
+                block_service.get_block_hash(),
+            );
+            let register_request = RpcSendTransactionRequest {
+                signed_transaction: register_tx,
+                wait_until: wait_until.clone(),
+            };
 
-        tokio::spawn(async move {
-            let res = client1.call(create_account_request).await;
-            tx1.send(res).await.unwrap();
-        });
+            let client1 = client.clone();
+            let client2 = client.clone();
+            let tx1 = tx.clone();
+            let tx2 = tx.clone();
 
-        tokio::spawn(async move {
-            let res = client2.call(register_request).await;
-            tx2.send(res).await.unwrap();
-        });
+            // Create futures but don't spawn them yet
+            let create_future = async move {
+                let res = client1.call(create_account_request).await;
+                tx1.send(res).await.unwrap();
+            };
+            let register_future = async move {
+                let res = client2.call(register_request).await;
+                tx2.send(res).await.unwrap();
+            };
 
-        users.push(Account::new(user_id, user_key, 0));
+            batch_futures.push(create_future);
+            batch_futures.push(register_future);
+            users.push(Account::new(user_id, user_key, 0));
+        }
+
+        // Execute all futures in the batch concurrently
+        futures::future::join_all(batch_futures.into_iter().map(|f| tokio::spawn(f))).await?;
     }
 
     // Wait for all transactions
