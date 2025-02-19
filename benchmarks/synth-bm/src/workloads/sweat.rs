@@ -218,10 +218,10 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
         let init_tx = SignedTransaction::call(
             oracle.nonce + 2,
             oracle.id.clone(),
-            oracle.id.clone(),
             &oracle.as_signer(),
+            oracle.id.clone(),
             0,
-            "new_default_meta".to_string(),
+            "new".to_string(),
             serde_json::to_vec(&init_args)?,
             TOTAL_GAS,
             block_service.get_block_hash(),
@@ -234,7 +234,12 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
 
         match client.call(init_request).await {
             Ok(outcome) => {
-                info!("Init successful for {}: {:?}", oracle.id, outcome);
+                info!("Init result for {}: {:?}", oracle.id, outcome);
+                check_tx_response(
+                    outcome,
+                    TxExecutionStatus::ExecutedOptimistic,
+                    ResponseCheckSeverity::Assert,
+                );
             }
             Err(e) => {
                 log::error!("Init failed for {}: {}", oracle.id, e);
