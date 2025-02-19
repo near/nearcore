@@ -240,6 +240,16 @@ pub async fn build_streamer_message(
             .shard_layout
             .get_shard_index(header.shard_id)
             .map_err(|e| FailedToFetchData::String(e.to_string()))?;
+
+        // If the chunk is missing the data from the header contains the
+        // previous new chunk in the shard. In this case there is no need to
+        // process it. It may also fail if the missing chunk happens to be the
+        // first in a new shard layout during resharding because then the shard
+        // id will be no longer valid.
+        if !header.is_new_chunk(block.header.height) {
+            continue;
+        }
+
         // Add receipt_execution_outcomes into corresponding indexer shard
         indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
         // Put the chunk into corresponding indexer shard
