@@ -9,7 +9,7 @@ use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, FunctionArgs};
+use near_primitives::types::AccountId;
 use near_primitives::views::TxExecutionStatus;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -318,7 +318,7 @@ async fn create_passive_users(
     num_users: u64,
     channel_size: usize,
     deposit: u128,
-    user_data_dir: &Path,
+    user_data_dir: &PathBuf,
 ) -> anyhow::Result<Vec<Account>> {
     info!("Starting to create {} users for oracle {}", num_users, oracle.id);
     let mut users = Vec::with_capacity(num_users as usize);
