@@ -227,23 +227,43 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
     // Load oracle accounts
     let oracles = accounts_from_dir(&args.oracle_data_dir)?;
 
+    // Create users for all oracles in parallel
+    let mut handles = Vec::new();
     for oracle in oracles {
-        info!("Creating users for oracle {}", oracle.id);
-        let users = create_passive_users(
-            &client,
-            &block_service,
-            &oracle,
-            oracle.id.as_str(),
-            args.users_per_oracle,
-            1000,
-            args.deposit,
-        )
-        .await?;
+        let client = client.clone();
+        let block_service = block_service.clone();
+        let user_data_dir = args.user_data_dir.clone();
 
-        // Save user accounts
-        for user in users {
-            user.write_to_dir(&args.user_data_dir)?;
-        }
+        let handle = tokio::spawn({
+            let users_per_oracle = args.users_per_oracle;
+            let deposit = args.deposit;
+
+            async move {
+                info!("Creating users for oracle {}", oracle.id);
+                let users = create_passive_users(
+                    &client,
+                    &block_service,
+                    &oracle,
+                    oracle.id.as_str(),
+                    users_per_oracle,
+                    1000,
+                    deposit,
+                )
+                .await?;
+
+                // Save user accounts
+                for user in users {
+                    user.write_to_dir(&user_data_dir)?;
+                }
+                Ok::<_, anyhow::Error>(())
+            }
+        });
+        handles.push(handle);
+    }
+
+    // Wait for all oracles to finish creating their users
+    for handle in handles {
+        handle.await??;
     }
 
     Ok(())
@@ -258,10 +278,10 @@ async fn create_passive_users(
     channel_size: usize,
     deposit: u128,
 ) -> anyhow::Result<Vec<Account>> {
+    info!("Starting to create {} users for oracle {}", num_users, oracle.id);
     let mut users = Vec::with_capacity(num_users as usize);
     let (tx, rx) = mpsc::channel(channel_size);
 
-    // Similar to create_sub_accounts but with FT registration
     let mut interval = time::interval(Duration::from_micros(1_000_000 / 100)); // 100 TPS
     let wait_until = TxExecutionStatus::ExecutedOptimistic;
     let wait_until_channel = wait_until.clone();
@@ -276,81 +296,92 @@ async fn create_passive_users(
         rpc_response_handler.handle_all_responses().await;
     });
 
-    // Process users in smaller batches to maintain nonce ordering
-    const BATCH_SIZE: u64 = 50;
-    for batch_start in (0..num_users).step_by(BATCH_SIZE as usize) {
-        let batch_end = std::cmp::min(batch_start + BATCH_SIZE, num_users);
-        let mut batch_futures: Vec<BoxFuture<'_, ()>> = Vec::new();
+    let mut current_nonce = oracle.nonce;
 
-        for i in batch_start..batch_end {
-            interval.tick().await;
-
-            let user_key = SecretKey::from_random(KeyType::ED25519);
-            let user_id: AccountId = format!("user_{}.{}", i, oracle.id).parse()?;
-
-            // Create user account
-            let create_account_tx = SignedTransaction::create_account(
-                oracle.nonce + i * 2, // Use i * 2 to reserve space for both transactions
-                oracle.id.clone(),
-                user_id.clone(),
-                deposit,
-                user_key.public_key(),
-                &oracle.as_signer(),
-                block_service.get_block_hash(),
-            );
-            let create_account_request = RpcSendTransactionRequest {
-                signed_transaction: create_account_tx,
-                wait_until: wait_until.clone(),
-            };
-
-            // Register user in Sweat contract
-            let register_tx = SignedTransaction::call(
-                oracle.nonce + i * 2 + 1, // Consecutive nonce for second transaction
-                oracle.id.clone(),
-                sweat_contract_id.parse()?,
-                &oracle.as_signer(),
-                0,
-                "storage_deposit".to_string(),
-                serde_json::to_vec(&json!({
-                    "account_id": user_id
-                }))?,
-                300_000_000_000_000,
-                block_service.get_block_hash(),
-            );
-            let register_request = RpcSendTransactionRequest {
-                signed_transaction: register_tx,
-                wait_until: wait_until.clone(),
-            };
-
-            let client1 = client.clone();
-            let client2 = client.clone();
-            let tx1 = tx.clone();
-            let tx2 = tx.clone();
-
-            // Box the futures to make them the same type
-            let create_future = async move {
-                let res = client1.call(create_account_request).await;
-                tx1.send(res).await.unwrap();
-            }
-            .boxed();
-
-            let register_future = async move {
-                let res = client2.call(register_request).await;
-                tx2.send(res).await.unwrap();
-            }
-            .boxed();
-
-            batch_futures.push(create_future);
-            batch_futures.push(register_future);
-            users.push(Account::new(user_id, user_key, 0));
+    // Create accounts sequentially for this oracle
+    for i in 0..num_users {
+        if i > 0 && i % 100 == 0 {
+            info!("Created {}/{} users for oracle {}", i, num_users, oracle.id);
         }
+        interval.tick().await;
 
-        // Execute all futures in the batch concurrently
-        futures::future::join_all(batch_futures).await;
+        let user_key = SecretKey::from_random(KeyType::ED25519);
+        let user_id: AccountId = format!("user_{}.{}", i, oracle.id).parse().map_err(|e| {
+            log::error!("Failed to parse account ID for user_{}.{}: {}", i, oracle.id, e);
+            e
+        })?;
+
+        // Create user account
+        let create_account_tx = SignedTransaction::create_account(
+            current_nonce,
+            oracle.id.clone(),
+            user_id.clone(),
+            deposit,
+            user_key.public_key(),
+            &oracle.as_signer(),
+            block_service.get_block_hash(),
+        );
+        let create_account_request = RpcSendTransactionRequest {
+            signed_transaction: create_account_tx,
+            wait_until: wait_until.clone(),
+        };
+
+        // Send create account transaction and wait for response
+        let res = client.call(create_account_request).await;
+        if let Err(e) = &res {
+            log::error!("Failed to create account for {}: {}", user_id, e);
+        }
+        tx.send(res).await.map_err(|e| {
+            log::error!("Failed to send create account response to channel: {}", e);
+            anyhow::anyhow!("Channel send error: {}", e)
+        })?;
+        current_nonce += 1;
+
+        // Register user in Sweat contract
+        let register_tx = match SignedTransaction::call(
+            current_nonce,
+            oracle.id.clone(),
+            sweat_contract_id.parse()?,
+            &oracle.as_signer(),
+            0,
+            "storage_deposit".to_string(),
+            serde_json::to_vec(&json!({
+                "account_id": user_id
+            }))
+            .map_err(|e| {
+                log::error!("Failed to serialize storage_deposit args for {}: {}", user_id, e);
+                e
+            })?,
+            300_000_000_000_000,
+            block_service.get_block_hash(),
+        ) {
+            tx => tx,
+        };
+
+        let register_request = RpcSendTransactionRequest {
+            signed_transaction: register_tx,
+            wait_until: wait_until.clone(),
+        };
+
+        // Send register transaction and wait for response
+        let res = client.call(register_request).await;
+        if let Err(e) = &res {
+            log::error!("Failed to register user {} in contract: {}", user_id, e);
+        }
+        tx.send(res).await.map_err(|e| {
+            log::error!("Failed to send register response to channel: {}", e);
+            anyhow::anyhow!("Channel send error: {}", e)
+        })?;
+        current_nonce += 1;
+
+        users.push(Account::new(user_id, user_key, 0));
     }
 
     // Wait for all transactions
-    response_handler_task.await.expect("response handler tasks should succeed");
+    match response_handler_task.await {
+        Ok(_) => info!("Successfully created all {} users for oracle {}", num_users, oracle.id),
+        Err(e) => log::error!("Response handler task failed for oracle {}: {}", oracle.id, e),
+    };
 
     Ok(users)
 }
