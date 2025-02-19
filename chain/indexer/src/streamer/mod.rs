@@ -266,13 +266,14 @@ pub async fn build_streamer_message(
     // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
     // That might happen before the fix https://github.com/near/nearcore/pull/4228
     for (shard_id, outcomes) in shards_outcomes {
-        // TODO add comment
+        // The chunk may be missing and if that happens in the first block after
+        // resharding the shard id would no longer be valid in the new shard
+        // layout. In this case we can skip the chunk.
         let shard_index = protocol_config_view.shard_layout.get_shard_index(shard_id);
         let Ok(shard_index) = shard_index else {
             continue;
         };
 
-        // .map_err(|e| FailedToFetchData::String(e.to_string()))?;
         indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
             |outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,
