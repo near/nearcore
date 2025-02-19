@@ -568,14 +568,14 @@ class NearUser(User):
     @classmethod
     def generate_account_id(cls, account_generator, id) -> str:
         return account_generator.random_account_id(
-            cls.funding_account.key.account_id, f'_user{id}')
+            cls.funding_account.key.account_id, f'_g{id}')
 
     def __init__(self, environment):
         super().__init__(environment)
         assert self.host is not None, "Near user requires the RPC node address"
         self.node = get_near_node_proxy(environment)
         self.id = NearUser.get_next_id()
-        self.user_suffix = f"{self.id}_run{environment.parsed_options.run_id}"
+        self.user_suffix = f"{self.id}_x{environment.parsed_options.run_id}"
         self.account_generator = environment.account_generator
 
     def on_start(self):
