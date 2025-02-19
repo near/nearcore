@@ -301,8 +301,8 @@ pub async fn create_users(args: &CreateUsersArgs) -> anyhow::Result<()> {
 
     // Wait for all oracles to finish creating their users
     info!("Waiting for all oracle user creation tasks to complete...");
-    for (i, handle) in handles.iter().enumerate() {
-        info!("Waiting for oracle task {}/{}", i + 1, handles.len());
+    for (i, handle) in handles.into_iter().enumerate() {
+        info!("Waiting for oracle task {}", i + 1);
         match handle.await {
             Ok(result) => match result {
                 Ok(_) => info!("Oracle task {}/{} completed successfully", i + 1, handles.len()),
