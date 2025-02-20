@@ -178,14 +178,18 @@ impl InfoHelper {
     fn record_chunk_producers(
         head: &Tip,
         client: &crate::client::Client,
-        shard_layout: Option<&ShardLayout>,
+        shard_layout: &ShardLayout,
     ) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.get().map(|x| x.validator_id().clone()),
             client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
-            for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
+            for (shard_index, validators) in
+                epoch_info.chunk_producers_settlement().iter().enumerate()
             {
+                let Ok(shard_id) = shard_layout.get_shard_id(shard_index) else {
+                    continue;
+                };
                 let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
                     *epoch_info.validator_account_id(validator_id) == account_id
                 });
@@ -193,7 +197,7 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Some(shard_layout) = shard_layout {
+        } else {
             for shard_id in shard_layout.shard_ids() {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
@@ -350,9 +354,10 @@ impl InfoHelper {
 
         if let Some(shard_layout) = shard_layout.as_ref() {
             InfoHelper::record_tracked_shards(&head, &client, shard_layout);
+            InfoHelper::record_chunk_producers(&head, &client, shard_layout);
         }
         InfoHelper::record_block_producers(&head, &client);
-        InfoHelper::record_chunk_producers(&head, &client, shard_layout.as_ref());
+
         let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
             // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
