@@ -690,6 +690,7 @@ pub(crate) fn action_use_global_contract(
         account,
         current_protocol_version,
     )?;
+    state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
     let contract = match &action.contract_identifier {
         GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
         GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
@@ -797,14 +798,13 @@ fn clear_account_contract_storage_usage(
                 current_protocol_version,
             )?;
             account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
-            state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
         }
-        AccountContract::Global(_) => {
-            account.set_storage_usage(account.storage_usage().saturating_sub(32));
-        }
-        AccountContract::GlobalByAccount(account_id) => {
-            account
-                .set_storage_usage(account.storage_usage().saturating_sub(account_id.len() as u64));
+        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
+            account.set_storage_usage(
+                account
+                    .storage_usage()
+                    .saturating_sub(account.contract().identifier_storage_usage()),
+            );
         }
     };
     Ok(())

@@ -114,6 +114,14 @@ impl AccountContract {
     pub fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }
+
+    pub fn identifier_storage_usage(&self) -> u64 {
+        match self {
+            AccountContract::None => 0u64,
+            AccountContract::Local(_) | AccountContract::Global(_) => 32u64,
+            AccountContract::GlobalByAccount(id) => id.len() as u64,
+        }
+    }
 }
 
 #[derive(
