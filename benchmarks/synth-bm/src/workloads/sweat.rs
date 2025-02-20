@@ -556,7 +556,7 @@ async fn create_passive_users(
                             tx_hash: tx.tx_hash.clone(),
                             sender_account_id: tx.sender_id.clone(),
                         },
-                    wait_until: TxExecutionStatus::None,
+                    wait_until: TxExecutionStatus::ExecutedOptimistic,
                 },
             ).await {
                 Ok(outcome) => {
