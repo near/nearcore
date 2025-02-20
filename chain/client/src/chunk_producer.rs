@@ -51,7 +51,10 @@ pub struct ProduceChunkResult {
     pub receipts: Vec<Receipt>,
     pub transactions_storage_proof: Option<PartialState>,
     /// State update acumulated during chunk production.
-    pub state_update: TrieUpdate,
+    /// Always generated when producing a chunk. Yet an `Option` to allow taking it.
+    /// That's ok as the `state_update` isn't needed anymore after it was taken and
+    /// put into runtime's cache.
+    pub state_update: Option<TrieUpdate>,
 }
 
 /// Handles chunk production.
@@ -359,7 +362,7 @@ impl ChunkProducer {
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
             transactions_storage_proof: prepared_transactions.storage_proof,
-            state_update,
+            state_update: Some(state_update),
         }))
     }
 
