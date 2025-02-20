@@ -468,13 +468,14 @@ async fn create_passive_users(
                     )
                 },
                 TxToSend::StorageDeposit(account) => {
-                    info!("Creating storage_deposit transaction for {} with amount {}", account.id, 1_250_000_000_000_000_000_000);
+                    let deposit = 1_250_000_000_000_000_000_000;
+                    info!("Creating storage_deposit transaction for {} with amount {}", account.id, deposit);
                     SignedTransaction::call(
                         current_nonce + 1,
                         oracle.id.clone(),
                         sweat_contract_id.parse()?,
                         &oracle.as_signer(),
-                        1_250_000_000_000_000_000_000,
+                        deposit,
                         "storage_deposit".to_string(),
                         serde_json::to_vec(&json!({ "account_id": account.id.clone() }))?,
                         300_000_000_000_000,
