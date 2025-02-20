@@ -576,8 +576,11 @@ async fn create_passive_users(
                 },
             ).await {
                 Ok(outcome) => {
+                    // Debug print the full outcome before we move it
                     info!("Received outcome for tx_hash {}: {:?}", tx.tx_hash, outcome);
-                    let outcome_clone = outcome.clone();
+                    
+                    // Extract any relevant information from outcome before moving it
+                    let outcome_debug = format!("{:?}", outcome);
                     let outcome_result = check_response(outcome);
                     
                     // Update account states based on transaction outcome
@@ -636,8 +639,8 @@ async fn create_passive_users(
                                         *state = AccountState::Done;
                                     }
                                     Ok(false) => {
-                                        log::error!("Storage deposit failed for {} (tx_hash: {}). Full outcome: {:?}", 
-                                            account.id, tx.tx_hash, outcome_clone);
+                                        log::error!("Storage deposit failed for {} (tx_hash: {}). Full outcome: {}", 
+                                            account.id, tx.tx_hash, outcome_debug);
                                         let account_clone = account.clone();
                                         log::error!("Storage deposit failed for {}", account.id);
                                         info!(
@@ -647,8 +650,8 @@ async fn create_passive_users(
                                         *state = AccountState::Created(account_clone);
                                     }
                                     Err(e) => {
-                                        log::error!("Storage deposit error for {} (tx_hash: {}): {}. Full outcome: {:?}", 
-                                            account.id, tx.tx_hash, e, outcome_clone);
+                                        log::error!("Storage deposit error for {} (tx_hash: {}): {}. Full outcome: {}", 
+                                            account.id, tx.tx_hash, e, outcome_debug);
                                         let account_clone = account.clone();
                                         log::error!(
                                             "Error checking response for storage deposit {}: {}",
