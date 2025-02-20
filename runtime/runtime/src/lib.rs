@@ -1709,6 +1709,9 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
+        if processing_state.transactions_are_pre_applied {
+            println!("TODO(PoC): don't re-apply transactions");
+        }
         for (signed_transaction, maybe_cost) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
@@ -2593,6 +2596,7 @@ struct ApplyProcessingState<'a> {
     transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
+    transactions_are_pre_applied: bool,
 }
 
 impl<'a> ApplyProcessingState<'a> {
@@ -2605,6 +2609,7 @@ impl<'a> ApplyProcessingState<'a> {
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
+        let transactions_are_pre_applied = transactions_state_update.is_some();
         let state_update = match transactions_state_update {
             Some(state_update) => {
                 println!("re-using cached transactions_state_update");
@@ -2630,6 +2635,7 @@ impl<'a> ApplyProcessingState<'a> {
             transactions,
             total,
             stats,
+            transactions_are_pre_applied,
         }
     }
 
@@ -2652,6 +2658,7 @@ impl<'a> ApplyProcessingState<'a> {
             state_update: self.state_update,
             epoch_info_provider: self.epoch_info_provider,
             transactions: self.transactions,
+            transactions_are_pre_applied: self.transactions_are_pre_applied,
             total: self.total,
             stats: self.stats,
             outcomes: Vec::new(),
@@ -2709,6 +2716,7 @@ struct ApplyProcessingReceiptState<'a> {
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     transactions: SignedValidPeriodTransactions<'a>,
+    transactions_are_pre_applied: bool,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
     outcomes: Vec<ExecutionOutcomeWithId>,
