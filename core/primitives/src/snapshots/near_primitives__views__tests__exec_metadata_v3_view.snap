@@ -1,8 +1,6 @@
 ---
 source: core/primitives/src/views.rs
-assertion_line: 2552
 expression: view
-snapshot_kind: text
 ---
 {
   "version": 3,
