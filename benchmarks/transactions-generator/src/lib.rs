@@ -197,7 +197,7 @@ impl TxGenerator {
             let block_hash = runner_state.block_hash.clone();
             loop {
                 tx_interval.tick().await;
-                let block_hash = block_hash.lock().unwrap().clone();
+                let block_hash = *block_hash.lock().unwrap();
                 let ok = Self::generate_send_transaction(
                     &mut rnd,
                     &mut accounts,
