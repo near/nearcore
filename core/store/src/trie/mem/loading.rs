@@ -284,7 +284,7 @@ mod tests {
                 let mut key = Vec::new();
                 let key_len = rng.gen_range(0..=max_key_len);
                 for _ in 0..key_len {
-                    let byte: u8 = rng.gen();
+                    let byte: u8 = rng.r#gen();
                     key.push(byte);
                 }
                 keys.push(key);

@@ -116,7 +116,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
     }
 
     fn modify<R>(&mut self, process_callback: impl FnOnce(&mut TrieUpdate) -> R) -> R {
-        let Self { ref mut changes, ref mut state_update, .. } = self;
+        let Self { changes, state_update, .. } = self;
         // See if we should consider flushing.
         let result = process_callback(state_update.as_mut().expect("state update should be set"));
         let writers = self.active_writers.load(atomic::Ordering::Relaxed);
@@ -129,7 +129,7 @@ impl<'a> AutoFlushingTrieUpdate<'a> {
     }
 
     fn flush(&mut self) -> StateRoot {
-        let Self { ref mut changes, ref mut state_root, ref mut state_update, .. } = self;
+        let Self { changes, state_root, state_update, .. } = self;
         tracing::info!(
             target: "runtime",
             shard_uid=?self.shard_uid,
@@ -309,7 +309,7 @@ impl GenesisStateApplier {
                         });
                     }
                 }
-                ReceiptEnum::PromiseYield(ref _action_receipt) => {
+                ReceiptEnum::PromiseYield(_action_receipt) => {
                     storage.modify(|state_update| {
                         set_promise_yield_receipt(state_update, &receipt);
                     });

@@ -699,7 +699,7 @@ fn process_peer_manager_message_default(
                     false
                 } else if height_mod < 200 {
                     let mut rng = rand::thread_rng();
-                    rng.gen()
+                    rng.r#gen()
                 } else {
                     true
                 }

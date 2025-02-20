@@ -236,7 +236,7 @@ pub fn verify_and_charge_transaction(
             )
             .into());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = transaction.actions().get(0) {
+        if let Some(Action::FunctionCall(function_call)) = transaction.actions().get(0) {
             if function_call.deposit > 0 {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,

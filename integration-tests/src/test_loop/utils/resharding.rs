@@ -96,7 +96,7 @@ pub(crate) fn execute_money_transfers(account_ids: Vec<AccountId>) -> LoopAction
     const NUM_TRANSFERS_PER_BLOCK: usize = 20;
 
     let latest_height = Cell::new(0);
-    let seed = rand::thread_rng().gen::<u64>();
+    let seed = rand::thread_rng().r#gen::<u64>();
     println!("Random seed: {}", seed);
 
     let (ran_transfers, succeeded) = LoopAction::shared_success_flag();

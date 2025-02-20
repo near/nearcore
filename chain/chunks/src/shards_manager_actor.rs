@@ -527,7 +527,7 @@ impl ShardsManagerActor {
         for (target_account, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
             if no_account_id || me != target_account.as_ref() {
-                let prefer_peer = request_from_archival || rand::thread_rng().gen::<bool>();
+                let prefer_peer = request_from_archival || rand::thread_rng().r#gen::<bool>();
                 debug!(
                     target: "chunks",
                     ?part_ords,

@@ -324,7 +324,7 @@ fn random_key(max_key_len: usize, rng: &mut StdRng) -> Vec<u8> {
     let key_len = rng.gen_range(0..=max_key_len);
     let mut key = Vec::new();
     for _ in 0..key_len {
-        let byte: u8 = rng.gen();
+        let byte: u8 = rng.r#gen();
         key.push(byte);
     }
     key

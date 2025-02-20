@@ -32,7 +32,7 @@ fn make_snapshot_host_info(
     secret_key: &SecretKey,
     rng: &mut impl Rng,
 ) -> Arc<SnapshotHostInfo> {
-    let epoch_height: EpochHeight = rng.gen::<EpochHeight>();
+    let epoch_height: EpochHeight = rng.r#gen::<EpochHeight>();
     let max_shard_id = 32;
     let shards_num: usize = rng.gen_range(1..16);
     let shards = (0..max_shard_id).choose_multiple(rng, shards_num);
@@ -255,8 +255,8 @@ async fn too_many_shards_not_broadcast() {
         (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).map(Into::into).collect();
     let invalid_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
-        CryptoHash::hash_borsh(rng.gen::<u64>()),
-        rng.gen(),
+        CryptoHash::hash_borsh(rng.r#gen::<u64>()),
+        rng.r#gen(),
         too_many_shards,
         &peer1_config.node_key,
     ));
@@ -426,8 +426,8 @@ async fn too_many_shards_truncate() {
     let too_many_shards: Vec<ShardId> =
         (0..(2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64)).map(Into::into).collect();
 
-    let sync_hash = CryptoHash::hash_borsh(rng.gen::<u64>());
-    let epoch_height: EpochHeight = rng.gen();
+    let sync_hash = CryptoHash::hash_borsh(rng.r#gen::<u64>());
+    let epoch_height: EpochHeight = rng.r#gen();
 
     let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
         sync_hash,

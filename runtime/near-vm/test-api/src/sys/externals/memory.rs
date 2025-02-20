@@ -69,8 +69,10 @@ impl Memory {
     /// Until the returned slice is dropped, it is undefined behaviour to
     /// modify the memory contents in any way including by calling a wasm
     /// function that writes to the memory or by resizing the memory.
+    ///
+    /// All the same invariants as for [`Self::data_unchecked_mut`].
     pub unsafe fn data_unchecked(&self) -> &[u8] {
-        self.data_unchecked_mut()
+        unsafe { self.data_unchecked_mut() }
     }
 
     /// Retrieve a mutable slice of the memory contents.
@@ -85,8 +87,10 @@ impl Memory {
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn data_unchecked_mut(&self) -> &mut [u8] {
         let definition = self.vm_memory.from().vmmemory();
-        let def = definition.as_ref();
-        slice::from_raw_parts_mut(def.base, def.current_length.try_into().unwrap())
+        unsafe {
+            let def = definition.as_ref();
+            slice::from_raw_parts_mut(def.base, def.current_length.try_into().unwrap())
+        }
     }
 
     /// Returns the pointer to the raw bytes of the `Memory`.

@@ -862,7 +862,7 @@ impl PrettyNumber {
 
 impl std::fmt::Display for PrettyNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self(mut num, unit) = self;
+        let Self(mut num, unit) = *self;
         if num < 1_000 {
             return write!(f, "{} {}", num, unit);
         }

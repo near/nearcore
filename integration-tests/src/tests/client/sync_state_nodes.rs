@@ -887,7 +887,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             //
             // Second, we request state sync header.
             // Third, we request state sync part with part_id = 0.
-            wait_or_timeout(1000, 110000, || async {
+            wait_or_timeout(1000, 110000, async || {
                 let epoch_id = match view_client2.send(GetBlock::latest().with_span_context()).await
                 {
                     Ok(Ok(b)) => Some(b.header.epoch_id),

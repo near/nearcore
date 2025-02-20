@@ -50,7 +50,7 @@ fn bad_account_data_size() {
             peer_id: data::make_peer_id(&mut rng),
         },
         account_key: signer.public_key(),
-        version: rng.gen(),
+        version: rng.r#gen(),
         timestamp: clock.now_utc(),
     };
     assert!(ad.sign(&signer.into()).is_err());

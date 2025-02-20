@@ -918,8 +918,8 @@ mod tests {
                     } else {
                         // Limit nibbles to 4, so that we can generate keys that relate to
                         // each other more frequently.
-                        let nibble0 = rand::thread_rng().gen::<u8>() % 4;
-                        let nibble1 = rand::thread_rng().gen::<u8>() % 4;
+                        let nibble0 = rand::thread_rng().r#gen::<u8>() % 4;
+                        let nibble1 = rand::thread_rng().r#gen::<u8>() % 4;
                         key.push(nibble0 << 4 | nibble1);
                     }
                 }
@@ -930,7 +930,7 @@ mod tests {
                 }
                 let mut value = Vec::<u8>::new();
                 for _ in 0..value_length {
-                    value.push(rand::thread_rng().gen());
+                    value.push(rand::thread_rng().r#gen());
                 }
                 println!(
                     "  {} = {}",

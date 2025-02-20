@@ -639,7 +639,7 @@ mod tests {
             } else if !can_push {
                 false
             } else {
-                rng.gen::<bool>()
+                rng.r#gen::<bool>()
             };
 
             if should_push {
@@ -658,7 +658,7 @@ mod tests {
                 test_queue.update_on_receipt_popped(receipt_size, receipt_gas);
             }
 
-            if rng.gen::<bool>() {
+            if rng.r#gen::<bool>() {
                 // Reload the queue from trie. Tests that all changes are persisted after every operation.
                 groups_queue =
                     ReceiptGroupsQueue::load(trie_update, ShardId::new(0)).unwrap().unwrap();

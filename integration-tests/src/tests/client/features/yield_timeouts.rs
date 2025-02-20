@@ -40,10 +40,10 @@ fn find_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
         .get_outgoing_receipts_for_shard(last_block_hash, shard_id, last_block_height)
         .unwrap()
     {
-        if let PromiseYield(ref action_receipt) = receipt.receipt() {
+        if let PromiseYield(action_receipt) = receipt.receipt() {
             result.push(action_receipt.input_data_ids[0]);
         }
-        if let PromiseResume(ref data_receipt) = receipt.receipt() {
+        if let PromiseResume(data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);
         }
     }

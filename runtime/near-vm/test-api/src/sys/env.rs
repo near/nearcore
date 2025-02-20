@@ -97,7 +97,7 @@ impl<T> LazyInit<T> {
     /// # Safety
     /// - The data must be initialized first
     pub unsafe fn get_unchecked(&self) -> &T {
-        &*self.data.as_ptr()
+        unsafe { &*self.data.as_ptr() }
     }
 
     /// Get the inner data.

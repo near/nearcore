@@ -403,10 +403,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         .unwrap();
 
     match &mut invalid_chunk {
-        EncodedShardChunk::V1(ref mut chunk) => {
+        EncodedShardChunk::V1(chunk) => {
             chunk.header.height_included = last_block.header().height() + 1;
         }
-        EncodedShardChunk::V2(ref mut chunk) => {
+        EncodedShardChunk::V2(chunk) => {
             *chunk.header.height_included_mut() = last_block.header().height() + 1;
         }
     }

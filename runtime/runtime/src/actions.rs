@@ -250,12 +250,12 @@ pub(crate) fn action_function_call(
                     .with_label_values(&[err.into()])
                     .inc();
             }
-            FunctionCallError::WasmTrap(ref inner_err) => {
+            FunctionCallError::WasmTrap(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
             }
-            FunctionCallError::HostError(ref inner_err) => {
+            FunctionCallError::HostError(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
@@ -965,7 +965,7 @@ fn validate_delegate_action_key(
             .into());
             return Ok(());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = actions.get(0) {
+        if let Some(Action::FunctionCall(function_call)) = actions.get(0) {
             if function_call.deposit > 0 {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,

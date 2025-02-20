@@ -1,7 +1,7 @@
 use crate::tests::client::process_blocks::deploy_test_contract_with_protocol_version;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ExtCosts;
 use near_primitives::test_utils::encode;
@@ -20,7 +20,7 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 fn test_flat_storage_upgrade() {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
+    unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let epoch_length = 12;

@@ -351,7 +351,7 @@ async fn run_select_peer_test(
 async fn test_select_peer() {
     init_test_logger();
     let mut rng = make_rng(2947294234);
-    let sync_hash = CryptoHash(rng.gen());
+    let sync_hash = CryptoHash(rng.r#gen());
     let part_id = 0;
     let num_peers = SELECT_PEER_CASES.iter().map(|t| t.num_peers).max().unwrap();
     let mut peers = Vec::with_capacity(num_peers);

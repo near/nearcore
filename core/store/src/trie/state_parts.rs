@@ -688,7 +688,7 @@ mod tests {
                     }
                     TrieStorageNode::Branch { children, value } => match position {
                         CrumbStatus::Entering => {
-                            if let Some(ref value) = value {
+                            if let Some(value) = value {
                                 on_enter_value(value)?;
                             }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
@@ -755,7 +755,7 @@ mod tests {
         for i in 0..max_key_length {
             // ([255,255,..,255], big_value)
             let key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
-            let value = (0..big_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+            let value = (0..big_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
             trie_changes.push((key, Some(value)));
         }
         trie_changes
@@ -780,7 +780,7 @@ mod tests {
                         let mut key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
                         key.push(x * 16 + y);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                     {
@@ -788,7 +788,7 @@ mod tests {
                         key.push(16 * 15 + x);
                         key.push(y * 16);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                     {
@@ -796,7 +796,7 @@ mod tests {
                         key.push(16 * x + 15);
                         key.push(y);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                 }

@@ -820,8 +820,8 @@ impl Runtime {
                     .expect("the receipt for the given receipt index should exist")
                     .receipt_mut()
                 {
-                    ReceiptEnum::Action(ref mut new_action_receipt)
-                    | ReceiptEnum::PromiseYield(ref mut new_action_receipt) => new_action_receipt
+                    ReceiptEnum::Action(new_action_receipt)
+                    | ReceiptEnum::PromiseYield(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers),
                     _ => unreachable!("the receipt should be an action receipt"),
@@ -1041,7 +1041,7 @@ impl Runtime {
         } = *processing_state;
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
-            ReceiptEnum::Data(ref data_receipt) => {
+            ReceiptEnum::Data(data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -1128,7 +1128,7 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(ref action_receipt) => {
+            ReceiptEnum::Action(action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
@@ -1184,7 +1184,7 @@ impl Runtime {
                 // the corresponding PromiseResume receipt.
                 set_promise_yield_receipt(state_update, receipt);
             }
-            ReceiptEnum::PromiseResume(ref data_receipt) => {
+            ReceiptEnum::PromiseResume(data_receipt) => {
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.

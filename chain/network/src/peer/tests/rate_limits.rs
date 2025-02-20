@@ -185,7 +185,7 @@ async fn send_messages(
         let message = PeerMessage::Routed(Box::new(outbound.routed_message(
             RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
                 chunk_hash: outbound.cfg.chain.blocks[5].chunks()[2].chunk_hash(),
-                part_ords: vec![rng.gen()],
+                part_ords: vec![rng.r#gen()],
                 tracking_shards: Default::default(),
             }),
             inbound.cfg.id(),

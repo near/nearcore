@@ -440,7 +440,7 @@ pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -
 
 pub(crate) fn random_vec(len: usize) -> Vec<u8> {
     let mut rng = rand::thread_rng();
-    (0..len).map(|_| rng.gen()).collect()
+    (0..len).map(|_| rng.r#gen()).collect()
 }
 
 #[cfg(test)]

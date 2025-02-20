@@ -1825,7 +1825,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let home_dir = tmp.path();
 
-        let gen = move |filename: &str, account: &str, seed: &str| {
+        let r#gen = move |filename: &str, account: &str, seed: &str| {
             generate_or_load_key(
                 home_dir,
                 filename,
@@ -1835,7 +1835,7 @@ mod tests {
         };
 
         let test_ok = |filename: &str, account: &str, seed: &str| {
-            let result = gen(filename, account, seed);
+            let result = r#gen(filename, account, seed);
             let key = result.unwrap().unwrap();
             assert!(home_dir.join("key").exists());
             if !account.is_empty() {
@@ -1845,7 +1845,7 @@ mod tests {
         };
 
         let test_err = |filename: &str, account: &str, seed: &str| {
-            let result = gen(filename, account, seed);
+            let result = r#gen(filename, account, seed);
             assert!(result.is_err());
         };
 
