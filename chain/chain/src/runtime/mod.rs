@@ -192,6 +192,7 @@ impl NightshadeRuntime {
             gas_limit,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
+            transactions_state_update,
         } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
@@ -320,6 +321,7 @@ impl NightshadeRuntime {
                 transactions,
                 self.epoch_manager.as_ref(),
                 state_patch,
+                transactions_state_update,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(err) => {

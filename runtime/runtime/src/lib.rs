@@ -1509,6 +1509,7 @@ impl Runtime {
         transactions: SignedValidPeriodTransactions<'_>,
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
+        transactions_state_update: Option<TrieUpdate>,
     ) -> Result<ApplyResult, RuntimeError> {
         metrics::TRANSACTION_APPLIED_TOTAL.inc_by(transactions.len() as u64);
 
