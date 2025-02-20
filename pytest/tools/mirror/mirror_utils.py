@@ -332,8 +332,13 @@ def send_delete_access_key(node, key, target_key, nonce, block_hash):
     )
 
 
-def create_subaccount(node, signer_key, nonce, block_hash):
-    k = key.Key.from_random('foo.' + signer_key.account_id)
+def create_subaccount(node,
+                      subaccount_name,
+                      signer_key,
+                      nonce,
+                      block_hash,
+                      extra_key=False):
+    k = key.Key.from_random(subaccount_name + '.' + signer_key.account_id)
     actions = []
     actions.append(transaction.create_create_account_action())
     actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
@@ -434,22 +439,28 @@ class AddedKey:
         self.nonce = None
         self.key = key
 
-    def send_if_inited(self, node, transfers, block_hash):
-        if self.nonce is None:
-            self.nonce = node.get_nonce_for_pk(self.key.account_id,
-                                               self.key.pk,
-                                               finality='final')
-            if self.nonce is not None:
-                logger.info(
-                    f'added key {self.key.account_id} {self.key.pk} inited @ {self.nonce}'
-                )
-
+    def get_nonce(self, node):
         if self.nonce is not None:
-            for (receiver_id, amount) in transfers:
-                self.nonce += 1
-                tx = transaction.sign_payment_tx(self.key, receiver_id, amount,
-                                                 self.nonce, block_hash)
-                node.send_tx(tx)
+            self.nonce += 1
+            return self.nonce
+        self.nonce = node.get_nonce_for_pk(self.key.account_id,
+                                           self.key.pk,
+                                           finality='final')
+        if self.nonce is not None:
+            logger.info(
+                f'added key {self.key.account_id} {self.key.pk} inited @ {self.nonce}'
+            )
+            self.nonce += 1
+        return self.nonce
+
+    def send_if_inited(self, node, transfers, block_hash):
+        for (receiver_id, amount) in transfers:
+            nonce = self.get_nonce(node)
+            if not nonce:
+                return
+            tx = transaction.sign_payment_tx(self.key, receiver_id, amount,
+                                             self.nonce, block_hash)
+            node.send_tx(tx)
 
     def account_id(self):
         return self.key.account_id
@@ -466,7 +477,7 @@ class ImplicitAccount:
     def account_id(self):
         return self.key.account_id()
 
-    def transfer(self, node, sender_key, amount, block_hash, nonce):
+    def transfer_to(self, node, sender_key, amount, block_hash, nonce):
         tx = transaction.sign_payment_tx(sender_key, self.account_id(), amount,
                                          nonce, block_hash)
         node.send_tx(tx)
@@ -476,8 +487,14 @@ class ImplicitAccount:
     def send_if_inited(self, node, transfers, block_hash):
         self.key.send_if_inited(node, transfers, block_hash)
 
+    def get_nonce(self, node):
+        return self.key.get_nonce(node)
+
     def inited(self):
         return self.key.inited()
+
+    def signer_key(self):
+        return self.key.key
 
 
 def count_total_txs(node, min_height=0):
@@ -612,10 +629,10 @@ def start_source_chain(config, num_source_validators=3):
     for height, block_hash in utils.poll_blocks(source_nodes[0],
                                                 timeout=TIMEOUT):
         block_hash_bytes = base58.b58decode(block_hash.encode('utf8'))
-        traffic_data.implicit_account.transfer(source_nodes[0],
-                                               source_nodes[0].signer_key,
-                                               10**24, block_hash_bytes,
-                                               traffic_data.nonces[0])
+        traffic_data.implicit_account.transfer_to(source_nodes[0],
+                                                  source_nodes[0].signer_key,
+                                                  10**24, block_hash_bytes,
+                                                  traffic_data.nonces[0])
         traffic_data.nonces[0] += 1
 
         deploy_addkey_contract(source_nodes[0], source_nodes[0].signer_key,
@@ -656,8 +673,12 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     start_source_height = tip.height
 
     subaccount_key = AddedKey(
-        create_subaccount(source_nodes[1], source_nodes[0].signer_key,
-                          traffic_data.nonces[0], block_hash_bytes))
+        create_subaccount(source_nodes[1],
+                          'foo',
+                          source_nodes[0].signer_key,
+                          traffic_data.nonces[0],
+                          block_hash_bytes,
+                          extra_key=True))
     traffic_data.nonces[0] += 1
 
     k = key.Key.from_random('test0')
@@ -730,12 +751,13 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     # then wait a bit before properly initializing it. This hits a corner case where the
     # mirror binary needs to properly look for the second tx's outcome to find the starting
     # nonce because the first one failed
-    implicit_account2.transfer(source_nodes[1], source_nodes[0].signer_key, 1,
-                               block_hash_bytes, traffic_data.nonces[0])
+    implicit_account2.transfer_to(source_nodes[1], source_nodes[0].signer_key,
+                                  1, block_hash_bytes, traffic_data.nonces[0])
     traffic_data.nonces[0] += 1
     time.sleep(2)
-    implicit_account2.transfer(source_nodes[1], source_nodes[0].signer_key,
-                               10**24, block_hash_bytes, traffic_data.nonces[0])
+    implicit_account2.transfer_to(source_nodes[1], source_nodes[0].signer_key,
+                                  10**24, block_hash_bytes,
+                                  traffic_data.nonces[0])
     traffic_data.nonces[0] += 1
 
     for height, block_hash in utils.poll_blocks(source_nodes[1],
