@@ -321,11 +321,13 @@ def make_binaries_dir(local_mocknet_path, neard_binary_path):
     binary_path.symlink_to(neard_binary_path)
     return binaries_path
 
+
 class HTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     # follow symlinks
     def translate_path(self, path):
         path = super().translate_path(path)
         return os.path.realpath(path)
+
 
 class Server(http.server.HTTPServer):
 
