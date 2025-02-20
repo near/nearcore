@@ -690,7 +690,9 @@ pub(crate) fn action_use_global_contract(
         account,
         current_protocol_version,
     )?;
-    state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    if account.contract().is_local() {
+        state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    }
     let contract = match &action.contract_identifier {
         GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
         GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
