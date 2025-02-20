@@ -5,10 +5,11 @@ use crate::StorageError;
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
+use near_primitives::account::AccountContract;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot, TrieCacheMode,
@@ -103,20 +104,44 @@ impl TrieUpdate {
         mode: KeyLookupMode,
     ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
         let key = key.to_vec();
-        if let Some(key_value) = self.prospective.get(&key) {
-            return Ok(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
-        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
-            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
-                return Ok(data.as_deref().map(TrieUpdateValuePtr::MemoryRef));
-            }
+        if let Some(value_ref) = self.get_ref_from_updates(&key) {
+            return Ok(value_ref);
         }
 
         let result = self
             .trie
             .get_optimized_ref(&key, mode)?
             .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
+        Ok(result)
+    }
+
+    pub fn get_ref_no_side_effects(
+        &self,
+        key: &TrieKey,
+        mode: KeyLookupMode,
+    ) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
+        let key = key.to_vec();
+        if let Some(value_ref) = self.get_ref_from_updates(&key) {
+            return Ok(value_ref);
+        }
+
+        let result = self
+            .trie
+            .get_optimized_ref_no_side_effects(&key, mode)?
+            .map(|optimized_value_ref| TrieUpdateValuePtr::Ref(&self.trie, optimized_value_ref));
 
         Ok(result)
+    }
+
+    fn get_ref_from_updates(&self, key: &[u8]) -> Option<Option<TrieUpdateValuePtr<'_>>> {
+        if let Some(key_value) = self.prospective.get(key) {
+            return Some(key_value.value.as_deref().map(TrieUpdateValuePtr::MemoryRef));
+        } else if let Some(changes_with_trie_key) = self.committed.get(key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Some(data.as_deref().map(TrieUpdateValuePtr::MemoryRef));
+            }
+        }
+        None
     }
 
     pub fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
@@ -315,6 +340,7 @@ impl TrieUpdate {
         &self,
         account_id: AccountId,
         code_hash: CryptoHash,
+        account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
         protocol_version: ProtocolVersion,
     ) -> Result<(), StorageError> {
@@ -333,10 +359,16 @@ impl TrieUpdate {
         // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
         // This avoids recording contracts that do not exist or are newly-deployed to the account.
         // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
-        if code_hash == CryptoHash::default() {
-            return Ok(());
-        }
-        let trie_key = TrieKey::ContractCode { account_id };
+        let trie_key = match account_contract {
+            AccountContract::None => return Ok(()),
+            AccountContract::Local(_) => TrieKey::ContractCode { account_id },
+            AccountContract::Global(code_hash) => TrieKey::GlobalContractCode {
+                identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
+            },
+            AccountContract::GlobalByAccount(account_id) => TrieKey::GlobalContractCode {
+                identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
+            },
+        };
         let contract_ref = self
             .trie
             .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)

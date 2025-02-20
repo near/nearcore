@@ -354,9 +354,10 @@ impl NightshadeRuntime {
 
         let total_balance_burnt = apply_result
             .stats
+            .balance
             .tx_burnt_amount
-            .checked_add(apply_result.stats.other_burnt_amount)
-            .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
+            .checked_add(apply_result.stats.balance.other_burnt_amount)
+            .and_then(|result| result.checked_add(apply_result.stats.balance.slashed_burnt_amount))
             .ok_or_else(|| {
                 Error::Other("Integer overflow during burnt balance summation".to_string())
             })?;
@@ -385,6 +386,7 @@ impl NightshadeRuntime {
             bandwidth_requests: apply_result.bandwidth_requests,
             bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
             contract_updates: apply_result.contract_updates,
+            stats: apply_result.stats,
         };
 
         Ok(result)

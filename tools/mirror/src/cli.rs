@@ -138,10 +138,11 @@ struct ShowKeysFromSourceDBCmd {
     block_height: Option<BlockHeight>,
 }
 
-/// Given an RPC URL, request and map access keys corresponding to
-/// a given account ID and optional block height.
+/// Given an RPC URL for a node running on the source chain (so for a network forked from mainnet state,
+/// a mainnet RPC node), request and map access keys corresponding to a given account ID and optional block height.
 #[derive(clap::Parser)]
 struct ShowKeysFromRPCCmd {
+    /// RPC URL for a node running on the source chain. e.g. "https://rpc.mainnet.near.org"
     #[clap(long)]
     rpc_url: String,
     #[clap(long)]

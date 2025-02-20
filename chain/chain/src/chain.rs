@@ -3422,7 +3422,7 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if let Some(result) = self.apply_chunk_results_cache.peek(&cached_shard_update_key) {
-            info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+            debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
             let result = result.clone();
             return Ok(Some((
                 shard_id,
@@ -3430,7 +3430,7 @@ impl Chain {
                 Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
             )));
         }
-        info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+        debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3618,7 +3618,9 @@ impl Chain {
             self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
         let will_shard_layout_change =
             self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
+        let next_block_epoch =
+            self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
 
         let tries = self.runtime_adapter.get_tries();
         let snapshot_config = tries.state_snapshot_config();
@@ -3633,11 +3635,7 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    let is_sync_prev = crate::state_sync::is_sync_prev_hash(
-                        &self.chain_store.store(),
-                        &head.last_block_hash,
-                        &head.prev_block_hash,
-                    )?;
+                    let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
                     if is_sync_prev {
                         // Here the head block is the prev block of what the sync hash will be, and the previous
                         // block is the point in the chain we want to snapshot state for

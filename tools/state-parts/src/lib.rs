@@ -101,7 +101,7 @@ async fn state_parts_from_node(
         genesis_hash,
         head_height,
         vec![ShardId::new(0)],
-        near_time::Duration::seconds(recv_timeout_seconds.into()),
+        Some(near_time::Duration::seconds(recv_timeout_seconds.into())),
     )
     .await
     {

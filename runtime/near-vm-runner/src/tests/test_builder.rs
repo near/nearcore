@@ -238,7 +238,8 @@ impl TestBuilder {
                     let err_str = err.to_string();
                     assert!(
                         err_str.len() < 1000,
-                        "errors should be bounded in size to prevent abuse via exhausting the storage space"
+                        "errors should be bounded in size to prevent abuse \
+                         via exhausting the storage space. Got: {err_str}"
                     );
                     if self.opaque_error {
                         writeln!(&mut got, "Err: ...").unwrap();

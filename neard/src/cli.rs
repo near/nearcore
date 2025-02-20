@@ -66,6 +66,7 @@ impl NeardCmd {
             target: "neard",
             version = crate::NEARD_VERSION,
             build = crate::NEARD_BUILD,
+            commit = crate::NEARD_COMMIT,
             latest_protocol = near_primitives::version::PROTOCOL_VERSION
         );
 
@@ -583,7 +584,7 @@ impl RunCmd {
             if let Some(handle) = cold_store_loop_handle {
                 handle.stop()
             }
-            state_sync_dumper.stop();
+            state_sync_dumper.stop_and_await();
             resharding_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;

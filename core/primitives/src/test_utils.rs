@@ -1,4 +1,8 @@
 use crate::account::{AccessKey, AccessKeyPermission, Account};
+use crate::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
+};
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
@@ -21,12 +25,18 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::account::AccountContract;
 use near_primitives_core::types::{BlockHeight, MerkleHash, ProtocolVersion};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
+    Account::new(
+        amount,
+        0,
+        AccountContract::from_local_code_hash(code_hash),
+        std::mem::size_of::<Account>() as u64,
+    )
 }
 
 impl Transaction {
@@ -262,6 +272,52 @@ impl SignedTransaction {
             receiver_id,
             signer,
             vec![Action::DeployContract(DeployContractAction { code })],
+            block_hash,
+            0,
+        )
+    }
+
+    pub fn deploy_global_contract(
+        nonce: Nonce,
+        contract_id: AccountId,
+        code: Vec<u8>,
+        signer: &Signer,
+        block_hash: CryptoHash,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> SignedTransaction {
+        let signer_id = contract_id.clone();
+        let receiver_id = contract_id;
+        SignedTransaction::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            &signer,
+            vec![Action::DeployGlobalContract(DeployGlobalContractAction {
+                code: code.into(),
+                deploy_mode,
+            })],
+            block_hash,
+            0,
+        )
+    }
+
+    pub fn use_global_contract(
+        nonce: Nonce,
+        contract_id: &AccountId,
+        signer: &Signer,
+        block_hash: CryptoHash,
+        contract_identifier: GlobalContractIdentifier,
+    ) -> SignedTransaction {
+        let signer_id = contract_id.clone();
+        let receiver_id = contract_id.clone();
+        SignedTransaction::from_actions(
+            nonce,
+            signer_id,
+            receiver_id,
+            &signer,
+            vec![Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier,
+            }))],
             block_hash,
             0,
         )

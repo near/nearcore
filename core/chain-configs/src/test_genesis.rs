@@ -2,9 +2,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use near_crypto::PublicKey;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
-use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
@@ -447,7 +446,7 @@ impl TestGenesisBuilder {
                 account: Account::new(
                     user_account.balance,
                     validator_stake.remove(&user_account.account_id).unwrap_or(0),
-                    CryptoHash::default(),
+                    AccountContract::None,
                     0,
                 ),
             });
@@ -465,7 +464,7 @@ impl TestGenesisBuilder {
         for (account_id, balance) in validator_stake {
             records.push(StateRecord::Account {
                 account_id,
-                account: Account::new(0, balance, CryptoHash::default(), 0),
+                account: Account::new(0, balance, AccountContract::None, 0),
             });
         }
 

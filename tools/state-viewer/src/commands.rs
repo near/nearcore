@@ -552,6 +552,26 @@ pub(crate) fn get_chunk(chunk_hash: ChunkHash, near_config: NearConfig, store: S
     println!("Chunk: {:#?}", chunk);
 }
 
+pub(crate) fn print_chunk_apply_stats(
+    block_hash: &CryptoHash,
+    shard_id: u64,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let chain_store = ChainStore::new(
+        store,
+        near_config.client_config.save_trie_changes,
+        near_config.genesis.config.transaction_validity_period,
+    );
+    match chain_store.get_chunk_apply_stats(block_hash, &ShardId::new(shard_id)) {
+        Ok(Some(stats)) => println!("{:#?}", stats),
+        Ok(None) => {
+            println!("\nNo stats found for block hash {} and shard {}\n", block_hash, shard_id)
+        }
+        Err(e) => eprintln!("Error: {:#?}", e),
+    }
+}
+
 pub(crate) fn get_partial_chunk(
     partial_chunk_hash: ChunkHash,
     near_config: NearConfig,

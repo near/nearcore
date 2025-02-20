@@ -14,6 +14,7 @@ use borsh::BorshDeserialize as _;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockInner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::utils::compression::CompressedData;
 use protobuf::MessageField as MF;
@@ -203,6 +204,40 @@ impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
 //////////////////////////////////////////
 
 #[derive(thiserror::Error, Debug)]
+pub enum ParseOptimisticBlockError {
+    #[error("inner")]
+    Inner(std::io::Error),
+    #[error("sync_hash {0}")]
+    Hash(ParseRequiredError<ParseCryptoHashError>),
+    #[error("signature {0}")]
+    Signature(ParseRequiredError<ParseSignatureError>),
+}
+
+impl From<&OptimisticBlock> for proto::OptimisticBlock {
+    fn from(ob: &OptimisticBlock) -> Self {
+        Self {
+            inner: borsh::to_vec(&ob.inner).unwrap(),
+            signature: MF::some((&ob.signature).into()),
+            hash: MF::some((&ob.hash).into()),
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::OptimisticBlock> for OptimisticBlock {
+    type Error = ParseOptimisticBlockError;
+    fn try_from(p_ob: &proto::OptimisticBlock) -> Result<Self, Self::Error> {
+        Ok(Self {
+            inner: OptimisticBlockInner::try_from_slice(&p_ob.inner).map_err(Self::Error::Inner)?,
+            signature: try_from_required(&p_ob.signature).map_err(Self::Error::Signature)?,
+            hash: try_from_required(&p_ob.hash).map_err(Self::Error::Hash)?,
+        })
+    }
+}
+
+//////////////////////////////////////////
+
+#[derive(thiserror::Error, Debug)]
 pub enum ParseSyncSnapshotHostsError {
     #[error("hosts {0}")]
     Hosts(ParseVecError<ParseSnapshotHostInfoError>),
@@ -293,6 +328,7 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     block: MF::some(b.into()),
                     ..Default::default()
                 }),
+                PeerMessage::OptimisticBlock(ob) => ProtoMT::OptimisticBlock(ob.into()),
                 PeerMessage::Transaction(t) => ProtoMT::Transaction(proto::SignedTransaction {
                     borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
@@ -397,6 +433,8 @@ pub enum ParsePeerMessageError {
     StateResponse(ParseRequiredError<ParseStateInfoError>),
     #[error("sync_snapshot_hosts: {0}")]
     SyncSnapshotHosts(ParseSyncSnapshotHostsError),
+    #[error("optimistic_block: {0}")]
+    OptimisticBlock(ParseOptimisticBlockError),
 }
 
 impl TryFrom<&proto::PeerMessage> for PeerMessage {
@@ -467,6 +505,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::BlockResponse(br) => PeerMessage::Block(
                 try_from_required(&br.block).map_err(Self::Error::BlockResponse)?,
             ),
+            ProtoMT::OptimisticBlock(ob) => {
+                PeerMessage::OptimisticBlock(ob.try_into().map_err(Self::Error::OptimisticBlock)?)
+            }
             ProtoMT::Transaction(t) => PeerMessage::Transaction(
                 SignedTransaction::try_from_slice(&t.borsh).map_err(Self::Error::Transaction)?,
             ),

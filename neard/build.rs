@@ -47,14 +47,9 @@ fn command(prog: &str, args: &[&str], cwd: Option<std::path::PathBuf>) -> Result
     }
 }
 
-/// Returns version read from git repository or ‘unknown’ if could not be
-/// determined.
-///
-/// Uses `git describe --always --dirty=-modified` to get the version.  For
-/// builds on release tags this will return that tag.  In other cases the
-/// version will describe the commit by including its hash.  If the working
-/// directory isn’t clean, the version will include `-modified` suffix.
-fn get_git_version() -> Result<String> {
+/// Returns version info (build, commit) read from git repository or (unknown, unknown) if could
+/// not be determined.
+fn get_git_version() -> Result<(String, String)> {
     // Figure out git directory.  Don’t just assume it’s ../.git because that
     // doesn’t work with git work trees so use `git rev-parse --git-dir` instead.
     let pkg_dir = std::path::PathBuf::from(env("CARGO_MANIFEST_DIR")?);
@@ -66,7 +61,7 @@ fn get_git_version() -> Result<String> {
             // version as unknown.
             println!("cargo:warning=unable to determine git version (not in git repository?)");
             println!("cargo:warning={}", msg);
-            return Ok("unknown".to_string());
+            return Ok(("unknown".to_string(), "unknown".to_string()));
         }
     };
 
@@ -85,11 +80,19 @@ fn get_git_version() -> Result<String> {
     // * --match=[0-9]* → only consider tags starting with a digit; this
     //   prevents tags such as `crates-0.14.0` from being considered
     let args = &["describe", "--always", "--dirty=-modified", "--tags", "--match=[0-9]*"];
-    let out = command("git", args, None)?;
-    match String::from_utf8_lossy(&out) {
+    let build = command("git", args, None)?;
+    let build_str = match String::from_utf8_lossy(&build) {
         std::borrow::Cow::Borrowed(version) => Ok(version.trim().to_string()),
         std::borrow::Cow::Owned(version) => Err(anyhow!("git: invalid output: {}", version)),
-    }
+    };
+
+    let commit = command("git", &["rev-parse", "HEAD"], None)?;
+    let commit_hash = match String::from_utf8_lossy(&commit) {
+        std::borrow::Cow::Borrowed(version) => Ok(version.trim().to_string()),
+        std::borrow::Cow::Owned(version) => Err(anyhow!("git: invalid output: {}", version)),
+    };
+
+    Ok((build_str?, commit_hash?))
 }
 
 /// Get features enabled using the --features flag.
@@ -131,7 +134,9 @@ fn try_main() -> Result<()> {
     };
     println!("cargo:rustc-env=NEARD_VERSION={}", version);
 
-    println!("cargo:rustc-env=NEARD_BUILD={}", get_git_version()?);
+    println!("cargo:rustc-env=NEARD_BUILD={}", get_git_version()?.0);
+
+    println!("cargo:rustc-env=NEARD_COMMIT={}", get_git_version()?.1);
 
     println!("cargo:rustc-env=NEARD_RUSTC_VERSION={}", rustc_version::version()?);
 

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tokio::time;
 
 use crate::block_service::BlockService;
@@ -35,17 +36,20 @@ pub struct CreateSubAccountsArgs {
     // TODO remove this field and get nonce from rpc
     #[arg(long, default_value_t = 1)]
     pub nonce: u64,
-    /// Optional prefix for sub account names to avoid generating accounts that already exist on
+    /// Optional prefixes for sub account names to avoid generating accounts that already exist on
     /// subsequent invocations.
+    /// Prefixes are separated by commas.
     ///
     /// # Example
     ///
     /// The name of the `i`-th sub account will be:
     ///
-    /// - `user_<i>.<signer_account_id>` if `sub_account_prefix == None`
-    /// - `a_user_<i>.<signer_account_id>` if `sub_account_prefix == Some("a")`
-    #[arg(long)]
-    pub sub_account_prefix: Option<String>,
+    /// - `user_<i>.<signer_account_id>` if `sub_account_prefixes == None`
+    /// - `a_user_<i>.<signer_account_id>` if `sub_account_prefixes == Some("a")`
+    /// - `a_user_<i>.<signer_account_id>,b_user_<i>.<signer_account_id>`
+    ///   if `sub_account_prefixes == Some("a,b")`
+    #[arg(long, alias = "sub-account-prefix", use_value_delimiter = true)]
+    pub sub_account_prefixes: Option<Vec<String>>,
     /// Number of sub accounts to create.
     #[arg(long)]
     pub num_sub_accounts: u64,
@@ -55,10 +59,9 @@ pub struct CreateSubAccountsArgs {
     #[arg(long)]
     /// Acts as upper bound on the number of concurrently open RPC requests.
     pub channel_buffer_size: usize,
-    /// After each tick (in microseconds) a transaction is sent. If the hardware cannot keep up with
-    /// that or if the NEAR node is congested, transactions are sent at a slower rate.
+    /// Upper bound on request rate to the network for transaction (and other auxiliary) calls. The actual rate may be lower in case of congestions.
     #[arg(long)]
-    pub interval_duration_micros: u64,
+    pub requests_per_second: u64,
     /// Directory where created user account data (incl. key and nonce) is stored.
     #[arg(long)]
     pub user_data_dir: PathBuf,
@@ -142,6 +145,43 @@ pub fn accounts_from_dir(dir: &Path) -> anyhow::Result<Vec<Account>> {
     Ok(accounts)
 }
 
+/// Updates accounts with the nonce values requested from the network and optionally writes the updated values to the disk.
+pub async fn update_account_nonces(
+    client: JsonRpcClient,
+    mut accounts: Vec<Account>,
+    rps_limit: u64,
+    accounts_path: Option<&PathBuf>,
+) -> anyhow::Result<Vec<Account>> {
+    let mut tasks = JoinSet::new();
+
+    let mut interval = time::interval(Duration::from_micros(1_000_000u64 / rps_limit));
+    for (i, account) in accounts.iter().enumerate() {
+        interval.tick().await;
+        let client = client.clone();
+        let (id, pk) = (account.id.clone(), account.public_key.clone());
+        tasks.spawn(async move { (i, view_access_key(&client, id, pk).await) });
+    }
+
+    while let Some(res) = tasks.join_next().await {
+        let (idx, response) = res.expect("join should succeed");
+        let nonce = response?.nonce;
+        let account = accounts.get_mut(idx).unwrap();
+        if account.nonce != nonce {
+            tracing::debug!(name: "nonce updated",
+                user = account.id.to_string(),
+                nonce.old = account.nonce,
+                nonce.new = nonce,
+            );
+            account.nonce = nonce;
+            if let Some(path) = accounts_path {
+                account.write_to_dir(path)?;
+            }
+        }
+    }
+
+    Ok(accounts)
+}
+
 pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result<()> {
     let signer = InMemorySigner::from_file(&args.signer_key_path)?;
 
@@ -149,7 +189,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
 
-    let mut interval = time::interval(Duration::from_micros(args.interval_duration_micros));
+    let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
     let timer = Instant::now();
 
     let mut sub_accounts: Vec<Account> =
@@ -176,7 +216,9 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     for i in 0..args.num_sub_accounts {
         let sub_account_key = SecretKey::from_random(KeyType::ED25519);
         let sub_account_id: AccountId = {
-            let subname = if let Some(prefix) = &args.sub_account_prefix {
+            // cspell:words subname
+            let subname = if let Some(prefixes) = &args.sub_account_prefixes {
+                let prefix = &prefixes[(i as usize) % prefixes.len()];
                 format!("{prefix}_user_{i}")
             } else {
                 format!("user_{i}")
@@ -219,24 +261,11 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
     info!("Querying nonces of newly created sub accounts.");
 
     // Nonces of new access keys are set by nearcore: https://github.com/near/nearcore/pull/4064
-    // Query them from the rpc to write `Accounts` with valid nonces to disk.
-    // TODO use `JoinSet`, e.g. by storing accounts in map instead of vec.
-    let mut get_access_key_tasks = Vec::with_capacity(sub_accounts.len());
-    // Use an interval to avoid overwhelming the node with requests.
-    let mut interval = time::interval(Duration::from_micros(150));
-    for account in sub_accounts.clone().into_iter() {
-        interval.tick().await;
-        let client = client.clone();
-        get_access_key_tasks.push(tokio::spawn(async move {
-            view_access_key(&client, account.id.clone(), account.public_key.clone()).await
-        }))
-    }
+    // Query them from the rpc to write `Accounts` with valid nonces to disk
+    sub_accounts =
+        update_account_nonces(client.clone(), sub_accounts, args.requests_per_second, None).await?;
 
-    for (i, task) in get_access_key_tasks.into_iter().enumerate() {
-        let response = task.await.expect("join should succeed");
-        let nonce = response?.nonce;
-        let account = sub_accounts.get_mut(i).unwrap();
-        account.nonce = nonce;
+    for account in sub_accounts.iter() {
         account.write_to_dir(&args.user_data_dir)?;
     }
 

@@ -147,10 +147,12 @@ fn test_query_by_path_account() {
             panic!("queried account, but received something else: {:?}", query_response.kind);
         };
         assert_eq!(account_info.amount, 0);
-        assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+        assert_eq!(account_info.code_hash, CryptoHash::default());
         assert_eq!(account_info.locked, 0);
         assert_eq!(account_info.storage_paid_at, 0);
         assert_eq!(account_info.storage_usage, 0);
+        assert_eq!(account_info.global_contract_hash, None);
+        assert_eq!(account_info.global_contract_account_id, None);
     });
 }
 
@@ -192,10 +194,12 @@ fn test_query_account() {
                 panic!("queried account, but received something else: {:?}", query_response.kind);
             };
             assert_eq!(account_info.amount, 0);
-            assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
+            assert_eq!(account_info.code_hash, CryptoHash::default());
             assert_eq!(account_info.locked, 0);
             assert_eq!(account_info.storage_paid_at, 0);
             assert_eq!(account_info.storage_usage, 0);
+            assert_eq!(account_info.global_contract_hash, None);
+            assert_eq!(account_info.global_contract_account_id, None);
         }
     });
 }

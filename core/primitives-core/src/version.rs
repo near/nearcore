@@ -267,6 +267,7 @@ impl ProtocolFeature {
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
+            ProtocolFeature::GlobalContracts => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
@@ -275,7 +276,6 @@ impl ProtocolFeature {
                 149
             }
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::GlobalContracts => 200,
         }
     }
 

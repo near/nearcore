@@ -206,7 +206,10 @@ impl GenesisStateApplier {
                             get_account(state_update, account_id).expect("Failed to read state")
                         {
                             state_update.set_code(account_id.clone(), &code);
-                            assert_eq!(*code.hash(), acc.code_hash());
+                            assert_eq!(
+                                *code.hash(),
+                                acc.contract().local_code().unwrap_or_default()
+                            );
                         } else {
                             tracing::error!(
                                 target: "runtime",

@@ -39,6 +39,10 @@ pub enum AdvProduceChunksMode {
     Valid,
     // Stop producing chunks.
     StopProduce,
+    // Produce chunks but do not include any transactions.
+    ProduceWithoutTx,
+    // Produce chunks but do not bother checking if included transactions pass validity check.
+    ProduceWithoutTxValidityCheck,
 }
 
 pub struct ProduceChunkResult {
@@ -251,13 +255,32 @@ impl ChunkProducer {
                 ))
             })?;
         let last_chunk = self.chain.get_chunk(&last_chunk_header.chunk_hash())?;
-        let prepared_transactions = self.prepare_transactions(
-            shard_uid,
-            prev_block,
-            &last_chunk,
-            chunk_extra.as_ref(),
-            chain_validate,
-        )?;
+        let prepared_transactions = {
+            #[cfg(feature = "test_features")]
+            match self.adv_produce_chunks {
+                Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions {
+                    transactions: Vec::new(),
+                    limited_by: None,
+                    storage_proof: None,
+                },
+                _ => self.prepare_transactions(
+                    shard_uid,
+                    prev_block,
+                    &last_chunk,
+                    chunk_extra.as_ref(),
+                    chain_validate,
+                )?,
+            }
+            #[cfg(not(feature = "test_features"))]
+            self.prepare_transactions(
+                shard_uid,
+                prev_block,
+                &last_chunk,
+                chunk_extra.as_ref(),
+                chain_validate,
+            )?
+        };
+
         #[cfg(feature = "test_features")]
         let prepared_transactions = Self::maybe_insert_invalid_transaction(
             prepared_transactions,

@@ -1,5 +1,5 @@
 use near_crypto::{InMemorySigner, PublicKey};
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -185,7 +185,7 @@ pub fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.clone(),
-        account: Account::new(amount, staked, code_hash, 0),
+        account: Account::new(amount, staked, AccountContract::from_local_code_hash(code_hash), 0),
     });
     records.push(StateRecord::AccessKey {
         account_id,

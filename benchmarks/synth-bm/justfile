@@ -1,12 +1,13 @@
-neard := "../../target/release/neard"
+# Point the `NEARD_PATH` environment variable to the binary or place it here.
+neard := env('NEARD_PATH', "./neard")
 near_localnet_home := ".near/"
 rpc_url := "http://127.0.0.1:3030"
 
 init_localnet:
-    ./{{neard}} --home {{near_localnet_home}} init --chain-id localnet
+    {{neard}} --home {{near_localnet_home}} init --chain-id localnet
 
 run_localnet:
-    ./{{neard}} --home {{near_localnet_home}} run
+    {{neard}} --home {{near_localnet_home}} run
 
 create_sub_accounts:
     RUST_LOG=info \
@@ -18,7 +19,7 @@ create_sub_accounts:
         --num-sub-accounts 100 \
         --deposit 953060601875000000010000 \
         --channel-buffer-size 1200 \
-        --interval-duration-micros 800 \
+        --requests-per-second 1250 \
         --user-data-dir user-data
 
 benchmark_native_transfers:
@@ -26,20 +27,24 @@ benchmark_native_transfers:
     cargo run --release -- benchmark-native-transfers \
         --rpc-url {{rpc_url}} \
         --user-data-dir user-data/ \
+        --read-nonces-from-network \
         --num-transfers 200 \
         --channel-buffer-size 30000 \
-        --interval-duration-micros 550 \
-        --amount 1
+        --requests-per-second 2000 \
+        --amount 1 \
+        --transaction-statistics-service
 
 benchmark_mpc_sign:
     RUST_LOG=info \
     cargo run --release -- benchmark-mpc-sign \
         --rpc-url {{rpc_url}} \
         --user-data-dir user-data/ \
+        --read-nonces-from-network \
         --num-transactions 500 \
-        --transactions-per-second 100 \
+        --requests-per-second 100 \
         --receiver-id 'v1.signer-dev.testnet' \
         --key-version 0 \
         --channel-buffer-size 500 \
         --gas 300000000000000 \
         --deposit 100000000000000000000000
+

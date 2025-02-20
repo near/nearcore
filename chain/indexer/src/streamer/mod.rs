@@ -235,11 +235,22 @@ pub async fn build_streamer_message(
         }
 
         chunk_receipts.extend(chunk_non_local_receipts);
+
+        // If the chunk is missing the data from the header contains the
+        // previous new chunk in the shard. In this case there is no need to
+        // process it. It may also fail if the missing chunk happens to be the
+        // first in a new shard layout during resharding because then the shard
+        // id will be no longer valid.
+        if !header.is_new_chunk(block.header.height) {
+            continue;
+        }
+
         // Find the shard index for the chunk by shard_id
         let shard_index = protocol_config_view
             .shard_layout
             .get_shard_index(header.shard_id)
             .map_err(|e| FailedToFetchData::String(e.to_string()))?;
+
         // Add receipt_execution_outcomes into corresponding indexer shard
         indexer_shards[shard_index].receipt_execution_outcomes = receipt_execution_outcomes;
         // Put the chunk into corresponding indexer shard
@@ -255,10 +266,14 @@ pub async fn build_streamer_message(
     // chunks and we end up with non-empty `shards_outcomes` we want to be sure we put them into IndexerShard
     // That might happen before the fix https://github.com/near/nearcore/pull/4228
     for (shard_id, outcomes) in shards_outcomes {
-        let shard_index = protocol_config_view
-            .shard_layout
-            .get_shard_index(shard_id)
-            .map_err(|e| FailedToFetchData::String(e.to_string()))?;
+        // The chunk may be missing and if that happens in the first block after
+        // resharding the shard id would no longer be valid in the new shard
+        // layout. In this case we can skip the chunk.
+        let shard_index = protocol_config_view.shard_layout.get_shard_index(shard_id);
+        let Ok(shard_index) = shard_index else {
+            continue;
+        };
+
         indexer_shards[shard_index].receipt_execution_outcomes.extend(outcomes.into_iter().map(
             |outcome| IndexerExecutionOutcomeWithReceipt {
                 execution_outcome: outcome.execution_outcome,

@@ -648,6 +648,7 @@ impl<'a> ChainStoreUpdate<'a> {
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
             self.gc_col(DBCol::StateTransitionData, &block_shard_id);
+            self.gc_col(DBCol::ChunkApplyStats, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
@@ -1014,6 +1015,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 store_update.delete(col, key);
             }
             DBCol::StateSyncNewChunks => {
+                store_update.delete(col, key);
+            }
+            DBCol::ChunkApplyStats => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion
