@@ -435,7 +435,7 @@ async fn create_passive_users(
         account_states.push((user.clone(), AccountState::ToCreate(user)));
     }
 
-    const BATCH_SIZE: usize = 20;
+    const BATCH_SIZE: usize = 50;
     let mut current_nonce = oracle.nonce;
     let mut pending_txs = Vec::new();
 
