@@ -118,6 +118,11 @@ impl Account {
     pub fn as_signer(&self) -> Signer {
         Signer::from(InMemorySigner::from_secret_key(self.id.clone(), self.secret_key.clone()))
     }
+
+    pub fn file_exists(&self, dir: &PathBuf) -> bool {
+        let file_path = dir.join(format!("{}.json", self.id));
+        file_path.exists()
+    }
 }
 
 /// Tries to deserialize all json files in `dir` as [`Account`].

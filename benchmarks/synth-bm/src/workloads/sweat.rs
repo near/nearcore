@@ -607,7 +607,10 @@ async fn create_passive_users(
                                     Ok(true) => {
                                         let account_clone = account.clone();
                                         users.push(account_clone.clone());
-                                        account_clone.write_to_dir(user_data_dir)?;
+                                        // Only write if file doesn't exist
+                                        if !account_clone.file_exists(user_data_dir) {
+                                            account_clone.write_to_dir(user_data_dir)?;
+                                        }
                                         info!(
                                             "State transition for {}: Done",
                                             account.id
