@@ -1,16 +1,16 @@
-use crate::congestion_control::ReceiptSink;
 use crate::ApplyState;
+use crate::congestion_control::ReceiptSink;
 use near_o11y::metrics::{
+    Counter, CounterVec, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
     exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
     try_create_gauge_vec, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge_vec, Counter, CounterVec, GaugeVec,
-    HistogramVec, IntCounter, IntCounterVec, IntGaugeVec,
+    try_create_int_counter_vec, try_create_int_gauge_vec,
 };
 use near_parameters::config::CongestionControlConfig;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::types::ShardId;
-use near_store::trie::SubtreeSize;
 use near_store::Trie;
+use near_store::trie::SubtreeSize;
 use std::sync::LazyLock;
 use std::time::Duration;
 

@@ -303,9 +303,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 
 #[macro_export]
 macro_rules! checked_feature {
-    ("stable", $feature:ident, $current_protocol_version:expr) => {{
-        $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version
-    }};
+    ("stable", $feature:ident, $current_protocol_version:expr) => {{ $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version }};
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
@@ -320,9 +318,7 @@ macro_rules! checked_feature {
         is_feature_enabled
     }};
 
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
-        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
-    }};
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{ checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {}) }};
 
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
         #[cfg(feature = $feature_name)]

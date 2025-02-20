@@ -1,15 +1,15 @@
 mod tests {
-    use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use crate::logic::MemSlice;
+    use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use ark_bls12_381::{Bls12_381, Fq, Fq2, Fr, G1Affine, G2Affine};
     use ark_ec::hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurve};
-    use ark_ec::{bls12::Bls12Config, pairing::Pairing, AffineRepr, CurveGroup};
+    use ark_ec::{AffineRepr, CurveGroup, bls12::Bls12Config, pairing::Pairing};
     use ark_ff::{Field, PrimeField};
     use ark_serialize::{
         CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
     };
     use ark_std::{One, Zero};
-    use bolero::{generator, TypeGenerator};
+    use bolero::{TypeGenerator, generator};
     use rand::{seq::SliceRandom, thread_rng};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
@@ -892,7 +892,9 @@ mod tests {
             #[test]
             fn $test_bls12381_map_fp_to_g_many_points() {
                 bolero::check!()
-                    .with_generator(bolero::r#gen::<Vec<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP))
+                    .with_generator(
+                        bolero::r#gen::<Vec<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP),
+                    )
                     .for_each(|fps: &Vec<$FP>| {
                         let mut fps_fq: Vec<$Fq> = vec![];
                         let mut res2_mul: Vec<u8> = vec![];

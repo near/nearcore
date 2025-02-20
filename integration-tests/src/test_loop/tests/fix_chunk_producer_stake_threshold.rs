@@ -1,12 +1,12 @@
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::validators::get_epoch_all_validators;
 use crate::test_loop::utils::ONE_NEAR;
+use crate::test_loop::utils::validators::get_epoch_all_validators;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::build_genesis_and_epoch_config_store;
 use near_chain_configs::test_genesis::GenesisAndEpochConfigParams;
 use near_chain_configs::test_genesis::ValidatorsSpec;
+use near_chain_configs::test_genesis::build_genesis_and_epoch_config_store;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;

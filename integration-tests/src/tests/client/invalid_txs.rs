@@ -1,6 +1,6 @@
 use near_chain::{Chain, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
+use near_client::test_utils::{TestEnv, create_chunk_with_transactions};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::test_utils::create_user_test_signer;

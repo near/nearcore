@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
 };
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_client::test_utils::test_loop::ClientQueries;
@@ -15,11 +15,11 @@ use tempfile::TempDir;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::transactions::{execute_money_transfers, BalanceMismatchError};
+use crate::test_loop::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use near_async::messaging::CanSend;
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_client::sync::epoch::EpochSync;
 use near_client::SetNetworkInfo;
+use near_client::sync::epoch::EpochSync;
 use near_network::types::{HighestHeightPeerInfo, NetworkInfo, PeerInfo};
 use near_primitives::block::GenesisId;
 use near_primitives::epoch_sync::EpochSyncProof;

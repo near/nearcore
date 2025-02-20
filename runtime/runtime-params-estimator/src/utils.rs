@@ -2,13 +2,13 @@ use crate::apply_block_cost;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
-use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_parameters::ExtCosts;
+use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use rand::distributions::Alphanumeric;
 use rand::Rng;
+use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
 use std::collections::HashMap;
 use std::iter;

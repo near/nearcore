@@ -9,7 +9,7 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, StateRoot};
 use near_primitives::types::{StoreKey, StoreValue};
 use near_store::adapter::StoreUpdateAdapter;
-use near_store::{flat::FlatStateChanges, DBCol, ShardTries};
+use near_store::{DBCol, ShardTries, flat::FlatStateChanges};
 use nearcore::NightshadeRuntime;
 
 /// Object that updates the existing state. Combines all changes, commits them

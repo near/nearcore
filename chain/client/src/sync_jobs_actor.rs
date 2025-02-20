@@ -2,7 +2,7 @@ use actix::Actor;
 use near_async::actix_wrapper::ActixWrapper;
 use near_async::messaging::{self, CanSend, Handler, Sender};
 use near_async::{MultiSend, MultiSenderFrom};
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest, BlockCatchUpResponse};
+use near_chain::chain::{BlockCatchUpRequest, BlockCatchUpResponse, do_apply_chunks};
 use near_performance_metrics_macros::perf;
 use near_primitives::optimistic_block::BlockToApply;
 

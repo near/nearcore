@@ -6,7 +6,7 @@
 //! master.  Build is a `git describe` of the commit the binary was built at
 //! (for official releases it should be the same as version).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use std::os::unix::ffi::OsStringExt;
 

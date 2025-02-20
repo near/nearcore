@@ -477,11 +477,7 @@ impl ops::Div<u64> for GasCost {
 }
 
 fn saturating_sub(a: Ratio<u64>, b: Ratio<u64>) -> Ratio<u64> {
-    if a < b {
-        0.into()
-    } else {
-        a - b
-    }
+    if a < b { 0.into() } else { a - b }
 }
 
 impl PartialOrd for GasCost {
@@ -513,7 +509,7 @@ impl GasCost {
 
 #[cfg(test)]
 mod tests {
-    use super::{least_squares_method_gas_cost_pos_neg, GasCost, LeastSquaresTolerance};
+    use super::{GasCost, LeastSquaresTolerance, least_squares_method_gas_cost_pos_neg};
     use crate::estimator_params::{GAS_IN_INSTR, GAS_IN_NS, IO_READ_BYTE_COST, IO_WRITE_BYTE_COST};
     use crate::qemu::QemuMeasurement;
     use near_primitives::types::Gas;

@@ -10,10 +10,10 @@ use near_primitives::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::logic::ProtocolVersion;
 
-use crate::{get, set, TrieUpdate};
+use crate::{TrieUpdate, get, set};
 
-use super::receipts_column_helper::TrieQueue;
 use super::TrieAccess;
+use super::receipts_column_helper::TrieQueue;
 
 /// Keeps metadata about receipts stored in the outgoing buffers.
 #[derive(Debug)]

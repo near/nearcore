@@ -4,8 +4,8 @@
 //! pre-generated chain history in storage.
 
 use anyhow::Context;
-use mock_node::setup::setup_mock_node;
 use mock_node::MockNetworkConfig;
+use mock_node::setup::setup_mock_node;
 use near_actix_test_utils::{block_on_interruptible, setup_actix};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::BlockHeight;

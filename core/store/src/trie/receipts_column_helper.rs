@@ -1,4 +1,4 @@
-use crate::{get, get_pure, set, TrieAccess, TrieUpdate};
+use crate::{TrieAccess, TrieUpdate, get, get_pure, set};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
@@ -381,8 +381,8 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::*;
-    use crate::test_utils::{gen_receipts, TestTriesBuilder};
     use crate::Trie;
+    use crate::test_utils::{TestTriesBuilder, gen_receipts};
     use near_primitives::receipt::Receipt;
     use near_primitives::shard_layout::ShardLayout;
     use rand::seq::SliceRandom;

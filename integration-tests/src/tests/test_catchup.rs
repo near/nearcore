@@ -1,7 +1,7 @@
 //! Checks that late validator can catch-up and start validating.
 use std::time::Duration;
 
-use crate::node::{create_nodes, Node};
+use crate::node::{Node, create_nodes};
 use std::sync::{Arc, RwLock};
 
 use super::test_helpers::{heavy_test, wait};

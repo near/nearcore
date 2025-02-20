@@ -11,8 +11,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::{types, views};
 
-use super::errors::FailedToFetchData;
 use super::INDEXER;
+use super::errors::FailedToFetchData;
 use near_epoch_manager::shard_tracker::ShardTracker;
 
 pub(crate) async fn fetch_status(

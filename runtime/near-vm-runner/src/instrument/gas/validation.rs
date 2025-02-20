@@ -8,9 +8,9 @@
 //! searching through all paths, which may take exponential time in the size of the function body in
 //! the worst case.
 
+use super::MeteredBlock;
 use super::rules::Rules;
 use super::rules::Set as RuleSet;
-use super::MeteredBlock;
 use parity_wasm::elements::{FuncBody, Instruction};
 use std::collections::HashMap as Map;
 
@@ -329,7 +329,7 @@ mod tests {
 
     use arbitrary::Arbitrary;
     use parity_wasm::elements;
-    use rand::{thread_rng, RngCore};
+    use rand::{RngCore, thread_rng};
 
     #[track_caller]
     fn check(bytes: &[u8]) {

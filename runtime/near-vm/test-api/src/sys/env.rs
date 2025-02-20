@@ -102,11 +102,7 @@ impl<T> LazyInit<T> {
 
     /// Get the inner data.
     pub fn get_ref(&self) -> Option<&T> {
-        if !self.initialized {
-            None
-        } else {
-            Some(unsafe { self.get_unchecked() })
-        }
+        if !self.initialized { None } else { Some(unsafe { self.get_unchecked() }) }
     }
 
     /// Sets a value and marks the data as initialized.

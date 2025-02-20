@@ -1,8 +1,8 @@
 //! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
 //! components of the mock network.
 
-use anyhow::{anyhow, Context as AnyhowContext};
-use near_chain::{retrieve_headers, Block, Error};
+use anyhow::{Context as AnyhowContext, anyhow};
+use near_chain::{Block, Error, retrieve_headers};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
 use near_epoch_manager::EpochManagerAdapter;
@@ -139,7 +139,7 @@ fn get_head_block(chain: &ChainStoreAdapter, max_height: BlockHeight) -> anyhow:
             Err(Error::DBNotFoundErr(_)) => continue,
             Err(e) => {
                 return Err(e)
-                    .with_context(|| format!("get_block_hash_by_height #{} failed", height))
+                    .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
         return chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash));
@@ -389,7 +389,7 @@ impl MockPeer {
             Err(Error::DBNotFoundErr(_)) => return Ok(None),
             Err(e) => {
                 return Err(e)
-                    .with_context(|| format!("get_block_hash_by_height #{} failed", height))
+                    .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
         self.chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash)).map(Some)

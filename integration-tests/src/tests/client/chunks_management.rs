@@ -1,5 +1,5 @@
 use actix::System;
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::{self, Clock};
 use near_chain::test_utils::ValidatorSchedule;
@@ -7,13 +7,13 @@ use near_chain_configs::{ChunkDistributionNetworkConfig, ChunkDistributionUris};
 use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
-use near_client::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
+use near_client::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use near_client::{GetBlock, ProcessTxRequest};
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_network::types::{NetworkRequests, NetworkResponses};
-use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, EpochId};
@@ -131,8 +131,8 @@ impl Test {
                             && to_whom == "test4"
                         {
                             println!(
-                            "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
-                        );
+                                "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
+                            );
                             return (NetworkResponses::NoResponse.into(), false);
                         }
                     }
@@ -433,8 +433,8 @@ fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without
 }
 
 #[test]
-fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding(
-) {
+fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding()
+ {
     Test {
         validator_groups: 2,
         chunk_only_producers: false,
@@ -446,8 +446,8 @@ fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succe
 }
 
 #[test]
-fn ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding(
-) {
+fn ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding()
+ {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,

@@ -1,3 +1,4 @@
+use super::ValuePtr;
 use super::context::VMContext;
 use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};
@@ -5,14 +6,14 @@ use super::gas_counter::GasCounter;
 use super::recorded_storage_counter::RecordedStorageCounter;
 use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
-use super::ValuePtr;
 use super::{HostError, VMLogicError};
-use crate::bls12381_impl;
 use crate::ProfileDataV3;
+use crate::bls12381_impl;
+use ExtCosts::*;
 use near_crypto::Secp256K1Signature;
 use near_parameters::vm::{Config, StorageGetMode};
 use near_parameters::{
-    transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
+    ActionCosts, ExtCosts, RuntimeFeesConfig, transfer_exec_fee, transfer_send_fee,
 };
 use near_primitives_core::config::INLINE_DISK_VALUE_THRESHOLD;
 use near_primitives_core::hash::CryptoHash;
@@ -21,7 +22,6 @@ use near_primitives_core::types::{
 };
 use std::mem::size_of;
 use std::sync::Arc;
-use ExtCosts::*;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 

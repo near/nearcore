@@ -24,9 +24,9 @@ use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_manager_actor::MAX_TIER2_PEERS;
 use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::rate_limits::messages_limits;
-use crate::routing::edge::verify_nonce;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
+use crate::routing::edge::verify_nonce;
 use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
 use crate::tcp;
@@ -39,14 +39,14 @@ use lru::LruCache;
 use near_async::messaging::{CanSend, SendAsync};
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
+use near_o11y::{WithSpanContext, handler_debug_span, log_assert};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::EpochId;
 use near_primitives::utils::DisplayOption;
 use near_primitives::version::{
-    ProtocolVersion, PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    PEER_MIN_ALLOWED_PROTOCOL_VERSION, PROTOCOL_VERSION, ProtocolVersion,
 };
 use parking_lot::Mutex;
 use rand::seq::IteratorRandom;
@@ -56,8 +56,8 @@ use std::fmt::Debug;
 use std::io;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tracing::Instrument as _;
 
 /// How often to request peers from active peers.

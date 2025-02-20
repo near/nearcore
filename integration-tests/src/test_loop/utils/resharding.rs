@@ -21,8 +21,8 @@ use near_primitives::types::{AccountId, BlockId, BlockReference, Gas, ShardId};
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{DBCol, ShardUId};
@@ -38,7 +38,7 @@ use crate::test_loop::utils::transactions::{
     check_txs, check_txs_remove_successful, delete_account, get_anchor_hash, get_next_nonce,
     store_and_submit_tx, submit_tx,
 };
-use crate::test_loop::utils::{get_node_data, retrieve_client_actor, ONE_NEAR, TGAS};
+use crate::test_loop::utils::{ONE_NEAR, TGAS, get_node_data, retrieve_client_actor};
 
 /// A config to tell what shards will be tracked by the client at the given index.
 /// For more details, see `TrackedConfig::Schedule`.

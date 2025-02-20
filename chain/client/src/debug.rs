@@ -5,7 +5,7 @@ use crate::client_actor::ClientActorInner;
 use near_async::messaging::Handler;
 use near_async::time::{Clock, Instant};
 use near_chain::crypto_hash_timer::CryptoHashTimer;
-use near_chain::{near_chain_primitives, Block, Chain, ChainStoreAccess};
+use near_chain::{Block, Chain, ChainStoreAccess, near_chain_primitives};
 use near_client_primitives::debug::{
     ApprovalAtHeightStatus, BlockProduction, ChunkCollection, DebugBlockStatusData, DebugStatus,
     DebugStatusResponse, MissedHeightInfo, ProductionAtHeight, ValidatorStatus,
@@ -21,8 +21,8 @@ use near_performance_metrics_macros::perf;
 use near_primitives::congestion_info::CongestionControl;
 use near_primitives::errors::EpochError;
 use near_primitives::state_sync::get_num_state_parts;
-use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::types::{
     AccountId, BlockHeight, NumShards, ShardId, ShardIndex, ValidatorInfoIdentifier,
 };

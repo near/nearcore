@@ -8,15 +8,15 @@ use crate::types::{
     Edge, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg, PeerInfo,
     StateResponseInfo,
 };
-use bytes::buf::{Buf, BufMut};
 use bytes::BytesMut;
+use bytes::buf::{Buf, BufMut};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::{Block, BlockHeader, GenesisId};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{BlockHeight, ShardId};
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
@@ -297,7 +297,7 @@ impl Connection {
             // TODO: maybe check the handshake for sanity
             PeerMessage::Tier2Handshake(h) => (h.sender_peer_id, h.partial_edge_info.nonce),
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
-                return Err(ConnectError::HandshakeFailure(reason))
+                return Err(ConnectError::HandshakeFailure(reason));
             }
             _ => return Err(ConnectError::UnexpectedFirstMessage(Box::new(message))),
         };
@@ -367,7 +367,7 @@ impl Connection {
                 );
             }
             PeerMessage::HandshakeFailure(_peer_info, reason) => {
-                return Err(ConnectError::HandshakeFailure(reason))
+                return Err(ConnectError::HandshakeFailure(reason));
             }
             _ => return Err(ConnectError::UnexpectedFirstMessage(Box::new(message))),
         };

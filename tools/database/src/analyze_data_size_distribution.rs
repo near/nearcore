@@ -1,6 +1,6 @@
 use clap::Parser;
-use near_store::db::{Database, RocksDB};
 use near_store::DBCol;
+use near_store::db::{Database, RocksDB};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;

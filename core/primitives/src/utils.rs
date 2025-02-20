@@ -10,12 +10,12 @@ use near_primitives_core::version::ProtocolFeature;
 use serde;
 
 use crate::block::BlockHeader;
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{CryptoHash, hash};
 use crate::transaction::SignedTransaction;
 use crate::types::{NumSeats, NumShards, ShardId};
 use crate::version::{
-    ProtocolVersion, CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
-    CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION,
+    CORRECT_RANDOM_VALUE_PROTOCOL_VERSION, CREATE_HASH_PROTOCOL_VERSION,
+    CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION, ProtocolVersion,
 };
 
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
@@ -458,7 +458,7 @@ pub fn get_num_seats_per_shard(num_shards: NumShards, num_seats: NumSeats) -> Ve
 #[cfg(feature = "rand")]
 pub fn generate_random_string(len: usize) -> String {
     use rand::distributions::Alphanumeric;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
 
     let bytes = thread_rng().sample_iter(&Alphanumeric).take(len).collect();
     String::from_utf8(bytes).unwrap()

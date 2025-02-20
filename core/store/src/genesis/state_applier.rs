@@ -2,8 +2,8 @@ use crate::adapter::StoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::trie::update::TrieUpdateResult;
 use crate::{
-    get_account, has_received_data, set, set_access_key, set_account, set_delayed_receipt,
-    set_postponed_receipt, set_promise_yield_receipt, set_received_data, ShardTries, TrieUpdate,
+    ShardTries, TrieUpdate, get_account, has_received_data, set, set_access_key, set_account,
+    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
 };
 
 use near_chain_configs::Genesis;
@@ -12,7 +12,7 @@ use near_parameters::StorageUsageConfig;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::state_record::{state_record_to_account_id, StateRecord};
+use near_primitives::state_record::{StateRecord, state_record_to_account_id};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, StateChangeCause, StateRoot};
 use near_vm_runner::ContractCode;

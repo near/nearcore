@@ -1,11 +1,11 @@
 use core::panic;
 
 use itertools::Itertools;
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::TestLoopV2;
+use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
 };
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
@@ -15,10 +15,10 @@ use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
+use crate::test_loop::utils::TGAS;
 use crate::test_loop::utils::transactions::{
     call_contract, check_txs, deploy_contract, make_accounts,
 };
-use crate::test_loop::utils::TGAS;
 
 const NUM_ACCOUNTS: usize = 100;
 const NUM_PRODUCERS: usize = 2;

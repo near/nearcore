@@ -1,7 +1,7 @@
 //! Universal compilation.
 
 use super::code_memory::{ARCH_FUNCTION_ALIGNMENT, DATA_SECTION_ALIGNMENT};
-use super::executable::{unrkyv, UniversalExecutableRef};
+use super::executable::{UniversalExecutableRef, unrkyv};
 use super::{CodeMemory, UniversalArtifact, UniversalExecutable};
 use crate::EngineId;
 use near_vm_compiler::Compiler;
@@ -20,8 +20,8 @@ use near_vm_vm::{
     VMCallerCheckedAnyfunc, VMFuncRef, VMImportType, VMLocalFunction, VMOffsets,
     VMSharedSignatureIndex, VMTrampoline,
 };
-use rkyv::tuple::ArchivedTuple3;
 use rkyv::Archived;
+use rkyv::tuple::ArchivedTuple3;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};

@@ -1,19 +1,19 @@
 use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
-use crate::network_protocol::{testonly as data, PartialEncodedChunkRequestMsg, RoutedMessageBody};
 use crate::network_protocol::{Encoding, PeerMessage};
+use crate::network_protocol::{PartialEncodedChunkRequestMsg, RoutedMessageBody, testonly as data};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::rate_limits::messages_limits;
 use crate::tcp;
-use crate::testonly::{make_rng, Rng};
+use crate::testonly::{Rng, make_rng};
 use near_async::time::FakeClock;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use rand::Rng as _;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{sleep, sleep_until, Instant};
+use tokio::time::{Instant, sleep, sleep_until};
 
 #[tokio::test]
 // Verifies that peer traffic is rate limited per message type. Not all messages are rate limited.

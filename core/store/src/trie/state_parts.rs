@@ -20,9 +20,9 @@ use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{ApplyStatePartResult, RawTrieNodeWithSize};
-use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges, metrics};
 use borsh::BorshDeserialize;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
@@ -32,9 +32,9 @@ use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use super::TrieRefcountDeltaMap;
 use super::ops::iter::TrieTraversalItem;
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
-use super::TrieRefcountDeltaMap;
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
@@ -517,14 +517,14 @@ mod tests {
     use std::hash::Hash;
     use std::sync::Arc;
 
+    use rand::Rng;
     use rand::prelude::ThreadRng;
     use rand::seq::SliceRandom;
-    use rand::Rng;
 
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
 
     use crate::adapter::StoreUpdateAdapter;
-    use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
+    use crate::test_utils::{TestTriesBuilder, gen_changes, test_populate_trie};
     use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::{
         TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,

@@ -6,14 +6,14 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
-use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
+use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, validate_transaction, verify_and_charge_transaction,
 };
-use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
-use config::{total_prepaid_send_fees, TransactionCost};
-pub use congestion_control::bootstrap_congestion_info;
+use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
+use config::{TransactionCost, total_prepaid_send_fees};
 use congestion_control::ReceiptSink;
+pub use congestion_control::bootstrap_congestion_info;
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
@@ -43,9 +43,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
-    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
-    StateRoot,
+    AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
+    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
@@ -56,18 +56,18 @@ use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure,
-    get_received_data, has_received_data, remove_account, remove_postponed_receipt,
-    remove_promise_yield_receipt, set, set_access_key, set_account, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data, PartialStorage, StorageError, Trie, TrieAccess,
-    TrieChanges, TrieUpdate,
+    PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get, get_account,
+    get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
+    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
+    set_received_data,
 };
-use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::ReturnData;
-pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
+use near_vm_runner::logic::ReturnData;
+use near_vm_runner::logic::types::PromiseResult;
+pub use near_vm_runner::with_ext_cost_counter;
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
@@ -280,11 +280,7 @@ impl Runtime {
             return;
         }
         let log_str = log.iter().fold(String::new(), |acc, s| {
-            if acc.is_empty() {
-                s.to_string()
-            } else {
-                acc + "\n" + s
-            }
+            if acc.is_empty() { s.to_string() } else { acc + "\n" + s }
         });
         debug!(target: "runtime", "{}", log_str);
     }
@@ -716,7 +712,7 @@ impl Runtime {
                     Err(StorageStakingError::StorageError(err)) => {
                         return Err(RuntimeError::StorageError(
                             StorageError::StorageInconsistentState(err),
-                        ))
+                        ));
                     }
                 }
             }
@@ -1580,7 +1576,10 @@ impl Runtime {
                     set_account(state_update, account_id, &account);
                 }
                 StateRecord::Data { account_id, data_key, value } => {
-                    state_update.set(TrieKey::ContractData { key: data_key.into(), account_id }, value.into());
+                    state_update.set(
+                        TrieKey::ContractData { key: data_key.into(), account_id },
+                        value.into(),
+                    );
                 }
                 StateRecord::Contract { account_id, code } => {
                     let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
@@ -1592,7 +1591,9 @@ impl Runtime {
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);
                 }
-                _ => unimplemented!("patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord")
+                _ => unimplemented!(
+                    "patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord"
+                ),
             }
         }
         state_update.commit(StateChangeCause::Migration);
@@ -2756,8 +2757,8 @@ pub mod estimator {
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
-    use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
+    use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};

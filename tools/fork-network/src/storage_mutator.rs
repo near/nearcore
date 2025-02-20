@@ -1,7 +1,7 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use near_crypto::PublicKey;
-use near_epoch_manager::shard_assignment::account_id_to_shard_info;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::account_id_to_shard_info;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::types::{AccountId, EpochId, StateRoot};
 use nearcore::NightshadeRuntime;

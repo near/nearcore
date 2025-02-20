@@ -1,4 +1,4 @@
-use rand::{prelude::SliceRandom, Rng};
+use rand::{Rng, prelude::SliceRandom};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 use std::{io::prelude::*, iter, path::PathBuf};

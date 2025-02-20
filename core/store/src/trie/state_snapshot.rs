@@ -1,11 +1,11 @@
-use crate::adapter::trie_store::TrieStoreAdapter;
-use crate::adapter::StoreAdapter;
-use crate::config::StateSnapshotType;
-use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::Mode;
 use crate::ShardTries;
 use crate::StoreConfig;
-use crate::{checkpoint_hot_storage_and_cleanup_columns, metrics, DBCol, NodeStorage};
+use crate::adapter::StoreAdapter;
+use crate::adapter::trie_store::TrieStoreAdapter;
+use crate::config::StateSnapshotType;
+use crate::flat::{FlatStorageManager, FlatStorageStatus};
+use crate::{DBCol, NodeStorage, checkpoint_hot_storage_and_cleanup_columns, metrics};
 use near_primitives::block::Block;
 use near_primitives::errors::EpochError;
 use near_primitives::errors::StorageError;

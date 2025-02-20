@@ -5,7 +5,7 @@ use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainStoreAccess as _, Error, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
-use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
+use near_client::test_utils::{TestEnv, create_chunk_with_transactions};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -23,7 +23,7 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::collections::HashSet;
 use tracing::debug;
 
@@ -414,9 +414,9 @@ fn test_request_chunks_for_orphan() {
     // keep processing the partial encoded chunk requests in the queue, which will process
     // block 3+NUM_ORPHAN_ANCESTORS to 8.
     for i in 4 + NUM_ORPHAN_ANCESTORS_CHECK..10 {
-        assert!(env.clients[1]
-            .chain
-            .check_orphan_partial_chunks_requested(blocks[i as usize].hash()));
+        assert!(
+            env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i as usize].hash())
+        );
         for _ in 0..4 {
             let request = env.network_adapters[1].pop().unwrap();
             env.process_partial_encoded_chunk_request(1, request);
@@ -436,9 +436,9 @@ fn test_request_chunks_for_orphan() {
     assert_eq!(&env.clients[1].chain.head().unwrap().last_block_hash, blocks[9].hash());
 
     for i in 11..10 + NUM_ORPHAN_ANCESTORS_CHECK {
-        assert!(env.clients[1]
-            .chain
-            .check_orphan_partial_chunks_requested(blocks[i as usize].hash()));
+        assert!(
+            env.clients[1].chain.check_orphan_partial_chunks_requested(blocks[i as usize].hash())
+        );
     }
 
     // process the rest of blocks

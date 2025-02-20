@@ -1,6 +1,6 @@
 use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 
 pub fn random_config() -> RuntimeConfig {
     let mut rng = thread_rng();
