@@ -154,11 +154,11 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
         num_sub_accounts: args.num_oracles,
         deposit: args.oracle_deposit,
         sub_account_prefixes: Some(
-            ["test0", "test1", "test2", "test3", "test4", "test5"]
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect(),
-            // ["2", "c", "h", "m", "x"].into_iter().map(|s| s.to_string()).collect(),
+            // ["test0", "test1", "test2", "test3", "test4", "test5"]
+            //     .into_iter()
+            //     .map(|s| s.to_string())
+            //     .collect(),
+            ["2", "c", "h", "m", "x"].into_iter().map(|s| s.to_string()).collect(),
         ),
         user_data_dir: args.user_data_dir.clone(),
         channel_buffer_size: 1000,
@@ -410,8 +410,8 @@ async fn create_passive_users(
     // Initialize accounts and their states
     for i in 0..num_users {
         let user_key = SecretKey::from_random(KeyType::ED25519);
-        let user_id: AccountId = format!("user_{}.{}", i, oracle.id).parse().map_err(|e| {
-            log::error!("Failed to parse account ID for user_{}.{}: {}", i, oracle.id, e);
+        let user_id: AccountId = format!("u{}.{}", i, oracle.id).parse().map_err(|e| {
+            log::error!("Failed to parse account ID for u{}.{}: {}", i, oracle.id, e);
             e
         })?;
 
