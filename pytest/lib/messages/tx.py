@@ -21,6 +21,26 @@ class DeployContract:
     pass
 
 
+class DeployGlobalContract:
+    pass
+
+
+class GlobalContractDeployMode:
+    pass
+
+
+class CodeHash:
+    pass
+
+
+class AccountId:
+    pass
+
+
+class UseGlobalContract:
+    pass
+
+
 class FunctionCall:
     pass
 
@@ -98,6 +118,7 @@ tx_schema = [
             'values': [
                 ['createAccount', CreateAccount],
                 ['deployContract', DeployContract],
+                ['deployGlobalContract', DeployGlobalContract],
                 ['functionCall', FunctionCall],
                 ['transfer', Transfer],
                 ['stake', Stake],
@@ -115,6 +136,28 @@ tx_schema = [
     [DeployContract, {
         'kind': 'struct',
         'fields': [['code', ['u8']]]
+    }],
+    [DeployGlobalContract, {
+        'kind': 'struct',
+        'fields': [['code', ['u8']], ['deployMode', GlobalContractDeployMode]]
+    }],
+    [
+        GlobalContractDeployMode, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['codeHash', CodeHash],
+                ['accountId', AccountId],
+            ]
+        }
+    ],
+    [CodeHash, {
+        'kind': 'struct',
+        'fields': []
+    }],
+    [AccountId, {
+        'kind': 'struct',
+        'fields': []
     }],
     [
         FunctionCall, {
