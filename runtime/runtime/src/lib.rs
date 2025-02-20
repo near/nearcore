@@ -1526,8 +1526,13 @@ impl Runtime {
         // 4. Process receipts.
         // 5. Validate and apply the state update.
 
-        let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
+        let mut processing_state = ApplyProcessingState::new(
+            &apply_state,
+            trie,
+            transactions_state_update,
+            epoch_info_provider,
+            transactions,
+        );
         processing_state.stats.transactions_num =
             transactions.transactions.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
@@ -2594,12 +2599,19 @@ impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
         trie: Trie,
+        transactions_state_update: Option<TrieUpdate>,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         transactions: SignedValidPeriodTransactions<'a>,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
-        let state_update = TrieUpdate::new(trie);
+        let state_update = match transactions_state_update {
+            Some(state_update) => {
+                println!("re-using cached transactions_state_update");
+                state_update
+            }
+            None => TrieUpdate::new(trie),
+        };
         let total = TotalResourceGuard {
             span: tracing::Span::current(),
             // This contains the gas "burnt" for refund receipts. Even though we don't actually
