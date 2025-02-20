@@ -4,12 +4,15 @@ near_localnet_home := script_dir / ".near"
 near_accounts_path := script_dir / "user-data"
 near_config_file := near_localnet_home / "config.json"
 near_genesis_file := near_localnet_home / "genesis.json"
-rpc_url := "http://127.0.0.1:3030"
+rpc_url := "http://127.0.0.1:4040"
 
 
 init-localnet:
     rm -rf {{near_localnet_home}} && rm -rf {{near_accounts_path}}
     {{neard}} --home {{near_localnet_home}} init --chain-id localnet
+    jq '.chain_id="benchmarknet"' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
+    jq '.rpc.addr="0.0.0.0:4040"' {{near_config_file}} > tmp_config.json && mv tmp_config.json {{near_config_file}}
+
 
 run-localnet loglevel="info":
     RUST_LOG={{loglevel}} \
@@ -33,12 +36,11 @@ enable-tx tps:
     mv tmp_config.json {{near_config_file}}
 
 unlimit:
-    jq '.chain_id="benchmarknet" | .gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json
-    mv tmp_genesis.json {{near_genesis_file}}
+    jq '.gas_limit=20000000000000000' {{near_genesis_file}} > tmp_genesis.json && mv tmp_genesis.json {{near_genesis_file}}
     jq '.view_client_threads=8 \
      | .store.load_mem_tries_for_tracked_shards=true \
-     | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 800000000}' {{near_config_file}} > tmp_config.json
-    mv tmp_config.json {{near_config_file}}
+     | .produce_chunk_add_transactions_time_limit={"secs": 0, "nanos": 800000000}' {{near_config_file}} > tmp_config.json \
+    && mv tmp_config.json {{near_config_file}}
 
 do-it tps:
     just init-localnet
