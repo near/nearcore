@@ -144,6 +144,10 @@ pub fn apply_new_chunk(
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
     };
+    let cached_state_update = runtime.take_cp_state_update(&chunk_header.chunk_hash().0);
+    if cached_state_update.is_some() {
+        println!("got cached state update for chunk {}", chunk_header.chunk_hash().0);
+    }
     match runtime.apply_chunk(
         storage_config,
         apply_reason,
@@ -153,6 +157,7 @@ pub fn apply_new_chunk(
             gas_limit,
             is_new_chunk: true,
             is_first_block_with_chunk_of_version,
+            transactions_state_update: cached_state_update,
         },
         block,
         &receipts,
@@ -200,6 +205,7 @@ pub fn apply_old_chunk(
             gas_limit: prev_chunk_extra.gas_limit(),
             is_new_chunk: false,
             is_first_block_with_chunk_of_version: false,
+            transactions_state_update: None,
         },
         block,
         &[],

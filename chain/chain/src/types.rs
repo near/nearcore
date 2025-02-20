@@ -343,6 +343,7 @@ pub struct ApplyChunkShardContext<'a> {
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
     pub is_first_block_with_chunk_of_version: bool,
+    pub transactions_state_update: Option<TrieUpdate>,
 }
 
 /// Contains transactions that were fetched from the transaction pool
