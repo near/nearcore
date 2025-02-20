@@ -272,6 +272,12 @@ impl Runtime {
         let mut cache = self.cp_state_updates.lock().unwrap();
         cache.insert(chunk_hash, state_update);
     }
+
+    pub fn take_cp_state_update(&self, chunk_hash: &CryptoHash) -> Option<TrieUpdate> {
+        let mut cache = self.cp_state_updates.lock().unwrap();
+        cache.remove(chunk_hash)
+    }
+
     fn print_log(log: &[LogEntry]) {
         if log.is_empty() {
             return;

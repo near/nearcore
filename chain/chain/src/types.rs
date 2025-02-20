@@ -551,6 +551,9 @@ pub trait RuntimeAdapter: Send + Sync {
     // TODO(poc): change CryptoHash to ChunkHash
     fn cache_cp_state_update(&self, chunk_hash: CryptoHash, state_update: TrieUpdate);
 
+    // Takes state update accumulated during chunk production from cache.
+    fn take_cp_state_update(&self, chunk_hash: &CryptoHash) -> Option<TrieUpdate>;
+
     /// Precompiles the contracts and stores them in the compiled contract cache.
     fn precompile_contracts(
         &self,

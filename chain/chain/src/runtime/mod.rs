@@ -1239,6 +1239,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.runtime.cache_cp_state_update(chunk_hash, state_update);
     }
 
+    fn take_cp_state_update(&self, chunk_hash: &CryptoHash) -> Option<TrieUpdate> {
+        self.runtime.take_cp_state_update(chunk_hash)
+    }
+
     fn precompile_contracts(
         &self,
         epoch_id: &EpochId,
