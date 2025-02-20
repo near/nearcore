@@ -1067,7 +1067,7 @@ impl ForkNetworkCommand {
             dynamic_resharding: false,
             protocol_version: genesis_protocol_version,
             validators: new_validator_accounts,
-            gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
+            gas_price_adjustment_rate: 0,
             gas_limit: original_config.gas_limit,
             max_gas_price: original_config.max_gas_price,
             max_inflation_rate: original_config.max_inflation_rate,
