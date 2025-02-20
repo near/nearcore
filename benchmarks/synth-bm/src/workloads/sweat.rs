@@ -577,6 +577,7 @@ async fn create_passive_users(
             ).await {
                 Ok(outcome) => {
                     info!("Received outcome for tx_hash {}: {:?}", tx.tx_hash, outcome);
+                    let outcome_clone = outcome.clone();
                     let outcome_result = check_response(outcome);
                     
                     // Update account states based on transaction outcome
@@ -636,7 +637,7 @@ async fn create_passive_users(
                                     }
                                     Ok(false) => {
                                         log::error!("Storage deposit failed for {} (tx_hash: {}). Full outcome: {:?}", 
-                                            account.id, tx.tx_hash, outcome);
+                                            account.id, tx.tx_hash, outcome_clone);
                                         let account_clone = account.clone();
                                         log::error!("Storage deposit failed for {}", account.id);
                                         info!(
@@ -647,7 +648,7 @@ async fn create_passive_users(
                                     }
                                     Err(e) => {
                                         log::error!("Storage deposit error for {} (tx_hash: {}): {}. Full outcome: {:?}", 
-                                            account.id, tx.tx_hash, e, outcome);
+                                            account.id, tx.tx_hash, e, outcome_clone);
                                         let account_clone = account.clone();
                                         log::error!(
                                             "Error checking response for storage deposit {}: {}",
