@@ -570,7 +570,7 @@ async fn create_passive_users(
                 near_jsonrpc_client::methods::EXPERIMENTAL_tx_status::RpcTransactionStatusRequest {
                     transaction_info:
                         near_jsonrpc_client::methods::EXPERIMENTAL_tx_status::TransactionInfo::TransactionId {
-                            hash: tx.tx_hash.clone(),
+                            tx_hash: tx.tx_hash.clone(),
                             sender_account_id: tx.sender_id.clone(),
                         },
                     wait_until: TxExecutionStatus::ExecutedOptimistic,
@@ -578,21 +578,9 @@ async fn create_passive_users(
             ).await {
                 Ok(outcome) => {
                     // Simplified outcome logging
-                    info!("Transaction {} status: {:?}", 
-                        tx.tx_hash,
-                        outcome.final_execution_outcome
-                            .unwrap_or(near_primitives::views::FinalExecutionOutcomeView {
-                                status: TxExecutionStatus::None,
-                                transaction: Default::default(),
-                                transaction_outcome: Default::default(),
-                                receipts_outcome: vec![],
-                            })
-                            .into_outcome()
-                            .status
-                    );
+                    let outcome_debug = format!("{:?}", outcome);
                     
                     // Extract any relevant information from outcome before moving it
-                    let outcome_debug = format!("{:?}", outcome);
                     let outcome_result = check_response(outcome);
                     
                     // Update account states based on transaction outcome

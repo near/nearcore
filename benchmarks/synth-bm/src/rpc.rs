@@ -149,6 +149,7 @@ fn tx_execution_level(status: &TxExecutionStatus) -> u8 {
 pub fn check_response(response: RpcTransactionResponse) -> Result<bool, TxExecutionError> {
     let outcome =
         response.final_execution_outcome.expect("response should have an outcome").into_outcome();
+    info!("Transaction status: {:?}", outcome.status);
 
     if !matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)) {
         return Ok(false);
