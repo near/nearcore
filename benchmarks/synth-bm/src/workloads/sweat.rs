@@ -571,14 +571,20 @@ async fn create_passive_users(
                     transaction_info:
                         near_jsonrpc_client::methods::EXPERIMENTAL_tx_status::TransactionInfo::TransactionId {
                             tx_hash: tx.tx_hash.clone(),
-                            sender_account_id: tx.sender_id.clone(),
+                            sender_id: tx.sender_id.clone(),
                         },
                     wait_until: TxExecutionStatus::ExecutedOptimistic,
                 },
             ).await {
                 Ok(outcome) => {
-                    // Debug print the full outcome before we move it
-                    info!("Received outcome for tx_hash {}: {:?}", tx.tx_hash, outcome);
+                    // Simplified outcome logging
+                    info!("Transaction {} status: {:?}", 
+                        tx.tx_hash,
+                        outcome.final_execution_outcome
+                            .as_ref()
+                            .and_then(|o| Some(o.status()))
+                            .unwrap_or(&TxExecutionStatus::Unknown)
+                    );
                     
                     // Extract any relevant information from outcome before moving it
                     let outcome_debug = format!("{:?}", outcome);
