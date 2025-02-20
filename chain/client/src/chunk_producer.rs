@@ -148,7 +148,7 @@ impl ChunkProducer {
             return Ok(None);
         }
 
-        self.produce_chunk_internal(
+        let mut result = self.produce_chunk_internal(
             prev_block,
             epoch_id,
             last_header,
@@ -156,7 +156,17 @@ impl ChunkProducer {
             shard_id,
             signer,
             chain_validate,
-        )
+        );
+        if let Ok(Some(ref mut produced_chunk)) = result {
+            let chunk_hash = produced_chunk.chunk.chunk_hash().0;
+            println!("putting state_update into cache for {chunk_hash}");
+            let state_update = produced_chunk
+                .state_update
+                .take()
+                .expect("chunk production must generate state_update");
+            self.runtime_adapter.cache_cp_state_update(chunk_hash, state_update);
+        }
+        result
     }
 
     #[cfg(feature = "test_features")]
