@@ -63,7 +63,7 @@ class SweatOracle(NearUser):
                 self.account,
                 # protocol enforced max length is 64 but we want shorter names to
                 # not hit the log limits too soon
-                max_account_id_len=48)
+                max_account_id_len=64)
 
         rng = random.Random()
         # just around 300Tgas
@@ -115,6 +115,7 @@ class SweatUser(NearUser):
       - Sends Sweat to random users.
       - Checks its' balance in sweat.claim contract.
     """
+    abstract = True
     wait_time = between(1, 3)  # random pause between transactions
 
     @task(3)

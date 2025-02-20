@@ -118,6 +118,11 @@ impl Account {
     pub fn as_signer(&self) -> Signer {
         Signer::from(InMemorySigner::from_secret_key(self.id.clone(), self.secret_key.clone()))
     }
+
+    pub fn file_exists(&self, dir: &PathBuf) -> bool {
+        let file_path = dir.join(format!("{}.json", self.id));
+        file_path.exists()
+    }
 }
 
 /// Tries to deserialize all json files in `dir` as [`Account`].
@@ -213,13 +218,13 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         rpc_response_handler.handle_all_responses().await;
     });
 
-    for i in 0..args.num_sub_accounts {
+    for i in args.nonce..args.nonce + args.num_sub_accounts {
         let sub_account_key = SecretKey::from_random(KeyType::ED25519);
         let sub_account_id: AccountId = {
             // cspell:words subname
             let subname = if let Some(prefixes) = &args.sub_account_prefixes {
                 let prefix = &prefixes[(i as usize) % prefixes.len()];
-                format!("{prefix}_user_{i}")
+                format!("{prefix}u{i}")
             } else {
                 format!("user_{i}")
             };
@@ -228,7 +233,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
         let tx = Transaction::V0(TransactionV0 {
             signer_id: signer.account_id.clone(),
             public_key: signer.public_key().clone(),
-            nonce: args.nonce + i,
+            nonce: i,
             receiver_id: sub_account_id.clone(),
             block_hash: block_service.get_block_hash(),
             actions: new_create_subaccount_actions(
@@ -250,7 +255,7 @@ pub async fn create_sub_accounts(args: &CreateSubAccountsArgs) -> anyhow::Result
             permit.send(res);
         });
 
-        sub_accounts.push(Account::new(sub_account_id, sub_account_key, 0));
+        sub_accounts.push(Account::new(sub_account_id, sub_account_key, i));
     }
 
     info!("Sent {} txs in {:.2} seconds", args.num_sub_accounts, timer.elapsed().as_secs_f64());

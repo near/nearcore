@@ -9,6 +9,7 @@ use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::methods::tx::{RpcTransactionError, RpcTransactionResponse};
 use near_jsonrpc_client::JsonRpcClient;
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
+use near_primitives::errors::TxExecutionError;
 use near_primitives::{
     transaction::Transaction,
     types::{AccountId, BlockReference, Finality},
@@ -145,18 +146,52 @@ fn tx_execution_level(status: &TxExecutionStatus) -> u8 {
     }
 }
 
+pub fn check_response(response: RpcTransactionResponse) -> Result<bool, TxExecutionError> {
+    let outcome =
+        response.final_execution_outcome.expect("response should have an outcome").into_outcome();
+    info!("Transaction status: {:?}", outcome.status);
+
+    if !matches!(outcome.status, FinalExecutionStatus::SuccessValue(_)) {
+        return Ok(false);
+    }
+
+    for receipt_outcome in outcome.receipts_outcome.iter() {
+        match &receipt_outcome.outcome.status {
+            ExecutionStatusView::Unknown => {
+                return Ok(false);
+            }
+            ExecutionStatusView::Failure(err) => {
+                return Err(err.clone());
+            }
+            ExecutionStatusView::SuccessValue(_) => {}
+            ExecutionStatusView::SuccessReceiptId(_) => {}
+        }
+    }
+
+    Ok(true)
+}
+
 /// For now not inspecting success values or receipt ids.
-fn check_outcome(
+pub fn check_outcome(
     response: RpcTransactionResponse,
     expected_status: FinalExecutionStatus,
     response_check_severity: ResponseCheckSeverity,
 ) {
     let outcome =
         response.final_execution_outcome.expect("response should have an outcome").into_outcome();
-    if outcome.status != expected_status {
-        let msg =
-            format!("got outcome.status {:#?}, expected {:#?}", outcome.status, expected_status);
-        warn_or_panic(&msg, response_check_severity);
+
+    match (&outcome.status, &expected_status) {
+        (FinalExecutionStatus::SuccessValue(_), FinalExecutionStatus::SuccessValue(_)) => {
+            // Both are success values, don't compare the actual data
+        }
+        _ if outcome.status != expected_status => {
+            let msg = format!(
+                "got outcome.status {:#?}, expected {:#?}",
+                outcome.status, expected_status
+            );
+            warn_or_panic(&msg, response_check_severity);
+        }
+        _ => {}
     }
 
     for receipt_outcome in outcome.receipts_outcome.iter() {
