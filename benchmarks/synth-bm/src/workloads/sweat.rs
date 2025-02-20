@@ -154,7 +154,11 @@ pub async fn create_contracts(args: &CreateContractsArgs) -> anyhow::Result<()> 
         num_sub_accounts: args.num_oracles,
         deposit: args.oracle_deposit,
         sub_account_prefixes: Some(
-            ["2", "c", "h", "m", "x"].into_iter().map(|s| s.to_string()).collect(),
+            ["test0", "test1", "test2", "test3", "test4", "test5"]
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect(),
+            // ["2", "c", "h", "m", "x"].into_iter().map(|s| s.to_string()).collect(),
         ),
         user_data_dir: args.user_data_dir.clone(),
         channel_buffer_size: 1000,
