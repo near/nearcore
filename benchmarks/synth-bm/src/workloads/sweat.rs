@@ -674,8 +674,8 @@ async fn create_passive_users(
                     continue;
                 }
                 Err(e) => {
-                    if tx.timestamp.elapsed() >= Duration::from_secs(30) {
-                        log::error!("Transaction timed out after 30s: {} for tx hash {}", e, tx.tx_hash);
+                    if tx.timestamp.elapsed() >= Duration::from_secs(7) {  // Reduced from 30s to 7s
+                        log::error!("Transaction timed out after 7s: {} for tx hash {}", e, tx.tx_hash);
                         // Remove timed out transaction and retry the account
                         for (_, state) in account_states.iter_mut() {
                             match state {
