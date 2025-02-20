@@ -20,6 +20,18 @@ pub struct OptimisticBlockInner {
     signature_differentiator: SignatureDifferentiator,
 }
 
+#[cfg(feature = "test_features")]
+pub enum OptimisticBlockAdvType {
+    Normal,
+    InvalidVrfValue,
+    InvalidVrfProof,
+    InvalidRandomValue,
+    InvalidTimestamp(u64),
+    InvalidPrevBlockHash,
+    InvalidHeight(BlockHeight),
+    InvalidSignature,
+}
+
 /// An optimistic block is independent of specific chunks and can be generated
 /// and distributed immediately after the previous block is processed.
 /// This block is shared with the validators and used to optimistically process
@@ -60,6 +72,62 @@ impl OptimisticBlock {
 
         let hash = hash(&borsh::to_vec(&inner).expect("Failed to serialize"));
         let signature = signer.sign_bytes(hash.as_ref());
+
+        Self { inner, signature, hash }
+    }
+
+    #[cfg(all(feature = "clock", feature = "test_features"))]
+    pub fn adv_produce(
+        prev_block_header: &BlockHeader,
+        height: BlockHeight,
+        signer: &crate::validator_signer::ValidatorSigner,
+        clock: near_time::Clock,
+        sandbox_delta_time: Option<near_time::Duration>,
+        adv_type: OptimisticBlockAdvType,
+    ) -> Self {
+        use crate::utils::get_block_metadata;
+        let prev_block_hash = *prev_block_header.hash();
+        let (time, vrf_value, vrf_proof, random_value) =
+            get_block_metadata(prev_block_header, signer, clock, sandbox_delta_time);
+
+        let mut inner = OptimisticBlockInner {
+            prev_block_hash,
+            block_height: height,
+            block_timestamp: time,
+            random_value,
+            vrf_value,
+            vrf_proof,
+            signature_differentiator: "OptimisticBlock".to_owned(),
+        };
+        match adv_type {
+            OptimisticBlockAdvType::Normal => {}
+            OptimisticBlockAdvType::InvalidVrfValue => {
+                inner.vrf_value.0[0] = !inner.vrf_value.0[0];
+            }
+            OptimisticBlockAdvType::InvalidVrfProof => {
+                inner.vrf_proof.0[0] = !inner.vrf_proof.0[0];
+            }
+            OptimisticBlockAdvType::InvalidRandomValue => {
+                inner.random_value.0[0] = !inner.random_value.0[0];
+            }
+            OptimisticBlockAdvType::InvalidTimestamp(ts) => {
+                inner.block_timestamp = ts;
+            }
+            OptimisticBlockAdvType::InvalidPrevBlockHash => {
+                inner.prev_block_hash.0[0] = !inner.prev_block_hash.0[0];
+            }
+            OptimisticBlockAdvType::InvalidHeight(h) => {
+                inner.block_height = h;
+            }
+            _ => {}
+        }
+
+        let hash = hash(&borsh::to_vec(&inner).expect("Failed to serialize"));
+        let signature = if let OptimisticBlockAdvType::InvalidSignature = adv_type {
+            signer.sign_bytes(CryptoHash::default().as_ref())
+        } else {
+            signer.sign_bytes(hash.as_ref())
+        };
 
         Self { inner, signature, hash }
     }
