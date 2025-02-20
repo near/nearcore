@@ -1390,6 +1390,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self.contract_cache
     }
 
+    fn cache_cp_state_update(&self, _chunk_hash: CryptoHash, _state_update: TrieUpdate) {
+        unimplemented!()
+    }
+
     fn precompile_contracts(
         &self,
         _epoch_id: &EpochId,

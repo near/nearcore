@@ -268,6 +268,10 @@ impl Runtime {
         Self { cp_state_updates: Default::default() }
     }
 
+    pub fn cache_cp_state_update(&self, chunk_hash: CryptoHash, state_update: TrieUpdate) {
+        let mut cache = self.cp_state_updates.lock().unwrap();
+        cache.insert(chunk_hash, state_update);
+    }
     fn print_log(log: &[LogEntry]) {
         if log.is_empty() {
             return;

@@ -548,6 +548,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 
+    fn cache_cp_state_update(&self, chunk_hash: CryptoHash, state_update: TrieUpdate);
+
     /// Precompiles the contracts and stores them in the compiled contract cache.
     fn precompile_contracts(
         &self,
