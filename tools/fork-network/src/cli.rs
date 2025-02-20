@@ -614,7 +614,7 @@ impl ForkNetworkCommand {
             config.shard_layout = ShardLayout::v2(accounts.clone(), shard_ids.clone(), None);
             config.num_block_producer_seats_per_shard = vec![100; shard_ids.len()];
             config.avg_hidden_validator_seats_per_shard = vec![100; shard_ids.len()];
-            config.protocol_upgrade_stake_threshold = Rational32::new(100, 100);
+            config.protocol_upgrade_stake_threshold = Rational32::from_integer(1);
             config.block_producer_kickout_threshold = 0;
             config.chunk_producer_kickout_threshold = 0;
             config.chunk_validator_only_kickout_threshold = 0;
@@ -1067,7 +1067,7 @@ impl ForkNetworkCommand {
             dynamic_resharding: false,
             protocol_version: genesis_protocol_version,
             validators: new_validator_accounts,
-            gas_price_adjustment_rate: 0,
+            gas_price_adjustment_rate: Rational32::from_integer(0),
             gas_limit: original_config.gas_limit,
             max_gas_price: original_config.max_gas_price,
             max_inflation_rate: original_config.max_inflation_rate,
