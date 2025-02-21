@@ -365,7 +365,13 @@ class NeardRunner:
         ]
         if not self.is_traffic_generator():
             if validator_id is None:
-                validator_id = f'{socket.gethostname()}.near'
+                host_name = socket.gethostname()
+                # Note that here we are assuming the last part is the unique part of the name
+                # If that changes for some reason then this will fail because multiple nodes will have
+                # the same validator ID. But should be fine for now.
+                # This last part of the hostname should be short, but we truncate it just in case it's not
+                unique_part = host_name.split("-")[-1][:6]
+                validator_id = f'node-{unique_part}.near'
             cmd += ['--account-id', validator_id]
         else:
             if validator_id is not None:
