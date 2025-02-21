@@ -1420,7 +1420,6 @@ dependencies = [
  "anyhow",
  "clap",
  "indoc",
- "log",
  "near-crypto",
  "near-jsonrpc-client",
  "near-jsonrpc-primitives",

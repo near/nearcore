@@ -10,7 +10,6 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = "1.0.89"
 clap = { version = "4.5.17", features = ["derive"] }
-log = "0.4.22"
 near-crypto = "0.27"
 near-jsonrpc-client = "0.14.0"
 near-jsonrpc-primitives = "0.27"
