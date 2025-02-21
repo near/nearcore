@@ -15,6 +15,7 @@ use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
 use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
+use near_primitives::hash::CryptoHash;
 use near_primitives::num_rational::Rational32;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -23,7 +24,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, StateRoot,
+    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_store::adapter::StoreAdapter;
@@ -40,6 +41,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
@@ -128,6 +130,16 @@ struct SetValidatorsCmd {
     /// Number of validator seats.
     #[clap(long)]
     pub num_seats: Option<NumSeats>,
+}
+
+const LEGACY_FORKED_ROOTS_KEY_PREFIX: &str = "FORK_TOOL_SHARD_ID:";
+
+fn parse_legacy_state_roots_key(key: &[u8]) -> anyhow::Result<ShardId> {
+    let key = std::str::from_utf8(key)?;
+    // Sanity check assertion since we should be iterating based on this prefix
+    assert!(key.starts_with(LEGACY_FORKED_ROOTS_KEY_PREFIX));
+    let int_part = &key[LEGACY_FORKED_ROOTS_KEY_PREFIX.len()..];
+    ShardId::from_str(int_part).with_context(|| format!("Failed parsing ShardId from {}", int_part))
 }
 
 const FORKED_ROOTS_KEY_PREFIX: &[u8; 20] = b"FORK_TOOL_SHARD_UID:";
@@ -404,7 +416,7 @@ impl ForkNetworkCommand {
             Some(home_dir),
         );
         let (prev_state_roots, flat_head, epoch_id, target_shard_layout) =
-            self.get_state_roots_and_hash(store.clone())?;
+            self.get_state_roots_and_hash(store.clone(), epoch_manager.as_ref())?;
         tracing::info!(?prev_state_roots, ?epoch_id, ?flat_head);
 
         let source_shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
@@ -466,7 +478,7 @@ impl ForkNetworkCommand {
         );
 
         let (prev_state_roots, flat_head, _epoch_id, target_shard_layout) =
-            self.get_state_roots_and_hash(store.clone())?;
+            self.get_state_roots_and_hash(store.clone(), epoch_manager.as_ref())?;
 
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
@@ -544,13 +556,61 @@ impl ForkNetworkCommand {
         Ok(())
     }
 
+    // Read the values that used to be written before the changes that have us write to FORK_TOOL_FLAT_HEAD
+    // and FORK_TOOL_SHARD_LAYOUT
+    fn legacy_get_state_roots_and_hash(
+        &self,
+        store: Store,
+        epoch_manager: &dyn EpochManagerAdapter,
+    ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
+        let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
+        let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
+
+        let flat_head = BlockInfo {
+            hash: block_hash,
+            // The previous code stored fork_head.height + 1 in FORK_TOOL_BLOCK_HEIGHT
+            height: block_height - 1,
+            // If dealing with a legacy setup, the prev hash won't be set, but it should be fine since we should only use
+            // legacy_get_state_roots_and_hash() for the set-validators and finalize commands, and not the amend-access-keys
+            // command, which is the only one that needs this set properly
+            prev_hash: CryptoHash::default(),
+        };
+        let shard_layout = epoch_manager
+            .get_shard_layout(&epoch_id)
+            .with_context(|| format!("Failed getting shard layout for epoch {}", &epoch_id.0))?;
+
+        let mut state_roots = HashMap::new();
+        for item in store.iter_prefix(DBCol::Misc, LEGACY_FORKED_ROOTS_KEY_PREFIX.as_bytes()) {
+            let (key, value) = item?;
+            let shard_id = parse_legacy_state_roots_key(&key)?;
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+            let state_root: StateRoot = borsh::from_slice(&value)?;
+
+            state_roots.insert(shard_uid, state_root);
+        }
+
+        tracing::info!(
+            ?state_roots,
+            ?block_hash,
+            ?epoch_id,
+            block_height,
+            "legacy state roots and hash",
+        );
+        Ok((state_roots, flat_head, epoch_id, shard_layout))
+    }
+
     // The Vec<StateRoot> returned is in ShardIndex order
     fn get_state_roots_and_hash(
         &self,
         store: Store,
+        epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
+        let Some(flat_head) = store.get_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD")? else {
+            return self.legacy_get_state_roots_and_hash(store, epoch_manager);
+        };
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
-        let flat_head = store.get_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD")?.unwrap();
         let shard_layout = store.get_ser(DBCol::Misc, b"FORK_TOOL_SHARD_LAYOUT")?.unwrap();
         let mut state_roots = HashMap::new();
         for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
