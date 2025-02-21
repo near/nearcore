@@ -1,4 +1,5 @@
 use serde_json::Value;
+use schemars::JsonSchema;
 
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -23,7 +24,7 @@ pub struct RpcBlockRequest {
     pub block_reference: near_primitives::types::BlockReference,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
 pub struct RpcBlockResponse {
     #[serde(flatten)]
     pub block_view: near_primitives::views::BlockView,

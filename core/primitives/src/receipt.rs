@@ -17,6 +17,7 @@ use std::fmt;
 use std::io::{self, Read};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
+use schemars::JsonSchema;
 
 /// The outgoing (egress) data which will be transformed
 /// to a `DataReceipt` to be sent to a `receipt.receiver`
@@ -701,9 +702,11 @@ impl fmt::Debug for ReceivedData {
     serde::Deserialize,
     serde::Serialize,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct GlobalContractData {
     #[serde_as(as = "Base64")]
+    #[schemars(with = "String")]
     pub code: Arc<[u8]>,
     pub id: GlobalContractIdentifier,
 }

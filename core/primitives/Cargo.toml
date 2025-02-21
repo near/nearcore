@@ -53,6 +53,7 @@ near-fmt.workspace = true
 near-primitives-core.workspace = true
 near-parameters.workspace = true
 near-schema-checker-lib.workspace = true
+schemars = "0.8.21"
 
 [features]
 sandbox = []

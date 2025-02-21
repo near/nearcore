@@ -9,6 +9,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{ProtocolVersion, ShardId};
 use near_primitives_core::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
+use schemars::JsonSchema;
 
 /// Represents size of receipts, in the context of cross-shard bandwidth, in bytes.
 /// TODO(bandwidth_scheduler) - consider using ByteSize
@@ -26,6 +27,7 @@ pub type Bandwidth = u64;
     PartialEq,
     Eq,
     ProtocolSchema,
+    JsonSchema
 )]
 pub enum BandwidthRequests {
     V1(BandwidthRequestsV1),
@@ -58,6 +60,7 @@ impl BandwidthRequests {
     PartialEq,
     Eq,
     ProtocolSchema,
+    JsonSchema
 )]
 pub struct BandwidthRequestsV1 {
     pub requests: Vec<BandwidthRequest>,
@@ -76,6 +79,7 @@ pub struct BandwidthRequestsV1 {
     PartialEq,
     Eq,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct BandwidthRequest {
     /// Requesting bandwidth to this shard.
@@ -184,6 +188,7 @@ impl BandwidthRequestValues {
     PartialEq,
     Eq,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct BandwidthRequestBitmap {
     pub data: [u8; BANDWIDTH_REQUEST_BITMAP_SIZE],

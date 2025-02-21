@@ -1,5 +1,6 @@
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
+use schemars::JsonSchema;
 use serde_json::Value;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -52,7 +53,7 @@ pub enum RpcTransactionError {
     TimeoutError,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, JsonSchema)]
 pub struct RpcTransactionResponse {
     #[serde(flatten)]
     pub final_execution_outcome: Option<near_primitives::views::FinalExecutionOutcomeViewEnum>,

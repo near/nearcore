@@ -214,7 +214,7 @@ log = "0.4"
 lru = "0.12.3"
 memoffset = "0.8"
 more-asserts = "0.2"
-near-account-id = { version = "1.0.0-alpha.4", features = [
+near-account-id = { path = "../near-account-id-rs", features = [
     "internal_unstable",
     "serde",
     "borsh",

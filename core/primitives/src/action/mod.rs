@@ -13,6 +13,7 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
 use std::sync::Arc;
+use schemars::JsonSchema;
 
 use crate::trie_key::GlobalContractCodeIdentifier;
 
@@ -31,6 +32,7 @@ pub fn base64(s: &[u8]) -> String {
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct AddKeyAction {
     /// A public key which will be associated with an access_key
@@ -50,6 +52,7 @@ pub struct AddKeyAction {
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct CreateAccountAction {}
 
@@ -63,6 +66,7 @@ pub struct CreateAccountAction {}
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
@@ -78,6 +82,7 @@ pub struct DeleteAccountAction {
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
@@ -95,10 +100,12 @@ pub struct DeleteKeyAction {
     Eq,
     Clone,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct DeployContractAction {
     /// WebAssembly binary
     #[serde_as(as = "Base64")]
+    #[schemars(with = "String")]
     pub code: Vec<u8>,
 }
 
@@ -120,6 +127,7 @@ impl fmt::Debug for DeployContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    JsonSchema,
     Debug,
 )]
 #[repr(u8)]
@@ -145,10 +153,12 @@ pub enum GlobalContractDeployMode {
     Eq,
     Clone,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct DeployGlobalContractAction {
     /// WebAssembly binary
     #[serde_as(as = "Base64")]
+    #[schemars(with = "String")]
     pub code: Arc<[u8]>,
 
     pub deploy_mode: GlobalContractDeployMode,
@@ -174,6 +184,7 @@ impl fmt::Debug for DeployGlobalContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    JsonSchema,
     Debug,
 )]
 pub enum GlobalContractIdentifier {
@@ -215,6 +226,7 @@ impl GlobalContractIdentifier {
     Clone,
     ProtocolSchema,
     Debug,
+    JsonSchema,
 )]
 pub struct UseGlobalContractAction {
     pub contract_identifier: GlobalContractIdentifier,
@@ -230,13 +242,16 @@ pub struct UseGlobalContractAction {
     Eq,
     Clone,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct FunctionCallAction {
     pub method_name: String,
     #[serde_as(as = "Base64")]
+    #[schemars(with = "String")]
     pub args: Vec<u8>,
     pub gas: Gas,
     #[serde(with = "dec_format")]
+    #[schemars(with = "String")]
     pub deposit: Balance,
 }
 
@@ -262,10 +277,12 @@ impl fmt::Debug for FunctionCallAction {
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct StakeAction {
     /// Amount of tokens to stake.
     #[serde(with = "dec_format")]
+    #[schemars(with = "String")]
     pub stake: Balance,
     /// Validator key which will be used to sign transactions on behalf of signer_id
     pub public_key: PublicKey,
@@ -281,9 +298,11 @@ pub struct StakeAction {
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct TransferAction {
     #[serde(with = "dec_format")]
+    #[schemars(with = "String")]
     pub deposit: Balance,
 }
 
@@ -298,6 +317,7 @@ pub struct TransferAction {
     serde::Deserialize,
     strum::AsRefStr,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for

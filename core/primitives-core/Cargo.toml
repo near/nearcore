@@ -26,6 +26,7 @@ thiserror.workspace = true
 
 near-account-id.workspace = true
 near-schema-checker-lib.workspace = true
+schemars = "0.8.21"
 
 [dev-dependencies]
 serde_json.workspace = true

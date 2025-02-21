@@ -14,6 +14,7 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use schemars::JsonSchema;
 
 mod chunk_validator_stats;
 
@@ -119,9 +120,10 @@ pub struct StoreValue(#[serde_as(as = "Base64")] Vec<u8>);
     derive_more::Into,
     BorshSerialize,
     BorshDeserialize,
+    JsonSchema,
 )]
 #[serde(transparent)]
-pub struct FunctionArgs(#[serde_as(as = "Base64")] Vec<u8>);
+pub struct FunctionArgs(#[serde_as(as = "Base64")] #[schemars(with = "String")] Vec<u8>);
 
 /// A structure used to indicate the kind of state changes due to transaction/receipt processing, etc.
 #[derive(Debug, Clone)]

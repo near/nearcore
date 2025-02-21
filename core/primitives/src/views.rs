@@ -58,6 +58,9 @@ use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 use validator_stake_view::ValidatorStakeView;
+use schemars::JsonSchema;
+use crate::serialize;
+use schemars;
 
 /// A view of the account
 #[derive(serde::Serialize, serde::Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -141,10 +144,12 @@ impl From<AccountView> for Account {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub enum AccessKeyPermissionView {
     FunctionCall {
         #[serde(with = "dec_format")]
+        #[schemars(with = "String")]
         allowance: Option<Balance>,
         receiver_id: String,
         method_names: Vec<String>,
@@ -189,6 +194,7 @@ impl From<AccessKeyPermissionView> for AccessKeyPermission {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct AccessKeyView {
     pub nonce: Nonce,
@@ -744,7 +750,7 @@ impl From<Challenge> for ChallengeView {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, JsonSchema)]
 pub struct BlockHeaderView {
     pub height: BlockHeight,
     pub prev_height: Option<BlockHeight>,
@@ -763,20 +769,21 @@ pub struct BlockHeaderView {
     /// Legacy json number. Should not be used.
     pub timestamp: u64,
     #[serde(with = "dec_format")]
+    #[schemars(with = "String")] 
     pub timestamp_nanosec: u64,
     pub random_value: CryptoHash,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub gas_price: Balance,
     pub block_ordinal: Option<NumBlocks>,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub total_supply: Balance,
     pub challenges_result: ChallengesResult,
     pub last_final_block: CryptoHash,
@@ -928,7 +935,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, JsonSchema)]
 pub struct ChunkHeaderView {
     pub chunk_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -942,12 +949,12 @@ pub struct ChunkHeaderView {
     pub gas_used: Gas,
     pub gas_limit: Gas,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub rent_paid: Balance,
     /// TODO(2271): deprecated.
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub validator_reward: Balance,
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub balance_burnt: Balance,
     pub outgoing_receipts_root: CryptoHash,
     pub tx_root: CryptoHash,
@@ -1088,7 +1095,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, JsonSchema)]
 pub struct BlockView {
     pub author: AccountId,
     pub header: BlockHeaderView,
@@ -1142,11 +1149,13 @@ impl ChunkView {
     Eq,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub enum ActionView {
     CreateAccount,
     DeployContract {
         #[serde_as(as = "Base64")]
+        #[schemars(with = "String")]
         code: Vec<u8>,
     },
     FunctionCall {
@@ -1154,14 +1163,17 @@ pub enum ActionView {
         args: FunctionArgs,
         gas: Gas,
         #[serde(with = "dec_format")]
+        #[schemars(with = "String")]
         deposit: Balance,
     },
     Transfer {
         #[serde(with = "dec_format")]
+        #[schemars(with = "String")]
         deposit: Balance,
     },
     Stake {
         #[serde(with = "dec_format")]
+        #[schemars(with = "String")]
         stake: Balance,
         public_key: PublicKey,
     },
@@ -1181,10 +1193,12 @@ pub enum ActionView {
     },
     DeployGlobalContract {
         #[serde_as(as = "Base64")]
+        #[schemars(with = "String")]
         code: Vec<u8>,
     },
     DeployGlobalContractByAccountId {
         #[serde_as(as = "Base64")]
+        #[schemars(with = "String")]
         code: Vec<u8>,
     },
     UseGlobalContract {
@@ -1314,6 +1328,7 @@ impl TryFrom<ActionView> for Action {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct SignedTransactionView {
     pub signer_id: AccountId,
@@ -1358,6 +1373,7 @@ impl From<SignedTransaction> for SignedTransactionView {
     Eq,
     Clone,
     Default,
+    JsonSchema,
 )]
 pub enum FinalExecutionStatus {
     /// The execution has not yet started.
@@ -1368,7 +1384,7 @@ pub enum FinalExecutionStatus {
     /// The execution has failed with the given error.
     Failure(TxExecutionError),
     /// The execution has succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde_as(as = "Base64")] Vec<u8>),
+    SuccessValue(#[serde_as(as = "Base64")] #[schemars(with = "String")] Vec<u8>),
 }
 
 impl fmt::Debug for FinalExecutionStatus {
@@ -1402,7 +1418,7 @@ pub enum ServerError {
 
 #[serde_as]
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, JsonSchema,
 )]
 pub enum ExecutionStatusView {
     /// The execution is pending or unknown.
@@ -1410,7 +1426,7 @@ pub enum ExecutionStatusView {
     /// The execution has failed.
     Failure(TxExecutionError),
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
-    SuccessValue(#[serde_as(as = "Base64")] Vec<u8>),
+    SuccessValue(#[serde_as(as = "Base64")] #[schemars(with = "String")] Vec<u8>),
     /// The final action of the receipt returned a promise or the signed transaction was converted
     /// to a receipt. Contains the receipt_id of the generated receipt.
     SuccessReceiptId(CryptoHash),
@@ -1453,11 +1469,13 @@ impl From<ExecutionStatus> for ExecutionStatusView {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct CostGasUsed {
     pub cost_category: String,
     pub cost: String,
     #[serde(with = "dec_format")]
+    #[schemars(with = "String")]
     pub gas_used: Gas,
 }
 
@@ -1470,6 +1488,7 @@ pub struct CostGasUsed {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct ExecutionMetadataView {
     pub version: u32,
@@ -1592,6 +1611,7 @@ impl CostGasUsed {
     Eq,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct ExecutionOutcomeView {
     /// Logs from this transaction or receipt.
@@ -1604,6 +1624,7 @@ pub struct ExecutionOutcomeView {
     /// This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because
     /// the prepaid gas price might be lower than the actual gas price and it creates a deficit.
     #[serde(with = "dec_format")]
+    #[schemars(with = "String")]
     pub tokens_burnt: Balance,
     /// The id of the account on which the execution happens. For transaction this is signer_id,
     /// for receipt this is receiver_id.
@@ -1674,6 +1695,7 @@ impl ExecutionOutcomeView {
     Clone,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct ExecutionOutcomeWithIdView {
     pub proof: MerklePath,
@@ -1714,6 +1736,7 @@ pub struct TxStatusView {
     Default,
     Eq,
     PartialEq,
+    JsonSchema,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
@@ -1737,7 +1760,7 @@ pub enum TxExecutionStatus {
     Final,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, JsonSchema)]
 #[serde(untagged)]
 // FinalExecutionOutcomeWithReceipt is a superset of FinalExecutionOutcome that includes additional information about receipts.
 // For proper deserialization we need to have more specific variant first.
@@ -1769,7 +1792,7 @@ impl TxStatusView {
 /// Execution outcome of the transaction and all the subsequent receipts.
 /// Could be not finalized yet
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, JsonSchema
 )]
 pub struct FinalExecutionOutcomeView {
     /// Execution status defined by chain.rs:get_final_transaction_result
@@ -1808,6 +1831,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct FinalExecutionOutcomeWithReceiptView {
     /// Final outcome view without receipts
@@ -1823,9 +1847,10 @@ pub mod validator_stake_view {
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::types::AccountId;
     use serde::Deserialize;
+    use schemars::JsonSchema;
 
     #[derive(
-        BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq,
+        BorshSerialize, BorshDeserialize, serde::Serialize, Deserialize, Debug, Clone, Eq, PartialEq, JsonSchema
     )]
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStakeView {
@@ -1882,11 +1907,12 @@ pub mod validator_stake_view {
     PartialEq,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct ValidatorStakeViewV1 {
     pub account_id: AccountId,
     pub public_key: PublicKey,
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub stake: Balance,
 }
 
@@ -1899,6 +1925,7 @@ pub struct ValidatorStakeViewV1 {
     Eq,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct ReceiptView {
     pub predecessor_id: AccountId,
@@ -1922,6 +1949,7 @@ pub struct ReceiptView {
     Eq,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub struct DataReceiverView {
     pub data_id: CryptoHash,
@@ -1938,12 +1966,14 @@ pub struct DataReceiverView {
     Eq,
     serde::Serialize,
     serde::Deserialize,
+    JsonSchema,
 )]
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
         signer_public_key: PublicKey,
         #[serde(with = "dec_format")]
+        #[schemars(with = "String")]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
@@ -1954,6 +1984,7 @@ pub enum ReceiptEnumView {
     Data {
         data_id: CryptoHash,
         #[serde_as(as = "Option<Base64>")]
+        #[schemars(with = "Option<String>")]
         data: Option<Vec<u8>>,
         #[serde(default = "default_is_promise")]
         is_promise_resume: bool,
@@ -2455,12 +2486,12 @@ pub struct SplitStorageInfoView {
     pub hot_db_kind: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
 pub struct CongestionInfoView {
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub delayed_receipts_gas: u128,
 
-    #[serde(with = "dec_format")]
+    #[serde(with = "dec_format")] #[schemars(with = "String")]
     pub buffered_receipts_gas: u128,
 
     pub receipt_bytes: u64,

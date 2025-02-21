@@ -23,6 +23,7 @@ near-primitives = { workspace = true, features = ["rand"] }
 near-chain-configs.workspace = true
 near-client-primitives = { workspace = true, optional = true }
 near-schema-checker-lib.workspace = true
+schemars = "0.8.21"
 
 [features]
 nightly_protocol = [

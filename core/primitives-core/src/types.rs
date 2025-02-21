@@ -2,6 +2,8 @@ use std::num::ParseIntError;
 use std::ops::Add;
 use std::str::FromStr;
 
+use schemars::JsonSchema;
+
 use crate::hash::CryptoHash;
 
 /// Account identifier. Provides access to user's state.
@@ -74,6 +76,7 @@ pub type ShardIndex = usize;
     Eq,
     PartialOrd,
     Ord,
+    JsonSchema
 )]
 pub struct ShardId(u64);
 

@@ -1,0 +1,3998 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RpcTransactionResponse",
+  "type": "object",
+  "anyOf": [
+    {
+      "$ref": "#/definitions/FinalExecutionOutcomeWithReceiptView"
+    },
+    {
+      "$ref": "#/definitions/FinalExecutionOutcomeView"
+    }
+  ],
+  "required": [
+    "final_execution_status"
+  ],
+  "properties": {
+    "final_execution_status": {
+      "$ref": "#/definitions/TxExecutionStatus"
+    }
+  },
+  "definitions": {
+    "AccessKey": {
+      "description": "Access key provides limited access to an account. Each access key belongs to some account and is identified by a unique (within the account) public key. One account may have large number of access keys. Access keys allow to act on behalf of the account by restricting transactions that can be issued. `account_id,public_key` is a key in the state",
+      "type": "object",
+      "required": [
+        "nonce",
+        "permission"
+      ],
+      "properties": {
+        "nonce": {
+          "description": "Nonce for this access key, used for tx nonce generation. When access key is created, nonce is set to `(block_height - 1) * 1e6` to avoid tx hash collision on access key re-creation. See <https://github.com/near/nearcore/issues/3779> for more details.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "permission": {
+          "description": "Defines permissions for this access key.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AccessKeyPermission"
+            }
+          ]
+        }
+      }
+    },
+    "AccessKeyPermission": {
+      "description": "Defines permissions for AccessKey",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "FunctionCall"
+          ],
+          "properties": {
+            "FunctionCall": {
+              "$ref": "#/definitions/FunctionCallPermission"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Grants full access to the account. NOTE: It's used to replace account-level public keys.",
+          "type": "string",
+          "enum": [
+            "FullAccess"
+          ]
+        }
+      ]
+    },
+    "AccessKeyPermissionView": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "FullAccess"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "FunctionCall"
+          ],
+          "properties": {
+            "FunctionCall": {
+              "type": "object",
+              "required": [
+                "allowance",
+                "method_names",
+                "receiver_id"
+              ],
+              "properties": {
+                "allowance": {
+                  "type": "string"
+                },
+                "method_names": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "receiver_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AccessKeyView": {
+      "type": "object",
+      "required": [
+        "nonce",
+        "permission"
+      ],
+      "properties": {
+        "nonce": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "permission": {
+          "$ref": "#/definitions/AccessKeyPermissionView"
+        }
+      }
+    },
+    "AccountId": {
+      "description": "NEAR Account Identifier.\n\nThis is a unique, syntactically valid, human-readable account identifier on the NEAR network.\n\n[See the crate-level docs for information about validation.](index.html#account-id-rules)\n\nAlso see [Error kind precedence](AccountId#error-kind-precedence).\n\n## Examples\n\n``` use near_account_id::AccountId;\n\nlet alice: AccountId = \"alice.near\".parse().unwrap();\n\nassert!(\"ƒelicia.near\".parse::<AccountId>().is_err()); // (ƒ is not f) ```",
+      "type": "string"
+    },
+    "Action": {
+      "oneOf": [
+        {
+          "description": "Create an (sub)account using a transaction `receiver_id` as an ID for a new account ID must pass validation rules described here <http://nomicon.io/Primitives/Account.html>.",
+          "type": "object",
+          "required": [
+            "CreateAccount"
+          ],
+          "properties": {
+            "CreateAccount": {
+              "$ref": "#/definitions/CreateAccountAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Sets a Wasm code to a receiver_id",
+          "type": "object",
+          "required": [
+            "DeployContract"
+          ],
+          "properties": {
+            "DeployContract": {
+              "$ref": "#/definitions/DeployContractAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "FunctionCall"
+          ],
+          "properties": {
+            "FunctionCall": {
+              "$ref": "#/definitions/FunctionCallAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Transfer"
+          ],
+          "properties": {
+            "Transfer": {
+              "$ref": "#/definitions/TransferAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Stake"
+          ],
+          "properties": {
+            "Stake": {
+              "$ref": "#/definitions/StakeAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "AddKey"
+          ],
+          "properties": {
+            "AddKey": {
+              "$ref": "#/definitions/AddKeyAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeleteKey"
+          ],
+          "properties": {
+            "DeleteKey": {
+              "$ref": "#/definitions/DeleteKeyAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeleteAccount"
+          ],
+          "properties": {
+            "DeleteAccount": {
+              "$ref": "#/definitions/DeleteAccountAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Delegate"
+          ],
+          "properties": {
+            "Delegate": {
+              "$ref": "#/definitions/SignedDelegateAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeployGlobalContract"
+          ],
+          "properties": {
+            "DeployGlobalContract": {
+              "$ref": "#/definitions/DeployGlobalContractAction"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "UseGlobalContract"
+          ],
+          "properties": {
+            "UseGlobalContract": {
+              "$ref": "#/definitions/UseGlobalContractAction"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ActionError": {
+      "description": "An error happened during Action execution",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "index": {
+          "description": "Index of the failed action in the transaction. Action index is not defined if ActionError.kind is `ActionErrorKind::LackBalanceForState`",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "kind": {
+          "description": "The kind of ActionError happened",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ActionErrorKind"
+            }
+          ]
+        }
+      }
+    },
+    "ActionErrorKind": {
+      "oneOf": [
+        {
+          "description": "Happens when CreateAccount action tries to create an account with account_id which is already exists in the storage",
+          "type": "object",
+          "required": [
+            "AccountAlreadyExists"
+          ],
+          "properties": {
+            "AccountAlreadyExists": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Happens when TX receiver_id doesn't exist (but action is not Action::CreateAccount)",
+          "type": "object",
+          "required": [
+            "AccountDoesNotExist"
+          ],
+          "properties": {
+            "AccountDoesNotExist": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "A top-level account ID can only be created by registrar.",
+          "type": "object",
+          "required": [
+            "CreateAccountOnlyByRegistrar"
+          ],
+          "properties": {
+            "CreateAccountOnlyByRegistrar": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "predecessor_id",
+                "registrar_account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "predecessor_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "registrar_account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "A newly created account must be under a namespace of the creator account",
+          "type": "object",
+          "required": [
+            "CreateAccountNotAllowed"
+          ],
+          "properties": {
+            "CreateAccountNotAllowed": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "predecessor_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "predecessor_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver or the first TX action is a `CreateAccount` action",
+          "type": "object",
+          "required": [
+            "ActorNoPermission"
+          ],
+          "properties": {
+            "ActorNoPermission": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "actor_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "actor_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Account tries to remove an access key that doesn't exist",
+          "type": "object",
+          "required": [
+            "DeleteKeyDoesNotExist"
+          ],
+          "properties": {
+            "DeleteKeyDoesNotExist": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "public_key"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The public key is already used for an existing access key",
+          "type": "object",
+          "required": [
+            "AddKeyAlreadyExists"
+          ],
+          "properties": {
+            "AddKeyAlreadyExists": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "public_key"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Account is staking and can not be deleted",
+          "type": "object",
+          "required": [
+            "DeleteAccountStaking"
+          ],
+          "properties": {
+            "DeleteAccountStaking": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.",
+          "type": "object",
+          "required": [
+            "LackBalanceForState"
+          ],
+          "properties": {
+            "LackBalanceForState": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "amount"
+              ],
+              "properties": {
+                "account_id": {
+                  "description": "An account which needs balance",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/AccountId"
+                    }
+                  ]
+                },
+                "amount": {
+                  "description": "Balance required to complete an action.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Account is not yet staked, but tries to unstake",
+          "type": "object",
+          "required": [
+            "TriesToUnstake"
+          ],
+          "properties": {
+            "TriesToUnstake": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The account doesn't have enough balance to increase the stake.",
+          "type": "object",
+          "required": [
+            "TriesToStake"
+          ],
+          "properties": {
+            "TriesToStake": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "balance",
+                "locked",
+                "stake"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "balance": {
+                  "type": "string"
+                },
+                "locked": {
+                  "type": "string"
+                },
+                "stake": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "InsufficientStake"
+          ],
+          "properties": {
+            "InsufficientStake": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "minimum_stake",
+                "stake"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "minimum_stake": {
+                  "type": "string"
+                },
+                "stake": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "An error occurred during a `FunctionCall` Action, parameter is debug message.",
+          "type": "object",
+          "required": [
+            "FunctionCallError"
+          ],
+          "properties": {
+            "FunctionCallError": {
+              "$ref": "#/definitions/FunctionCallError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails receipt validation.",
+          "type": "object",
+          "required": [
+            "NewReceiptValidationError"
+          ],
+          "properties": {
+            "NewReceiptValidationError": {
+              "$ref": "#/definitions/ReceiptValidationError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Error occurs when a `CreateAccount` action is called on a NEAR-implicit or ETH-implicit account. See NEAR-implicit account creation NEP: <https://github.com/nearprotocol/NEPs/pull/71>. Also, see ETH-implicit account creation NEP: <https://github.com/near/NEPs/issues/518>.\n\nTODO(#8598): This error is named very poorly. A better name would be `OnlyNamedAccountCreationAllowed`.",
+          "type": "object",
+          "required": [
+            "OnlyImplicitAccountCreationAllowed"
+          ],
+          "properties": {
+            "OnlyImplicitAccountCreationAllowed": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Delete account whose state is large is temporarily banned.",
+          "type": "object",
+          "required": [
+            "DeleteAccountWithLargeState"
+          ],
+          "properties": {
+            "DeleteAccountWithLargeState": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Signature does not match the provided actions and given signer public key.",
+          "type": "string",
+          "enum": [
+            "DelegateActionInvalidSignature"
+          ]
+        },
+        {
+          "description": "Receiver of the transaction doesn't match Sender of the delegate action",
+          "type": "object",
+          "required": [
+            "DelegateActionSenderDoesNotMatchTxReceiver"
+          ],
+          "properties": {
+            "DelegateActionSenderDoesNotMatchTxReceiver": {
+              "type": "object",
+              "required": [
+                "receiver_id",
+                "sender_id"
+              ],
+              "properties": {
+                "receiver_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "sender_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Delegate action has expired. `max_block_height` is less than actual block height.",
+          "type": "string",
+          "enum": [
+            "DelegateActionExpired"
+          ]
+        },
+        {
+          "description": "The given public key doesn't exist for Sender account",
+          "type": "object",
+          "required": [
+            "DelegateActionAccessKeyError"
+          ],
+          "properties": {
+            "DelegateActionAccessKeyError": {
+              "$ref": "#/definitions/InvalidAccessKeyError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "DelegateAction nonce must be greater sender[public_key].nonce",
+          "type": "object",
+          "required": [
+            "DelegateActionInvalidNonce"
+          ],
+          "properties": {
+            "DelegateActionInvalidNonce": {
+              "type": "object",
+              "required": [
+                "ak_nonce",
+                "delegate_nonce"
+              ],
+              "properties": {
+                "ak_nonce": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "delegate_nonce": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "DelegateAction nonce is larger than the upper bound given by the block height",
+          "type": "object",
+          "required": [
+            "DelegateActionNonceTooLarge"
+          ],
+          "properties": {
+            "DelegateActionNonceTooLarge": {
+              "type": "object",
+              "required": [
+                "delegate_nonce",
+                "upper_bound"
+              ],
+              "properties": {
+                "delegate_nonce": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "upper_bound": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "GlobalContractDoesNotExist"
+          ],
+          "properties": {
+            "GlobalContractDoesNotExist": {
+              "type": "object",
+              "required": [
+                "identifier"
+              ],
+              "properties": {
+                "identifier": {
+                  "$ref": "#/definitions/GlobalContractIdentifier"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ActionView": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "CreateAccount"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeployContract"
+          ],
+          "properties": {
+            "DeployContract": {
+              "type": "object",
+              "required": [
+                "code"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "FunctionCall"
+          ],
+          "properties": {
+            "FunctionCall": {
+              "type": "object",
+              "required": [
+                "args",
+                "deposit",
+                "gas",
+                "method_name"
+              ],
+              "properties": {
+                "args": {
+                  "type": "string"
+                },
+                "deposit": {
+                  "type": "string"
+                },
+                "gas": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "method_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Transfer"
+          ],
+          "properties": {
+            "Transfer": {
+              "type": "object",
+              "required": [
+                "deposit"
+              ],
+              "properties": {
+                "deposit": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Stake"
+          ],
+          "properties": {
+            "Stake": {
+              "type": "object",
+              "required": [
+                "public_key",
+                "stake"
+              ],
+              "properties": {
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                },
+                "stake": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "AddKey"
+          ],
+          "properties": {
+            "AddKey": {
+              "type": "object",
+              "required": [
+                "access_key",
+                "public_key"
+              ],
+              "properties": {
+                "access_key": {
+                  "$ref": "#/definitions/AccessKeyView"
+                },
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeleteKey"
+          ],
+          "properties": {
+            "DeleteKey": {
+              "type": "object",
+              "required": [
+                "public_key"
+              ],
+              "properties": {
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeleteAccount"
+          ],
+          "properties": {
+            "DeleteAccount": {
+              "type": "object",
+              "required": [
+                "beneficiary_id"
+              ],
+              "properties": {
+                "beneficiary_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Delegate"
+          ],
+          "properties": {
+            "Delegate": {
+              "type": "object",
+              "required": [
+                "delegate_action",
+                "signature"
+              ],
+              "properties": {
+                "delegate_action": {
+                  "$ref": "#/definitions/DelegateAction"
+                },
+                "signature": {
+                  "$ref": "#/definitions/Signature"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeployGlobalContract"
+          ],
+          "properties": {
+            "DeployGlobalContract": {
+              "type": "object",
+              "required": [
+                "code"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "DeployGlobalContractByAccountId"
+          ],
+          "properties": {
+            "DeployGlobalContractByAccountId": {
+              "type": "object",
+              "required": [
+                "code"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "UseGlobalContract"
+          ],
+          "properties": {
+            "UseGlobalContract": {
+              "type": "object",
+              "required": [
+                "code_hash"
+              ],
+              "properties": {
+                "code_hash": {
+                  "$ref": "#/definitions/CryptoHash"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "UseGlobalContractByAccountId"
+          ],
+          "properties": {
+            "UseGlobalContractByAccountId": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ActionsValidationError": {
+      "description": "Describes the error for validating a list of actions.",
+      "oneOf": [
+        {
+          "description": "The delete action must be a final action in transaction",
+          "type": "string",
+          "enum": [
+            "DeleteActionMustBeFinal"
+          ]
+        },
+        {
+          "description": "The total prepaid gas (for all given actions) exceeded the limit.",
+          "type": "object",
+          "required": [
+            "TotalPrepaidGasExceeded"
+          ],
+          "properties": {
+            "TotalPrepaidGasExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "total_prepaid_gas"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "total_prepaid_gas": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The number of actions exceeded the given limit.",
+          "type": "object",
+          "required": [
+            "TotalNumberOfActionsExceeded"
+          ],
+          "properties": {
+            "TotalNumberOfActionsExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "total_number_of_actions"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "total_number_of_actions": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The total number of bytes of the method names exceeded the limit in a Add Key action.",
+          "type": "object",
+          "required": [
+            "AddKeyMethodNamesNumberOfBytesExceeded"
+          ],
+          "properties": {
+            "AddKeyMethodNamesNumberOfBytesExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "total_number_of_bytes"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "total_number_of_bytes": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The length of some method name exceeded the limit in a Add Key action.",
+          "type": "object",
+          "required": [
+            "AddKeyMethodNameLengthExceeded"
+          ],
+          "properties": {
+            "AddKeyMethodNameLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Integer overflow during a compute.",
+          "type": "string",
+          "enum": [
+            "IntegerOverflow"
+          ]
+        },
+        {
+          "description": "Invalid account ID.",
+          "type": "object",
+          "required": [
+            "InvalidAccountId"
+          ],
+          "properties": {
+            "InvalidAccountId": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The size of the contract code exceeded the limit in a DeployContract action.",
+          "type": "object",
+          "required": [
+            "ContractSizeExceeded"
+          ],
+          "properties": {
+            "ContractSizeExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "size"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The length of the method name exceeded the limit in a Function Call action.",
+          "type": "object",
+          "required": [
+            "FunctionCallMethodNameLengthExceeded"
+          ],
+          "properties": {
+            "FunctionCallMethodNameLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The length of the arguments exceeded the limit in a Function Call action.",
+          "type": "object",
+          "required": [
+            "FunctionCallArgumentsLengthExceeded"
+          ],
+          "properties": {
+            "FunctionCallArgumentsLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "An attempt to stake with a public key that is not convertible to ristretto.",
+          "type": "object",
+          "required": [
+            "UnsuitableStakingKey"
+          ],
+          "properties": {
+            "UnsuitableStakingKey": {
+              "type": "object",
+              "required": [
+                "public_key"
+              ],
+              "properties": {
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The attached amount of gas in a FunctionCall action has to be a positive number.",
+          "type": "string",
+          "enum": [
+            "FunctionCallZeroAttachedGas"
+          ]
+        },
+        {
+          "description": "There should be the only one DelegateAction",
+          "type": "string",
+          "enum": [
+            "DelegateActionMustBeOnlyOne"
+          ]
+        },
+        {
+          "description": "The transaction includes a feature that the current protocol version does not support.\n\nNote: we stringify the protocol feature name instead of using `ProtocolFeature` here because we don't want to leak the internals of that type into observable borsh serialization.",
+          "type": "object",
+          "required": [
+            "UnsupportedProtocolFeature"
+          ],
+          "properties": {
+            "UnsupportedProtocolFeature": {
+              "type": "object",
+              "required": [
+                "protocol_feature",
+                "version"
+              ],
+              "properties": {
+                "protocol_feature": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AddKeyAction": {
+      "type": "object",
+      "required": [
+        "access_key",
+        "public_key"
+      ],
+      "properties": {
+        "access_key": {
+          "description": "An access key with the permission",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AccessKey"
+            }
+          ]
+        },
+        "public_key": {
+          "description": "A public key which will be associated with an access_key",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PublicKey"
+            }
+          ]
+        }
+      }
+    },
+    "CompilationError": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "CodeDoesNotExist"
+          ],
+          "properties": {
+            "CodeDoesNotExist": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "PrepareError"
+          ],
+          "properties": {
+            "PrepareError": {
+              "$ref": "#/definitions/PrepareError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "This is for defense in depth. We expect our runtime-independent preparation code to fully catch all invalid wasms, but, if it ever misses something we’ll emit this error",
+          "type": "object",
+          "required": [
+            "WasmerCompileError"
+          ],
+          "properties": {
+            "WasmerCompileError": {
+              "type": "object",
+              "required": [
+                "msg"
+              ],
+              "properties": {
+                "msg": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CostGasUsed": {
+      "type": "object",
+      "required": [
+        "cost",
+        "cost_category",
+        "gas_used"
+      ],
+      "properties": {
+        "cost": {
+          "type": "string"
+        },
+        "cost_category": {
+          "type": "string"
+        },
+        "gas_used": {
+          "type": "string"
+        }
+      }
+    },
+    "CreateAccountAction": {
+      "description": "Create account action",
+      "type": "object"
+    },
+    "CryptoHash": {
+      "type": "string"
+    },
+    "DataReceiverView": {
+      "type": "object",
+      "required": [
+        "data_id",
+        "receiver_id"
+      ],
+      "properties": {
+        "data_id": {
+          "$ref": "#/definitions/CryptoHash"
+        },
+        "receiver_id": {
+          "$ref": "#/definitions/AccountId"
+        }
+      }
+    },
+    "DelegateAction": {
+      "description": "This action allows to execute the inner actions behalf of the defined sender.",
+      "type": "object",
+      "required": [
+        "actions",
+        "max_block_height",
+        "nonce",
+        "public_key",
+        "receiver_id",
+        "sender_id"
+      ],
+      "properties": {
+        "actions": {
+          "description": "List of actions to be executed.\n\nWith the meta transactions MVP defined in NEP-366, nested DelegateActions are not allowed. A separate type is used to enforce it.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NonDelegateAction"
+          }
+        },
+        "max_block_height": {
+          "description": "The maximal height of the block in the blockchain below which the given DelegateAction is valid.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "nonce": {
+          "description": "Nonce to ensure that the same delegate action is not sent twice by a relayer and should match for given account's `public_key`. After this action is processed it will increment.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "public_key": {
+          "description": "Public key used to sign this delegated action.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PublicKey"
+            }
+          ]
+        },
+        "receiver_id": {
+          "description": "Receiver of the delegated actions.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AccountId"
+            }
+          ]
+        },
+        "sender_id": {
+          "description": "Signer of the delegated actions",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AccountId"
+            }
+          ]
+        }
+      }
+    },
+    "DeleteAccountAction": {
+      "type": "object",
+      "required": [
+        "beneficiary_id"
+      ],
+      "properties": {
+        "beneficiary_id": {
+          "$ref": "#/definitions/AccountId"
+        }
+      }
+    },
+    "DeleteKeyAction": {
+      "type": "object",
+      "required": [
+        "public_key"
+      ],
+      "properties": {
+        "public_key": {
+          "description": "A public key associated with the access_key to be deleted.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PublicKey"
+            }
+          ]
+        }
+      }
+    },
+    "DeployContractAction": {
+      "description": "Deploy contract action",
+      "type": "object",
+      "required": [
+        "code"
+      ],
+      "properties": {
+        "code": {
+          "description": "WebAssembly binary",
+          "type": "string"
+        }
+      }
+    },
+    "DeployGlobalContractAction": {
+      "description": "Deploy global contract action",
+      "type": "object",
+      "required": [
+        "code",
+        "deploy_mode"
+      ],
+      "properties": {
+        "code": {
+          "description": "WebAssembly binary",
+          "type": "string"
+        },
+        "deploy_mode": {
+          "$ref": "#/definitions/GlobalContractDeployMode"
+        }
+      }
+    },
+    "Direction": {
+      "type": "string",
+      "enum": [
+        "Left",
+        "Right"
+      ]
+    },
+    "ExecutionMetadataView": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "gas_profile": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/CostGasUsed"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ExecutionOutcomeView": {
+      "type": "object",
+      "required": [
+        "executor_id",
+        "gas_burnt",
+        "logs",
+        "receipt_ids",
+        "status",
+        "tokens_burnt"
+      ],
+      "properties": {
+        "executor_id": {
+          "description": "The id of the account on which the execution happens. For transaction this is signer_id, for receipt this is receiver_id.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AccountId"
+            }
+          ]
+        },
+        "gas_burnt": {
+          "description": "The amount of the gas burnt by the given transaction or receipt.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "logs": {
+          "description": "Logs from this transaction or receipt.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metadata": {
+          "description": "Execution metadata, versioned",
+          "default": {
+            "version": 1,
+            "gas_profile": null
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExecutionMetadataView"
+            }
+          ]
+        },
+        "receipt_ids": {
+          "description": "Receipt IDs generated by this transaction or receipt.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CryptoHash"
+          }
+        },
+        "status": {
+          "description": "Execution status. Contains the result in case of successful execution.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExecutionStatusView"
+            }
+          ]
+        },
+        "tokens_burnt": {
+          "description": "The amount of tokens burnt corresponding to the burnt gas amount. This value doesn't always equal to the `gas_burnt` multiplied by the gas price, because the prepaid gas price might be lower than the actual gas price and it creates a deficit.",
+          "type": "string"
+        }
+      }
+    },
+    "ExecutionOutcomeWithIdView": {
+      "type": "object",
+      "required": [
+        "block_hash",
+        "id",
+        "outcome",
+        "proof"
+      ],
+      "properties": {
+        "block_hash": {
+          "$ref": "#/definitions/CryptoHash"
+        },
+        "id": {
+          "$ref": "#/definitions/CryptoHash"
+        },
+        "outcome": {
+          "$ref": "#/definitions/ExecutionOutcomeView"
+        },
+        "proof": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MerklePathItem"
+          }
+        }
+      }
+    },
+    "ExecutionStatusView": {
+      "oneOf": [
+        {
+          "description": "The execution is pending or unknown.",
+          "type": "string",
+          "enum": [
+            "Unknown"
+          ]
+        },
+        {
+          "description": "The execution has failed.",
+          "type": "object",
+          "required": [
+            "Failure"
+          ],
+          "properties": {
+            "Failure": {
+              "$ref": "#/definitions/TxExecutionError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The final action succeeded and returned some value or an empty vec encoded in base64.",
+          "type": "object",
+          "required": [
+            "SuccessValue"
+          ],
+          "properties": {
+            "SuccessValue": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The final action of the receipt returned a promise or the signed transaction was converted to a receipt. Contains the receipt_id of the generated receipt.",
+          "type": "object",
+          "required": [
+            "SuccessReceiptId"
+          ],
+          "properties": {
+            "SuccessReceiptId": {
+              "$ref": "#/definitions/CryptoHash"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "FinalExecutionOutcomeView": {
+      "description": "Execution outcome of the transaction and all the subsequent receipts. Could be not finalized yet",
+      "type": "object",
+      "required": [
+        "receipts_outcome",
+        "status",
+        "transaction",
+        "transaction_outcome"
+      ],
+      "properties": {
+        "receipts_outcome": {
+          "description": "The execution outcome of receipts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ExecutionOutcomeWithIdView"
+          }
+        },
+        "status": {
+          "description": "Execution status defined by chain.rs:get_final_transaction_result FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution FinalExecutionStatus::Failure - the result of the first leaf receipt_id FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FinalExecutionStatus"
+            }
+          ]
+        },
+        "transaction": {
+          "description": "Signed Transaction",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SignedTransactionView"
+            }
+          ]
+        },
+        "transaction_outcome": {
+          "description": "The execution outcome of the signed transaction.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExecutionOutcomeWithIdView"
+            }
+          ]
+        }
+      }
+    },
+    "FinalExecutionOutcomeWithReceiptView": {
+      "description": "Final execution outcome of the transaction and all of subsequent the receipts. Also includes the generated receipt.",
+      "type": "object",
+      "required": [
+        "receipts",
+        "receipts_outcome",
+        "status",
+        "transaction",
+        "transaction_outcome"
+      ],
+      "properties": {
+        "receipts": {
+          "description": "Receipts generated from the transaction",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReceiptView"
+          }
+        },
+        "receipts_outcome": {
+          "description": "The execution outcome of receipts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ExecutionOutcomeWithIdView"
+          }
+        },
+        "status": {
+          "description": "Execution status defined by chain.rs:get_final_transaction_result FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution FinalExecutionStatus::Failure - the result of the first leaf receipt_id FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FinalExecutionStatus"
+            }
+          ]
+        },
+        "transaction": {
+          "description": "Signed Transaction",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SignedTransactionView"
+            }
+          ]
+        },
+        "transaction_outcome": {
+          "description": "The execution outcome of the signed transaction.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExecutionOutcomeWithIdView"
+            }
+          ]
+        }
+      }
+    },
+    "FinalExecutionStatus": {
+      "oneOf": [
+        {
+          "description": "The execution has not yet started.",
+          "type": "string",
+          "enum": [
+            "NotStarted"
+          ]
+        },
+        {
+          "description": "The execution has started and still going.",
+          "type": "string",
+          "enum": [
+            "Started"
+          ]
+        },
+        {
+          "description": "The execution has failed with the given error.",
+          "type": "object",
+          "required": [
+            "Failure"
+          ],
+          "properties": {
+            "Failure": {
+              "$ref": "#/definitions/TxExecutionError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The execution has succeeded and returned some value or an empty vec encoded in base64.",
+          "type": "object",
+          "required": [
+            "SuccessValue"
+          ],
+          "properties": {
+            "SuccessValue": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "FunctionCallAction": {
+      "type": "object",
+      "required": [
+        "args",
+        "deposit",
+        "gas",
+        "method_name"
+      ],
+      "properties": {
+        "args": {
+          "type": "string"
+        },
+        "deposit": {
+          "type": "string"
+        },
+        "gas": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "method_name": {
+          "type": "string"
+        }
+      }
+    },
+    "FunctionCallError": {
+      "description": "Serializable version of `near-vm-runner::FunctionCallError`.\n\nMust never reorder/remove elements, can only add new variants at the end (but do that very carefully). It describes stable serialization format, and only used by serialization logic.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "WasmUnknownError",
+            "_EVMError"
+          ]
+        },
+        {
+          "description": "Wasm compilation error",
+          "type": "object",
+          "required": [
+            "CompilationError"
+          ],
+          "properties": {
+            "CompilationError": {
+              "$ref": "#/definitions/CompilationError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Wasm binary env link error\n\nNote: this is only to deserialize old data, use execution error for new data",
+          "type": "object",
+          "required": [
+            "LinkError"
+          ],
+          "properties": {
+            "LinkError": {
+              "type": "object",
+              "required": [
+                "msg"
+              ],
+              "properties": {
+                "msg": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Import/export resolve error",
+          "type": "object",
+          "required": [
+            "MethodResolveError"
+          ],
+          "properties": {
+            "MethodResolveError": {
+              "$ref": "#/definitions/MethodResolveError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "A trap happened during execution of a binary\n\nNote: this is only to deserialize old data, use execution error for new data",
+          "type": "object",
+          "required": [
+            "WasmTrap"
+          ],
+          "properties": {
+            "WasmTrap": {
+              "$ref": "#/definitions/WasmTrap"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Note: this is only to deserialize old data, use execution error for new data",
+          "type": "object",
+          "required": [
+            "HostError"
+          ],
+          "properties": {
+            "HostError": {
+              "$ref": "#/definitions/HostError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "ExecutionError"
+          ],
+          "properties": {
+            "ExecutionError": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "FunctionCallPermission": {
+      "description": "Grants limited permission to make transactions with FunctionCallActions The permission can limit the allowed balance to be spent on the prepaid gas. It also restrict the account ID of the receiver for this function call. It also can restrict the method name for the allowed function calls.",
+      "type": "object",
+      "required": [
+        "allowance",
+        "method_names",
+        "receiver_id"
+      ],
+      "properties": {
+        "allowance": {
+          "description": "Allowance is a balance limit to use by this access key to pay for function call gas and transaction fees. When this access key is used, both account balance and the allowance is decreased by the same value. `None` means unlimited allowance. NOTE: To change or increase the allowance, the old access key needs to be deleted and a new access key should be created.",
+          "type": "string"
+        },
+        "method_names": {
+          "description": "A list of method names that can be used. The access key only allows transactions with the function call of one of the given method names. Empty list means any method name can be used.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "receiver_id": {
+          "description": "The access key only allows transactions with the given receiver's account id.",
+          "type": "string"
+        }
+      }
+    },
+    "GlobalContractData": {
+      "type": "object",
+      "required": [
+        "code",
+        "id"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/definitions/GlobalContractIdentifier"
+        }
+      }
+    },
+    "GlobalContractDeployMode": {
+      "oneOf": [
+        {
+          "description": "Contract is deployed under its code hash. Users will be able reference it by that hash. This effectively makes the contract immutable.",
+          "type": "string",
+          "enum": [
+            "CodeHash"
+          ]
+        },
+        {
+          "description": "Contract is deployed under the owner account id. Users will be able reference it by that account id. This allows the owner to update the contract for all its users.",
+          "type": "string",
+          "enum": [
+            "AccountId"
+          ]
+        }
+      ]
+    },
+    "GlobalContractIdentifier": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "CodeHash"
+          ],
+          "properties": {
+            "CodeHash": {
+              "$ref": "#/definitions/CryptoHash"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "AccountId"
+          ],
+          "properties": {
+            "AccountId": {
+              "$ref": "#/definitions/AccountId"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HostError": {
+      "oneOf": [
+        {
+          "description": "String encoding is bad UTF-16 sequence",
+          "type": "string",
+          "enum": [
+            "BadUTF16"
+          ]
+        },
+        {
+          "description": "String encoding is bad UTF-8 sequence",
+          "type": "string",
+          "enum": [
+            "BadUTF8"
+          ]
+        },
+        {
+          "description": "Exceeded the prepaid gas",
+          "type": "string",
+          "enum": [
+            "GasExceeded"
+          ]
+        },
+        {
+          "description": "Exceeded the maximum amount of gas allowed to burn per contract",
+          "type": "string",
+          "enum": [
+            "GasLimitExceeded"
+          ]
+        },
+        {
+          "description": "Exceeded the account balance",
+          "type": "string",
+          "enum": [
+            "BalanceExceeded"
+          ]
+        },
+        {
+          "description": "Tried to call an empty method name",
+          "type": "string",
+          "enum": [
+            "EmptyMethodName"
+          ]
+        },
+        {
+          "description": "Smart contract panicked",
+          "type": "object",
+          "required": [
+            "GuestPanic"
+          ],
+          "properties": {
+            "GuestPanic": {
+              "type": "object",
+              "required": [
+                "panic_msg"
+              ],
+              "properties": {
+                "panic_msg": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "IntegerOverflow happened during a contract execution",
+          "type": "string",
+          "enum": [
+            "IntegerOverflow"
+          ]
+        },
+        {
+          "description": "`promise_idx` does not correspond to existing promises",
+          "type": "object",
+          "required": [
+            "InvalidPromiseIndex"
+          ],
+          "properties": {
+            "InvalidPromiseIndex": {
+              "type": "object",
+              "required": [
+                "promise_idx"
+              ],
+              "properties": {
+                "promise_idx": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Actions can only be appended to non-joint promise.",
+          "type": "string",
+          "enum": [
+            "CannotAppendActionToJointPromise"
+          ]
+        },
+        {
+          "description": "Returning joint promise is currently prohibited",
+          "type": "string",
+          "enum": [
+            "CannotReturnJointPromise"
+          ]
+        },
+        {
+          "description": "Accessed invalid promise result index",
+          "type": "object",
+          "required": [
+            "InvalidPromiseResultIndex"
+          ],
+          "properties": {
+            "InvalidPromiseResultIndex": {
+              "type": "object",
+              "required": [
+                "result_idx"
+              ],
+              "properties": {
+                "result_idx": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Accessed invalid register id",
+          "type": "object",
+          "required": [
+            "InvalidRegisterId"
+          ],
+          "properties": {
+            "InvalidRegisterId": {
+              "type": "object",
+              "required": [
+                "register_id"
+              ],
+              "properties": {
+                "register_id": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Iterator `iterator_index` was invalidated after its creation by performing a mutable operation on trie",
+          "type": "object",
+          "required": [
+            "IteratorWasInvalidated"
+          ],
+          "properties": {
+            "IteratorWasInvalidated": {
+              "type": "object",
+              "required": [
+                "iterator_index"
+              ],
+              "properties": {
+                "iterator_index": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Accessed memory outside the bounds",
+          "type": "string",
+          "enum": [
+            "MemoryAccessViolation"
+          ]
+        },
+        {
+          "description": "VM Logic returned an invalid receipt index",
+          "type": "object",
+          "required": [
+            "InvalidReceiptIndex"
+          ],
+          "properties": {
+            "InvalidReceiptIndex": {
+              "type": "object",
+              "required": [
+                "receipt_index"
+              ],
+              "properties": {
+                "receipt_index": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Iterator index `iterator_index` does not exist",
+          "type": "object",
+          "required": [
+            "InvalidIteratorIndex"
+          ],
+          "properties": {
+            "InvalidIteratorIndex": {
+              "type": "object",
+              "required": [
+                "iterator_index"
+              ],
+              "properties": {
+                "iterator_index": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "VM Logic returned an invalid account id",
+          "type": "string",
+          "enum": [
+            "InvalidAccountId"
+          ]
+        },
+        {
+          "description": "VM Logic returned an invalid method name",
+          "type": "string",
+          "enum": [
+            "InvalidMethodName"
+          ]
+        },
+        {
+          "description": "VM Logic provided an invalid public key",
+          "type": "string",
+          "enum": [
+            "InvalidPublicKey"
+          ]
+        },
+        {
+          "description": "`method_name` is not allowed in view calls",
+          "type": "object",
+          "required": [
+            "ProhibitedInView"
+          ],
+          "properties": {
+            "ProhibitedInView": {
+              "type": "object",
+              "required": [
+                "method_name"
+              ],
+              "properties": {
+                "method_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The total number of logs will exceed the limit.",
+          "type": "object",
+          "required": [
+            "NumberOfLogsExceeded"
+          ],
+          "properties": {
+            "NumberOfLogsExceeded": {
+              "type": "object",
+              "required": [
+                "limit"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The storage key length exceeded the limit.",
+          "type": "object",
+          "required": [
+            "KeyLengthExceeded"
+          ],
+          "properties": {
+            "KeyLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The storage value length exceeded the limit.",
+          "type": "object",
+          "required": [
+            "ValueLengthExceeded"
+          ],
+          "properties": {
+            "ValueLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The total log length exceeded the limit.",
+          "type": "object",
+          "required": [
+            "TotalLogLengthExceeded"
+          ],
+          "properties": {
+            "TotalLogLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The maximum number of promises within a FunctionCall exceeded the limit.",
+          "type": "object",
+          "required": [
+            "NumberPromisesExceeded"
+          ],
+          "properties": {
+            "NumberPromisesExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "number_of_promises"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "number_of_promises": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The maximum number of input data dependencies exceeded the limit.",
+          "type": "object",
+          "required": [
+            "NumberInputDataDependenciesExceeded"
+          ],
+          "properties": {
+            "NumberInputDataDependenciesExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "number_of_input_data_dependencies"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "number_of_input_data_dependencies": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The returned value length exceeded the limit.",
+          "type": "object",
+          "required": [
+            "ReturnedValueLengthExceeded"
+          ],
+          "properties": {
+            "ReturnedValueLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The contract size for DeployContract action exceeded the limit.",
+          "type": "object",
+          "required": [
+            "ContractSizeExceeded"
+          ],
+          "properties": {
+            "ContractSizeExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "size"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The host function was deprecated.",
+          "type": "object",
+          "required": [
+            "Deprecated"
+          ],
+          "properties": {
+            "Deprecated": {
+              "type": "object",
+              "required": [
+                "method_name"
+              ],
+              "properties": {
+                "method_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "General errors for ECDSA recover.",
+          "type": "object",
+          "required": [
+            "ECRecoverError"
+          ],
+          "properties": {
+            "ECRecoverError": {
+              "type": "object",
+              "required": [
+                "msg"
+              ],
+              "properties": {
+                "msg": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Invalid input to alt_bn128 family of functions (e.g., point which isn't on the curve).",
+          "type": "object",
+          "required": [
+            "AltBn128InvalidInput"
+          ],
+          "properties": {
+            "AltBn128InvalidInput": {
+              "type": "object",
+              "required": [
+                "msg"
+              ],
+              "properties": {
+                "msg": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Invalid input to ed25519 signature verification function (e.g. signature cannot be derived from bytes).",
+          "type": "object",
+          "required": [
+            "Ed25519VerifyInvalidInput"
+          ],
+          "properties": {
+            "Ed25519VerifyInvalidInput": {
+              "type": "object",
+              "required": [
+                "msg"
+              ],
+              "properties": {
+                "msg": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "InvalidAccessKeyError": {
+      "oneOf": [
+        {
+          "description": "The access key identified by the `public_key` doesn't exist for the account",
+          "type": "object",
+          "required": [
+            "AccessKeyNotFound"
+          ],
+          "properties": {
+            "AccessKeyNotFound": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "public_key"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Transaction `receiver_id` doesn't match the access key receiver_id",
+          "type": "object",
+          "required": [
+            "ReceiverMismatch"
+          ],
+          "properties": {
+            "ReceiverMismatch": {
+              "type": "object",
+              "required": [
+                "ak_receiver",
+                "tx_receiver"
+              ],
+              "properties": {
+                "ak_receiver": {
+                  "type": "string"
+                },
+                "tx_receiver": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Transaction method name isn't allowed by the access key",
+          "type": "object",
+          "required": [
+            "MethodNameMismatch"
+          ],
+          "properties": {
+            "MethodNameMismatch": {
+              "type": "object",
+              "required": [
+                "method_name"
+              ],
+              "properties": {
+                "method_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Transaction requires a full permission access key.",
+          "type": "string",
+          "enum": [
+            "RequiresFullAccess"
+          ]
+        },
+        {
+          "description": "Access Key does not have enough allowance to cover transaction cost",
+          "type": "object",
+          "required": [
+            "NotEnoughAllowance"
+          ],
+          "properties": {
+            "NotEnoughAllowance": {
+              "type": "object",
+              "required": [
+                "account_id",
+                "allowance",
+                "cost",
+                "public_key"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "allowance": {
+                  "type": "string"
+                },
+                "cost": {
+                  "type": "string"
+                },
+                "public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Having a deposit with a function call action is not allowed with a function call access key.",
+          "type": "string",
+          "enum": [
+            "DepositWithFunctionCall"
+          ]
+        }
+      ]
+    },
+    "InvalidTxError": {
+      "description": "An error happened during TX execution",
+      "oneOf": [
+        {
+          "description": "Happens if a wrong AccessKey used or AccessKey has not enough permissions",
+          "type": "object",
+          "required": [
+            "InvalidAccessKeyError"
+          ],
+          "properties": {
+            "InvalidAccessKeyError": {
+              "$ref": "#/definitions/InvalidAccessKeyError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "TX signer_id is not a valid [`AccountId`]",
+          "type": "object",
+          "required": [
+            "InvalidSignerId"
+          ],
+          "properties": {
+            "InvalidSignerId": {
+              "type": "object",
+              "required": [
+                "signer_id"
+              ],
+              "properties": {
+                "signer_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "TX signer_id is not found in a storage",
+          "type": "object",
+          "required": [
+            "SignerDoesNotExist"
+          ],
+          "properties": {
+            "SignerDoesNotExist": {
+              "type": "object",
+              "required": [
+                "signer_id"
+              ],
+              "properties": {
+                "signer_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Transaction nonce must be `account[access_key].nonce + 1`.",
+          "type": "object",
+          "required": [
+            "InvalidNonce"
+          ],
+          "properties": {
+            "InvalidNonce": {
+              "type": "object",
+              "required": [
+                "ak_nonce",
+                "tx_nonce"
+              ],
+              "properties": {
+                "ak_nonce": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "tx_nonce": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Transaction nonce is larger than the upper bound given by the block height",
+          "type": "object",
+          "required": [
+            "NonceTooLarge"
+          ],
+          "properties": {
+            "NonceTooLarge": {
+              "type": "object",
+              "required": [
+                "tx_nonce",
+                "upper_bound"
+              ],
+              "properties": {
+                "tx_nonce": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "upper_bound": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "TX receiver_id is not a valid AccountId",
+          "type": "object",
+          "required": [
+            "InvalidReceiverId"
+          ],
+          "properties": {
+            "InvalidReceiverId": {
+              "type": "object",
+              "required": [
+                "receiver_id"
+              ],
+              "properties": {
+                "receiver_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "TX signature is not valid",
+          "type": "string",
+          "enum": [
+            "InvalidSignature"
+          ]
+        },
+        {
+          "description": "Account does not have enough balance to cover TX cost",
+          "type": "object",
+          "required": [
+            "NotEnoughBalance"
+          ],
+          "properties": {
+            "NotEnoughBalance": {
+              "type": "object",
+              "required": [
+                "balance",
+                "cost",
+                "signer_id"
+              ],
+              "properties": {
+                "balance": {
+                  "type": "string"
+                },
+                "cost": {
+                  "type": "string"
+                },
+                "signer_id": {
+                  "$ref": "#/definitions/AccountId"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Signer account doesn't have enough balance after transaction.",
+          "type": "object",
+          "required": [
+            "LackBalanceForState"
+          ],
+          "properties": {
+            "LackBalanceForState": {
+              "type": "object",
+              "required": [
+                "amount",
+                "signer_id"
+              ],
+              "properties": {
+                "amount": {
+                  "description": "Required balance to cover the state.",
+                  "type": "string"
+                },
+                "signer_id": {
+                  "description": "An account which doesn't have enough balance to cover storage.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/AccountId"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "An integer overflow occurred during transaction cost estimation.",
+          "type": "string",
+          "enum": [
+            "CostOverflow"
+          ]
+        },
+        {
+          "description": "Transaction parent block hash doesn't belong to the current chain",
+          "type": "string",
+          "enum": [
+            "InvalidChain"
+          ]
+        },
+        {
+          "description": "Transaction has expired",
+          "type": "string",
+          "enum": [
+            "Expired"
+          ]
+        },
+        {
+          "description": "An error occurred while validating actions of a Transaction.",
+          "type": "object",
+          "required": [
+            "ActionsValidation"
+          ],
+          "properties": {
+            "ActionsValidation": {
+              "$ref": "#/definitions/ActionsValidationError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The size of serialized transaction exceeded the limit.",
+          "type": "object",
+          "required": [
+            "TransactionSizeExceeded"
+          ],
+          "properties": {
+            "TransactionSizeExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "size"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Transaction version is invalid.",
+          "type": "string",
+          "enum": [
+            "InvalidTransactionVersion"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "StorageError"
+          ],
+          "properties": {
+            "StorageError": {
+              "$ref": "#/definitions/StorageError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The receiver shard of the transaction is too congested to accept new transactions at the moment.",
+          "type": "object",
+          "required": [
+            "ShardCongested"
+          ],
+          "properties": {
+            "ShardCongested": {
+              "type": "object",
+              "required": [
+                "congestion_level",
+                "shard_id"
+              ],
+              "properties": {
+                "congestion_level": {
+                  "description": "A value between 0 (no congestion) and 1 (max congestion).",
+                  "type": "number",
+                  "format": "double"
+                },
+                "shard_id": {
+                  "description": "The congested shard.",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The receiver shard of the transaction missed several chunks and rejects new transaction until it can make progress again.",
+          "type": "object",
+          "required": [
+            "ShardStuck"
+          ],
+          "properties": {
+            "ShardStuck": {
+              "type": "object",
+              "required": [
+                "missed_chunks",
+                "shard_id"
+              ],
+              "properties": {
+                "missed_chunks": {
+                  "description": "The number of blocks since the last included chunk of the shard.",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "shard_id": {
+                  "description": "The shard that fails making progress.",
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "MerklePathItem": {
+      "type": "object",
+      "required": [
+        "direction",
+        "hash"
+      ],
+      "properties": {
+        "direction": {
+          "$ref": "#/definitions/Direction"
+        },
+        "hash": {
+          "$ref": "#/definitions/CryptoHash"
+        }
+      }
+    },
+    "MethodResolveError": {
+      "type": "string",
+      "enum": [
+        "MethodEmptyName",
+        "MethodNotFound",
+        "MethodInvalidSignature"
+      ]
+    },
+    "MissingTrieValueContext": {
+      "description": "Contexts in which `StorageError::MissingTrieValue` error might occur.",
+      "oneOf": [
+        {
+          "description": "Missing trie value when reading from TrieIterator.",
+          "type": "string",
+          "enum": [
+            "TrieIterator"
+          ]
+        },
+        {
+          "description": "Missing trie value when reading from TriePrefetchingStorage.",
+          "type": "string",
+          "enum": [
+            "TriePrefetchingStorage"
+          ]
+        },
+        {
+          "description": "Missing trie value when reading from TrieMemoryPartialStorage.",
+          "type": "string",
+          "enum": [
+            "TrieMemoryPartialStorage"
+          ]
+        },
+        {
+          "description": "Missing trie value when reading from TrieStorage.",
+          "type": "string",
+          "enum": [
+            "TrieStorage"
+          ]
+        }
+      ]
+    },
+    "NonDelegateAction": {
+      "description": "This is Action which mustn't contain DelegateAction.\n\nThis struct is needed to avoid the recursion when Action/DelegateAction is deserialized.\n\nImportant: Don't make the inner Action public, this must only be constructed through the correct interface that ensures the inner Action is actually not a delegate action. That would break an assumption of this type, which we use in several places. For example, borsh de-/serialization relies on it. If the invariant is broken, we may end up with a `Transaction` or `Receipt` that we can serialize but deserializing it back causes a parsing error.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Action"
+        }
+      ]
+    },
+    "PrepareError": {
+      "description": "Error that can occur while preparing or executing Wasm smart-contract.",
+      "oneOf": [
+        {
+          "description": "Error happened while serializing the module.",
+          "type": "string",
+          "enum": [
+            "Serialization"
+          ]
+        },
+        {
+          "description": "Error happened while deserializing the module.",
+          "type": "string",
+          "enum": [
+            "Deserialization"
+          ]
+        },
+        {
+          "description": "Internal memory declaration has been found in the module.",
+          "type": "string",
+          "enum": [
+            "InternalMemoryDeclared"
+          ]
+        },
+        {
+          "description": "Gas instrumentation failed.\n\nThis most likely indicates the module isn't valid.",
+          "type": "string",
+          "enum": [
+            "GasInstrumentation"
+          ]
+        },
+        {
+          "description": "Stack instrumentation failed.\n\nThis  most likely indicates the module isn't valid.",
+          "type": "string",
+          "enum": [
+            "StackHeightInstrumentation"
+          ]
+        },
+        {
+          "description": "Error happened during instantiation.\n\nThis might indicate that `start` function trapped, or module isn't instantiable and/or un-linkable.",
+          "type": "string",
+          "enum": [
+            "Instantiate"
+          ]
+        },
+        {
+          "description": "Error creating memory.",
+          "type": "string",
+          "enum": [
+            "Memory"
+          ]
+        },
+        {
+          "description": "Contract contains too many functions.",
+          "type": "string",
+          "enum": [
+            "TooManyFunctions"
+          ]
+        },
+        {
+          "description": "Contract contains too many locals.",
+          "type": "string",
+          "enum": [
+            "TooManyLocals"
+          ]
+        }
+      ]
+    },
+    "PublicKey": {
+      "type": "string"
+    },
+    "ReceiptEnumView": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Action"
+          ],
+          "properties": {
+            "Action": {
+              "type": "object",
+              "required": [
+                "actions",
+                "gas_price",
+                "input_data_ids",
+                "output_data_receivers",
+                "signer_id",
+                "signer_public_key"
+              ],
+              "properties": {
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/ActionView"
+                  }
+                },
+                "gas_price": {
+                  "type": "string"
+                },
+                "input_data_ids": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/CryptoHash"
+                  }
+                },
+                "is_promise_yield": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "output_data_receivers": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/DataReceiverView"
+                  }
+                },
+                "signer_id": {
+                  "$ref": "#/definitions/AccountId"
+                },
+                "signer_public_key": {
+                  "$ref": "#/definitions/PublicKey"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Data"
+          ],
+          "properties": {
+            "Data": {
+              "type": "object",
+              "required": [
+                "data_id"
+              ],
+              "properties": {
+                "data": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "data_id": {
+                  "$ref": "#/definitions/CryptoHash"
+                },
+                "is_promise_resume": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "GlobalContractDistribution"
+          ],
+          "properties": {
+            "GlobalContractDistribution": {
+              "type": "object",
+              "required": [
+                "data"
+              ],
+              "properties": {
+                "data": {
+                  "$ref": "#/definitions/GlobalContractData"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ReceiptValidationError": {
+      "description": "Describes the error for validating a receipt.",
+      "oneOf": [
+        {
+          "description": "The `predecessor_id` of a Receipt is not valid.",
+          "type": "object",
+          "required": [
+            "InvalidPredecessorId"
+          ],
+          "properties": {
+            "InvalidPredecessorId": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The `receiver_id` of a Receipt is not valid.",
+          "type": "object",
+          "required": [
+            "InvalidReceiverId"
+          ],
+          "properties": {
+            "InvalidReceiverId": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The `signer_id` of an ActionReceipt is not valid.",
+          "type": "object",
+          "required": [
+            "InvalidSignerId"
+          ],
+          "properties": {
+            "InvalidSignerId": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The `receiver_id` of a DataReceiver within an ActionReceipt is not valid.",
+          "type": "object",
+          "required": [
+            "InvalidDataReceiverId"
+          ],
+          "properties": {
+            "InvalidDataReceiverId": {
+              "type": "object",
+              "required": [
+                "account_id"
+              ],
+              "properties": {
+                "account_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The length of the returned data exceeded the limit in a DataReceipt.",
+          "type": "object",
+          "required": [
+            "ReturnedValueLengthExceeded"
+          ],
+          "properties": {
+            "ReturnedValueLengthExceeded": {
+              "type": "object",
+              "required": [
+                "length",
+                "limit"
+              ],
+              "properties": {
+                "length": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "The number of input data dependencies exceeds the limit in an ActionReceipt.",
+          "type": "object",
+          "required": [
+            "NumberInputDataDependenciesExceeded"
+          ],
+          "properties": {
+            "NumberInputDataDependenciesExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "number_of_input_data_dependencies"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "number_of_input_data_dependencies": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "An error occurred while validating actions of an ActionReceipt.",
+          "type": "object",
+          "required": [
+            "ActionsValidation"
+          ],
+          "properties": {
+            "ActionsValidation": {
+              "$ref": "#/definitions/ActionsValidationError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Receipt is bigger than the limit.",
+          "type": "object",
+          "required": [
+            "ReceiptSizeExceeded"
+          ],
+          "properties": {
+            "ReceiptSizeExceeded": {
+              "type": "object",
+              "required": [
+                "limit",
+                "size"
+              ],
+              "properties": {
+                "limit": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                },
+                "size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0.0
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ReceiptView": {
+      "type": "object",
+      "required": [
+        "predecessor_id",
+        "receipt",
+        "receipt_id",
+        "receiver_id"
+      ],
+      "properties": {
+        "predecessor_id": {
+          "$ref": "#/definitions/AccountId"
+        },
+        "priority": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "receipt": {
+          "$ref": "#/definitions/ReceiptEnumView"
+        },
+        "receipt_id": {
+          "$ref": "#/definitions/CryptoHash"
+        },
+        "receiver_id": {
+          "$ref": "#/definitions/AccountId"
+        }
+      }
+    },
+    "Signature": {
+      "type": "string"
+    },
+    "SignedDelegateAction": {
+      "type": "object",
+      "required": [
+        "delegate_action",
+        "signature"
+      ],
+      "properties": {
+        "delegate_action": {
+          "$ref": "#/definitions/DelegateAction"
+        },
+        "signature": {
+          "$ref": "#/definitions/Signature"
+        }
+      }
+    },
+    "SignedTransactionView": {
+      "type": "object",
+      "required": [
+        "actions",
+        "hash",
+        "nonce",
+        "public_key",
+        "receiver_id",
+        "signature",
+        "signer_id"
+      ],
+      "properties": {
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ActionView"
+          }
+        },
+        "hash": {
+          "$ref": "#/definitions/CryptoHash"
+        },
+        "nonce": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "priority_fee": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "public_key": {
+          "$ref": "#/definitions/PublicKey"
+        },
+        "receiver_id": {
+          "$ref": "#/definitions/AccountId"
+        },
+        "signature": {
+          "$ref": "#/definitions/Signature"
+        },
+        "signer_id": {
+          "$ref": "#/definitions/AccountId"
+        }
+      }
+    },
+    "StakeAction": {
+      "description": "An action which stakes signer_id tokens and setup's validator public key",
+      "type": "object",
+      "required": [
+        "public_key",
+        "stake"
+      ],
+      "properties": {
+        "public_key": {
+          "description": "Validator key which will be used to sign transactions on behalf of signer_id",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PublicKey"
+            }
+          ]
+        },
+        "stake": {
+          "description": "Amount of tokens to stake.",
+          "type": "string"
+        }
+      }
+    },
+    "StorageError": {
+      "description": "Errors which may occur during working with trie storages, storing trie values (trie nodes and state values) by their hashes.",
+      "oneOf": [
+        {
+          "description": "Key-value db internal failure",
+          "type": "string",
+          "enum": [
+            "StorageInternalError"
+          ]
+        },
+        {
+          "description": "Requested trie value by its hash which is missing in storage.",
+          "type": "object",
+          "required": [
+            "MissingTrieValue"
+          ],
+          "properties": {
+            "MissingTrieValue": {
+              "type": "array",
+              "items": [
+                {
+                  "$ref": "#/definitions/MissingTrieValueContext"
+                },
+                {
+                  "$ref": "#/definitions/CryptoHash"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Found trie node which shouldn't be part of state. Raised during validation of state sync parts where incorrect node was passed. TODO (#8997): consider including hash of trie node.",
+          "type": "string",
+          "enum": [
+            "UnexpectedTrieValue"
+          ]
+        },
+        {
+          "description": "Either invalid state or key-value db is corrupted. For PartialStorage it cannot be corrupted. Error message is unreliable and for debugging purposes only. It's also probably ok to panic in every place that produces this error. We can check if db is corrupted by verifying everything in the state trie.",
+          "type": "object",
+          "required": [
+            "StorageInconsistentState"
+          ],
+          "properties": {
+            "StorageInconsistentState": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Flat storage error, meaning that it doesn't support some block anymore. We guarantee that such block cannot become final, thus block processing must resume normally.",
+          "type": "object",
+          "required": [
+            "FlatStorageBlockNotSupported"
+          ],
+          "properties": {
+            "FlatStorageBlockNotSupported": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "In-memory trie could not be loaded for some reason.",
+          "type": "object",
+          "required": [
+            "MemTrieLoadingError"
+          ],
+          "properties": {
+            "MemTrieLoadingError": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "Indicates that a resharding operation on flat storage is already in progress, when it wasn't expected to be so.",
+          "type": "string",
+          "enum": [
+            "FlatStorageReshardingAlreadyInProgress"
+          ]
+        }
+      ]
+    },
+    "TransferAction": {
+      "type": "object",
+      "required": [
+        "deposit"
+      ],
+      "properties": {
+        "deposit": {
+          "type": "string"
+        }
+      }
+    },
+    "TxExecutionError": {
+      "description": "Error returned in the ExecutionOutcome in case of failure",
+      "oneOf": [
+        {
+          "description": "An error happened during Action execution",
+          "type": "object",
+          "required": [
+            "ActionError"
+          ],
+          "properties": {
+            "ActionError": {
+              "$ref": "#/definitions/ActionError"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "description": "An error happened during Transaction execution",
+          "type": "object",
+          "required": [
+            "InvalidTxError"
+          ],
+          "properties": {
+            "InvalidTxError": {
+              "$ref": "#/definitions/InvalidTxError"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TxExecutionStatus": {
+      "oneOf": [
+        {
+          "description": "Transaction is waiting to be included into the block",
+          "type": "string",
+          "enum": [
+            "NONE"
+          ]
+        },
+        {
+          "description": "Transaction is included into the block. The block may be not finalized yet",
+          "type": "string",
+          "enum": [
+            "INCLUDED"
+          ]
+        },
+        {
+          "description": "Transaction is included into the block + All non-refund transaction receipts finished their execution. The corresponding blocks for tx and each receipt may be not finalized yet",
+          "type": "string",
+          "enum": [
+            "EXECUTED_OPTIMISTIC"
+          ]
+        },
+        {
+          "description": "Transaction is included into finalized block",
+          "type": "string",
+          "enum": [
+            "INCLUDED_FINAL"
+          ]
+        },
+        {
+          "description": "Transaction is included into finalized block + All non-refund transaction receipts finished their execution. The corresponding blocks for each receipt may be not finalized yet",
+          "type": "string",
+          "enum": [
+            "EXECUTED"
+          ]
+        },
+        {
+          "description": "Transaction is included into finalized block + Execution of all transaction receipts is finalized, including refund receipts",
+          "type": "string",
+          "enum": [
+            "FINAL"
+          ]
+        }
+      ]
+    },
+    "UseGlobalContractAction": {
+      "description": "Use global contract action",
+      "type": "object",
+      "required": [
+        "contract_identifier"
+      ],
+      "properties": {
+        "contract_identifier": {
+          "$ref": "#/definitions/GlobalContractIdentifier"
+        }
+      }
+    },
+    "WasmTrap": {
+      "description": "A kind of a trap happened during execution of a binary",
+      "oneOf": [
+        {
+          "description": "An `unreachable` opcode was executed.",
+          "type": "string",
+          "enum": [
+            "Unreachable"
+          ]
+        },
+        {
+          "description": "Call indirect incorrect signature trap.",
+          "type": "string",
+          "enum": [
+            "IncorrectCallIndirectSignature"
+          ]
+        },
+        {
+          "description": "Memory out of bounds trap.",
+          "type": "string",
+          "enum": [
+            "MemoryOutOfBounds"
+          ]
+        },
+        {
+          "description": "Call indirect out of bounds trap.",
+          "type": "string",
+          "enum": [
+            "CallIndirectOOB"
+          ]
+        },
+        {
+          "description": "An arithmetic exception, e.g. divided by zero.",
+          "type": "string",
+          "enum": [
+            "IllegalArithmetic"
+          ]
+        },
+        {
+          "description": "Misaligned atomic access trap.",
+          "type": "string",
+          "enum": [
+            "MisalignedAtomicAccess"
+          ]
+        },
+        {
+          "description": "Indirect call to null.",
+          "type": "string",
+          "enum": [
+            "IndirectCallToNull"
+          ]
+        },
+        {
+          "description": "Stack overflow.",
+          "type": "string",
+          "enum": [
+            "StackOverflow"
+          ]
+        },
+        {
+          "description": "Generic trap.",
+          "type": "string",
+          "enum": [
+            "GenericTrap"
+          ]
+        }
+      ]
+    }
+  }
+}

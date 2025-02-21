@@ -13,6 +13,7 @@ use near_primitives_core::types::{AccountId, Nonce};
 use near_schema_checker_lib::ProtocolSchema;
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind, Read};
+use schemars::JsonSchema;
 
 /// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
@@ -27,6 +28,7 @@ const ACTION_DELEGATE_NUMBER: u8 = 8;
     Clone,
     Debug,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct DelegateAction {
     /// Signer of the delegated actions
@@ -58,6 +60,7 @@ pub struct DelegateAction {
     Clone,
     Debug,
     ProtocolSchema,
+    JsonSchema,
 )]
 pub struct SignedDelegateAction {
     pub delegate_action: DelegateAction,
@@ -106,7 +109,7 @@ impl DelegateAction {
 /// in several places. For example, borsh de-/serialization relies on it. If the
 /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
 /// can serialize but deserializing it back causes a parsing error.
-#[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
+#[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema, JsonSchema)]
 pub struct NonDelegateAction(Action);
 
 /// A small private module to protect the private fields inside `NonDelegateAction`.

@@ -2178,6 +2178,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feeef44e73baff3a26d371801df019877a9866a8c493d315ab00177843314f35"
+
+[[package]]
 name = "dynasm"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4087,11 +4093,10 @@ dependencies = [
 
 [[package]]
 name = "near-account-id"
-version = "1.0.0-alpha.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d10d45a9c49c3e975c362cf4d1dc1d7b72a716b30394bea56ee2a8fb225f50b7"
+version = "1.0.0"
 dependencies = [
  "borsh",
+ "schemars",
  "serde",
 ]
 
@@ -4400,6 +4405,7 @@ dependencies = [
  "near-stdx",
  "primitive-types 0.10.1",
  "rand",
+ "schemars",
  "secp256k1",
  "serde",
  "serde_json",
@@ -4598,6 +4604,7 @@ dependencies = [
  "near-network",
  "near-o11y",
  "near-primitives",
+ "schemars",
  "serde",
  "serde_json",
  "serde_with",
@@ -4655,6 +4662,7 @@ dependencies = [
  "near-crypto",
  "near-primitives",
  "near-schema-checker-lib",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.0",
@@ -4940,6 +4948,7 @@ dependencies = [
  "rand_chacha",
  "reed-solomon-erasure",
  "regex",
+ "schemars",
  "serde",
  "serde_json",
  "serde_with",
@@ -4967,6 +4976,7 @@ dependencies = [
  "near-account-id",
  "near-schema-checker-lib",
  "num-rational 0.3.2",
+ "schemars",
  "serde",
  "serde_json",
  "serde_repr",
@@ -7353,6 +7363,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "0.8.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09c024468a378b7e36765cd36702b7a90cc3cba11654f6685c8f233408e89e92"
+dependencies = [
+ "dyn-clone",
+ "schemars_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "0.8.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1eee588578aff73f856ab961cd2f79e36bc45d7ded33a7562adba4667aecc0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.87",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7481,6 +7515,17 @@ name = "serde_derive"
 version = "1.0.217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a9bf7cf98d04a2b28aead066b7496853d4779c9cc183c440dbac457641e19a0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
+]
+
+[[package]]
+name = "serde_derive_internals"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
  "proc-macro2",
  "quote",
