@@ -25,7 +25,7 @@ use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
 use near_store::adapter::chain_store::ChainStoreAdapter;
-use near_store::ShardUId;
+use near_store::{ShardUId, TrieUpdate};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -50,6 +50,11 @@ pub struct ProduceChunkResult {
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
     pub transactions_storage_proof: Option<PartialState>,
+    /// State update acumulated during chunk production.
+    /// Always generated when producing a chunk. Yet an `Option` to allow taking it.
+    /// That's ok as the `state_update` isn't needed anymore after it was taken and
+    /// put into runtime's cache.
+    pub state_update: Option<TrieUpdate>,
 }
 
 /// Handles chunk production.
@@ -143,7 +148,7 @@ impl ChunkProducer {
             return Ok(None);
         }
 
-        self.produce_chunk_internal(
+        let mut result = self.produce_chunk_internal(
             prev_block,
             epoch_id,
             last_header,
@@ -151,7 +156,16 @@ impl ChunkProducer {
             shard_id,
             signer,
             chain_validate,
-        )
+        );
+        if let Ok(Some(ref mut produced_chunk)) = result {
+            let state_update = produced_chunk.state_update.take();
+            if let Some(state_update) = state_update {
+                let chunk_hash = produced_chunk.chunk.chunk_hash().0;
+                println!("putting state_update into cache for {chunk_hash}");
+                self.runtime_adapter.cache_cp_state_update(chunk_hash, state_update);
+            }
+        }
+        result
     }
 
     #[cfg(feature = "test_features")]
@@ -255,7 +269,7 @@ impl ChunkProducer {
                 ))
             })?;
         let last_chunk = self.chain.get_chunk(&last_chunk_header.chunk_hash())?;
-        let prepared_transactions = {
+        let (prepared_transactions, state_update) = {
             #[cfg(feature = "test_features")]
             match self.adv_produce_chunks {
                 Some(AdvProduceChunksMode::ProduceWithoutTx) => PreparedTransactions {
@@ -357,6 +371,7 @@ impl ChunkProducer {
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
             transactions_storage_proof: prepared_transactions.storage_proof,
+            state_update,
         }))
     }
 
@@ -368,9 +383,9 @@ impl ChunkProducer {
         last_chunk: &ShardChunk,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<(PreparedTransactions, Option<TrieUpdate>), Error> {
         let shard_id = shard_uid.shard_id();
-        let prepared_transactions = if let Some(mut iter) =
+        let (prepared_transactions, state_update) = if let Some(mut iter) =
             self.sharded_tx_pool.get_pool_iterator(shard_uid)
         {
             let storage_config = RuntimeStorageConfig {
@@ -404,7 +419,14 @@ impl ChunkProducer {
                 self.chunk_transactions_time_limit.get(),
             )?
         } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }
+            (
+                PreparedTransactions {
+                    transactions: Vec::new(),
+                    limited_by: None,
+                    storage_proof: None,
+                },
+                None,
+            )
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
@@ -414,6 +436,6 @@ impl ChunkProducer {
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }
-        Ok(prepared_transactions)
+        Ok((prepared_transactions, state_update))
     }
 }

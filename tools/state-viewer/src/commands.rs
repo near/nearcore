@@ -124,6 +124,7 @@ pub(crate) fn apply_block(
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version,
+                    transactions_state_update: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),
@@ -150,6 +151,7 @@ pub(crate) fn apply_block(
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     is_first_block_with_chunk_of_version: false,
+                    transactions_state_update: None,
                 },
                 ApplyChunkBlockContext::from_header(
                     block.header(),

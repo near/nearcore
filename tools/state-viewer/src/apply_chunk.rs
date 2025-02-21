@@ -199,6 +199,7 @@ pub(crate) fn apply_chunk(
                 gas_limit: chunk_header.gas_limit(),
                 is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
+                transactions_state_update: None,
             },
             ApplyChunkBlockContext {
                 height: target_height,

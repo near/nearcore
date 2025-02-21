@@ -192,6 +192,7 @@ impl NightshadeRuntime {
             gas_limit,
             is_new_chunk,
             is_first_block_with_chunk_of_version,
+            transactions_state_update,
         } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
@@ -320,6 +321,7 @@ impl NightshadeRuntime {
                 transactions,
                 self.epoch_manager.as_ref(),
                 state_patch,
+                transactions_state_update,
             )
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(err) => {
@@ -610,7 +612,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error> {
+    ) -> Result<(PreparedTransactions, Option<TrieUpdate>), Error> {
         let start_time = std::time::Instant::now();
         let PrepareTransactionsChunkContext { shard_id, gas_limit, .. } = chunk;
 
@@ -828,7 +830,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .with_label_values(&[&shard_label])
             .set(i64::try_from(transactions_gas_limit).unwrap_or(i64::MAX));
         result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
-        Ok(result)
+        Ok((result, Some(state_update)))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
@@ -1233,6 +1235,14 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache {
         self.compiled_contract_cache.as_ref()
+    }
+
+    fn cache_cp_state_update(&self, chunk_hash: CryptoHash, state_update: TrieUpdate) {
+        self.runtime.cache_cp_state_update(chunk_hash, state_update);
+    }
+
+    fn take_cp_state_update(&self, chunk_hash: &CryptoHash) -> Option<TrieUpdate> {
+        self.runtime.take_cp_state_update(chunk_hash)
     }
 
     fn precompile_contracts(

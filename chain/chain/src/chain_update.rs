@@ -557,6 +557,7 @@ impl<'a> ChainUpdate<'a> {
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
+                transactions_state_update: None,
             },
             ApplyChunkBlockContext {
                 height: chunk_header.height_included(),
@@ -674,6 +675,7 @@ impl<'a> ChainUpdate<'a> {
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
                 is_first_block_with_chunk_of_version: false,
+                transactions_state_update: None,
             },
             ApplyChunkBlockContext::from_header(
                 &block_header,

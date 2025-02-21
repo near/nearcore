@@ -359,6 +359,7 @@ impl Testbed<'_> {
                 SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
                 &self.epoch_info_provider,
                 Default::default(),
+                None,
             )
             .unwrap();
 

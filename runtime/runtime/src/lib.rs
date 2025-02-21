@@ -73,7 +73,7 @@ use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, instrument};
 use verifier::ValidateReceiptMode;
 
@@ -259,11 +259,23 @@ impl Default for ActionResult {
     }
 }
 
-pub struct Runtime {}
+pub struct Runtime {
+    cp_state_updates: Arc<Mutex<HashMap<CryptoHash, TrieUpdate>>>,
+}
 
 impl Runtime {
     pub fn new() -> Self {
-        Self {}
+        Self { cp_state_updates: Default::default() }
+    }
+
+    pub fn cache_cp_state_update(&self, chunk_hash: CryptoHash, state_update: TrieUpdate) {
+        let mut cache = self.cp_state_updates.lock().unwrap();
+        cache.insert(chunk_hash, state_update);
+    }
+
+    pub fn take_cp_state_update(&self, chunk_hash: &CryptoHash) -> Option<TrieUpdate> {
+        let mut cache = self.cp_state_updates.lock().unwrap();
+        cache.remove(chunk_hash)
     }
 
     fn print_log(log: &[LogEntry]) {
@@ -329,6 +341,7 @@ impl Runtime {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
+        // TODO(poc): If CP who produced the chunk hits this path, they mustn't do all of the below.
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
@@ -1497,6 +1510,7 @@ impl Runtime {
         transactions: SignedValidPeriodTransactions<'_>,
         epoch_info_provider: &dyn EpochInfoProvider,
         state_patch: SandboxStatePatch,
+        transactions_state_update: Option<TrieUpdate>,
     ) -> Result<ApplyResult, RuntimeError> {
         metrics::TRANSACTION_APPLIED_TOTAL.inc_by(transactions.len() as u64);
 
@@ -1513,8 +1527,13 @@ impl Runtime {
         // 4. Process receipts.
         // 5. Validate and apply the state update.
 
-        let mut processing_state =
-            ApplyProcessingState::new(&apply_state, trie, epoch_info_provider, transactions);
+        let mut processing_state = ApplyProcessingState::new(
+            &apply_state,
+            trie,
+            transactions_state_update,
+            epoch_info_provider,
+            transactions,
+        );
         processing_state.stats.transactions_num =
             transactions.transactions.len().try_into().unwrap();
         processing_state.stats.incoming_receipts_num = incoming_receipts.len().try_into().unwrap();
@@ -1691,6 +1710,9 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
+        if processing_state.transactions_are_pre_applied {
+            println!("TODO(PoC): don't re-apply transactions");
+        }
         for (signed_transaction, maybe_cost) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
@@ -2575,18 +2597,27 @@ struct ApplyProcessingState<'a> {
     transactions: SignedValidPeriodTransactions<'a>,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
+    transactions_are_pre_applied: bool,
 }
 
 impl<'a> ApplyProcessingState<'a> {
     fn new(
         apply_state: &'a ApplyState,
         trie: Trie,
+        transactions_state_update: Option<TrieUpdate>,
         epoch_info_provider: &'a dyn EpochInfoProvider,
         transactions: SignedValidPeriodTransactions<'a>,
     ) -> Self {
         let protocol_version = apply_state.current_protocol_version;
         let prefetcher = TriePrefetcher::new_if_enabled(&trie);
-        let state_update = TrieUpdate::new(trie);
+        let transactions_are_pre_applied = transactions_state_update.is_some();
+        let state_update = match transactions_state_update {
+            Some(state_update) => {
+                println!("re-using cached transactions_state_update");
+                state_update
+            }
+            None => TrieUpdate::new(trie),
+        };
         let total = TotalResourceGuard {
             span: tracing::Span::current(),
             // This contains the gas "burnt" for refund receipts. Even though we don't actually
@@ -2605,6 +2636,7 @@ impl<'a> ApplyProcessingState<'a> {
             transactions,
             total,
             stats,
+            transactions_are_pre_applied,
         }
     }
 
@@ -2627,6 +2659,7 @@ impl<'a> ApplyProcessingState<'a> {
             state_update: self.state_update,
             epoch_info_provider: self.epoch_info_provider,
             transactions: self.transactions,
+            transactions_are_pre_applied: self.transactions_are_pre_applied,
             total: self.total,
             stats: self.stats,
             outcomes: Vec::new(),
@@ -2684,6 +2717,7 @@ struct ApplyProcessingReceiptState<'a> {
     state_update: TrieUpdate,
     epoch_info_provider: &'a dyn EpochInfoProvider,
     transactions: SignedValidPeriodTransactions<'a>,
+    transactions_are_pre_applied: bool,
     total: TotalResourceGuard,
     stats: ChunkApplyStatsV0,
     outcomes: Vec<ExecutionOutcomeWithId>,
@@ -2853,7 +2887,7 @@ pub mod estimator {
             apply_state.current_protocol_version,
             state_update.contract_storage(),
         );
-        let apply_result = Runtime {}.apply_action_receipt(
+        let apply_result = Runtime { cp_state_updates: Default::default() }.apply_action_receipt(
             state_update,
             apply_state,
             &empty_pipeline,

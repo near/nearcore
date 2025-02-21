@@ -41,6 +41,7 @@ use near_primitives::version::{
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::flat::FlatStorageManager;
+use near_store::TrieUpdate;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
 use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
@@ -342,6 +343,7 @@ pub struct ApplyChunkShardContext<'a> {
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
     pub is_first_block_with_chunk_of_version: bool,
+    pub transactions_state_update: Option<TrieUpdate>,
 }
 
 /// Contains transactions that were fetched from the transaction pool
@@ -450,6 +452,10 @@ pub trait RuntimeAdapter: Send + Sync {
     /// update is preserved for validation of next transactions.
     /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
     /// `RuntimeError::StorageError`.
+    ///
+    /// `TrieUpdate`: state changes accumulated during transaction preparation.
+    /// Adding `TrieUpdate` to `PreparedTransactions` is complicated due to trait bounds.
+    /// Hence, as a workaround for the PoC, returning TrieUpdate separately.
     fn prepare_transactions(
         &self,
         storage: RuntimeStorageConfig,
@@ -458,7 +464,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
-    ) -> Result<PreparedTransactions, Error>;
+    ) -> Result<(PreparedTransactions, Option<TrieUpdate>), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
@@ -542,6 +548,12 @@ pub trait RuntimeAdapter: Send + Sync {
         -> Result<RuntimeConfig, Error>;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
+
+    // TODO(poc): change CryptoHash to ChunkHash
+    fn cache_cp_state_update(&self, chunk_hash: CryptoHash, state_update: TrieUpdate);
+
+    // Takes state update accumulated during chunk production from cache.
+    fn take_cp_state_update(&self, chunk_hash: &CryptoHash) -> Option<TrieUpdate>;
 
     /// Precompiles the contracts and stores them in the compiled contract cache.
     fn precompile_contracts(
