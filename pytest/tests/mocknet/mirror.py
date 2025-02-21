@@ -406,7 +406,23 @@ def make_backup_cmd(args, traffic_generator, nodes):
 
 def stop_nodes_cmd(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
-    pmap(lambda node: node.neard_runner_stop(), targeted)
+
+    # Process nodes in batches of 5 to avoid overwhelming ThreadPoolExecutor
+    batch_size = 5
+    for i in range(0, len(targeted), batch_size):
+        batch = targeted[i:i + batch_size]
+        try:
+            # Add timeout to avoid potential deadlocks
+            pmap(lambda node: node.neard_runner_stop(), timeout=30)
+        except Exception as e:
+            logger.warning(
+                f"Failed to stop batch of nodes {i}-{i+batch_size}: {e}")
+            # Fallback to sequential processing if parallel execution fails
+            for node in batch:
+                try:
+                    node.neard_runner_stop()
+                except Exception as e:
+                    logger.error(f"Failed to stop node {node.name()}: {e}")
 
 
 def stop_traffic_cmd(args, traffic_generator, nodes):
