@@ -279,14 +279,14 @@ impl SignedTransaction {
 
     pub fn deploy_global_contract(
         nonce: Nonce,
-        contract_id: AccountId,
+        account_id: AccountId,
         code: Vec<u8>,
         signer: &Signer,
         block_hash: CryptoHash,
         deploy_mode: GlobalContractDeployMode,
     ) -> SignedTransaction {
-        let signer_id = contract_id.clone();
-        let receiver_id = contract_id;
+        let signer_id = account_id.clone();
+        let receiver_id = account_id;
         SignedTransaction::from_actions(
             nonce,
             signer_id,
@@ -303,13 +303,13 @@ impl SignedTransaction {
 
     pub fn use_global_contract(
         nonce: Nonce,
-        contract_id: &AccountId,
+        account_id: &AccountId,
         signer: &Signer,
         block_hash: CryptoHash,
         contract_identifier: GlobalContractIdentifier,
     ) -> SignedTransaction {
-        let signer_id = contract_id.clone();
-        let receiver_id = contract_id.clone();
+        let signer_id = account_id.clone();
+        let receiver_id = account_id.clone();
         SignedTransaction::from_actions(
             nonce,
             signer_id,
