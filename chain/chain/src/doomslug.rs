@@ -719,6 +719,7 @@ impl Doomslug {
 
         let when = match approval_tracker.get_block_production_readiness() {
             DoomslugBlockProductionReadiness::NotReady => {
+                debug!(target: "doomslug", target_height, ?hash_or_height, "Not ready to produce block");
                 return false;
             }
             DoomslugBlockProductionReadiness::ReadySince(when) => when,
