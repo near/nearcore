@@ -269,9 +269,8 @@ class BaseNode(object):
             else:
                 print("Response:")
                 print(json.dumps(response_data, indent=2))
-            # print("QQP thing")
-            # import pprint
-            # pprint.pprint(vars(r))
+            import pprint
+            pprint.pprint(vars(r))
             r.raise_for_status()
 
         return json.loads(r.content)

@@ -310,7 +310,6 @@ def sign_deploy_global_contract_transaction(signer_key, code, nonce,
                                      blockHash) -> SignedTransaction:
     action = create_deploy_global_contract_action(code)
     # print("ACTION QQP\n", type(action))
-    print("QQP")
     pprint.pprint(vars(action))
     pprint.pprint(vars(action.deployGlobalContract.deployMode))
     return sign_transaction(signer_key.account_id, nonce, [action], blockHash,

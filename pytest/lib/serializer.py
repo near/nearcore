@@ -44,7 +44,6 @@ class BinarySerializer:
     def serialize_field(self, value, fieldType):
         if type(fieldType) == tuple:
             if len(fieldType) == 0:
-                print("QQP BAM")
                 pass
             else:
                 assert len(value) == len(fieldType)

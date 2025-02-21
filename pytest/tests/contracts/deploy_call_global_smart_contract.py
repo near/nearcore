@@ -7,7 +7,7 @@ import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from cluster import start_cluster
-from transaction import sign_deploy_global_contract_tx, sign_function_call_tx
+from transaction import sign_deploy_global_contract_tx, sign_function_call_tx, sign_deploy_contract_tx
 from utils import load_test_contract
 
 GGAS = 10**9
@@ -19,7 +19,7 @@ def test_deploy_global_contract():
         [["epoch_length", 10], ["block_producer_kickout_threshold", 80]], {})
 
     last_block_hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_deploy_global_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
+    tx = sign_deploy_contract_tx(nodes[0].signer_key, load_test_contract(), 10,
                                  last_block_hash)
     nodes[0].send_tx(tx)
     time.sleep(3)
