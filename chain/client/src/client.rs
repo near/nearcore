@@ -296,31 +296,31 @@ impl Client {
         let num_block_producer_seats = config.num_block_producer_seats as usize;
 
         // ??? how to handle protocol upgrade
-        let (min_block_production_delay, max_block_production_delay, max_block_wait_delay) =
-            if epoch_manager.get_epoch_protocol_version(
-                &epoch_manager.get_epoch_id(&chain.head()?.last_block_hash)?,
-            )? < PROTOCOL_VERSION
-            {
-                (
-                    config.min_block_production_delay / 6,
-                    config.max_block_production_delay / 6,
-                    config.max_block_wait_delay / 6,
-                )
-            } else {
-                (
-                    config.min_block_production_delay,
-                    config.max_block_production_delay,
-                    config.max_block_wait_delay,
-                )
-            };
+        // let (min_block_production_delay, max_block_production_delay, max_block_wait_delay) =
+        //     if epoch_manager.get_epoch_protocol_version(
+        //         &epoch_manager.get_epoch_id(&chain.head()?.last_block_hash)?,
+        //     )? < PROTOCOL_VERSION
+        //     {
+        //         (
+        //             config.min_block_production_delay / 6,
+        //             config.max_block_production_delay / 6,
+        //             config.max_block_wait_delay / 6,
+        //         )
+        //     } else {
+        //         (
+        //             config.min_block_production_delay,
+        //             config.max_block_production_delay,
+        //             config.max_block_wait_delay,
+        //         )
+        //     };
 
         let doomslug = Doomslug::new(
             clock.clone(),
             chain.chain_store().largest_target_height()?,
-            min_block_production_delay,
-            max_block_production_delay,
-            max_block_production_delay / 10,
-            max_block_wait_delay,
+            config.min_block_production_delay,
+            config.max_block_production_delay,
+            config.max_block_production_delay / 10,
+            config.max_block_wait_delay,
             doomslug_threshold_mode,
         );
         let chunk_endorsement_tracker =
