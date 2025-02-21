@@ -158,13 +158,12 @@ impl ChunkProducer {
             chain_validate,
         );
         if let Ok(Some(ref mut produced_chunk)) = result {
-            let chunk_hash = produced_chunk.chunk.chunk_hash().0;
-            println!("putting state_update into cache for {chunk_hash}");
-            let state_update = produced_chunk
-                .state_update
-                .take()
-                .expect("chunk production must generate state_update");
-            self.runtime_adapter.cache_cp_state_update(chunk_hash, state_update);
+            let state_update = produced_chunk.state_update.take();
+            if let Some(state_update) = state_update {
+                let chunk_hash = produced_chunk.chunk.chunk_hash().0;
+                println!("putting state_update into cache for {chunk_hash}");
+                self.runtime_adapter.cache_cp_state_update(chunk_hash, state_update);
+            }
         }
         result
     }
