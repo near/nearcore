@@ -1,5 +1,5 @@
 //! Simply starts and runs testnet for a while.
-use crate::node::{create_nodes, sample_two_nodes, Node};
+use crate::node::{Node, create_nodes, sample_two_nodes};
 use near_async::time::Clock;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;

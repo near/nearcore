@@ -1,5 +1,5 @@
 use crate::block::BlockHeader;
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{CryptoHash, hash};
 use crate::types::{BlockHeight, SignatureDifferentiator};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{InMemorySigner, Signature};

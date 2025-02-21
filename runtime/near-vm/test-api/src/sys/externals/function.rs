@@ -9,10 +9,10 @@ pub use inner::{FromToNativeWasmType, HostFunction, WasmTypeList, WithEnv, Witho
 use near_vm_engine::RuntimeError;
 
 use near_vm_vm::{
-    near_vm_call_trampoline, raise_user_trap, resume_panic, Export, ExportFunction,
-    ExportFunctionMetadata, ImportInitializerFuncPtr, TableElement, VMCallerCheckedAnyfunc,
-    VMDynamicFunctionContext, VMFuncRef, VMFunction, VMFunctionBody, VMFunctionEnvironment,
-    VMFunctionKind, VMTrampoline,
+    Export, ExportFunction, ExportFunctionMetadata, ImportInitializerFuncPtr, TableElement,
+    VMCallerCheckedAnyfunc, VMDynamicFunctionContext, VMFuncRef, VMFunction, VMFunctionBody,
+    VMFunctionEnvironment, VMFunctionKind, VMTrampoline, near_vm_call_trampoline, raise_user_trap,
+    resume_panic,
 };
 use std::cmp::max;
 use std::ffi::c_void;
@@ -47,16 +47,18 @@ impl near_vm_types::WasmValueType for Function {
     unsafe fn write_value_to(&self, p: *mut i128) {
         let func_ref =
             Val::into_vm_funcref(&Val::FuncRef(Some(self.clone())), &self.store).unwrap();
-        std::ptr::write(p as *mut VMFuncRef, func_ref);
+        unsafe {
+            std::ptr::write(p as *mut VMFuncRef, func_ref);
+        }
     }
 
     /// Read the value.
     // TODO(reftypes): this entire function should be cleaned up, `dyn Any` should
     // ideally be removed
     unsafe fn read_value_from(store: &dyn std::any::Any, p: *const i128) -> Self {
-        let func_ref = std::ptr::read(p as *const VMFuncRef);
+        let func_ref = unsafe { std::ptr::read(p as *const VMFuncRef) };
         let store = store.downcast_ref::<Store>().expect("Store expected in `Function::read_value_from`. If you see this error message it likely means you're using a function ref in a place we don't yet support it -- sorry about the inconvenience.");
-        match Val::from_vm_funcref(func_ref, store) {
+        match unsafe { Val::from_vm_funcref(func_ref, store) } {
             Val::FuncRef(Some(fr)) => fr,
             // these bottom two cases indicate bugs in `near_vm-types` or elsewhere.
             // They should never be triggered, so we just panic.
@@ -79,7 +81,7 @@ impl Function {
             return None;
         }
         let near_vm_vm::VMCallerCheckedAnyfunc { func_ptr: address, type_index: signature, vmctx } =
-            **func_ref;
+            unsafe { **func_ref };
         let export = near_vm_vm::ExportFunction {
             // TODO:
             // figure out if we ever need a value here: need testing with complicated import patterns
@@ -702,7 +704,9 @@ impl Function {
 
     #[track_caller]
     fn closures_unsupported_panic() -> ! {
-        unimplemented!("Closures (functions with captured environments) are currently unsupported with native functions. See: https://github.com/wasmerio/wasmer/issues/1840")
+        unimplemented!(
+            "Closures (functions with captured environments) are currently unsupported with native functions. See: https://github.com/wasmerio/wasmer/issues/1840"
+        )
     }
 
     /// Get access to the backing VM value for this extern. This function is for
@@ -800,6 +804,10 @@ impl<T: VMDynamicFunction> VMDynamicFunctionCall<T> for VMDynamicFunctionContext
 
     // This function wraps our func, to make it compatible with the
     // reverse trampoline signature
+    //
+    // # SAFETY
+    //
+    // * Safety invariants for [`raise_user_trap`] and [`resume_panic`] must be maintained;
     unsafe fn func_wrapper(
         // Note: we use the trick that the first param to this function is the `VMDynamicFunctionContext`
         // itself, so rather than doing `dynamic_ctx: &VMDynamicFunctionContext<T>`, we simplify it a bit
@@ -812,7 +820,9 @@ impl<T: VMDynamicFunction> VMDynamicFunctionCall<T> for VMDynamicFunctionContext
             let mut args = Vec::with_capacity(func_ty.params().len());
             let store = self.ctx.store();
             for (i, ty) in func_ty.params().iter().enumerate() {
-                args.push(Val::read_value_from(store, values_vec.add(i), *ty));
+                unsafe {
+                    args.push(Val::read_value_from(store, values_vec.add(i), *ty));
+                }
             }
             let returns = self.ctx.call(&args)?;
 
@@ -827,17 +837,19 @@ impl<T: VMDynamicFunction> VMDynamicFunctionCall<T> for VMDynamicFunctionContext
                 )));
             }
             for (i, ret) in returns.iter().enumerate() {
-                ret.write_value_to(values_vec.add(i));
+                unsafe {
+                    ret.write_value_to(values_vec.add(i));
+                }
             }
             Ok(())
         })); // We get extern ref drops at the end of this block that we don't need.
-             // By preventing extern ref incs in the code above we can save the work of
-             // incrementing and decrementing. However the logic as-is is correct.
+        // By preventing extern ref incs in the code above we can save the work of
+        // incrementing and decrementing. However the logic as-is is correct.
 
         match result {
             Ok(Ok(())) => {}
-            Ok(Err(trap)) => raise_user_trap(Box::new(trap)),
-            Err(panic) => resume_panic(panic),
+            Ok(Err(trap)) => unsafe { raise_user_trap(Box::new(trap)) },
+            Err(panic) => unsafe { resume_panic(panic) },
         }
     }
 }
@@ -846,7 +858,7 @@ impl<T: VMDynamicFunction> VMDynamicFunctionCall<T> for VMDynamicFunctionContext
 /// for `Function` and its siblings.
 mod inner {
     use near_vm_types::{FunctionType, NativeWasmType, Type};
-    use near_vm_vm::{raise_user_trap, resume_panic, VMFunctionBody};
+    use near_vm_vm::{VMFunctionBody, raise_user_trap, resume_panic};
     use std::array::TryFromSliceError;
     use std::convert::{Infallible, TryInto};
     use std::error::Error;

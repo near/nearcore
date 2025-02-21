@@ -2,10 +2,10 @@
 //! and verifies that the output tps is not much different from the input tps (makes sure there is
 //! no choking on transactions). The input tps -- is how fast the nodes can be accepting
 //! transactions. The output tps -- is how fast the nodes propagate transactions into the blocks.
-use crate::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
+use crate::node::{Node, create_nodes, sample_queryable_node, sample_two_nodes};
 use near_primitives::transaction::SignedTransaction;
-use std::io::stdout;
 use std::io::Write;
+use std::io::stdout;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};

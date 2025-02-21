@@ -1,5 +1,5 @@
 use actix::{Actor, System};
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
 use near_async::time::Duration;
@@ -12,18 +12,18 @@ use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::InMemorySigner;
 use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::tcp;
-use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
-use near_o11y::testonly::{init_integration_logger, init_test_logger};
+use near_network::test_utils::{WaitOrTimeoutActor, convert_boot_nodes, wait_or_timeout};
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId, EpochReference, ShardId};
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::adapter::StoreUpdateAdapter;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
+use near_store::adapter::StoreUpdateAdapter;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
@@ -618,14 +618,16 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
             {
                 let store = env.clients[1].runtime_adapter.store();
                 let mut store_update = store.store_update();
-                assert!(env.clients[1]
-                    .runtime_adapter
-                    .get_flat_storage_manager()
-                    .remove_flat_storage_for_shard(
-                        ShardUId::single_shard(),
-                        &mut store_update.flat_store_update()
-                    )
-                    .unwrap());
+                assert!(
+                    env.clients[1]
+                        .runtime_adapter
+                        .get_flat_storage_manager()
+                        .remove_flat_storage_for_shard(
+                            ShardUId::single_shard(),
+                            &mut store_update.flat_store_update()
+                        )
+                        .unwrap()
+                );
                 store_update.commit().unwrap();
                 for part_id in 0..num_parts {
                     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
@@ -651,10 +653,15 @@ fn ultra_slow_test_dump_epoch_missing_chunk_in_last_block() {
             // for any other height.
             for height in 1..sync_height {
                 if height < sync_prev_height_included || height >= sync_height {
-                    assert!(env.clients[1]
-                        .chain
-                        .get_chunk_extra(blocks[height as usize].hash(), &ShardUId::single_shard())
-                        .is_err());
+                    assert!(
+                        env.clients[1]
+                            .chain
+                            .get_chunk_extra(
+                                blocks[height as usize].hash(),
+                                &ShardUId::single_shard()
+                            )
+                            .is_err()
+                    );
                 } else {
                     let chunk_extra = env.clients[1]
                         .chain
@@ -889,7 +896,7 @@ fn slow_test_state_sync_headers_no_tracked_shards() {
             //
             // Second, we request state sync header.
             // Third, we request state sync part with part_id = 0.
-            wait_or_timeout(1000, 110000, || async {
+            wait_or_timeout(1000, 110000, async || {
                 let epoch_id = match view_client2.send(GetBlock::latest().with_span_context()).await
                 {
                     Ok(Ok(b)) => Some(b.header.epoch_id),

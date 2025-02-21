@@ -1,7 +1,7 @@
+use base64::Engine;
 use base64::display::Base64Display;
 use base64::engine::general_purpose::GeneralPurpose;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use base64::Engine;
 
 pub fn to_base64(input: &[u8]) -> String {
     BASE64_STANDARD.encode(input)

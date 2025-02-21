@@ -1,9 +1,9 @@
 use crate::metadata::DbKind;
 use crate::{DBCol, Store, StoreUpdate};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
+use near_primitives::epoch_manager::EpochSummary;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, StateSyncInfo, StateSyncInfoV0};
 use near_primitives::state::FlatStateValue;
@@ -14,8 +14,8 @@ use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
 };
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof};
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, EpochId, ShardId, ValidatorId,
-    ValidatorKickoutReason, ValidatorStats,
+    AccountId, EpochId, ShardId, ValidatorId, ValidatorKickoutReason, ValidatorStats,
+    validator_stake::ValidatorStake,
 };
 use near_primitives::types::{BlockChunkValidatorStats, ChunkStats};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash};

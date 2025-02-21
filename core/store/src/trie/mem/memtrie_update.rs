@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use near_primitives::errors::StorageError;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::AccountId;
 
@@ -528,11 +528,11 @@ pub(super) fn construct_root_from_changes<A: ArenaMut>(
 #[cfg(test)]
 mod tests {
     use crate::test_utils::TestTriesBuilder;
+    use crate::trie::MemTrieChanges;
     use crate::trie::mem::arena::hybrid::HybridArena;
     use crate::trie::mem::lookup::memtrie_lookup;
     use crate::trie::mem::memtrie_update::GenericTrieUpdateInsertDelete;
     use crate::trie::mem::memtries::MemTries;
-    use crate::trie::MemTrieChanges;
     use crate::{KeyLookupMode, ShardTries, TrieChanges};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
@@ -918,8 +918,8 @@ mod tests {
                     } else {
                         // Limit nibbles to 4, so that we can generate keys that relate to
                         // each other more frequently.
-                        let nibble0 = rand::thread_rng().gen::<u8>() % 4;
-                        let nibble1 = rand::thread_rng().gen::<u8>() % 4;
+                        let nibble0 = rand::thread_rng().r#gen::<u8>() % 4;
+                        let nibble1 = rand::thread_rng().r#gen::<u8>() % 4;
                         key.push(nibble0 << 4 | nibble1);
                     }
                 }
@@ -930,7 +930,7 @@ mod tests {
                 }
                 let mut value = Vec::<u8>::new();
                 for _ in 0..value_length {
-                    value.push(rand::thread_rng().gen());
+                    value.push(rand::thread_rng().r#gen());
                 }
                 println!(
                     "  {} = {}",

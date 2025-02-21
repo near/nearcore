@@ -2,16 +2,16 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
-use near_async::test_loop::sender::TestLoopSender;
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
+use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
+use near_chain::ChainGenesis;
 use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
-    get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
+    SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
-use near_chain::ChainGenesis;
 use near_chain_configs::{
     ClientConfig, DumpConfig, ExternalStorageConfig, ExternalStorageLocation, Genesis,
     MutableConfigValue, StateSyncConfig, SyncConfig,
@@ -480,11 +480,7 @@ impl TestLoopBuilder {
         self.setup_network(&datas, &network_adapters, &epoch_manager_adapters);
 
         let env = TestLoopEnv { test_loop: self.test_loop, datas, tempdir };
-        if self.warmup {
-            env.warmup()
-        } else {
-            env
-        }
+        if self.warmup { env.warmup() } else { env }
     }
 
     fn setup_client(

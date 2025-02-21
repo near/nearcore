@@ -2,7 +2,7 @@ use crate::{EpochInfo, EpochManagerAdapter, RngSeed};
 use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardInfo;
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex,
+    AccountId, Balance, EpochId, NumShards, ShardId, ShardIndex, validator_stake::ValidatorStake,
 };
 use near_primitives::utils::min_heap::{MinHeap, PeekMut};
 use near_store::ShardUId;
@@ -343,7 +343,7 @@ pub(crate) fn assign_chunk_producers_to_shards(
 }
 
 pub(crate) mod old_validator_selection {
-    use crate::shard_assignment::{assign_to_satisfy_shards_inner, HasStake, NotEnoughValidators};
+    use crate::shard_assignment::{HasStake, NotEnoughValidators, assign_to_satisfy_shards_inner};
     use near_primitives::types::NumShards;
 
     use super::{
@@ -481,8 +481,8 @@ pub fn shard_id_to_index(
 
 #[cfg(test)]
 mod tests {
-    use crate::shard_assignment::{assign_chunk_producers_to_shards, NotEnoughValidators};
     use crate::RngSeed;
+    use crate::shard_assignment::{NotEnoughValidators, assign_chunk_producers_to_shards};
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::{AccountId, Balance, NumShards, ShardIndex};
     use std::collections::{HashMap, HashSet};

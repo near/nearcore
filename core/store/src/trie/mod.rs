@@ -1,6 +1,7 @@
 use self::accounting_cache::TrieAccountingCache;
 use self::mem::flexible_data::value::ValueView;
 use self::trie_storage::TrieMemoryPartialStorage;
+use crate::StorageError;
 use crate::flat::{FlatStateChanges, FlatStorageChunkView};
 pub use crate::trie::config::TrieConfig;
 pub(crate) use crate::trie::config::{
@@ -10,23 +11,22 @@ pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
 pub use crate::trie::state_snapshot::{
-    SnapshotError, StateSnapshot, StateSnapshotConfig, STATE_SNAPSHOT_COLUMNS,
+    STATE_SNAPSHOT_COLUMNS, SnapshotError, StateSnapshot, StateSnapshotConfig,
 };
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
-use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use from_flat::construct_trie_from_flat;
 use iterator::{DiskTrieIterator, DiskTrieIteratorInner, TrieIterator};
 use itertools::Itertools;
 use mem::memtrie_update::{TrackingMode, UpdatedMemTrieNodeWithSize};
 use mem::memtries::MemTries;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
 use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::ContractCode;
@@ -1021,7 +1021,7 @@ impl Trie {
                         f,
                         "{spaces}Leaf {slice:?} {value:?} prefix:{} hash:{hash} mem_usage:{mem_usage} state_record:{:?}",
                         Self::nibbles_to_string(prefix),
-                        state_record.map(|sr|format!("{}", sr)),
+                        state_record.map(|sr| format!("{}", sr)),
                     )?;
                 }
 
@@ -1774,11 +1774,11 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use rand::Rng;
 
-    use crate::test_utils::{
-        create_test_store, gen_changes, simplify_changes, test_populate_flat_storage,
-        test_populate_trie, TestTriesBuilder,
-    };
     use crate::MissingTrieValueContext;
+    use crate::test_utils::{
+        TestTriesBuilder, create_test_store, gen_changes, simplify_changes,
+        test_populate_flat_storage, test_populate_trie,
+    };
 
     use super::*;
 
@@ -1971,25 +1971,29 @@ mod tests {
         let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
         assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie).unwrap());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage)
-            .unwrap());
+        assert!(
+            trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage).unwrap()
+        );
         assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::Trie).unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::FlatStorage)
-            .unwrap());
+        assert!(
+            !trie
+                .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::FlatStorage)
+                .unwrap()
+        );
         let changes = vec![(vec![99, 44, 100, 58, 58, 49], None)];
         test_populate_flat_storage(&tries, sid, &bid, &bid, &changes);
         let root = test_populate_trie(&tries, &root, sid, changes);
         let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
         assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::Trie).unwrap());
-        assert!(trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::FlatStorage)
-            .unwrap());
-        assert!(!trie
-            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage)
-            .unwrap());
+        assert!(
+            trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::FlatStorage).unwrap()
+        );
+        assert!(
+            !trie
+                .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage)
+                .unwrap()
+        );
         assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie).unwrap());
     }
 
@@ -2230,11 +2234,11 @@ mod tests {
 #[cfg(test)]
 mod borsh_compatibility_test {
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::types::StateRoot;
 
-    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
     use crate::TrieChanges;
+    use crate::trie::{TrieRefcountAddition, TrieRefcountSubtraction};
 
     #[test]
     fn test_trie_changes_compatibility() {

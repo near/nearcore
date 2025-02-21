@@ -1,20 +1,20 @@
 use crate::tests::network::runner::*;
 use actix::Actor;
 use actix::System;
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time;
+use near_network::PeerManagerActor;
 use near_network::config;
 use near_network::tcp;
 use near_network::test_utils::{
-    convert_boot_nodes, wait_or_timeout, GetInfo, StopSignal, WaitOrTimeoutActor,
+    GetInfo, StopSignal, WaitOrTimeoutActor, convert_boot_nodes, wait_or_timeout,
 };
-use near_network::PeerManagerActor;
-use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(test)]
 fn make_peer_manager(
@@ -23,7 +23,7 @@ fn make_peer_manager(
     boot_nodes: Vec<(&str, std::net::SocketAddr)>,
     peer_max_count: u32,
 ) -> actix::Addr<PeerManagerActor> {
-    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+    use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 
     let mut config = config::NetworkConfig::from_seed(seed, node_addr);
     config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);

@@ -2,11 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
 use near_async::messaging::Handler;
-use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::test_loop::TestLoopV2;
+use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
 };
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,

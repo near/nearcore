@@ -1,14 +1,14 @@
 use super::ValidatorSchedule;
+use crate::BlockHeader;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
     RuntimeAdapter, RuntimeStorageConfig,
 };
-use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey};
 use near_epoch_manager::EpochManagerAdapter;
@@ -25,12 +25,12 @@ use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
@@ -40,15 +40,15 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_height, set_genesis_state_roots, DBCol, ShardTries, Store,
-    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    DBCol, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, set_genesis_hash,
+    set_genesis_height, set_genesis_state_roots,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use node_runtime::SignedValidPeriodTransactions;
@@ -436,11 +436,7 @@ impl EpochManagerAdapter for MockEpochManager {
     fn num_data_parts(&self) -> usize {
         // Same as in Nightshade Runtime
         let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
+        if total_parts <= 3 { 1 } else { (total_parts - 1) / 3 }
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {

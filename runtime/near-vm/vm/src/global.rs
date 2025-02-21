@@ -103,7 +103,7 @@ impl Global {
         if val.ty() != self.ty().ty {
             return Err(GlobalError::IncorrectType { expected: self.ty.ty, found: val.ty() });
         }
-        self.set_unchecked(val)
+        unsafe { self.set_unchecked(val) }
     }
 
     /// Set a value from the global (unchecked)
@@ -114,21 +114,23 @@ impl Global {
     /// `set` instead.
     pub unsafe fn set_unchecked<T: WasmValueType>(&self, val: Value<T>) -> Result<(), GlobalError> {
         // ideally we'd use atomics for the global value rather than needing to lock it
-        let definition = &mut *self.vm_global_definition.get();
-        match val {
-            Value::I32(i) => *definition.as_i32_mut() = i,
-            Value::I64(i) => *definition.as_i64_mut() = i,
-            Value::F32(f) => *definition.as_f32_mut() = f,
-            Value::F64(f) => *definition.as_f64_mut() = f,
-            Value::V128(x) => *definition.as_bytes_mut() = x.to_ne_bytes(),
-            Value::ExternRef(r) => {
-                let extern_ref = definition.as_externref_mut();
-                extern_ref.ref_drop();
-                *extern_ref = r.into()
-            }
-            Value::FuncRef(None) => *definition.as_u128_mut() = 0,
-            Value::FuncRef(Some(r)) => {
-                r.write_value_to(definition.as_u128_mut() as *mut u128 as *mut i128)
+        unsafe {
+            let definition = &mut *self.vm_global_definition.get();
+            match val {
+                Value::I32(i) => *definition.as_i32_mut() = i,
+                Value::I64(i) => *definition.as_i64_mut() = i,
+                Value::F32(f) => *definition.as_f32_mut() = f,
+                Value::F64(f) => *definition.as_f64_mut() = f,
+                Value::V128(x) => *definition.as_bytes_mut() = x.to_ne_bytes(),
+                Value::ExternRef(r) => {
+                    let extern_ref = definition.as_externref_mut();
+                    extern_ref.ref_drop();
+                    *extern_ref = r.into()
+                }
+                Value::FuncRef(None) => *definition.as_u128_mut() = 0,
+                Value::FuncRef(Some(r)) => {
+                    r.write_value_to(definition.as_u128_mut() as *mut u128 as *mut i128)
+                }
             }
         }
         Ok(())

@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
-use near_chain::{get_incoming_receipts_for_shard, ChainStore, ChainStoreAccess, ReceiptFilter};
+use near_chain::{ChainStore, ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::apply::ApplyChunkReason;
@@ -268,23 +268,43 @@ fn apply_tx_in_block(
     storage: StorageSource,
 ) -> anyhow::Result<ApplyChunkResult> {
     match find_tx_or_receipt(tx_hash, &block_hash, epoch_manager, chain_store)? {
-        Some((hash_type, shard_id)) => {
-            match hash_type {
-                HashType::Tx => {
-                    println!("Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
-                             &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, epoch_manager, runtime, chain_store, storage);
-                    check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
-                    Ok(apply_result)
-                },
-                HashType::Receipt => {
-                    Err(anyhow!("{} appears to be a Receipt ID, not a tx hash. Try running:\nview_state apply_receipt --hash {}", tx_hash, tx_hash))
-                },
+        Some((hash_type, shard_id)) => match hash_type {
+            HashType::Tx => {
+                println!(
+                    "Found tx in block {} shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
+                    &block_hash,
+                    shard_id,
+                    chain_store.get_block_header(&block_hash)?.height(),
+                    shard_id
+                );
+                let (block, apply_result) = crate::commands::apply_block(
+                    block_hash,
+                    shard_id,
+                    epoch_manager,
+                    runtime,
+                    chain_store,
+                    storage,
+                );
+                check_apply_block_result(
+                    &block,
+                    &apply_result,
+                    epoch_manager,
+                    chain_store,
+                    shard_id,
+                )?;
+                Ok(apply_result)
             }
+            HashType::Receipt => Err(anyhow!(
+                "{} appears to be a Receipt ID, not a tx hash. Try running:\nview_state apply_receipt --hash {}",
+                tx_hash,
+                tx_hash
+            )),
         },
-        None => {
-            Err(anyhow!("Could not find tx with hash {} in block {}, even though `DBCol::TransactionResultForBlock` says it should be there", tx_hash, block_hash))
-        }
+        None => Err(anyhow!(
+            "Could not find tx with hash {} in block {}, even though `DBCol::TransactionResultForBlock` says it should be there",
+            tx_hash,
+            block_hash
+        )),
     }
 }
 
@@ -300,7 +320,9 @@ fn apply_tx_in_chunk(
         return Err(anyhow!("tx with hash {} not known", tx_hash));
     }
 
-    println!("Transaction is known but doesn't seem to have been applied. Searching in chunks that haven't been applied...");
+    println!(
+        "Transaction is known but doesn't seem to have been applied. Searching in chunks that haven't been applied..."
+    );
 
     let head = chain_store.head()?.height;
     let protocol_version = chain_store.head_header()?.latest_protocol_version();
@@ -338,7 +360,10 @@ fn apply_tx_in_chunk(
 
     let mut results = Vec::new();
     for chunk_hash in chunk_hashes {
-        println!("found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n", &chunk_hash.0, &chunk_hash.0);
+        println!(
+            "found tx in chunk {}. Equivalent command (which will run faster than apply_tx):\nview_state apply_chunk --chunk_hash {}\n",
+            &chunk_hash.0, &chunk_hash.0
+        );
         let (apply_result, gas_limit) =
             apply_chunk(epoch_manager, runtime, chain_store, chunk_hash, None, None, storage)?;
         println!(
@@ -385,23 +410,45 @@ fn apply_receipt_in_block(
     storage: StorageSource,
 ) -> anyhow::Result<ApplyChunkResult> {
     match find_tx_or_receipt(id, &block_hash, epoch_manager, chain_store)? {
-        Some((hash_type, shard_id)) => {
-            match hash_type {
-                HashType::Tx => {
-                    Err(anyhow!("{} appears to be a tx hash, not a Receipt ID. Try running:\nview_state apply_tx --hash {}", id, id))
-                },
-                HashType::Receipt => {
-                    println!("Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
-                             &block_hash, shard_id, chain_store.get_block_header(&block_hash)?.height(), shard_id);
-                    let (block, apply_result) = crate::commands::apply_block(block_hash, shard_id, epoch_manager, runtime, chain_store, storage);
-                    check_apply_block_result(&block, &apply_result, epoch_manager, chain_store, shard_id)?;
-                    Ok(apply_result)
-                },
+        Some((hash_type, shard_id)) => match hash_type {
+            HashType::Tx => Err(anyhow!(
+                "{} appears to be a tx hash, not a Receipt ID. Try running:\nview_state apply_tx --hash {}",
+                id,
+                id
+            )),
+            HashType::Receipt => {
+                println!(
+                    "Found receipt in block {}. Receiver is in shard {}. equivalent command:\nview_state apply --height {} --shard-id {}\n",
+                    &block_hash,
+                    shard_id,
+                    chain_store.get_block_header(&block_hash)?.height(),
+                    shard_id
+                );
+                let (block, apply_result) = crate::commands::apply_block(
+                    block_hash,
+                    shard_id,
+                    epoch_manager,
+                    runtime,
+                    chain_store,
+                    storage,
+                );
+                check_apply_block_result(
+                    &block,
+                    &apply_result,
+                    epoch_manager,
+                    chain_store,
+                    shard_id,
+                )?;
+                Ok(apply_result)
             }
         },
         None => {
             // TODO: handle local/delayed receipts
-            Err(anyhow!("Could not find receipt with ID {} in block {}. Is it a local or delayed receipt?", id, block_hash))
+            Err(anyhow!(
+                "Could not find receipt with ID {} in block {}. Is it a local or delayed receipt?",
+                id,
+                block_hash
+            ))
         }
     }
 }
@@ -472,8 +519,10 @@ fn apply_receipt_in_chunk(
                 continue;
             }
         };
-        println!("Applying chunk at height {} in shard {}. Equivalent command (which will run faster than apply_receipt):\nview_state apply_chunk --chunk_hash {}\n",
-                 height, shard_id, chunk_hash.0);
+        println!(
+            "Applying chunk at height {} in shard {}. Equivalent command (which will run faster than apply_receipt):\nview_state apply_chunk --chunk_hash {}\n",
+            height, shard_id, chunk_hash.0
+        );
         let (apply_result, gas_limit) = apply_chunk(
             epoch_manager,
             runtime,
@@ -520,8 +569,8 @@ mod test {
     use itertools::Itertools;
     use near_chain::{ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
-    use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
+    use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, Signer};
     use near_epoch_manager::shard_assignment::shard_id_to_uid;
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -532,8 +581,8 @@ mod test {
     use near_store::test_utils::create_test_store;
     use near_time::Clock;
     use nearcore::NightshadeRuntime;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use std::path::Path;
 
     use crate::cli::StorageSource;

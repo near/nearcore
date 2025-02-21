@@ -748,10 +748,12 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                         non_delegate_actions.push(match action.try_into() {
                                             Ok(a) => a,
                                             Err(_) => {
-                                                return Err(crate::errors::ErrorKind::InvalidInput(
-                                                    "Nested delegate actions not allowed"
-                                                        .to_string(),
-                                                ))
+                                                return Err(
+                                                    crate::errors::ErrorKind::InvalidInput(
+                                                        "Nested delegate actions not allowed"
+                                                            .to_string(),
+                                                    ),
+                                                );
                                             }
                                         });
                                     }
@@ -765,7 +767,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                                     Err(_) => {
                                         return Err(crate::errors::ErrorKind::InvalidInput(
                                             "Invalid public key on delegate action".to_string(),
-                                        ))
+                                        ));
                                     }
                                 },
                             },
@@ -788,7 +790,7 @@ impl TryFrom<Vec<crate::models::Operation>> for NearActions {
                     return Err(crate::errors::ErrorKind::InvalidInput(format!(
                         "Unexpected operation `{:?}`",
                         tail_operation.type_
-                    )))
+                    )));
                 }
             }
         }
@@ -993,51 +995,63 @@ mod tests {
     fn test_near_actions_bijection() {
         let create_account_actions =
             vec![near_primitives::transaction::CreateAccountAction {}.into()];
-        let delete_account_actions = vec![near_primitives::transaction::DeleteAccountAction {
-            beneficiary_id: "beneficiary.near".parse().unwrap(),
-        }
-        .into()];
-        let add_key_actions = vec![near_primitives::transaction::AddKeyAction {
-            access_key: near_primitives::account::AccessKey::full_access(),
-            public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
-                .public_key(),
-        }
-        .into()];
-        let delete_key_actions = vec![near_primitives::transaction::DeleteKeyAction {
-            public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
-                .public_key(),
-        }
-        .into()];
-        let transfer_actions = vec![near_primitives::transaction::TransferAction {
-            deposit: near_primitives::types::Balance::MAX,
-        }
-        .into()];
-        let stake_actions = vec![near_primitives::transaction::StakeAction {
-            stake: 456,
-            public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
-                .public_key(),
-        }
-        .into()];
-        let deploy_contract_actions = vec![near_primitives::transaction::DeployContractAction {
-            code: b"binary-data".to_vec(),
-        }
-        .into()];
-        let function_call_without_balance_actions =
-            vec![near_primitives::transaction::FunctionCallAction {
+        let delete_account_actions = vec![
+            near_primitives::transaction::DeleteAccountAction {
+                beneficiary_id: "beneficiary.near".parse().unwrap(),
+            }
+            .into(),
+        ];
+        let add_key_actions = vec![
+            near_primitives::transaction::AddKeyAction {
+                access_key: near_primitives::account::AccessKey::full_access(),
+                public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
+                    .public_key(),
+            }
+            .into(),
+        ];
+        let delete_key_actions = vec![
+            near_primitives::transaction::DeleteKeyAction {
+                public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
+                    .public_key(),
+            }
+            .into(),
+        ];
+        let transfer_actions = vec![
+            near_primitives::transaction::TransferAction {
+                deposit: near_primitives::types::Balance::MAX,
+            }
+            .into(),
+        ];
+        let stake_actions = vec![
+            near_primitives::transaction::StakeAction {
+                stake: 456,
+                public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
+                    .public_key(),
+            }
+            .into(),
+        ];
+        let deploy_contract_actions = vec![
+            near_primitives::transaction::DeployContractAction { code: b"binary-data".to_vec() }
+                .into(),
+        ];
+        let function_call_without_balance_actions = vec![
+            near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,
                 deposit: 0,
             }
-            .into()];
-        let function_call_with_balance_actions =
-            vec![near_primitives::transaction::FunctionCallAction {
+            .into(),
+        ];
+        let function_call_with_balance_actions = vec![
+            near_primitives::transaction::FunctionCallAction {
                 method_name: "method-name".parse().unwrap(),
                 args: b"args".to_vec(),
                 gas: 100500,
                 deposit: near_primitives::types::Balance::MAX,
             }
-            .into()];
+            .into(),
+        ];
 
         let wallet_style_create_account_actions =
             [create_account_actions.to_vec(), add_key_actions.to_vec(), transfer_actions.to_vec()]
@@ -1126,9 +1140,9 @@ mod tests {
                 delegate_action: DelegateAction {
                     sender_id: "account.near".parse().unwrap(),
                     receiver_id: "receiver.near".parse().unwrap(),
-                    actions: vec![Action::Transfer(TransferAction { deposit: 1 })
-                        .try_into()
-                        .unwrap()],
+                    actions: vec![
+                        Action::Transfer(TransferAction { deposit: 1 }).try_into().unwrap(),
+                    ],
                     nonce: 0,
                     max_block_height: 0,
                     public_key: sk.public_key(),

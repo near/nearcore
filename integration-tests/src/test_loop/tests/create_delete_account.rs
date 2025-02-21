@@ -2,7 +2,7 @@ use itertools::Itertools;
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
 };
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
@@ -12,11 +12,11 @@ use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
+use crate::test_loop::utils::ONE_NEAR;
 use crate::test_loop::utils::transactions::{
     call_contract, check_txs, do_create_account, do_delete_account, do_deploy_contract,
     get_next_nonce,
 };
-use crate::test_loop::utils::ONE_NEAR;
 
 /// Write block height to contract storage.
 fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &AccountId) {

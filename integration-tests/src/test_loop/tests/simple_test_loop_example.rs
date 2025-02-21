@@ -1,16 +1,16 @@
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::ChainGenesis;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_chain_configs::{ClientConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::ShardsManagerActor;
+use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
-use near_client::Client;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::network::PeerId;
 

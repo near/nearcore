@@ -1,6 +1,6 @@
 use super::{Instance, InstanceRef};
-use crate::vmcontext::{VMMemoryDefinition, VMTableDefinition};
 use crate::VMOffsets;
+use crate::vmcontext::{VMMemoryDefinition, VMTableDefinition};
 use near_vm_types::entity::EntityRef;
 use near_vm_types::{LocalMemoryIndex, LocalTableIndex};
 use std::alloc::{self, Layout};
@@ -126,13 +126,13 @@ impl InstanceAllocator {
 
         // We need to do some pointer arithmetic now. The unit is `u8`.
         let ptr = self.instance_ptr.cast::<u8>().as_ptr();
-        let base_ptr = ptr.add(mem::size_of::<Instance>());
+        let base_ptr = unsafe { ptr.add(mem::size_of::<Instance>()) };
 
         for i in 0..num_memories {
             let mem_offset = self.offsets.vmctx_vmmemory_definition(LocalMemoryIndex::new(i));
             let mem_offset = usize::try_from(mem_offset).unwrap();
 
-            let new_ptr = NonNull::new_unchecked(base_ptr.add(mem_offset));
+            let new_ptr = unsafe { NonNull::new_unchecked(base_ptr.add(mem_offset)) };
 
             out.push(new_ptr.cast());
         }
@@ -158,13 +158,13 @@ impl InstanceAllocator {
 
         // We need to do some pointer arithmetic now. The unit is `u8`.
         let ptr = self.instance_ptr.cast::<u8>().as_ptr();
-        let base_ptr = ptr.add(std::mem::size_of::<Instance>());
+        let base_ptr = unsafe { ptr.add(std::mem::size_of::<Instance>()) };
 
         for i in 0..num_tables {
             let table_offset = self.offsets.vmctx_vmtable_definition(LocalTableIndex::new(i));
             let table_offset = usize::try_from(table_offset).unwrap();
 
-            let new_ptr = NonNull::new_unchecked(base_ptr.add(table_offset));
+            let new_ptr = unsafe { NonNull::new_unchecked(base_ptr.add(table_offset)) };
 
             out.push(new_ptr.cast());
         }

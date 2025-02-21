@@ -6,10 +6,10 @@ use near_async::messaging::CanSend;
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
 };
-use near_client::test_utils::test_loop::ClientQueries;
 use near_client::SetNetworkInfo;
+use near_client::test_utils::test_loop::ClientQueries;
 use near_network::types::{HighestHeightPeerInfo, NetworkInfo, PeerInfo};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;

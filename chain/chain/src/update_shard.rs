@@ -11,8 +11,8 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::Gas;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use node_runtime::SignedValidPeriodTransactions;
 
 /// Result of updating a shard for some block when it has a new chunk for this

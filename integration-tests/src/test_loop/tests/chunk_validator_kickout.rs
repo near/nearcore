@@ -5,7 +5,7 @@ use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
 };
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -110,10 +110,14 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         let block = client.chain.get_block(&tip.last_block_hash).unwrap();
         let num_missed_chunks = block.header().chunk_mask().iter().filter(|c| !**c).count();
         match &test_case {
-            TestCase::DropChunksValidatedBy(_) => assert!(num_missed_chunks <= 1,
-                "At most one chunk must be missed when dropping chunks validated by the selected account"),
-            TestCase::DropEndorsementsFrom(_) => assert_eq!(num_missed_chunks, 0,
-                "No chunk must be missed when dropping endorsements from the selected account"),
+            TestCase::DropChunksValidatedBy(_) => assert!(
+                num_missed_chunks <= 1,
+                "At most one chunk must be missed when dropping chunks validated by the selected account"
+            ),
+            TestCase::DropEndorsementsFrom(_) => assert_eq!(
+                num_missed_chunks, 0,
+                "No chunk must be missed when dropping endorsements from the selected account"
+            ),
         }
 
         let validators = get_epoch_all_validators(client);
