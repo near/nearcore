@@ -341,6 +341,7 @@ impl Runtime {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
+        // TODO(poc): If CP who produced the chunk hits this path, they mustn't do all of the below.
         match verify_and_charge_transaction(
             &apply_state.config,
             state_update,
