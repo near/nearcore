@@ -146,9 +146,11 @@ pub fn total_send_fees(
                         .send_fee(sender_is_receiver)
                         * num_bytes
             }
-            UseGlobalContract(_) => {
-                // TODO(#12717): implement send fees for global contracts
-                1
+            UseGlobalContract(action) => {
+                let num_bytes = action.contract_identifier.len() as u64;
+                fees.fee(ActionCosts::use_global_contract_base).send_fee(sender_is_receiver)
+                    + fees.fee(ActionCosts::use_global_contract_byte).send_fee(sender_is_receiver)
+                        * num_bytes
             }
         };
         result = safe_add_gas(result, delta)?;
@@ -236,9 +238,10 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             fees.fee(ActionCosts::deploy_global_contract_base).exec_fee()
                 + fees.fee(ActionCosts::deploy_global_contract_byte).exec_fee() * num_bytes
         }
-        UseGlobalContract(_) => {
-            // TODO(#12717): implement exec fees for global contracts
-            1
+        UseGlobalContract(action) => {
+            let num_bytes = action.contract_identifier.len() as u64;
+            fees.fee(ActionCosts::use_global_contract_base).exec_fee()
+                + fees.fee(ActionCosts::use_global_contract_byte).exec_fee() * num_bytes
         }
     }
 }
