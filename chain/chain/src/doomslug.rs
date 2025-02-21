@@ -705,60 +705,59 @@ impl Doomslug {
         let now = self.clock.now();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
-        if let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height) {
-            if let Some(approval_tracker) =
-                approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
-            {
-                match approval_tracker.get_block_production_readiness() {
-                    DoomslugBlockProductionReadiness::NotReady => false,
-                    DoomslugBlockProductionReadiness::ReadySince(when) => {
-                        let enough_approvals_for = now - when;
-                        span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
-                        span.record("ready_to_produce_block", true);
-                        if has_enough_chunks {
-                            if log_block_production_info {
-                                info!(
-                                    target: "doomslug",
-                                    target_height,
-                                    ?enough_approvals_for,
-                                    "ready to produce block, has enough approvals, has enough chunks");
-                            }
-                            true
-                        } else {
-                            let delay = self.timer.get_delay(
-                                self.timer.height.saturating_sub(self.largest_final_height.get()),
-                            ) / 6;
-
-                            let ready = now > when + delay;
-                            span.record("need_to_wait", !ready);
-                            if log_block_production_info {
-                                if ready {
-                                    info!(
-                                        target: "doomslug",
-                                        target_height,
-                                        ?enough_approvals_for,
-                                        "ready to produce block, but does not have enough chunks");
-                                } else {
-                                    info!(
-                                        target: "doomslug",
-                                        target_height,
-                                        need_to_wait_for = ?(when + delay - now),
-                                        ?enough_approvals_for,
-                                        "not ready to produce block, need to wait");
-                                }
-                            }
-                            ready
-                        }
-                    }
-                }
-            } else {
-                debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
-                false
-            }
-        } else {
+        let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height)
+        else {
             debug!(target: "doomslug", target_height, "No approval trackers at height");
-            false
+            return false;
+        };
+        let Some(approval_tracker) =
+            approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
+        else {
+            debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
+            return false;
+        };
+
+        let when = match approval_tracker.get_block_production_readiness() {
+            DoomslugBlockProductionReadiness::NotReady => {
+                debug!(target: "doomslug", target_height, ?hash_or_height, "Not ready to produce block");
+                return false;
+            }
+            DoomslugBlockProductionReadiness::ReadySince(when) => when,
+        };
+
+        let enough_approvals_for = now - when;
+        span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
+        span.record("ready_to_produce_block", true);
+        if has_enough_chunks {
+            if log_block_production_info {
+                info!(
+                    target: "doomslug", target_height, ?enough_approvals_for,
+                    "ready to produce block, has enough approvals, has enough chunks"
+                );
+            }
+            return true;
         }
+
+        let delay =
+            self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()))
+                / 6;
+
+        let ready = now > when + delay;
+        span.record("need_to_wait", !ready);
+        if log_block_production_info {
+            if ready {
+                info!(
+                    target: "doomslug", target_height, ?enough_approvals_for,
+                    "ready to produce block, but does not have enough chunks"
+                );
+            } else {
+                info!(
+                    target: "doomslug", target_height, need_to_wait_for = ?(when + delay - now),
+                    ?enough_approvals_for, "not ready to produce block, need to wait"
+                );
+            }
+        }
+        ready
     }
 }
 
