@@ -192,7 +192,7 @@ impl<'a> External for RuntimeExt<'a> {
             &self.prev_block_hash,
             &self.last_block_hash,
             self.block_height,
-            self.data_count as usize,
+            self.data_count,
         );
         self.data_count += 1;
         data_id
