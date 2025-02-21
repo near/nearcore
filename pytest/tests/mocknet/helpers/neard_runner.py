@@ -556,7 +556,7 @@ class NeardRunner:
                     code=-32600,
                     message='Can only call network_init after a call to init')
 
-            if len(validators) < 3:
+            if len(validators) <= 3:
                 with open(self.target_near_home_path('config.json'), 'r') as f:
                     config = json.load(f)
                 config['consensus']['min_num_peers'] = len(validators) - 1
