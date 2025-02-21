@@ -2,10 +2,10 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::FlatStateValue;
 
+use crate::Trie;
+use crate::trie::OptimizedValueRef;
 use crate::trie::ops::interface::GenericTrieInternalStorage;
 use crate::trie::ops::iter::TrieIteratorImpl;
-use crate::trie::OptimizedValueRef;
-use crate::Trie;
 
 use super::arena::Arena;
 use super::memtrie_update::MemTrieNode;

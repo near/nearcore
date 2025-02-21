@@ -5,10 +5,10 @@
 //!
 //! `Table` is to WebAssembly tables what `LinearMemory` is to WebAssembly linear memories.
 
+use crate::VMExternRef;
 use crate::func_data_registry::VMFuncRef;
 use crate::trap::{Trap, TrapCode};
 use crate::vmcontext::VMTableDefinition;
-use crate::VMExternRef;
 use near_vm_types::{ExternRef, TableType, Type as ValType};
 use std::borrow::BorrowMut;
 use std::cell::UnsafeCell;
@@ -205,7 +205,7 @@ impl LinearTable {
         style: &TableStyle,
         vm_table_location: NonNull<VMTableDefinition>,
     ) -> Result<Self, String> {
-        Self::new_inner(table, style, Some(vm_table_location))
+        unsafe { Self::new_inner(table, style, Some(vm_table_location)) }
     }
 
     /// Create a new `LinearTable` with either self-owned or VM owned metadata.
@@ -239,7 +239,7 @@ impl LinearTable {
                 vm_table_definition: if let Some(table_loc) = vm_table_location {
                     {
                         let mut ptr = table_loc;
-                        let td = ptr.as_mut();
+                        let td = unsafe { ptr.as_mut() };
                         td.base = base as _;
                         td.current_elements = table_minimum as _;
                     }
@@ -261,9 +261,9 @@ impl LinearTable {
     unsafe fn get_vm_table_definition(&self) -> NonNull<VMTableDefinition> {
         match &self.vm_table_definition {
             VMTableDefinitionOwnership::VMOwned(ptr) => *ptr,
-            VMTableDefinitionOwnership::HostOwned(boxed_ptr) => {
+            VMTableDefinitionOwnership::HostOwned(boxed_ptr) => unsafe {
                 NonNull::new_unchecked(boxed_ptr.get())
-            }
+            },
         }
     }
 }

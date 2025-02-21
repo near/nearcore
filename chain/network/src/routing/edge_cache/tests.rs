@@ -129,23 +129,23 @@ fn reuse_ids() {
     // Run multiple iterations of inserting and deleting sets of edges
     for _ in 0..25 {
         // Generate some random PeerIds; should have at least 2 so we can make some edges
-        let node_ct = rng.gen::<usize>() % (max_node_ct - 2) + 2;
+        let node_ct = rng.r#gen::<usize>() % (max_node_ct - 2) + 2;
         let mut peer_ids: Vec<PeerId> = (1..node_ct).map(|_| random_peer_id()).collect();
         peer_ids.push(local_node_id.clone());
 
         // Generate some random edges
-        let edge_ct = rng.gen::<usize>() % 10 + 0;
+        let edge_ct = rng.r#gen::<usize>() % 10 + 0;
         let edges: Vec<Edge> = (0..edge_ct)
             .map(|_| {
                 // Generate two distinct indices at random in (0..node_ct)
-                let peer0 = rng.gen::<usize>() % (node_ct - 1);
-                let peer1 = peer0 + 1 + (rng.gen::<usize>() % (node_ct - peer0 - 1));
+                let peer0 = rng.r#gen::<usize>() % (node_ct - 1);
+                let peer1 = peer0 + 1 + (rng.r#gen::<usize>() % (node_ct - peer0 - 1));
 
                 // Make an edge with the chosen nodes and a random nonce
                 Edge::make_fake_edge(
                     peer_ids[peer0].clone(),
                     peer_ids[peer1].clone(),
-                    rng.gen::<u64>(),
+                    rng.r#gen::<u64>(),
                 )
             })
             .collect();

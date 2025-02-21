@@ -2,25 +2,25 @@
 
 extern crate core;
 
-use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics, refcount};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, resharding_v2, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
-    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
-    StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
-    TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
-    STATE_SNAPSHOT_COLUMNS,
+    ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice, PartialStorage,
+    PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, STATE_SNAPSHOT_COLUMNS,
+    ShardTries, StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache,
+    TrieCachingStorage, TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
+    estimator, resharding_v2,
 };
 use adapter::{StoreAdapter, StoreUpdateAdapter};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use columns::DBCol;
 use config::ArchivalConfig;
-use db::{SplitDB, GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY};
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEAD_KEY, HEADER_HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
     LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
+use db::{GENESIS_CONGESTION_INFO_KEY, GENESIS_HEIGHT_KEY, SplitDB};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
@@ -34,7 +34,7 @@ use near_primitives::receipt::{
     Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::{CompiledContractInfo, ContractRuntimeCache};
 use std::fs::File;
@@ -65,8 +65,8 @@ pub mod trie;
 
 pub use crate::config::{Mode, StoreConfig};
 pub use crate::opener::{
-    checkpoint_hot_storage_and_cleanup_columns, clear_columns, StoreMigrator, StoreOpener,
-    StoreOpenerError,
+    StoreMigrator, StoreOpener, StoreOpenerError, checkpoint_hot_storage_and_cleanup_columns,
+    clear_columns,
 };
 
 /// Specifies temperature of a storage.
@@ -933,7 +933,7 @@ pub fn enqueue_promise_yield_timeout(
 
 pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     match receipt.receipt() {
-        ReceiptEnum::PromiseYield(ref action_receipt) => {
+        ReceiptEnum::PromiseYield(action_receipt) => {
             assert!(action_receipt.input_data_ids.len() == 1);
             let key = TrieKey::PromiseYieldReceipt {
                 receiver_id: receipt.receiver_id().clone(),

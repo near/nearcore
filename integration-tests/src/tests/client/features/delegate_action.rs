@@ -10,7 +10,7 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::ActionCosts;
 use near_primitives::account::{
-    id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
+    AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
 };
 use near_primitives::checked_feature;
 use near_primitives::errors::{
@@ -25,7 +25,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -508,7 +508,10 @@ fn meta_tx_delete_key() {
         .user()
         .get_access_key(&receiver, &public_key)
         .expect_err("key should have been deleted");
-    assert_eq!(err, "Access key for public key #ed25519:4mhK4txd8Z5r71iCZ41UguSHuHFKUeCXPHv646DbQPYi does not exist");
+    assert_eq!(
+        err,
+        "Access key for public key #ed25519:4mhK4txd8Z5r71iCZ41UguSHuHFKUeCXPHv646DbQPYi does not exist"
+    );
 }
 
 #[test]

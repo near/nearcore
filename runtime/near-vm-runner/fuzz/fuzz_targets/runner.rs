@@ -3,10 +3,10 @@
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_test_contracts::ArbitraryModule;
-use near_vm_runner::internal::VMKindExt;
-use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::VMOutcome;
 use near_vm_runner::ContractCode;
+use near_vm_runner::internal::VMKindExt;
+use near_vm_runner::logic::VMOutcome;
+use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner_fuzz::{create_context, find_entry_point};
 use std::sync::Arc;
 

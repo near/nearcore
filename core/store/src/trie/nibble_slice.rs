@@ -60,11 +60,7 @@ impl Iterator for NibbleSliceIterator<'_> {
 
     fn next(&mut self) -> Option<u8> {
         self.i += 1;
-        if self.i <= self.p.len() {
-            Some(self.p.at(self.i - 1))
-        } else {
-            None
-        }
+        if self.i <= self.p.len() { Some(self.p.at(self.i - 1)) } else { None }
     }
 }
 
@@ -187,11 +183,7 @@ impl<'a> NibbleSlice<'a> {
         while i < l {
             let bit1 = if i < self.len() { self.at(i) } else { other.at(i - self.len()) };
             let bit2 = if i + 1 < l {
-                if i + 1 < self.len() {
-                    self.at(i + 1)
-                } else {
-                    other.at(i + 1 - self.len())
-                }
+                if i + 1 < self.len() { self.at(i + 1) } else { other.at(i + 1 - self.len()) }
             } else {
                 0
             };
@@ -280,7 +272,7 @@ impl fmt::Debug for NibbleSlice<'_> {
 #[cfg(test)]
 mod tests {
     use super::NibbleSlice;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use smallvec::SmallVec;
 
     static D: &[u8; 3] = &[0x01u8, 0x23, 0x45];

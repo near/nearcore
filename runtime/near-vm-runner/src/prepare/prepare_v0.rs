@@ -1,7 +1,7 @@
 //! Legacy validation for very old protocol versions.
 
-use crate::logic::errors::PrepareError;
 use crate::logic::Config;
+use crate::logic::errors::PrepareError;
 use parity_wasm_41::builder;
 use parity_wasm_41::elements::{self, External, MemorySection, Type};
 use pwasm_utils_12 as pwasm_utils;
@@ -121,7 +121,7 @@ impl<'a> ContractModule<'a> {
                 _ => continue,
             };
 
-            let Type::Function(ref _func_ty) =
+            let Type::Function(_func_ty) =
                 types.get(*type_idx as usize).ok_or(PrepareError::Instantiate)?;
 
             // TODO: Function type check with Env

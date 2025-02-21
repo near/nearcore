@@ -148,10 +148,6 @@ impl Receipt {
     }
 
     pub(crate) fn gas_burnt(&self) -> GGas {
-        if self.executed_at.is_some() {
-            self.execution_gas
-        } else {
-            0
-        }
+        if self.executed_at.is_some() { self.execution_gas } else { 0 }
     }
 }

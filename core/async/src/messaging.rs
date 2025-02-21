@@ -1,8 +1,8 @@
 use crate::break_apart::BreakApart;
 use crate::functional::{SendAsyncFunction, SendFunction};
 use crate::futures::DelayedActionRunner;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use once_cell::sync::OnceCell;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;

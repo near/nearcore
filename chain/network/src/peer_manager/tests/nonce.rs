@@ -16,11 +16,7 @@ use std::sync::Arc;
 // Nonces must be odd (as even ones are reserved for tombstones).
 fn to_active_nonce(timestamp: time::Utc) -> u64 {
     let value = timestamp.unix_timestamp() as u64;
-    if value % 2 == 0 {
-        value + 1
-    } else {
-        value
-    }
+    if value % 2 == 0 { value + 1 } else { value }
 }
 
 // Test connecting to peer manager with timestamp-like nonces.

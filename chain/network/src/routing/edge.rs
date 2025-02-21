@@ -9,7 +9,9 @@ pub(crate) const EDGE_NONCE_MAX_TIME_DELTA: time::Duration = time::Duration::min
 pub(crate) enum VerifyNonceError {
     #[error("{0}")]
     InvalidNonce(#[source] InvalidNonceError),
-    #[error("nonce timestamp too distant in the future/past: got = {got}, now_timestamp = {now}, max_delta = {EDGE_NONCE_MAX_TIME_DELTA}")]
+    #[error(
+        "nonce timestamp too distant in the future/past: got = {got}, now_timestamp = {now}, max_delta = {EDGE_NONCE_MAX_TIME_DELTA}"
+    )]
     NonceTimestampTooDistant { got: time::Utc, now: time::Utc },
     #[error("nonce cannot be 0")]
     ZeroNonce,

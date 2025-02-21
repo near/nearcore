@@ -55,7 +55,7 @@ cfg_if::cfg_if! {
         /// A default probestack for other architectures
         pub const PROBESTACK: unsafe extern "C" fn() = empty_probestack;
     } else {
-        extern "C" {
+        unsafe extern "C" {
             pub fn __rust_probestack();
         }
         /// The probestack based on the Rust probestack

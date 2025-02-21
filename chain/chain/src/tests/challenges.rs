@@ -1,5 +1,5 @@
-use crate::test_utils::setup;
 use crate::Error;
+use crate::test_utils::setup;
 use near_async::time::Clock;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::test_utils::TestBlockBuilder;

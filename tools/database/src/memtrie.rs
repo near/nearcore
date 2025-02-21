@@ -8,7 +8,7 @@ use near_o11y::env_filter::EnvFilterBuilder;
 use near_primitives::block::Tip;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::types::ShardId;
-use near_store::{DBCol, ShardUId, HEAD_KEY};
+use near_store::{DBCol, HEAD_KEY, ShardUId};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;

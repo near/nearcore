@@ -1,4 +1,4 @@
-use rand::{prelude::SliceRandom, Rng};
+use rand::{Rng, prelude::SliceRandom};
 use rand_xorshift::XorShiftRng;
 use rocksdb::DB;
 use std::{io::prelude::*, iter, path::PathBuf};
@@ -139,7 +139,7 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
     let op_count = if config.accurate { db_config.op_count } else { 1 };
 
     let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(SETUP_PRANDOM_SEED);
-    let mut keys: Vec<usize> = iter::repeat_with(|| prng.gen()).take(setup_insertions).collect();
+    let mut keys: Vec<usize> = iter::repeat_with(|| prng.r#gen()).take(setup_insertions).collect();
     if db_config.sequential_keys {
         keys.sort();
     } else {
@@ -213,7 +213,7 @@ fn prandom_inserts(
 ) {
     let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(key_seed);
     for i in 0..inserts {
-        let key = prng.gen::<u64>().to_string();
+        let key = prng.r#gen::<u64>().to_string();
         let start = (i * value_size) % (input_data.len() - value_size);
         let value = &input_data[start..(start + value_size)];
         db.put(&key, value).expect("Put failed");

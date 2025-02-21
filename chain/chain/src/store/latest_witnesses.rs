@@ -12,8 +12,8 @@ use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::EpochId;
 use near_store::DBCol;
 
-use crate::stateless_validation;
 use crate::ChainStoreAccess;
+use crate::stateless_validation;
 
 use super::ChainStore;
 
@@ -21,8 +21,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_schema_checker_lib::ProtocolSchema;
 use near_store::db::LATEST_WITNESSES_INFO;
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 
 /// Maximum size of the latest witnesses stored in the database.
 const LATEST_WITNESSES_MAX_SIZE: ByteSize = ByteSize::gb(4);
@@ -52,7 +52,7 @@ impl LatestWitnessesKey {
         let mut result = [0u8; 72];
         result[..8].copy_from_slice(&self.height.to_be_bytes());
         result[8..16].copy_from_slice(&self.shard_id.to_be_bytes());
-        result[16..48].copy_from_slice(&self.epoch_id.0 .0);
+        result[16..48].copy_from_slice(&self.epoch_id.0.0);
         result[48..56].copy_from_slice(&self.witness_size.to_be_bytes());
         result[56..].copy_from_slice(&self.random_uuid);
         result

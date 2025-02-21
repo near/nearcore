@@ -17,7 +17,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, MerkleHash, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -25,11 +25,11 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
-use node_runtime::state_viewer::TrieViewer;
 use node_runtime::SignedValidPeriodTransactions;
-use node_runtime::{state_viewer::ViewApplyState, ApplyState, Runtime};
+use node_runtime::state_viewer::TrieViewer;
+use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 
-use crate::user::{User, POISONED_LOCK_ERR};
+use crate::user::{POISONED_LOCK_ERR, User};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode

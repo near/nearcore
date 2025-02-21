@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{metrics, ActionResult, ApplyState, ChunkApplyStatsV0};
+use crate::{ActionResult, ApplyState, ChunkApplyStatsV0, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
@@ -16,7 +16,7 @@ use near_primitives::action::{
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
 };
@@ -31,19 +31,20 @@ use near_primitives::types::{
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_promise_yield_timeout, get_access_key, get_promise_yield_indices, remove_access_key,
-    remove_account, set_access_key, set_promise_yield_indices, StorageError, TrieUpdate,
+    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
+    get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
+    set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::{VMContext, VMOutcome};
-use near_vm_runner::{precompile_contract, PreparedContract};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::{PreparedContract, precompile_contract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
@@ -253,12 +254,12 @@ pub(crate) fn action_function_call(
                     .with_label_values(&[err.into()])
                     .inc();
             }
-            FunctionCallError::WasmTrap(ref inner_err) => {
+            FunctionCallError::WasmTrap(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
             }
-            FunctionCallError::HostError(ref inner_err) => {
+            FunctionCallError::HostError(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
@@ -730,9 +731,12 @@ pub(crate) fn action_delete_account(
             account.local_contract_hash().unwrap_or_default(),
             current_protocol_version,
         )?;
-        debug_assert!(code_len == 0 || account_storage_usage > code_len,
+        debug_assert!(
+            code_len == 0 || account_storage_usage > code_len,
             "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
-            account_storage_usage, code_len);
+            account_storage_usage,
+            code_len
+        );
         account_storage_usage = account_storage_usage.saturating_sub(code_len);
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
@@ -1056,7 +1060,7 @@ fn validate_delegate_action_key(
             .into());
             return Ok(());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = actions.get(0) {
+        if let Some(Action::FunctionCall(function_call)) = actions.get(0) {
             if function_call.deposit > 0 {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,

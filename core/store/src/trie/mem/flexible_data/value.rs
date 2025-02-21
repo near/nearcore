@@ -1,7 +1,7 @@
-use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
-use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
+use super::encoding::BorshFixedSize;
 use crate::trie::OptimizedValueRef;
+use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state::{FlatStateValue, ValueRef};
@@ -52,11 +52,7 @@ impl FlexibleDataHeader for EncodedValueHeader {
 
     fn flexible_data_length(&self) -> usize {
         let (length, inlined) = self.decode();
-        if inlined {
-            length as usize
-        } else {
-            std::mem::size_of::<CryptoHash>()
-        }
+        if inlined { length as usize } else { std::mem::size_of::<CryptoHash>() }
     }
 
     fn encode_flexible_data<M: ArenaMemoryMut>(

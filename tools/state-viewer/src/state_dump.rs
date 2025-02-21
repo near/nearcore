@@ -11,8 +11,8 @@ use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::{DelayedReceipt, StateRecord};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountInfo, Balance, StateRoot};
-use nearcore::config::NearConfig;
 use nearcore::NightshadeRuntime;
+use nearcore::config::NearConfig;
 use redis::Commands;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::HashMap;
@@ -360,8 +360,8 @@ mod test {
     use near_chain_configs::genesis_validate::validate_genesis;
     use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_chain_configs::{Genesis, GenesisChangeConfig, MutableConfigValue};
-    use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
+    use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
     use near_epoch_manager::EpochManager;
     use near_o11y::testonly::init_test_logger;
@@ -372,12 +372,12 @@ mod test {
         Balance, BlockHeight, BlockHeightDelta, NumBlocks, ProtocolVersion,
     };
     use near_primitives::version::PROTOCOL_VERSION;
+    use near_store::Store;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
-    use near_store::Store;
+    use nearcore::NightshadeRuntime;
     use nearcore::config::{Config, NearConfig};
     use nearcore::test_utils::TestEnvNightshadeSetupExt;
-    use nearcore::NightshadeRuntime;
 
     use crate::state_dump::state_dump;
     use near_primitives::hash::CryptoHash;

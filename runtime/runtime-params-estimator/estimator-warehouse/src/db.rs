@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use chrono::NaiveDateTime;
-use rusqlite::{params, Connection, Row};
+use rusqlite::{Connection, Row, params};
 
 use crate::Metric;
 
@@ -126,7 +126,9 @@ impl EstimationRow {
             Some(m) => format!("WHERE {}", m.condition()),
             None => "".to_owned(),
         };
-        let sql = format!("SELECT commit_hash,min(date) FROM estimation {metric_condition} GROUP BY commit_hash ORDER BY date ASC;");
+        let sql = format!(
+            "SELECT commit_hash,min(date) FROM estimation {metric_condition} GROUP BY commit_hash ORDER BY date ASC;"
+        );
         let mut stmt = db.conn.prepare(&sql)?;
         let data = stmt
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, NaiveDateTime>(1)?)))?
@@ -197,7 +199,7 @@ mod tests {
     use super::Db;
     use crate::import::ImportConfig;
     use chrono::{NaiveDate, NaiveDateTime};
-    use rusqlite::{functions::FunctionFlags, Connection};
+    use rusqlite::{Connection, functions::FunctionFlags};
 
     impl Db {
         /// Create a new in-memory test database with a mocked `datetime()` function.

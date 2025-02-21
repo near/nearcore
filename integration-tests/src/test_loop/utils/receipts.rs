@@ -4,10 +4,10 @@ use super::sharding::{next_block_has_new_shard_layout, this_block_has_new_shard_
 use crate::test_loop::env::TestData;
 use crate::test_loop::utils::sharding::get_memtrie_for_shard;
 use near_async::test_loop::data::TestLoopData;
-use near_chain::types::Tip;
 use near_chain::ChainStoreAccess;
-use near_client::client_actor::ClientActorInner;
+use near_chain::types::Tip;
 use near_client::Client;
+use near_client::client_actor::ClientActorInner;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
@@ -15,7 +15,7 @@ use near_primitives::receipt::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
-use near_store::{get, ShardUId};
+use near_store::{ShardUId, get};
 
 pub enum ReceiptKind {
     Delayed,

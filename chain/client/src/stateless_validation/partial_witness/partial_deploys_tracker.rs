@@ -8,10 +8,10 @@ use near_chain::Error;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonPartsTracker,
 };
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractDeploys, PartialEncodedContractDeploys, PartialEncodedContractDeploysPart,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use time::ext::InstantExt as _;
 
 const DEPLOY_PARTS_CACHE_SIZE: usize = 20;

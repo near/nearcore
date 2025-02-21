@@ -1,11 +1,11 @@
 // This file contains code from external sources.
 // Attributions: https://github.com/wasmerio/wasmer/blob/2.3.0/ATTRIBUTIONS.md
 
+use crate::VMSharedSignatureIndex;
 use crate::global::Global;
 use crate::instance::WeakOrStrongInstanceRef;
 use crate::table::{Table, TableStyle};
 use crate::vmcontext::{VMFunctionBody, VMFunctionEnvironment, VMFunctionKind, VMTrampoline};
-use crate::VMSharedSignatureIndex;
 use near_vm_types::TableType;
 use std::sync::Arc;
 

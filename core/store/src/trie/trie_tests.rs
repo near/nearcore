@@ -1,14 +1,14 @@
-use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
-use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
+use crate::test_utils::{TestTriesBuilder, gen_changes, simplify_changes, test_populate_trie};
 use crate::trie::TrieNodesCount;
+use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::PartialState;
-use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::seq::SliceRandom;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
@@ -207,13 +207,13 @@ mod nodes_counter_tests {
 #[cfg(test)]
 mod trie_storage_tests {
     use super::*;
-    use crate::adapter::trie_store::TrieStoreAdapter;
     use crate::adapter::StoreAdapter;
+    use crate::adapter::trie_store::TrieStoreAdapter;
     use crate::test_utils::create_test_store;
+    use crate::trie::TrieRefcountAddition;
     use crate::trie::accounting_cache::TrieAccountingCache;
     use crate::trie::iterator::TrieIterator;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
-    use crate::trie::TrieRefcountAddition;
     use crate::{TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
     use near_o11y::testonly::init_test_logger;

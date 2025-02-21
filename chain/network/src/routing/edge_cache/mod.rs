@@ -20,11 +20,7 @@ pub(crate) struct EdgeKey {
 impl From<&(PeerId, PeerId)> for EdgeKey {
     fn from(peers: &(PeerId, PeerId)) -> EdgeKey {
         let (peer0, peer1) = peers.clone();
-        if peer0 < peer1 {
-            Self { peer0, peer1 }
-        } else {
-            Self { peer1, peer0 }
-        }
+        if peer0 < peer1 { Self { peer0, peer1 } } else { Self { peer1, peer0 } }
     }
 }
 
@@ -370,11 +366,7 @@ impl EdgeCache {
             }
         }
 
-        if has_root && has_edge.len() + 1 == distance.len() {
-            Some(edges)
-        } else {
-            None
-        }
+        if has_root && has_edge.len() + 1 == distance.len() { Some(edges) } else { None }
     }
 
     pub(crate) fn get_debug_view(&self) -> EdgeCacheView {

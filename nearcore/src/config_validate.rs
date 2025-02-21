@@ -39,7 +39,10 @@ impl<'a> ConfigValidator<'a> {
         // Checking that if cold storage is configured, trie changes are definitely saved.
         // Unlike in the previous case, None is not a valid option here.
         if self.config.cold_store.is_some() && self.config.save_trie_changes != Some(true) {
-            let error_message = format!("cold_store is configured, but save_trie_changes is {:?}. Trie changes should be saved to support cold storage.", self.config.save_trie_changes);
+            let error_message = format!(
+                "cold_store is configured, but save_trie_changes is {:?}. Trie changes should be saved to support cold storage.",
+                self.config.save_trie_changes
+            );
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -75,7 +78,12 @@ impl<'a> ConfigValidator<'a> {
             || self.config.gc.gc_fork_clean_step == 0
             || self.config.gc.gc_num_epochs_to_keep == 0
         {
-            let error_message = format!("gc config values should all be greater than 0, but gc_blocks_limit is {:?}, gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}.", self.config.gc.gc_blocks_limit, self.config.gc.gc_fork_clean_step, self.config.gc.gc_num_epochs_to_keep);
+            let error_message = format!(
+                "gc config values should all be greater than 0, but gc_blocks_limit is {:?}, gc_fork_clean_step is {}, gc_num_epochs_to_keep is {}.",
+                self.config.gc.gc_blocks_limit,
+                self.config.gc.gc_fork_clean_step,
+                self.config.gc.gc_num_epochs_to_keep
+            );
             self.validation_errors.push_config_semantics_error(error_message);
         }
 
@@ -84,7 +92,9 @@ impl<'a> ConfigValidator<'a> {
                 if let Some(restart_dump_for_shards) = &dump_config.restart_dump_for_shards {
                     let unique_values: HashSet<_> = restart_dump_for_shards.iter().collect();
                     if unique_values.len() != restart_dump_for_shards.len() {
-                        let error_message = format!("'config.state_sync.dump.restart_dump_for_shards' contains duplicate values.");
+                        let error_message = format!(
+                            "'config.state_sync.dump.restart_dump_for_shards' contains duplicate values."
+                        );
                         self.validation_errors.push_config_semantics_error(error_message);
                     }
                 }
@@ -92,19 +102,25 @@ impl<'a> ConfigValidator<'a> {
                 match &dump_config.location {
                     ExternalStorageLocation::S3 { bucket, region } => {
                         if bucket.is_empty() || region.is_empty() {
-                            let error_message = format!("'config.state_sync.dump.location.S3.bucket' and 'config.state_sync.dump.location.S3.region' need to be specified when 'config.state_sync.dump.location.S3' is present.");
+                            let error_message = format!(
+                                "'config.state_sync.dump.location.S3.bucket' and 'config.state_sync.dump.location.S3.region' need to be specified when 'config.state_sync.dump.location.S3' is present."
+                            );
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
                     }
                     ExternalStorageLocation::Filesystem { root_dir } => {
                         if root_dir.as_path() == Path::new("") {
-                            let error_message = format!("'config.state_sync.dump.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.dump.location.Filesystem' is present.");
+                            let error_message = format!(
+                                "'config.state_sync.dump.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.dump.location.Filesystem' is present."
+                            );
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
                     }
                     ExternalStorageLocation::GCS { bucket } => {
                         if bucket.is_empty() {
-                            let error_message = format!("'config.state_sync.dump.location.GCS.bucket' needs to be specified when 'config.state_sync.dump.location.GCS' is present.");
+                            let error_message = format!(
+                                "'config.state_sync.dump.location.GCS.bucket' needs to be specified when 'config.state_sync.dump.location.GCS' is present."
+                            );
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
                     }
@@ -112,7 +128,9 @@ impl<'a> ConfigValidator<'a> {
 
                 if let Some(credentials_file) = &dump_config.credentials_file {
                     if !credentials_file.exists() || !credentials_file.is_file() {
-                        let error_message = format!("'config.state_sync.dump.credentials_file' is provided but the specified file does not exist or is not a file.");
+                        let error_message = format!(
+                            "'config.state_sync.dump.credentials_file' is provided but the specified file does not exist or is not a file."
+                        );
                         self.validation_errors.push_config_semantics_error(error_message);
                     }
                 }
@@ -123,25 +141,33 @@ impl<'a> ConfigValidator<'a> {
                     match &config.location {
                         ExternalStorageLocation::S3 { bucket, region } => {
                             if bucket.is_empty() || region.is_empty() {
-                                let error_message = format!("'config.state_sync.sync.ExternalStorage.location.S3.bucket' and 'config.state_sync.sync.ExternalStorage.location.S3.region' need to be specified when 'config.state_sync.sync.ExternalStorage.location.S3' is present.");
+                                let error_message = format!(
+                                    "'config.state_sync.sync.ExternalStorage.location.S3.bucket' and 'config.state_sync.sync.ExternalStorage.location.S3.region' need to be specified when 'config.state_sync.sync.ExternalStorage.location.S3' is present."
+                                );
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }
                         }
                         ExternalStorageLocation::Filesystem { root_dir } => {
                             if root_dir.as_path() == Path::new("") {
-                                let error_message = format!("'config.state_sync.sync.ExternalStorage.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.Filesystem' is present.");
+                                let error_message = format!(
+                                    "'config.state_sync.sync.ExternalStorage.location.Filesystem.root_dir' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.Filesystem' is present."
+                                );
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }
                         }
                         ExternalStorageLocation::GCS { bucket } => {
                             if bucket.is_empty() {
-                                let error_message = format!("'config.state_sync.sync.ExternalStorage.location.GCS.bucket' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.GCS' is present.");
+                                let error_message = format!(
+                                    "'config.state_sync.sync.ExternalStorage.location.GCS.bucket' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.GCS' is present."
+                                );
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }
                         }
                     }
                     if config.num_concurrent_requests == 0 {
-                        let error_message = format!("'config.state_sync.sync.ExternalStorage.num_concurrent_requests' needs to be greater than 0");
+                        let error_message = format!(
+                            "'config.state_sync.sync.ExternalStorage.num_concurrent_requests' needs to be greater than 0"
+                        );
                         self.validation_errors.push_config_semantics_error(error_message);
                     }
                 }
@@ -150,11 +176,15 @@ impl<'a> ConfigValidator<'a> {
 
         let tx_routing_height_horizon = self.config.tx_routing_height_horizon;
         if tx_routing_height_horizon < 2 {
-            let error_message = format!("'config.tx_routing_height_horizon' needs to be at least 2, got {tx_routing_height_horizon}.");
+            let error_message = format!(
+                "'config.tx_routing_height_horizon' needs to be at least 2, got {tx_routing_height_horizon}."
+            );
             self.validation_errors.push_config_semantics_error(error_message);
         }
         if tx_routing_height_horizon > 100 {
-            let error_message = format!("'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}.");
+            let error_message = format!(
+                "'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}."
+            );
             self.validation_errors.push_config_semantics_error(error_message);
         }
     }

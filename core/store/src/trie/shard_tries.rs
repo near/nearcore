@@ -1,15 +1,15 @@
+use super::TrieRefcountSubtraction;
 use super::mem::memtries::MemTries;
 use super::state_snapshot::{StateSnapshot, StateSnapshotConfig};
-use super::TrieRefcountSubtraction;
-use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
 use crate::adapter::StoreAdapter;
+use crate::adapter::trie_store::{TrieStoreAdapter, TrieStoreUpdateAdapter};
 use crate::flat::{FlatStorageManager, FlatStorageStatus};
 use crate::trie::config::TrieConfig;
 use crate::trie::mem::loading::load_trie_from_flat_state_and_delta;
 use crate::trie::prefetching_trie_storage::PrefetchingThreadsHandle;
 use crate::trie::trie_storage::{TrieCache, TrieCachingStorage};
-use crate::trie::{TrieRefcountAddition, POISONED_LOCK_ERR};
-use crate::{metrics, DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage};
+use crate::trie::{POISONED_LOCK_ERR, TrieRefcountAddition};
+use crate::{DBCol, PrefetchApi, Store, TrieDBStorage, TrieStorage, metrics};
 use crate::{Trie, TrieChanges, TrieUpdate};
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
@@ -723,7 +723,9 @@ impl WrappedTrieChanges {
 
 #[derive(thiserror::Error, Debug)]
 pub enum KeyForStateChangesError {
-    #[error("Row key of StateChange of kind DelayedReceipt or DelayedReceiptIndices doesn't contain ShardUId: row_key: {0:?} ; trie_key: {1:?}")]
+    #[error(
+        "Row key of StateChange of kind DelayedReceipt or DelayedReceiptIndices doesn't contain ShardUId: row_key: {0:?} ; trie_key: {1:?}"
+    )]
     DelayedReceiptRowKeyError(Vec<u8>, TrieKey),
 }
 
@@ -838,8 +840,8 @@ impl KeyForStateChanges {
 mod test {
     use crate::adapter::StoreAdapter;
     use crate::{
-        config::TrieCacheConfig, test_utils::create_test_store,
-        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT, TrieConfig,
+        TrieConfig, config::TrieCacheConfig, test_utils::create_test_store,
+        trie::DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
     };
 
     use super::*;
@@ -895,12 +897,14 @@ mod test {
 
         // Forget to add a ShardUId to the key, fail to extra a ShardUId from the key.
         let row_key_without_shard_uid = KeyForStateChanges::from_trie_key(&block_hash, &trie_key1);
-        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
-            row_key_without_shard_uid.as_ref(),
-            &block_hash,
-            &trie_key1
-        )
-        .is_err());
+        assert!(
+            KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key_without_shard_uid.as_ref(),
+                &block_hash,
+                &trie_key1
+            )
+            .is_err()
+        );
 
         // Add an extra byte to the key, fail to extra a ShardUId from the key.
         let mut row_key_extra_bytes = KeyForStateChanges::delayed_receipt_key_from_trie_key(
@@ -909,12 +913,14 @@ mod test {
             &shard_uid,
         );
         row_key_extra_bytes.0.extend([8u8]);
-        assert!(KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
-            row_key_extra_bytes.as_ref(),
-            &block_hash,
-            &trie_key1
-        )
-        .is_err());
+        assert!(
+            KeyForStateChanges::delayed_receipt_key_decode_shard_uid(
+                row_key_extra_bytes.as_ref(),
+                &block_hash,
+                &trie_key1
+            )
+            .is_err()
+        );
 
         // This is the internal detail of how delayed_receipt_key_from_trie_key() works.
         let mut row_key_with_single_shard_uid =

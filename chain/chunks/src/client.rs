@@ -165,7 +165,7 @@ mod tests {
         types::{AccountId, ShardId},
     };
     use near_store::ShardUId;
-    use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
     use std::{collections::HashMap, str::FromStr};
 
     const TEST_SEED: RngSeed = [3; 32];

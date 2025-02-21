@@ -142,11 +142,7 @@ fn get_endorsement_ratio(stats: &ValidatorStats, cutoff_threshold: Option<u8>) -
         debug_assert_eq!(stats.produced, 0);
         (0, 0)
     } else if let Some(threshold) = cutoff_threshold {
-        if stats.less_than(threshold) {
-            (0, 1)
-        } else {
-            (1, 1)
-        }
+        if stats.less_than(threshold) { (0, 1) } else { (1, 1) }
     } else {
         (stats.produced, stats.expected)
     };

@@ -1,4 +1,4 @@
-use near_o11y::metrics::{try_create_int_counter, try_create_int_gauge, IntCounter, IntGauge};
+use near_o11y::metrics::{IntCounter, IntGauge, try_create_int_counter, try_create_int_gauge};
 use std::sync::LazyLock;
 
 pub static CONFIG_RELOADS: LazyLock<IntCounter> = LazyLock::new(|| {

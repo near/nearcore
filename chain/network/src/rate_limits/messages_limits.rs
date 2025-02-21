@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use enum_map::{enum_map, EnumMap};
+use enum_map::{EnumMap, enum_map};
 use near_async::time::Instant;
 
 use crate::network_protocol::{PeerMessage, RoutedMessageBody};
@@ -101,11 +101,7 @@ impl Config {
                 errors.push((*key, err));
             }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
+        if errors.is_empty() { Ok(()) } else { Err(errors) }
     }
 
     /// Returns a good preset of rate limit configuration valid for any type of node.
@@ -358,16 +354,20 @@ mod tests {
         config.rate_limits.insert(BlockHeaders, SingleMessageConfig::new(0, -2.0, None));
         let result = config.validate();
         let error = result.expect_err("a configuration error is expected");
-        assert!(error
-            .iter()
-            .find(|(key, err)| *key == BlockApproval
-                && *err == TokenBucketError::InvalidRefillRate(-1.0))
-            .is_some());
-        assert!(error
-            .iter()
-            .find(|(key, err)| *key == BlockHeaders
-                && *err == TokenBucketError::InvalidRefillRate(-2.0))
-            .is_some());
+        assert!(
+            error
+                .iter()
+                .find(|(key, err)| *key == BlockApproval
+                    && *err == TokenBucketError::InvalidRefillRate(-1.0))
+                .is_some()
+        );
+        assert!(
+            error
+                .iter()
+                .find(|(key, err)| *key == BlockHeaders
+                    && *err == TokenBucketError::InvalidRefillRate(-2.0))
+                .is_some()
+        );
     }
 
     #[test]

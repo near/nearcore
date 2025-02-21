@@ -41,7 +41,7 @@ pub trait ValFuncRef {
     unsafe fn from_vm_funcref(item: VMFuncRef, store: &Store) -> Self;
 
     fn into_table_reference(&self, store: &Store)
-        -> Result<near_vm_vm::TableElement, RuntimeError>;
+    -> Result<near_vm_vm::TableElement, RuntimeError>;
 }
 
 impl ValFuncRef for Val {
@@ -60,7 +60,7 @@ impl ValFuncRef for Val {
     ///
     /// The returned `Val` must outlive the containing instance.
     unsafe fn from_vm_funcref(func_ref: VMFuncRef, store: &Store) -> Self {
-        Self::FuncRef(Function::from_vm_funcref(store, func_ref))
+        unsafe { Self::FuncRef(Function::from_vm_funcref(store, func_ref)) }
     }
 
     fn into_table_reference(

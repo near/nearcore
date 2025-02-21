@@ -17,9 +17,9 @@ use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
-use crate::routing::route_back_cache::RouteBackCache;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
+use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::state_witness::{
@@ -46,8 +46,8 @@ use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use tracing::Instrument as _;
 
 mod routing;

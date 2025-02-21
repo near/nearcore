@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use near_primitives::types::StateRoot;
-use near_store::db::TestDB;
 use near_store::Store;
+use near_store::db::TestDB;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};

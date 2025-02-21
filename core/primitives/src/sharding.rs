@@ -1,7 +1,7 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
+use crate::hash::{CryptoHash, hash};
+use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
@@ -661,7 +661,9 @@ impl ShardChunkHeader {
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-#[error("Invalid chunk header version for protocol version {protocol_version}. (header: {header_version}, inner: {header_inner_version})")]
+#[error(
+    "Invalid chunk header version for protocol version {protocol_version}. (header: {header_version}, inner: {header_inner_version})"
+)]
 pub struct BadHeaderForProtocolVersionError {
     pub protocol_version: ProtocolVersion,
     pub header_version: u64,

@@ -59,18 +59,10 @@ impl Transaction {
 }
 
 fn avg(data: &[u64]) -> u64 {
-    if data.is_empty() {
-        0
-    } else {
-        data.iter().copied().sum::<u64>() / data.len() as u64
-    }
+    if data.is_empty() { 0 } else { data.iter().copied().sum::<u64>() / data.len() as u64 }
 }
 
 /// Input must be sorted
 fn percentile(data: &[u64], p: usize) -> u64 {
-    if data.is_empty() {
-        0
-    } else {
-        data[(data.len() - 1) * p / 100]
-    }
+    if data.is_empty() { 0 } else { data[(data.len() - 1) * p / 100] }
 }

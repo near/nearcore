@@ -822,9 +822,9 @@ mod tests {
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
     fn test_runtime_config_view() {
-        use crate::view::RuntimeConfigView;
         use crate::RuntimeConfig;
         use crate::RuntimeConfigStore;
+        use crate::view::RuntimeConfigView;
         use near_primitives_core::version::PROTOCOL_VERSION;
 
         let config_store = RuntimeConfigStore::new(None);

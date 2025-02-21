@@ -9,7 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::serialize::dec_format;
-use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_schema_checker_lib::ProtocolSchema;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -302,7 +302,8 @@ impl AllEpochConfig {
             debug_assert_eq!(
                 config_store.as_ref().unwrap().get_config(genesis_protocol_version).as_ref(),
                 &all_epoch_config.generate_epoch_config(genesis_protocol_version),
-                "Provided genesis EpochConfig for protocol version {} does not match the stored config", genesis_protocol_version
+                "Provided genesis EpochConfig for protocol version {} does not match the stored config",
+                genesis_protocol_version
             );
         }
         all_epoch_config
@@ -570,11 +571,7 @@ impl EpochConfigStore {
             store = Self::load_epoch_config_from_file_system(config_dir.to_str().unwrap());
         }
 
-        if store.is_empty() {
-            None
-        } else {
-            Some(Self { store })
-        }
+        if store.is_empty() { None } else { Some(Self { store }) }
     }
 
     /// Loads the default epoch configs for the given chain from the CONFIGS array.

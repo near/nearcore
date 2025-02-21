@@ -6,7 +6,7 @@ use near_crypto::{KeyType, PublicKey};
 use near_network::types::PeerInfo;
 use near_primitives::account::AccountContract;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::ReceiptV0;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;

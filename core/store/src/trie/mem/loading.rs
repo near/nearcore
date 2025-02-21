@@ -11,7 +11,7 @@ use crate::trie::ops::insert_delete::GenericTrieUpdateInsertDelete;
 use crate::{DBCol, NibbleSlice, Store};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, StateRoot};
 use std::collections::BTreeSet;
@@ -126,9 +126,9 @@ pub fn load_trie_from_flat_state_and_delta(
         FlatStorageStatus::Ready(status) => status.flat_head,
         other => {
             return Err(StorageError::MemTrieLoadingError(format!(
-                            "Cannot load memtries when flat storage is not ready for shard {}, actual status: {:?}",
-                            shard_uid, other
-                        )));
+                "Cannot load memtries when flat storage is not ready for shard {}, actual status: {:?}",
+                shard_uid, other
+            )));
         }
     };
 
@@ -184,8 +184,8 @@ mod tests {
     use crate::flat::test_utils::MockChain;
     use crate::flat::{BlockInfo, FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::{
-        create_test_store, simplify_changes, test_populate_flat_storage, test_populate_trie,
-        TestTriesBuilder,
+        TestTriesBuilder, create_test_store, simplify_changes, test_populate_flat_storage,
+        test_populate_trie,
     };
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
@@ -195,12 +195,12 @@ mod tests {
     use near_primitives::bandwidth_scheduler::BandwidthRequests;
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+    use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
     use near_primitives::state::FlatStateValue;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::{StateChangeCause, StateRoot};
-    use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
@@ -284,7 +284,7 @@ mod tests {
                 let mut key = Vec::new();
                 let key_len = rng.gen_range(0..=max_key_len);
                 for _ in 0..key_len {
-                    let byte: u8 = rng.gen();
+                    let byte: u8 = rng.r#gen();
                     key.push(byte);
                 }
                 keys.push(key);

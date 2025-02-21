@@ -8,7 +8,7 @@ use crate::tcp;
 use crate::types::{AccountKeys, ChainInfo, Handshake, RoutingTableUpdate};
 use near_async::time;
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
-use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
+use near_primitives::block::{Block, BlockHeader, GenesisId, genesis_chunks};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -21,8 +21,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, StateRoot};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version;
-use rand::distributions::Standard;
 use rand::Rng;
+use rand::distributions::Standard;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::HashMap;
 use std::net;
@@ -75,11 +75,11 @@ pub fn make_block(
 }
 
 pub fn make_account_id<R: Rng>(rng: &mut R) -> AccountId {
-    format!("account{}", rng.gen::<u32>()).parse().unwrap()
+    format!("account{}", rng.r#gen::<u32>()).parse().unwrap()
 }
 
 pub fn make_secret_key<R: Rng>(rng: &mut R) -> SecretKey {
-    SecretKey::from_seed(KeyType::ED25519, &rng.gen::<u64>().to_string())
+    SecretKey::from_seed(KeyType::ED25519, &rng.r#gen::<u64>().to_string())
 }
 
 pub fn make_peer_id<R: Rng>(rng: &mut R) -> PeerId {
@@ -92,7 +92,7 @@ pub fn make_signer<R: Rng>(rng: &mut R) -> Signer {
 
 pub fn make_validator_signer<R: Rng>(rng: &mut R) -> ValidatorSigner {
     let account_id = make_account_id(rng);
-    let seed = rng.gen::<u64>().to_string();
+    let seed = rng.r#gen::<u64>().to_string();
     InMemoryValidatorSigner::from_seed(account_id, KeyType::ED25519, &seed)
 }
 
@@ -120,7 +120,7 @@ pub fn make_partial_edge<R: Rng>(rng: &mut R) -> PartialEdgeInfo {
     PartialEdgeInfo::new(
         &PeerId::new(a.public_key()),
         &PeerId::new(b.public_key()),
-        rng.gen(),
+        rng.r#gen(),
         &secret_key,
     )
 }
@@ -153,7 +153,7 @@ pub fn make_signed_transaction<R: Rng>(rng: &mut R) -> SignedTransaction {
     let sender = make_signer(rng);
     let receiver = make_account_id(rng);
     SignedTransaction::send_money(
-        rng.gen(),
+        rng.r#gen(),
         sender.get_account_id(),
         receiver,
         &sender,
@@ -223,7 +223,7 @@ impl ChunkSet {
 }
 
 pub fn make_hash<R: Rng>(rng: &mut R) -> CryptoHash {
-    CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>())
+    CryptoHash::hash_bytes(&rng.r#gen::<[u8; 19]>())
 }
 
 pub fn make_account_keys(signers: &[ValidatorSigner]) -> AccountKeys {
@@ -253,7 +253,7 @@ impl Chain {
         }
         Chain {
             genesis_id: GenesisId {
-                chain_id: format!("testchain{}", rng.gen::<u32>()),
+                chain_id: format!("testchain{}", rng.r#gen::<u32>()),
                 hash: Default::default(),
             },
             blocks,
@@ -296,7 +296,7 @@ impl Chain {
     }
 
     pub fn make_config<R: Rng>(&self, rng: &mut R) -> config::NetworkConfig {
-        let seed = &rng.gen::<u64>().to_string();
+        let seed = &rng.r#gen::<u64>().to_string();
         let mut cfg =
             config::NetworkConfig::from_seed(&seed, tcp::ListenerAddr::reserve_for_test());
         // Currently, in unit tests PeerManagerActor is not allowed to try to establish
@@ -334,7 +334,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         oldest_supported_version: version::PEER_MIN_ALLOWED_PROTOCOL_VERSION,
         sender_peer_id: a_id,
         target_peer_id: b_id,
-        sender_listen_port: Some(rng.gen()),
+        sender_listen_port: Some(rng.r#gen()),
         sender_chain_info: chain.get_peer_chain_info(),
         partial_edge_info: make_partial_edge(rng),
         owned_account: None,
@@ -351,19 +351,19 @@ pub fn make_routed_message<R: Rng>(rng: &mut R, body: RoutedMessageBody) -> Rout
     )
 }
 pub fn make_ipv4(rng: &mut impl Rng) -> net::IpAddr {
-    net::IpAddr::V4(net::Ipv4Addr::from(rng.gen::<[u8; 4]>()))
+    net::IpAddr::V4(net::Ipv4Addr::from(rng.r#gen::<[u8; 4]>()))
 }
 
 pub fn make_ipv6(rng: &mut impl Rng) -> net::IpAddr {
-    net::IpAddr::V6(net::Ipv6Addr::from(rng.gen::<[u8; 16]>()))
+    net::IpAddr::V6(net::Ipv6Addr::from(rng.r#gen::<[u8; 16]>()))
 }
 
 pub fn make_addr<R: Rng>(rng: &mut R) -> net::SocketAddr {
-    net::SocketAddr::new(make_ipv4(rng), rng.gen())
+    net::SocketAddr::new(make_ipv4(rng), rng.r#gen())
 }
 
 pub fn make_peer_addr(rng: &mut impl Rng, ip: net::IpAddr) -> PeerAddr {
-    PeerAddr { addr: net::SocketAddr::new(ip, rng.gen()), peer_id: make_peer_id(rng) }
+    PeerAddr { addr: net::SocketAddr::new(ip, rng.r#gen()), peer_id: make_peer_id(rng) }
 }
 
 pub fn make_account_data(

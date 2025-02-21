@@ -4,7 +4,7 @@
 use near_vm_vm::{Export, NamedResolver};
 use std::borrow::BorrowMut;
 use std::collections::VecDeque;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
@@ -148,11 +148,7 @@ impl fmt::Debug for ImportObject {
 
         impl SecretMap {
             fn new(len: usize) -> Self {
-                if len == 0 {
-                    Self::Empty
-                } else {
-                    Self::Some(len)
-                }
+                if len == 0 { Self::Empty } else { Self::Some(len) }
             }
         }
 

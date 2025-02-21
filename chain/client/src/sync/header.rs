@@ -393,7 +393,7 @@ mod test {
     use near_async::time::{Clock, Duration, FakeClock, Utc};
     use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period};
     use near_chain::types::Tip;
-    use near_chain::{retrieve_headers, BlockProcessingArtifact, Provenance};
+    use near_chain::{BlockProcessingArtifact, Provenance, retrieve_headers};
     use near_chain_configs::MutableConfigValue;
     use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
@@ -411,7 +411,7 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
-    use crate::sync::header::{get_locator_ordinals, HeaderSync, MAX_BLOCK_HEADERS};
+    use crate::sync::header::{HeaderSync, MAX_BLOCK_HEADERS, get_locator_ordinals};
 
     #[test]
     fn test_get_locator_ordinals() {
@@ -516,14 +516,16 @@ mod test {
             },
         };
         let head = chain.head().unwrap();
-        assert!(header_sync
-            .run(
-                &mut sync_status,
-                &mut chain,
-                head.height,
-                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-            )
-            .is_ok());
+        assert!(
+            header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    head.height,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok()
+        );
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
 
@@ -618,14 +620,16 @@ mod test {
             },
         };
         let head = chain.head().unwrap();
-        assert!(header_sync
-            .run(
-                &mut sync_status,
-                &mut chain,
-                head.height,
-                &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-            )
-            .is_ok());
+        assert!(
+            header_sync
+                .run(
+                    &mut sync_status,
+                    &mut chain,
+                    head.height,
+                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                )
+                .is_ok()
+        );
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
 
@@ -852,14 +856,16 @@ mod test {
                 // sync is done.
                 break;
             }
-            assert!(header_sync
-                .run(
-                    &mut sync_status,
-                    &mut chain,
-                    header_head.height,
-                    &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
-                )
-                .is_ok());
+            assert!(
+                header_sync
+                    .run(
+                        &mut sync_status,
+                        &mut chain,
+                        header_head.height,
+                        &[<FullPeerInfo as Into<Option<_>>>::into(peer1.clone()).unwrap()]
+                    )
+                    .is_ok()
+            );
             match sync_status {
                 SyncStatus::HeaderSync { .. } => {}
                 _ => panic!("Unexpected sync status: {:?}", sync_status),

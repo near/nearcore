@@ -4,7 +4,7 @@ pub mod strategy;
 pub mod workload;
 
 pub use evaluation::{
-    summary_table, QueueStats, ShardQueueLengths, StatsWriter, TransactionStatus,
+    QueueStats, ShardQueueLengths, StatsWriter, TransactionStatus, summary_table,
 };
 pub use model::{Model, Queue, QueueId, Receipt, ShardId, TransactionId};
 pub use strategy::CongestionStrategy;

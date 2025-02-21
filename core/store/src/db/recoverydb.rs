@@ -1,8 +1,8 @@
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
-use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 use crate::DBCol;
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database};
 
 use super::{ColdDB, StatsValue};
 

@@ -1,6 +1,6 @@
 use crate::config::SocketOptions;
 use crate::network_protocol::PeerInfo;
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
 use std::fmt;

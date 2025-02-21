@@ -1,13 +1,13 @@
 use near_chain::ChainStoreAccess;
 use near_chain::{
-    types::EpochManagerAdapter, validate::validate_chunk_proofs, BlockHeader, Chain, ChainStore,
+    BlockHeader, Chain, ChainStore, types::EpochManagerAdapter, validate::validate_chunk_proofs,
 };
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::{
     errors::EpochError,
     hash::CryptoHash,
-    merkle::{merklize, MerklePath},
+    merkle::{MerklePath, merklize},
     receipt::Receipt,
     sharding::{
         EncodedShardChunk, PartialEncodedChunk, PartialEncodedChunkPart, PartialEncodedChunkV1,

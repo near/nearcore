@@ -21,7 +21,7 @@ impl Color {
         let color = match self {
             Color::Gray { shade } => return Color::Color256(0xE8 + shade).as_ansi(foreground),
             Color::Color256(n) => {
-                return format!("\x1b[{};5;{}m", if foreground { 38 } else { 48 }, n)
+                return format!("\x1b[{};5;{}m", if foreground { 38 } else { 48 }, n);
             }
             Color::Black => 0,
             Color::Red => 1,

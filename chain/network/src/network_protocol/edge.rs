@@ -106,11 +106,7 @@ impl Edge {
     }
 
     pub fn make_key(peer0: PeerId, peer1: PeerId) -> (PeerId, PeerId) {
-        if peer0 < peer1 {
-            (peer0, peer1)
-        } else {
-            (peer1, peer0)
-        }
+        if peer0 < peer1 { (peer0, peer1) } else { (peer1, peer0) }
     }
 
     /// Helper function when adding a new edge and we receive information from new potential peer
@@ -123,11 +119,7 @@ impl Edge {
 
     /// Next nonce of valid addition edge.
     pub fn next_nonce(nonce: u64) -> u64 {
-        if nonce % 2 == 1 {
-            nonce + 2
-        } else {
-            nonce + 1
-        }
+        if nonce % 2 == 1 { nonce + 2 } else { nonce + 1 }
     }
 
     /// Create a fresh nonce (based on the current time).
@@ -201,11 +193,7 @@ impl Edge {
     /// It will be considered as a new edge if the nonce is odd, otherwise it is canceling the
     /// previous edge.
     pub fn edge_type(&self) -> EdgeState {
-        if self.nonce() % 2 == 1 {
-            EdgeState::Active
-        } else {
-            EdgeState::Removed
-        }
+        if self.nonce() % 2 == 1 { EdgeState::Active } else { EdgeState::Removed }
     }
     /// Next nonce of valid addition edge.
     pub fn next(&self) -> u64 {

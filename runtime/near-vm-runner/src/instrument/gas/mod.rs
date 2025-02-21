@@ -503,11 +503,7 @@ pub fn inject_gas_counter<R: Rules>(
         return Err(module);
     }
 
-    if need_grow_counter {
-        Ok(add_grow_counter(module, rules, gas_func))
-    } else {
-        Ok(module)
-    }
+    if need_grow_counter { Ok(add_grow_counter(module, rules, gas_func)) } else { Ok(module) }
 }
 
 #[cfg(test)]

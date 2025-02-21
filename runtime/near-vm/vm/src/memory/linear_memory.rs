@@ -86,7 +86,7 @@ impl LinearMemory {
         style: &MemoryStyle,
         vm_memory_location: NonNull<VMMemoryDefinition>,
     ) -> Result<Self, MemoryError> {
-        Self::new_internal(memory, style, Some(vm_memory_location))
+        unsafe { Self::new_internal(memory, style, Some(vm_memory_location)) }
     }
 
     /// Build a `LinearMemory` with either self-owned or VM owned metadata.
@@ -148,7 +148,7 @@ impl LinearMemory {
             vm_memory_definition: if let Some(mem_loc) = vm_memory_location {
                 {
                     let mut ptr = mem_loc;
-                    let md = ptr.as_mut();
+                    let md = unsafe { ptr.as_mut() };
                     md.base = base_ptr;
                     md.current_length = mem_length;
                 }
@@ -171,9 +171,9 @@ impl LinearMemory {
     unsafe fn get_vm_memory_definition(&self) -> NonNull<VMMemoryDefinition> {
         match &self.vm_memory_definition {
             VMMemoryDefinitionOwnership::VMOwned(ptr) => *ptr,
-            VMMemoryDefinitionOwnership::HostOwned(boxed_ptr) => {
+            VMMemoryDefinitionOwnership::HostOwned(boxed_ptr) => unsafe {
                 NonNull::new_unchecked(boxed_ptr.get())
-            }
+            },
         }
     }
 }

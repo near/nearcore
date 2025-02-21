@@ -12,7 +12,7 @@ use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use crate::byzantine_assert;
 
-use super::{filter_incoming_receipts_for_shard, ReceiptFilter};
+use super::{ReceiptFilter, filter_incoming_receipts_for_shard};
 
 /// Get full chunk from header with `height_included` taken from `header`, with
 /// possible error that contains the header for further retrieval.

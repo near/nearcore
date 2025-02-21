@@ -3,17 +3,17 @@ use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use actix::System;
 use near_chain::test_utils::ValidatorSchedule;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
-use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
+use crate::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_chain::Block;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
-use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::types::{AccountId, BlockHeight};
 

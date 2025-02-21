@@ -12,9 +12,11 @@ pub fn schedule_printing_performance_stats(sleep_time: Duration) {
         info!("print_performance_stats: enabled");
 
         if let Err(err) =
-            thread::Builder::new().name("PerformanceMetrics".to_string()).spawn(move || loop {
-                print_performance_stats(sleep_time);
-                thread::sleep(sleep_time);
+            thread::Builder::new().name("PerformanceMetrics".to_string()).spawn(move || {
+                loop {
+                    print_performance_stats(sleep_time);
+                    thread::sleep(sleep_time);
+                }
             })
         {
             error!("failed to spawn the thread: {}", err);

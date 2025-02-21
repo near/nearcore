@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use actix::{Actor, System};
 
-use futures::{future, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt, future};
 
 use crate::tests::genesis_helpers::genesis_block;
 use crate::tests::nearcore::node_cluster::NodeCluster;
@@ -11,8 +11,8 @@ use near_client::GetBlock;
 use near_crypto::InMemorySigner;
 use near_jsonrpc::client::new_client;
 use near_network::test_utils::WaitOrTimeoutActor;
-use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;

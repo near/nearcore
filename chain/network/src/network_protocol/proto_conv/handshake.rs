@@ -108,11 +108,7 @@ impl TryFrom<&proto::Handshake> for Handshake {
             sender_listen_port: {
                 let port =
                     u16::try_from(p.sender_listen_port).map_err(Self::Error::SenderListenPort)?;
-                if port == 0 {
-                    None
-                } else {
-                    Some(port)
-                }
+                if port == 0 { None } else { Some(port) }
             },
             sender_chain_info: try_from_required(&p.sender_chain_info)
                 .map_err(Self::Error::SenderChainInfo)?,

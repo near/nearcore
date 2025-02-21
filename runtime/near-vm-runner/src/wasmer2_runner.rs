@@ -9,11 +9,11 @@ use crate::logic::{
     VMOutcome,
 };
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports, ContractCode};
-use crate::{prepare, Contract};
+use crate::{Contract, prepare};
+use crate::{ContractCode, get_contract_cache_key, imports};
 use memoffset::offset_of;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use std::borrow::Cow;
 use std::hash::Hash;
 use std::mem::size_of;
@@ -59,11 +59,7 @@ impl Wasmer2Memory {
         // `checked_sub` here verifies that offsetting the buffer by offset
         // still lands us in-bounds of the allocated object.
         let remaining = vmmem.current_length.checked_sub(offset).ok_or(())?;
-        if len <= remaining {
-            Ok(vmmem.base.add(offset))
-        } else {
-            Err(())
-        }
+        if len <= remaining { Ok(unsafe { vmmem.base.add(offset) }) } else { Err(()) }
     }
 
     /// Returns shared reference to slice in guest memory at given offset.
@@ -562,7 +558,7 @@ impl wasmer_vm::Tunables for &Wasmer2VM {
         vm_definition_location: std::ptr::NonNull<wasmer_vm::VMTableDefinition>,
     ) -> Result<std::sync::Arc<dyn wasmer_vm::Table>, String> {
         // This is called when instantiating a module.
-        Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?))
+        unsafe { Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?)) }
     }
 }
 

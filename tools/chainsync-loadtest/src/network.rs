@@ -1,9 +1,9 @@
 use crate::concurrency::{Once, RateLimiter, WeakMap};
 use log::info;
-use near_async::messaging::noop;
 use near_async::messaging::CanSend;
 use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
+use near_async::messaging::noop;
 use near_async::time;
 use near_network::client::{
     AnnounceAccountRequest, BlockHeadersResponse, BlockResponse, ClientSenderForNetwork,

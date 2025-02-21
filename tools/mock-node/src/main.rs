@@ -4,12 +4,11 @@
 //! pre-generated chain history in storage.
 
 use anyhow::Context;
-use mock_node::setup::setup_mock_node;
 use mock_node::MockNetworkConfig;
+use mock_node::setup::setup_mock_node;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolVersion;
-
 use std::path::Path;
 use std::time::Duration;
 

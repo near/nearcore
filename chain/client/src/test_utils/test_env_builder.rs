@@ -3,8 +3,8 @@ use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
-use itertools::{multizip, Itertools};
-use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+use itertools::{Itertools, multizip};
+use near_async::messaging::{IntoMultiSender, IntoSender, noop};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -425,11 +425,7 @@ impl TestEnvBuilder {
 
     /// Calls track_all_shards only if the given boolean is true.
     pub fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
-        if track_all_shards {
-            self.track_all_shards()
-        } else {
-            self
-        }
+        if track_all_shards { self.track_all_shards() } else { self }
     }
 
     /// Internal impl to make sure ShardTrackers are initialized.
@@ -467,9 +463,9 @@ impl TestEnvBuilder {
             return ret;
         }
         assert!(
-                !state_snapshot_enabled,
-                "State snapshot is not supported with KeyValueRuntime. Consider adding nightshade_runtimes"
-            );
+            !state_snapshot_enabled,
+            "State snapshot is not supported with KeyValueRuntime. Consider adding nightshade_runtimes"
+        );
         let runtimes = (0..ret.clients.len())
             .map(|i| {
                 let epoch_manager = match &ret.epoch_managers.as_ref().unwrap()[i] {

@@ -1,6 +1,6 @@
 use crate::{db::Db, import::ImportConfig};
 use nix::unistd::Uid;
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 /// Additional information required for estimation.
 #[derive(Debug, clap::Parser)]
@@ -79,7 +79,9 @@ pub(crate) fn run_estimation(db: &Db, config: &EstimateConfig) -> anyhow::Result
         if Uid::effective().is_root() {
             optional_args.push("--drop-os-cache");
         } else {
-            eprintln!("Running as non-root, storage related costs might be inaccurate because OS caches cannot be dropped");
+            eprintln!(
+                "Running as non-root, storage related costs might be inaccurate because OS caches cannot be dropped"
+            );
         }
 
         optional_args.append(&mut config.mode.optional_args_time_metric());

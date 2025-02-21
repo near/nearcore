@@ -4,21 +4,21 @@ use std::sync::{Arc, RwLock};
 
 use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_async::time::Clock;
 
-use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
+use crate::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use crate::{ClientActor, Query};
 use near_actix_test_utils::run_actix;
-use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
+use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
 use near_crypto::InMemorySigner;
 use near_network::client::ProcessTxRequest;
 use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
-use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
-use near_primitives::hash::{hash as hash_func, CryptoHash};
+use near_o11y::testonly::init_integration_logger;
+use near_primitives::hash::{CryptoHash, hash as hash_func};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ChunkHash;

@@ -1,15 +1,15 @@
 use std::{path::Path, sync::Arc};
 
 use near_chain::{
-    types::{ApplyChunkResult, Tip},
     Block, BlockHeader, ChainStore, ChainStoreAccess,
+    types::{ApplyChunkResult, Tip},
 };
 use near_epoch_manager::{
-    shard_assignment::shard_id_to_uid, EpochManager, EpochManagerAdapter, EpochManagerHandle,
+    EpochManager, EpochManagerAdapter, EpochManagerHandle, shard_assignment::shard_id_to_uid,
 };
 use near_primitives::{
     errors::EpochError,
-    types::{chunk_extra::ChunkExtra, BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot},
+    types::{BlockHeight, Gas, ProtocolVersion, ShardId, StateRoot, chunk_extra::ChunkExtra},
 };
 use near_store::{ShardUId, Store};
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};

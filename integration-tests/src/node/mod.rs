@@ -17,8 +17,8 @@ use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
-use nearcore::config::{create_localnet_configs, create_localnet_configs_from_seeds, Config};
 use nearcore::NearConfig;
+use nearcore::config::{Config, create_localnet_configs, create_localnet_configs_from_seeds};
 use testlib::runtime_utils::{alice_account, bob_account};
 
 mod process_node;

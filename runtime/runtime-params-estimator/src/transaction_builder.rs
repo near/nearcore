@@ -5,9 +5,9 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::AccountId;
+use rand::Rng;
 use rand::prelude::ThreadRng;
 use rand::seq::SliceRandom;
-use rand::Rng;
 
 /// A helper to create transaction for processing by a `TestBed`.
 #[derive(Clone)]
@@ -114,7 +114,9 @@ impl TransactionBuilder {
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
         if self.unused_index >= self.unused_accounts.len() {
-            panic!("All accounts used. Try running with a higher value for the parameter `--accounts-num <NUM>`.")
+            panic!(
+                "All accounts used. Try running with a higher value for the parameter `--accounts-num <NUM>`."
+            )
         }
         let tmp = self.unused_index;
         self.unused_index += 1;

@@ -6,20 +6,20 @@ use lru::LruCache;
 use near_async::messaging::CanSend;
 use near_async::time::Instant;
 use near_cache::SyncLruCache;
-use near_chain::chain::ChunkStateWitnessMessage;
 use near_chain::Error;
+use near_chain::chain::ChunkStateWitnessMessage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::reed_solomon::{
     InsertPartResult, ReedSolomonEncoder, ReedSolomonEncoderCache, ReedSolomonPartsTracker,
 };
 use near_primitives::state::PartialState;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::contract_distribution::{CodeBytes, CodeHash};
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize, EncodedChunkStateWitness,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::ShardId;
 use time::ext::InstantExt as _;
 

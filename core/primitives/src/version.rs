@@ -16,9 +16,9 @@ use crate::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 /// near_primitives_core re-exports
 pub use near_primitives_core::checked_feature;
 pub use near_primitives_core::types::ProtocolVersion;
-pub use near_primitives_core::version::ProtocolFeature;
 pub use near_primitives_core::version::PEER_MIN_ALLOWED_PROTOCOL_VERSION;
 pub use near_primitives_core::version::PROTOCOL_VERSION;
+pub use near_primitives_core::version::ProtocolFeature;
 
 /// Minimum gas price proposed in NEP 92 and the associated protocol version
 pub const MIN_GAS_PRICE_NEP_92: Balance = 1_000_000_000;

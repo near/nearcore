@@ -1,9 +1,9 @@
 use actix::{Actor, Addr};
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::ActixFutureSpawner;
-use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::time::{self, Clock};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::RuntimeAdapter;
@@ -11,20 +11,20 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, MutableConfigValue};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
-use near_client::{start_client, PartialWitnessActor, ViewClientActorInner};
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_client::{PartialWitnessActor, ViewClientActorInner, start_client};
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::PeerManagerActor;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
 use near_network::tcp;
-use near_network::test_utils::{expected_routing_tables, peer_id_from_seed, GetInfo};
+use near_network::test_utils::{GetInfo, expected_routing_tables, peer_id_from_seed};
 use near_network::types::{
     PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, ROUTED_MESSAGE_TTL,
 };
-use near_network::PeerManagerActor;
-use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;

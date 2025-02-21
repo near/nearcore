@@ -2,8 +2,8 @@ use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
+use near_parameters::vm::VMKind;
 use near_primitives::transaction::{Action, DeployContractAction};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
@@ -15,7 +15,7 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 fn test_deploy_cost_increased() {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
+    unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
 
     let new_protocol_version = ProtocolFeature::IncreaseDeploymentCost.protocol_version();
     let old_protocol_version = new_protocol_version - 1;

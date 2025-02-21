@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use near_async::time::Duration;
-use near_chain::{get_incoming_receipts_for_shard, ReceiptFilter};
+use near_chain::{ReceiptFilter, get_incoming_receipts_for_shard};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::block::MaybeNew;
@@ -16,9 +16,9 @@ use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionStatus;
 
 use crate::test_loop::env::TestLoopEnv;
+use crate::test_loop::utils::TGAS;
 use crate::test_loop::utils::setups::standard_setup_1;
 use crate::test_loop::utils::transactions::{execute_tx, get_shared_block_hash, run_tx};
-use crate::test_loop::utils::TGAS;
 
 /// Generating receipts larger than the size limit should cause the transaction to fail.
 #[test]

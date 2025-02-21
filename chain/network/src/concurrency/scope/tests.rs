@@ -1,8 +1,8 @@
 use crate::concurrency::ctx;
 use crate::concurrency::scope;
 use crate::testonly::abort_on_panic;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 // run a trivial future until completion => OK
 #[tokio::test]

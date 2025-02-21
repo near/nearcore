@@ -1,5 +1,5 @@
 use near_chain::types::RuntimeAdapter;
-use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis};
 use near_client::test_utils::TestEnvBuilder;
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;

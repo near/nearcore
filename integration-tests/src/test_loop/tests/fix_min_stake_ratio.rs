@@ -1,7 +1,7 @@
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::TestLoopEnv;
-use crate::test_loop::utils::validators::get_epoch_all_validators;
 use crate::test_loop::utils::ONE_NEAR;
+use crate::test_loop::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
 use near_async::messaging::SendAsync;
 use near_async::test_loop::data::TestLoopData;

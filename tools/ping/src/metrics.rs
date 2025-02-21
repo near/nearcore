@@ -1,6 +1,6 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram_vec, try_create_int_counter_vec, HistogramVec,
-    IntCounterVec,
+    HistogramVec, IntCounterVec, exponential_buckets, try_create_histogram_vec,
+    try_create_int_counter_vec,
 };
 use std::sync::LazyLock;
 

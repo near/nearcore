@@ -118,7 +118,10 @@ impl EpochSync {
         let (proof, _) = match CompressedEpochSyncProof::encode(&proof?) {
             Ok(proof) => proof,
             Err(err) => {
-                return Err(Error::Other(format!("Failed to compress epoch sync proof: {:?}", err)))
+                return Err(Error::Other(format!(
+                    "Failed to compress epoch sync proof: {:?}",
+                    err
+                )));
             }
         };
         metrics::EPOCH_SYNC_LAST_GENERATED_COMPRESSED_PROOF_SIZE.set(proof.size_bytes() as i64);

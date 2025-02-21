@@ -1,6 +1,6 @@
 use near_primitives::errors::TxExecutionError;
 use near_schema_checker_lib::ProtocolSchema;
-use serde_json::{to_value, Value};
+use serde_json::{Value, to_value};
 use std::fmt;
 
 #[derive(Debug, serde::Serialize)]
@@ -63,7 +63,7 @@ impl RpcError {
                 return Self::server_error(Some(format!(
                     "Failed to serialize invalid parameters error: {:?}",
                     err.to_string()
-                )))
+                )));
             }
         };
         RpcError::new(-32_602, "Invalid params".to_owned(), Some(value))
@@ -179,7 +179,7 @@ impl From<ServerError> for RpcError {
                 return RpcError::new_internal_error(
                     None,
                     "Failed to serialize ServerError".to_string(),
-                )
+                );
             }
         };
         match e {

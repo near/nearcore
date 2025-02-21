@@ -2,19 +2,19 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
-use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::NEAR_BASE;
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
-    id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
+    AccessKey, AccessKeyPermission, FunctionCallPermission, id::AccountType,
 };
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
     MethodResolveError, TxExecutionError,
 };
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::views::{
@@ -724,9 +724,9 @@ pub fn test_swap_key(node: impl Node) {
     let new_root1 = node_user.get_state_root();
     assert_ne!(new_root, new_root1);
 
-    assert!(node_user
-        .get_access_key(&eve_dot_alice_account(), &node.signer().public_key())
-        .is_err());
+    assert!(
+        node_user.get_access_key(&eve_dot_alice_account(), &node.signer().public_key()).is_err()
+    );
     assert!(node_user.get_access_key(&eve_dot_alice_account(), &signer2.public_key()).is_ok());
 }
 
@@ -1555,13 +1555,15 @@ pub fn test_storage_read_write_costs(node: impl Node, runtime_config: RuntimeCon
     let receipts: Vec<Receipt> = vec![
         make_receipt(
             &node,
-            vec![FunctionCallAction {
-                args: test_utils::encode(&[1]),
-                method_name: "read_value".to_string(),
-                gas: 10u64.pow(14),
-                deposit: 0,
-            }
-            .into()],
+            vec![
+                FunctionCallAction {
+                    args: test_utils::encode(&[1]),
+                    method_name: "read_value".to_string(),
+                    gas: 10u64.pow(14),
+                    deposit: 0,
+                }
+                .into(),
+            ],
             bob_account(),
         ),
         make_receipt(&node, vec![make_write_key_value_action(vec![1], vec![20])], bob_account()),

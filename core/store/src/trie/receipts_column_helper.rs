@@ -1,4 +1,4 @@
-use crate::{get, get_pure, set, TrieAccess, TrieUpdate};
+use crate::{TrieAccess, TrieUpdate, get, get_pure, set};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::errors::{IntegerOverflowError, StorageError};
 use near_primitives::receipt::{
@@ -381,8 +381,8 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::*;
-    use crate::test_utils::{gen_receipts, TestTriesBuilder};
     use crate::Trie;
+    use crate::test_utils::{TestTriesBuilder, gen_receipts};
     use near_primitives::receipt::Receipt;
     use near_primitives::shard_layout::ShardLayout;
     use rand::seq::SliceRandom;
@@ -660,7 +660,7 @@ mod tests {
     // Load the queue from the trie, discarding the current data stored in the variable.
     // Ensures that all changes are written to the trie after every operation.
     fn maybe_reload_queue(trie: &mut TrieUpdate, queue: &mut TestTrieQueue, rng: &mut impl Rng) {
-        if rng.gen::<bool>() {
+        if rng.r#gen::<bool>() {
             *queue = TestTrieQueue::load(trie).unwrap();
         }
     }
@@ -703,7 +703,7 @@ mod tests {
                         continue;
                     }
 
-                    let modify_fn: Box<dyn Fn(i32) -> Option<i32>> = if rng.gen::<bool>() {
+                    let modify_fn: Box<dyn Fn(i32) -> Option<i32>> = if rng.r#gen::<bool>() {
                         Box::new(|item: i32| -> Option<i32> { Some(item.wrapping_add(1)) })
                     } else {
                         Box::new(|_: i32| -> Option<i32> { None })
@@ -730,15 +730,15 @@ mod tests {
 
             maybe_reload_queue(&mut trie, &mut trie_queue, rng);
 
-            if rng.gen::<bool>() {
+            if rng.r#gen::<bool>() {
                 // Compare a random prefix from both queues
-                let prefix_len = if rng.gen::<bool>() || memory_queue.is_empty() {
+                let prefix_len = if rng.r#gen::<bool>() || memory_queue.is_empty() {
                     memory_queue.len()
                 } else {
                     rng.gen_range(0..memory_queue.len())
                 };
                 let mut trie_items = Vec::new();
-                let mut trie_iter = trie_queue.iter(&trie, rng.gen::<bool>());
+                let mut trie_iter = trie_queue.iter(&trie, rng.r#gen::<bool>());
                 for _ in 0..prefix_len {
                     let trie_item = trie_iter.next().unwrap().unwrap();
                     trie_items.push(trie_item);

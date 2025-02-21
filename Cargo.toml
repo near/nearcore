@@ -1,8 +1,8 @@
 [workspace.package]
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2021"
-rust-version = "1.84.0"
+edition = "2024"
+rust-version = "1.85.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 

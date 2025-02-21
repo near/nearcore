@@ -4,8 +4,8 @@ use futures::task::Context;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
-use std::sync::atomic::AtomicUsize;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -180,11 +180,7 @@ impl ThreadStats {
         self.c_mem = ByteSize::b(0);
         self.clear();
 
-        if show_stats {
-            (ratio, 0.0)
-        } else {
-            (ratio, ratio)
-        }
+        if show_stats { (ratio, 0.0) } else { (ratio, ratio) }
     }
 
     fn clear(&mut self) {

@@ -9,11 +9,11 @@ use crate::types::{
     RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
-use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
+use crate::{DoomslugThresholdMode, metrics};
 use near_chain_primitives::error::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;

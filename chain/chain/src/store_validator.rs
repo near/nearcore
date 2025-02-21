@@ -3,8 +3,8 @@ use borsh::BorshDeserialize;
 use enum_map::Enum;
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::GenesisConfig;
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh;
 use near_primitives::epoch_block_info::BlockInfo;
@@ -415,7 +415,7 @@ mod tests {
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
     use super::*;
-    use near_async::messaging::{noop, IntoMultiSender};
+    use near_async::messaging::{IntoMultiSender, noop};
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
@@ -506,8 +506,10 @@ mod tests {
     fn test_discrepancy() {
         let (chain, mut sv) = init();
         let block_header = chain.get_block_header_by_height(0).unwrap();
-        assert!(validate::block_header_hash_validity(&mut sv, block_header.hash(), &block_header)
-            .is_ok());
+        assert!(
+            validate::block_header_hash_validity(&mut sv, block_header.hash(), &block_header)
+                .is_ok()
+        );
         match validate::block_header_hash_validity(&mut sv, &CryptoHash::default(), &block_header) {
             Err(StoreValidatorError::Discrepancy { .. }) => {}
             _ => assert!(false),

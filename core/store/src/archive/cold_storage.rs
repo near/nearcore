@@ -1,7 +1,7 @@
 use crate::adapter::trie_store::get_shard_uid_mapping;
 use crate::columns::DBKeyType;
-use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
-use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
+use crate::db::{COLD_HEAD_KEY, ColdDB, HEAD_KEY};
+use crate::{DBCol, DBTransaction, Database, Store, TrieChanges, metrics};
 
 use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
@@ -661,7 +661,7 @@ impl BatchTransaction {
 
 #[cfg(test)]
 mod test {
-    use super::{combine_keys, StoreKey};
+    use super::{StoreKey, combine_keys};
     use crate::columns::DBKeyType;
     use std::collections::{HashMap, HashSet};
 

@@ -1,11 +1,11 @@
-use actix_web::{web, App, HttpServer};
+use actix_web::{App, HttpServer, web};
 use anyhow::anyhow;
 use borsh::BorshDeserialize;
 use near_client::sync::external::{
-    create_bucket_readonly, external_storage_location, external_storage_location_directory,
-    get_num_parts_from_filename, ExternalConnection, StateFileType,
+    ExternalConnection, StateFileType, create_bucket_readonly, external_storage_location,
+    external_storage_location_directory, get_num_parts_from_filename,
 };
-use near_jsonrpc::client::{new_client, JsonRpcClient};
+use near_jsonrpc::client::{JsonRpcClient, new_client};
 use near_jsonrpc::primitives::types::config::RpcProtocolConfigRequest;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -160,7 +160,9 @@ impl LoopCheckCommand {
                 if chain_id == "mainnet" || chain_id == "testnet" {
                     format!("http://rpc.{}.near.org", chain_id)
                 } else {
-                    return Err(anyhow!("rpc_server_addr needs to be supplied if chain_id is not mainnet or testnet"));
+                    return Err(anyhow!(
+                        "rpc_server_addr needs to be supplied if chain_id is not mainnet or testnet"
+                    ));
                 }
             }
             Some(addr) => addr.to_string(),
@@ -327,7 +329,10 @@ fn run_loop_all_shards(
 
                     tracing::info!("current height was not already checked, will start checking.");
                     if dump_check_iter_info.epoch_height > *epoch_height + 1 {
-                        tracing::info!("there is a skip between last done epoch at epoch height: {epoch_height}, and latest available epoch at {}", dump_check_iter_info.epoch_height);
+                        tracing::info!(
+                            "there is a skip between last done epoch at epoch height: {epoch_height}, and latest available epoch at {}",
+                            dump_check_iter_info.epoch_height
+                        );
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
                             .set(1);
@@ -345,7 +350,10 @@ fn run_loop_all_shards(
                 }) => {
                     tracing::info!(epoch_height, "last one was waiting.");
                     if dump_check_iter_info.epoch_height > *epoch_height {
-                        tracing::info!("last one was never finished. There is a skip between last waiting epoch at epoch height {epoch_height}, and latest available epoch at {}", dump_check_iter_info.epoch_height);
+                        tracing::info!(
+                            "last one was never finished. There is a skip between last waiting epoch at epoch height {epoch_height}, and latest available epoch at {}",
+                            dump_check_iter_info.epoch_height
+                        );
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
                             .set(1);
@@ -659,11 +667,7 @@ async fn run_single_check(
 
     let (mut parts_done, mut headers_done) = match status {
         Some(StatePartsDumpCheckStatus::Done { epoch_height }) => {
-            if epoch_height == current_epoch_height {
-                (true, true)
-            } else {
-                (false, false)
-            }
+            if epoch_height == current_epoch_height { (true, true) } else { (false, false) }
         }
         Some(StatePartsDumpCheckStatus::Waiting { parts_done, headers_done, epoch_height }) => {
             if epoch_height == current_epoch_height {

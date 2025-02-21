@@ -1,8 +1,8 @@
 use crate::emitter_x64::*;
-use near_vm_compiler::wasmparser::ValType as WpType;
 use near_vm_compiler::CallingConvention;
-use smallvec::smallvec;
+use near_vm_compiler::wasmparser::ValType as WpType;
 use smallvec::SmallVec;
+use smallvec::smallvec;
 use std::convert::TryFrom;
 
 const NATIVE_PAGE_SIZE: usize = 4096;
@@ -98,11 +98,7 @@ impl Machine {
     }
 
     fn get_gpr_used(&self, r: GPR) -> bool {
-        if 0 != (self.used_gprs & bitset_of_regs!(r)) {
-            true
-        } else {
-            false
-        }
+        if 0 != (self.used_gprs & bitset_of_regs!(r)) { true } else { false }
     }
 
     fn set_gpr_used(&mut self, r: GPR) {
@@ -114,11 +110,7 @@ impl Machine {
     }
 
     fn get_xmm_used(&self, r: XMM) -> bool {
-        if 0 != (self.used_xmms & bitset_of_regs!(r)) {
-            true
-        } else {
-            false
-        }
+        if 0 != (self.used_xmms & bitset_of_regs!(r)) { true } else { false }
     }
 
     fn set_xmm_used(&mut self, r: XMM) {
@@ -574,8 +566,8 @@ impl Machine {
 #[cfg(test)]
 mod test {
     use super::*;
-    use dynasmrt::x64::X64Relocation;
     use dynasmrt::VecAssembler;
+    use dynasmrt::x64::X64Relocation;
     type Assembler = VecAssembler<X64Relocation>;
 
     #[test]

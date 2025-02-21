@@ -7,7 +7,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{
-    get_incoming_receipts_for_shard, ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter,
+    ChainStore, ChainStoreAccess, ChainStoreUpdate, ReceiptFilter, get_incoming_receipts_for_shard,
 };
 use near_chain_configs::Genesis;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -130,7 +130,10 @@ fn apply_block_from_range(
             Ok(prev_block) => prev_block,
             Err(_) => {
                 if verbose_output {
-                    println!("Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.", height);
+                    println!(
+                        "Skipping applying block #{} because the previous block is unavailable and I can't determine the gas_price to use.",
+                        height
+                    );
                 }
                 maybe_add_to_csv(
                     csv_file_mutex,
@@ -265,18 +268,32 @@ fn apply_block_from_range(
     match existing_chunk_extra {
         Some(existing_chunk_extra) => {
             if verbose_output {
-                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes);
+                println!(
+                    "block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\noutcomes: {:#?}",
+                    height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes
+                );
             }
             if !smart_equals(&existing_chunk_extra, &chunk_extra) {
                 maybe_print_db_stats(write_store);
-                panic!("Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n", height, block_hash, chunk_extra, existing_chunk_extra, apply_result.outcomes, old_outcomes(read_store, &apply_result.outcomes));
+                panic!(
+                    "Got a different ChunkExtra:\nblock_height: {}, block_hash: {}\nchunk_extra: {:#?}\nexisting_chunk_extra: {:#?}\nnew outcomes: {:#?}\n\nold outcomes: {:#?}\n",
+                    height,
+                    block_hash,
+                    chunk_extra,
+                    existing_chunk_extra,
+                    apply_result.outcomes,
+                    old_outcomes(read_store, &apply_result.outcomes)
+                );
             }
         }
         None => {
             assert!(prev_chunk_extra.is_some());
             assert!(apply_result.outcomes.is_empty());
             if verbose_output {
-                println!("block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}", height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes);
+                println!(
+                    "block_height: {}, block_hash: {}\nchunk_extra: {:#?}\nprev_chunk_extra: {:#?}\noutcomes: {:#?}",
+                    height, block_hash, chunk_extra, prev_chunk_extra, apply_result.outcomes
+                );
             }
         }
     };
@@ -448,7 +465,10 @@ pub fn apply_chain_range(
         println!("Writing results of applying receipts to the CSV file");
     }
     let csv_file_mutex = Mutex::new(csv_file);
-    maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
+    maybe_add_to_csv(
+        &csv_file_mutex,
+        "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges",
+    );
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
         skipped: AtomicU64::new(0),
@@ -555,17 +575,17 @@ mod test {
     use std::path::Path;
 
     use near_chain::Provenance;
-    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_chain_configs::Genesis;
-    use near_client::test_utils::TestEnv;
+    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_client::ProcessTxResponse;
+    use near_client::test_utils::TestEnv;
     use near_crypto::InMemorySigner;
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks, ShardId};
+    use near_store::Store;
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
-    use near_store::Store;
     use nearcore::NightshadeRuntime;
 
     use crate::apply_chain_range::apply_chain_range;

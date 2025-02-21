@@ -166,11 +166,7 @@ trait Visitor {
         key: &[u8],
         col: &str,
     ) -> anyhow::Result<()> {
-        if col == "State" {
-            self.eval_state_db_op(out, indent, op, size, key)
-        } else {
-            Ok(())
-        }
+        if col == "State" { self.eval_state_db_op(out, indent, op, size, key) } else { Ok(()) }
     }
 
     /// Gets called for every DB operation on the state column.

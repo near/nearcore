@@ -24,7 +24,7 @@ impl From<RpcSandboxPatchStateError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcSandboxPatchStateError: {:?}", err),
-                )
+                );
             }
         };
         Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)
@@ -54,7 +54,7 @@ impl From<RpcSandboxFastForwardError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcSandboxFastForwardError: {:?}", err),
-                )
+                );
             }
         };
         Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)

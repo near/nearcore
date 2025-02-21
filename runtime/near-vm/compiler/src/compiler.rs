@@ -1,14 +1,14 @@
 //! This module mainly outputs the `Compiler` trait that custom
 //! compilers will need to implement.
 
+use crate::FunctionBodyData;
+use crate::ModuleTranslationState;
+use crate::SectionIndex;
 use crate::error::CompileError;
 use crate::function::Compilation;
 use crate::lib::std::boxed::Box;
 use crate::module::CompileModuleInfo;
 use crate::target::Target;
-use crate::FunctionBodyData;
-use crate::ModuleTranslationState;
-use crate::SectionIndex;
 use near_vm_types::entity::PrimaryMap;
 use near_vm_types::{Features, FunctionIndex, LocalFunctionIndex, SignatureIndex};
 use wasmparser::{Validator, WasmFeatures};

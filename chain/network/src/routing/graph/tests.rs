@@ -1,6 +1,6 @@
 use super::{Graph, GraphConfig};
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::Edge;
+use crate::network_protocol::testonly as data;
 use crate::testonly::make_rng;
 use near_async::time;
 use near_crypto::SecretKey;

@@ -1,7 +1,7 @@
 use crate::{InstanceHandle, Resolver, Tunables, VMLocalFunction, VMSharedSignatureIndex};
 use near_vm_types::{
-    entity::BoxedSlice, ElemIndex, FunctionIndex, GlobalInit, GlobalType, ImportCounts,
-    InstanceConfig, LocalFunctionIndex, OwnedDataInitializer, OwnedTableInitializer,
+    ElemIndex, FunctionIndex, GlobalInit, GlobalType, ImportCounts, InstanceConfig,
+    LocalFunctionIndex, OwnedDataInitializer, OwnedTableInitializer, entity::BoxedSlice,
 };
 use std::{any::Any, collections::BTreeMap, sync::Arc};
 

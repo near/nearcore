@@ -86,7 +86,7 @@ impl crate::ChainAccess for ChainAccess {
                 }
                 Err(ChainError::Other(e)) => {
                     return Err(e)
-                        .with_context(|| format!("failed fetching next block after #{}", height))
+                        .with_context(|| format!("failed fetching next block after #{}", height));
                 }
             }
         }
@@ -131,7 +131,9 @@ impl crate::ChainAccess for ChainAccess {
                     GetChunkError::UnknownChunk { .. } => {
                         tracing::error!(
                             "Can't fetch source chain shard {} chunk {} at height {}. Are we tracking all shards?",
-                            c.shard_id, c.chunk_hash, height
+                            c.shard_id,
+                            c.chunk_hash,
+                            height
                         );
                         continue;
                     }

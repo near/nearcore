@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::fmt::{Debug, Formatter};
 
-use near_primitives_core::hash::{hash, CryptoHash};
+use near_primitives_core::hash::{CryptoHash, hash};
 use near_schema_checker_lib::ProtocolSchema;
 
 /// Serialized TrieNodeWithSize or state value.

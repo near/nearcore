@@ -1,3 +1,4 @@
+use crate::PeerManagerActor;
 use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::broadcast;
 use crate::client::ClientSenderForNetworkInput;
@@ -5,11 +6,11 @@ use crate::client::ClientSenderForNetworkMessage;
 use crate::client::StateRequestPart;
 use crate::client::StateResponse;
 use crate::config;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::StateResponseInfo;
 use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
+use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
     EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
@@ -28,7 +29,6 @@ use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     PeerManagerSenderForNetworkInput, PeerManagerSenderForNetworkMessage, ReasonForBan,
 };
-use crate::PeerManagerActor;
 use futures::FutureExt;
 use near_async::messaging::IntoMultiSender;
 use near_async::messaging::Sender;

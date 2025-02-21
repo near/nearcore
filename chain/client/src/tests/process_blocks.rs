@@ -1,7 +1,7 @@
 use crate::test_utils::TestEnv;
 use assert_matches::assert_matches;
 use near_chain::validate::validate_chunk_with_chunk_extra;
-use near_chain::{test_utils, Provenance};
+use near_chain::{Provenance, test_utils};
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -12,10 +12,10 @@ use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::ShardId;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
 
 /// Only process one block per height

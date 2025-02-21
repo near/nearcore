@@ -3,8 +3,8 @@
 use near_chain_primitives::Error;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
-use near_store::flat::BlockInfo;
 use near_store::ShardUId;
+use near_store::flat::BlockInfo;
 use tracing::error;
 
 /// Struct used to destructure a new shard layout definition into the resulting resharding event.
@@ -164,8 +164,10 @@ mod tests {
         // No resharding is ok.
         let shards_split_map = BTreeMap::from([(s0, vec![s0])]);
         let layout = ShardLayout::v2(vec![], vec![s0], Some(shards_split_map));
-        assert!(ReshardingEventType::from_shard_layout(&layout, block)
-            .is_ok_and(|event| event.is_none()));
+        assert!(
+            ReshardingEventType::from_shard_layout(&layout, block)
+                .is_ok_and(|event| event.is_none())
+        );
 
         // Single split shard is ok.
         let shards_split_map = BTreeMap::from([(s0, vec![s0]), (s1, vec![s2, s3])]);

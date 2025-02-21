@@ -3,7 +3,7 @@ use std::io;
 use std::ops::Bound;
 use std::sync::{Arc, RwLock};
 
-use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database};
+use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics};
 
 /// An in-memory database intended for tests and IO-agnostic estimations.

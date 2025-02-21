@@ -1,9 +1,9 @@
-use crate::adapter::trie_store::TrieStoreUpdateAdapter;
 use crate::adapter::StoreUpdateAdapter;
+use crate::adapter::trie_store::TrieStoreUpdateAdapter;
 use crate::flat::FlatStateChanges;
 use crate::{
-    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, TrieAccess,
-    TrieUpdate,
+    ShardTries, TrieAccess, TrieUpdate, get, get_delayed_receipt_indices,
+    get_promise_yield_indices, set,
 };
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
@@ -11,8 +11,8 @@ use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::types::{StateChangeCause, StateRoot};
 use std::collections::HashMap;
 
@@ -385,11 +385,11 @@ mod tests {
         get_promise_yield_timeouts,
     };
     use crate::test_utils::{
-        gen_changes, gen_receipts, gen_timeouts, get_all_delayed_receipts,
-        get_all_promise_yield_timeouts, test_populate_trie, TestTriesBuilder,
+        TestTriesBuilder, gen_changes, gen_receipts, gen_timeouts, get_all_delayed_receipts,
+        get_all_promise_yield_timeouts, test_populate_trie,
     };
 
-    use crate::{set, ShardTries, ShardUId, Trie};
+    use crate::{ShardTries, ShardUId, Trie, set};
     use near_primitives::account::id::AccountId;
 
     use near_primitives::hash::hash;

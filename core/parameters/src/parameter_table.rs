@@ -528,8 +528,8 @@ fn canonicalize_yaml_string(value: &str) -> Result<serde_yaml::Value, InvalidCon
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_parameter_value, InvalidConfigError, ParameterTable, ParameterTableDiff,
-        ParameterValue,
+        InvalidConfigError, ParameterTable, ParameterTableDiff, ParameterValue,
+        parse_parameter_value,
     };
     use crate::Parameter;
     use assert_matches::assert_matches;

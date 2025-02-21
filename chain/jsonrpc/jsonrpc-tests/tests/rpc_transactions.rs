@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use actix::{Actor, System};
 
-use futures::{future, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt, future};
 
 use near_actix_test_utils::run_actix;
 use near_crypto::InMemorySigner;
@@ -10,7 +10,7 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockReference;

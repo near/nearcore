@@ -382,7 +382,7 @@ mod tests {
     use near_parameters::RuntimeConfig;
     use rand::{Rng, SeedableRng};
 
-    use crate::bandwidth_scheduler::{interpolate, BANDWIDTH_REQUEST_VALUES_NUM};
+    use crate::bandwidth_scheduler::{BANDWIDTH_REQUEST_VALUES_NUM, interpolate};
     use crate::shard_layout::ShardUId;
 
     use super::{

@@ -335,11 +335,7 @@ pub(super) fn pairing_check(data: &[u8]) -> Result<u64> {
 
     let pairing_res = unsafe { blst::blst_fp12_is_one(&pairing_fp12) };
 
-    if pairing_res {
-        Ok(0)
-    } else {
-        Ok(2)
-    }
+    if pairing_res { Ok(0) } else { Ok(2) }
 }
 
 fn read_fp_point(item_data: &[u8]) -> Option<blst::blst_fp> {

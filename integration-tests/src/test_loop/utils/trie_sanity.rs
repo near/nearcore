@@ -5,16 +5,16 @@ use crate::test_loop::utils::sharding::{
 };
 use borsh::BorshDeserialize;
 use itertools::Itertools;
-use near_chain::types::Tip;
 use near_chain::ChainStoreAccess;
+use near_chain::types::Tip;
 use near_client::Client;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{AccountId, EpochId, NumShards};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::flat::FlatStorageStatus;
 use near_store::{DBCol, ShardUId};

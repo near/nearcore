@@ -12,8 +12,8 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, BlockHeight, ShardIndex, StateChangeCause, StateRoot, StoreKey, StoreValue,
 };
-use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::adapter::StoreUpdateAdapter;
+use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{DBCol, ShardTries};

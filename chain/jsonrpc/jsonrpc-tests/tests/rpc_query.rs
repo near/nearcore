@@ -3,12 +3,12 @@ use std::str::FromStr;
 
 use actix::System;
 use awc::http::StatusCode;
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use serde_json::json;
 
 use near_actix_test_utils::run_actix;
 use near_crypto::{KeyType, PublicKey, Signature};
-use near_jsonrpc::client::{new_client, ChunkId};
+use near_jsonrpc::client::{ChunkId, new_client};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_network::test_utils::wait_or_timeout;

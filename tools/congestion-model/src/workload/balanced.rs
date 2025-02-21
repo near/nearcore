@@ -1,5 +1,5 @@
-use super::{utils, Producer};
-use crate::{GGas, ReceiptDefinition, ReceiptId, ShardId, TransactionBuilder, TGAS};
+use super::{Producer, utils};
+use crate::{GGas, ReceiptDefinition, ReceiptId, ShardId, TGAS, TransactionBuilder};
 
 /// Transaction producer that sends N receipts from each shard to all other
 /// shards every round.

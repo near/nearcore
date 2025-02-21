@@ -1,6 +1,6 @@
 use std::cmp::Eq;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex, Weak};

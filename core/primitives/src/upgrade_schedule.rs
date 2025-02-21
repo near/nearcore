@@ -6,7 +6,9 @@ const NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE: &str = "NEAR_TESTS_PROTOCOL_UPGRADE_
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum ProtocolUpgradeVotingScheduleError {
-    #[error("The final upgrade must be the client protocol version! final version: {0}, client version: {1}")]
+    #[error(
+        "The final upgrade must be the client protocol version! final version: {0}, client version: {1}"
+    )]
     InvalidFinalUpgrade(ProtocolVersion, ProtocolVersion),
     #[error("The upgrades must be sorted by datetime!")]
     InvalidDateTimeOrder,
@@ -502,17 +504,24 @@ mod tests {
     #[test]
     fn test_env_override() {
         let client_protocol_version = 100;
-
-        std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, "now");
+        unsafe {
+            // SAFE: our tests run with nextest with a process-per-test scheme, so in a
+            // single-threaded manner.
+            std::env::set_var(NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE, "now");
+        }
         let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
 
         assert_eq!(schedule, ProtocolUpgradeVotingSchedule::new_immediate(client_protocol_version));
 
         let datetime_override = "2000-01-01 23:59:59";
-        std::env::set_var(
-            NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE,
-            format!("{}={}", datetime_override, client_protocol_version),
-        );
+        unsafe {
+            // SAFE: our tests run with nextest with a process-per-test scheme, so in a
+            // single-threaded manner.
+            std::env::set_var(
+                NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE,
+                format!("{}={}", datetime_override, client_protocol_version),
+            );
+        }
         let schedule = make_simple_voting_schedule(client_protocol_version, "2999-02-03 23:59:59");
 
         assert_eq!(

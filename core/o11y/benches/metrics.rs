@@ -2,7 +2,7 @@
 extern crate bencher;
 
 use bencher::Bencher;
-use near_o11y::metrics::{try_create_int_counter_vec, IntCounter, IntCounterVec};
+use near_o11y::metrics::{IntCounter, IntCounterVec, try_create_int_counter_vec};
 use std::sync::LazyLock;
 
 static COUNTERS: LazyLock<IntCounterVec> = LazyLock::new(|| {

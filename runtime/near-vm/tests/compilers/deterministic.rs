@@ -1,7 +1,7 @@
 use anyhow::Result;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{MemoryPool, Universal};
-use near_vm_test_api::{wat2wasm, BaseTunables};
+use near_vm_test_api::{BaseTunables, wat2wasm};
 
 fn compile_and_compare(wasm: &[u8]) -> Result<()> {
     let compiler = Singlepass::default();

@@ -1,11 +1,11 @@
-use crate::db::{StatsValue, StoreStatistics};
 use crate::Temperature;
+use crate::db::{StatsValue, StoreStatistics};
 use near_o11y::metrics::{
-    try_create_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, GaugeVec, IntGauge,
-    IntGaugeVec,
+    GaugeVec, IntGauge, IntGaugeVec, try_create_gauge_vec, try_create_int_gauge,
+    try_create_int_gauge_vec,
 };
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use tracing::warn;

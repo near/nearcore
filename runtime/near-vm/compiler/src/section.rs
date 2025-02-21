@@ -5,8 +5,8 @@
 //! to emit a custom relocation: `RelocationTarget::CustomSection`, so
 //! it can be patched later by the engine (native or JIT).
 
-use crate::lib::std::vec::Vec;
 use crate::Relocation;
+use crate::lib::std::vec::Vec;
 use near_vm_types::entity::entity_impl;
 
 /// Index type of a Section defined inside a WebAssembly `Compilation`.

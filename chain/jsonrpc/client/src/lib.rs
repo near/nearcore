@@ -1,7 +1,7 @@
 use awc::{Client, Connector};
-use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
 use near_jsonrpc_primitives::errors::RpcError;
-use near_jsonrpc_primitives::message::{from_slice, Message};
+use near_jsonrpc_primitives::message::{Message, from_slice};
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
 };

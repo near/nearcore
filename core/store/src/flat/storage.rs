@@ -9,14 +9,14 @@ use near_primitives::types::BlockHeight;
 use tracing::{debug, warn};
 
 use crate::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
-use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::BlockInfo;
+use crate::flat::delta::{BlockWithChangesInfo, CachedFlatStateChanges};
 use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 
+use super::FlatStorageReshardingStatus;
 use super::delta::{CachedFlatStateDelta, FlatStateDelta};
 use super::metrics::FlatStorageMetrics;
 use super::types::FlatStorageError;
-use super::FlatStorageReshardingStatus;
 
 /// FlatStorage stores information on which blocks flat storage current supports key lookups on.
 /// Note that this struct is shared by multiple threads, the chain thread, threads that apply chunks,
@@ -511,6 +511,7 @@ fn missing_delta_error(block_hash: &CryptoHash) -> FlatStorageError {
 
 #[cfg(test)]
 mod tests {
+    use crate::StorageError;
     use crate::adapter::StoreAdapter;
     use crate::flat::delta::{
         BlockWithChangesInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata,
@@ -521,15 +522,14 @@ mod tests {
     use crate::flat::types::FlatStorageError;
     use crate::flat::{FlatStorageReadyStatus, FlatStorageStatus};
     use crate::test_utils::create_test_store;
-    use crate::StorageError;
     use assert_matches::assert_matches;
 
     use near_o11y::testonly::init_test_logger;
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::state::FlatStateValue;
     use near_primitives::types::BlockHeight;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use std::collections::HashMap;
 
     #[test]

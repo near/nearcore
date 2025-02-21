@@ -1,5 +1,5 @@
-use crate::client_actor::ClientActor;
 use crate::ViewClientActor;
+use crate::client_actor::ClientActor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::IntoSender;
 use near_network::client::ClientSenderForNetwork;

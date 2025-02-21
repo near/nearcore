@@ -1158,8 +1158,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
             }
             Err(e) => {
-                return Err(e)
-                    .with_context(|| format!("failed fetching access key for {}", &predecessor_id))
+                return Err(e).with_context(|| {
+                    format!("failed fetching access key for {}", &predecessor_id)
+                });
             }
         };
 
@@ -1574,7 +1575,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 .await?;
             } else {
                 // shouldn't happen
-                tracing::warn!("something is wrong as there are no chunks to send transactions for at height {}", source_height);
+                tracing::warn!(
+                    "something is wrong as there are no chunks to send transactions for at height {}",
+                    source_height
+                );
             }
         }
         Ok(MappedBlock { source_height, source_hash: source_block.hash, chunks })

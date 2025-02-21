@@ -1,5 +1,5 @@
 use crate::parameter::Parameter;
-use enum_map::{enum_map, EnumMap};
+use enum_map::{EnumMap, enum_map};
 use near_account_id::AccountType;
 use near_primitives_core::types::{Balance, Compute, Gas};
 use near_schema_checker_lib::ProtocolSchema;
@@ -23,11 +23,7 @@ pub struct Fee {
 impl Fee {
     #[inline]
     pub fn send_fee(&self, sir: bool) -> Gas {
-        if sir {
-            self.send_sir
-        } else {
-            self.send_not_sir
-        }
+        if sir { self.send_sir } else { self.send_not_sir }
     }
 
     pub fn exec_fee(&self) -> Gas {

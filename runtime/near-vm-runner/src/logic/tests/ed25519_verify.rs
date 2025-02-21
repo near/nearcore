@@ -1,7 +1,7 @@
-use crate::logic::tests::helpers::*;
-use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::HostError;
 use crate::logic::VMLogicError;
+use crate::logic::tests::helpers::*;
+use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::map;
 use near_parameters::ExtCosts;
 use std::collections::HashMap;

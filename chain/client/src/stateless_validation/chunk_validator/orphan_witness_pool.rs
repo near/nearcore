@@ -3,8 +3,8 @@ use std::num::NonZeroUsize;
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
-use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use near_primitives::types::BlockHeight;
 
 use metrics_tracker::OrphanWitnessMetricsTracker;
@@ -177,7 +177,7 @@ mod metrics_tracker {
 
 #[cfg(test)]
 mod tests {
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
     use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
     use near_primitives::types::{BlockHeight, ShardId};

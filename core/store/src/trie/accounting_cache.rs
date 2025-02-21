@@ -1,5 +1,5 @@
 use super::TrieNodesCount;
-use crate::{metrics, TrieStorage};
+use crate::{TrieStorage, metrics};
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::errors::StorageError;

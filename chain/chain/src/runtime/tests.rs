@@ -5,9 +5,9 @@ use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use assert_matches::assert_matches;
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManager;
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
 };
@@ -27,15 +27,15 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use near_vm_runner::{
-    get_contract_cache_key, CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache,
+    CompiledContract, CompiledContractInfo, FilesystemContractRuntimeCache, get_contract_cache_key,
 };
 use node_runtime::SignedValidPeriodTransactions;
 use num_rational::Ratio;
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 
 use near_chain_configs::{
-    default_produce_chunk_add_transactions_time_limit, Genesis, MutableConfigValue,
-    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE,
+    DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, MutableConfigValue, NEAR_BASE,
+    default_produce_chunk_add_transactions_time_limit,
 };
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -50,12 +50,12 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
-use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
+use near_store::{NodeStorage, PartialStorage, get_genesis_state_roots};
 
 use super::*;
 
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
-use near_async::messaging::{noop, IntoMultiSender};
+use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::Clock;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
@@ -703,10 +703,11 @@ fn test_verify_validator_signature() {
     let data = [0; 32];
     let signer = InMemorySigner::test_signer(&validators[0]);
     let signature = signer.sign(&data);
-    assert!(env
-        .epoch_manager
-        .verify_validator_signature(&env.head.epoch_id, &validators[0], &data, &signature)
-        .unwrap());
+    assert!(
+        env.epoch_manager
+            .verify_validator_signature(&env.head.epoch_id, &validators[0], &data, &signature)
+            .unwrap()
+    );
 }
 
 // TODO (#7327): enable test when flat storage will support state sync.
@@ -868,10 +869,11 @@ fn test_get_validator_info() {
         &mut expected_chunks,
         &mut expected_endorsements,
     );
-    assert!(env
-        .epoch_manager
-        .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id))
-        .is_err());
+    assert!(
+        env.epoch_manager
+            .get_validator_info(ValidatorInfoIdentifier::EpochId(env.head.epoch_id))
+            .is_err()
+    );
     env.step_default(vec![]);
     update_validator_stats(
         &mut env,
@@ -946,12 +948,10 @@ fn test_get_validator_info() {
             next_validators: next_epoch_validator_info,
             current_fishermen: vec![],
             next_fishermen: vec![],
-            current_proposals: vec![ValidatorStake::new(
-                "test1".parse().unwrap(),
-                block_producers[0].public_key(),
-                0,
-            )
-            .into()],
+            current_proposals: vec![
+                ValidatorStake::new("test1".parse().unwrap(), block_producers[0].public_key(), 0,)
+                    .into()
+            ],
             prev_epoch_kickout: Default::default(),
             epoch_start_height: 1,
             epoch_height: 1,
@@ -1151,15 +1151,16 @@ fn test_double_sign_challenge_all_slashed() {
     let msg = vec![0, 1, 2];
     for i in 0..=1 {
         let signature = signers[i].sign(&msg);
-        assert!(!env
-            .epoch_manager
-            .verify_validator_signature(
-                &env.head.epoch_id,
-                &AccountId::try_from(format!("test{}", i + 1)).unwrap(),
-                &msg,
-                &signature,
-            )
-            .unwrap());
+        assert!(
+            !env.epoch_manager
+                .verify_validator_signature(
+                    &env.head.epoch_id,
+                    &AccountId::try_from(format!("test{}", i + 1)).unwrap(),
+                    &msg,
+                    &signature,
+                )
+                .unwrap()
+        );
     }
 
     for _ in 3..17 {

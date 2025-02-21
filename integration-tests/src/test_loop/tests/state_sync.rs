@@ -15,12 +15,12 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, AccountInfo, BlockHeight, BlockHeightDelta, Nonce, NumSeats, ShardId,
 };
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 use crate::test_loop::utils::ONE_NEAR;
+use crate::test_loop::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 
 use itertools::Itertools;
 use std::collections::{BTreeMap, HashMap};

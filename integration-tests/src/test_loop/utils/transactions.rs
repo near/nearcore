@@ -2,10 +2,10 @@ use crate::test_loop::env::{TestData, TestLoopEnv};
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
+use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chain::Error;
 use near_client::client_actor::ClientActorInner;
@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
-use super::{get_node_data, ONE_NEAR, TGAS};
+use super::{ONE_NEAR, TGAS, get_node_data};
 use near_async::futures::FutureSpawnerExt;
 use std::cell::Cell;
 
@@ -736,7 +736,8 @@ pub fn check_txs_remove_successful(txs: &Cell<Vec<(CryptoHash, BlockHeight)>>, c
             Ok(FinalExecutionStatus::NotStarted)
             | Ok(FinalExecutionStatus::Started)
             | Err(Error::DBNotFoundErr(_)) => unfinished_txs.push((tx_hash, tx_height)), // Transaction in progress
-            _ => panic!( // Transaction error
+            _ => panic!(
+                // Transaction error
                 "remove_successful_txs: Transaction failed! tx_hash = {:?}, tx_height = {}, status = {:?}",
                 tx_hash, tx_height, status
             ),

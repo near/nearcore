@@ -1,20 +1,20 @@
 #![allow(unused_imports)]
 
-use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting, BlockStats};
+use crate::test_utils::{ActorHandlesForTesting, BlockStats, setup_mock_all_validators};
 use crate::{ClientActor, Query, ViewClientActor};
 use actix::{Addr, MailboxError, System};
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
-use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
+use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
 use near_crypto::InMemorySigner;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, ShardIndex};

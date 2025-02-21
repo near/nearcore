@@ -42,12 +42,16 @@ pub struct RpcLightClientBlockProofResponse {
 #[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcLightClientProofError {
-    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: {error_message}"
+    )]
     UnknownBlock {
         #[serde(skip_serializing)]
         error_message: String,
     },
-    #[error("Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}")]
+    #[error(
+        "Inconsistent state. Total number of shards is {number_or_shards} but the execution outcome is in shard {execution_outcome_shard_id}"
+    )]
     InconsistentState {
         number_or_shards: usize,
         execution_outcome_shard_id: near_primitives::types::ShardId,
@@ -70,7 +74,9 @@ pub enum RpcLightClientProofError {
 pub enum RpcLightClientNextBlockError {
     #[error("Internal error: {error_message}")]
     InternalError { error_message: String },
-    #[error("Block either has never been observed on the node or has been garbage collected: {error_message}")]
+    #[error(
+        "Block either has never been observed on the node or has been garbage collected: {error_message}"
+    )]
     UnknownBlock {
         #[serde(skip_serializing)]
         error_message: String,
@@ -94,7 +100,7 @@ impl From<RpcLightClientProofError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcLightClientProofError: {:?}", err),
-                )
+                );
             }
         };
 
@@ -110,7 +116,7 @@ impl From<RpcLightClientNextBlockError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcLightClientNextBlockError: {:?}", err),
-                )
+                );
             }
         };
         Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)

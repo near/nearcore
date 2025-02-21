@@ -1,8 +1,8 @@
 use crate::adapter::trie_store::TrieStoreAdapter;
+use crate::trie::POISONED_LOCK_ERR;
 use crate::trie::config::TrieConfig;
 use crate::trie::prefetching_trie_storage::PrefetcherResult;
-use crate::trie::POISONED_LOCK_ERR;
-use crate::{metrics, MissingTrieValueContext, PrefetchApi, StorageError};
+use crate::{MissingTrieValueContext, PrefetchApi, StorageError, metrics};
 use lru::LruCache;
 use near_o11y::log_assert;
 use near_o11y::metrics::prometheus;
@@ -172,7 +172,13 @@ impl TrieCacheInner {
         self.add_value_of_size(value.len());
         match self.cache.push(key, value) {
             Some((evicted_key, evicted_value)) => {
-                log_assert!(key == evicted_key, "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}", self.shard_id, self.is_view, key);
+                log_assert!(
+                    key == evicted_key,
+                    "LRU cache with shard_id = {}, is_view = {} can't be full before inserting key {}",
+                    self.shard_id,
+                    self.is_view,
+                    key
+                );
                 self.remove_value_of_size(evicted_value.len());
             }
             None => {}
@@ -341,11 +347,7 @@ impl TrieMemoryPartialStorage {
             self.recorded_storage
                 .iter()
                 .filter_map(|(node_hash, value)| {
-                    if touched_nodes.contains(node_hash) {
-                        Some(value.clone())
-                    } else {
-                        None
-                    }
+                    if touched_nodes.contains(node_hash) { Some(value.clone()) } else { None }
                 })
                 .collect();
 

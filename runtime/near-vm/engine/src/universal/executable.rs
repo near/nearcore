@@ -8,8 +8,8 @@ use near_vm_types::{
     ExportIndex, FunctionIndex, ImportIndex, LocalFunctionIndex, OwnedDataInitializer,
     SignatureIndex,
 };
-use rkyv::tuple::ArchivedTuple3;
 use rkyv::Archived;
+use rkyv::tuple::ArchivedTuple3;
 
 const MAGIC_HEADER: [u8; 32] = {
     let value = *b"\0nearvm-universal\xFE\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";

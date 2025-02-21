@@ -1,19 +1,19 @@
 use crate::broadcast::Receiver;
 use crate::config::NetworkConfig;
-use crate::network_protocol::{testonly as data, PartialEncodedChunkRequestMsg, RoutedMessageBody};
 use crate::network_protocol::{Encoding, PeerMessage};
+use crate::network_protocol::{PartialEncodedChunkRequestMsg, RoutedMessageBody, testonly as data};
 use crate::peer::testonly::{Event, PeerConfig, PeerHandle};
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::rate_limits::messages_limits;
 use crate::tcp;
-use crate::testonly::{make_rng, Rng};
+use crate::testonly::{Rng, make_rng};
 use near_async::time::FakeClock;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use rand::Rng as _;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{sleep, sleep_until, Instant};
+use tokio::time::{Instant, sleep, sleep_until};
 
 #[tokio::test]
 // Verifies that peer traffic is rate limited per message type. Not all messages are rate limited.
@@ -185,7 +185,7 @@ async fn send_messages(
         let message = PeerMessage::Routed(Box::new(outbound.routed_message(
             RoutedMessageBody::PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg {
                 chunk_hash: outbound.cfg.chain.blocks[5].chunks()[2].chunk_hash(),
-                part_ords: vec![rng.gen()],
+                part_ords: vec![rng.r#gen()],
                 tracking_shards: Default::default(),
             }),
             inbound.cfg.id(),

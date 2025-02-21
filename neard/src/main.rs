@@ -2,7 +2,7 @@ mod cli;
 
 use self::cli::NeardCmd;
 use anyhow::Context;
-use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, Version};
 use near_store::metadata::DB_VERSION;
 use nearcore::get_default_home;
 use std::env;
@@ -47,7 +47,7 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 fn main() -> anyhow::Result<()> {
     if env::var("RUST_BACKTRACE").is_err() {
         // Enable backtraces on panics by default.
-        env::set_var("RUST_BACKTRACE", "1");
+        unsafe { env::set_var("RUST_BACKTRACE", "1") };
     }
 
     rayon::ThreadPoolBuilder::new()

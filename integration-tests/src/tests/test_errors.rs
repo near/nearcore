@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::node::{Node, ThreadNode};
 use crate::user::CommitError;
-use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::Genesis;
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::InMemorySigner;
 use near_jsonrpc::RpcInto;
 use near_network::tcp;

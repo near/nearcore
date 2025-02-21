@@ -470,7 +470,7 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ProtoMT::UpdateNonceResponse(unr) => {
                 PeerMessage::SyncRoutingTable(RoutingTableUpdate {
                     edges: vec![
-                        try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?
+                        try_from_required(&unr.edge).map_err(Self::Error::UpdateNonceResponse)?,
                     ],
                     accounts: vec![],
                 })

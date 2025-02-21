@@ -18,7 +18,7 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::block::GenesisId;
 use near_primitives::network::PeerId;
 use near_primitives::types::ShardId;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
 use std::sync::atomic::AtomicU64;
@@ -198,7 +198,7 @@ impl Connection {
     pub fn send_accounts_data(
         self: &Arc<Self>,
         data: Vec<Arc<SignedAccountData>>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         let this = self.clone();
         async move {
             let res = this
@@ -242,10 +242,10 @@ impl Connection {
     // Accepts a list of SnapshotHostInfos to be broadcast to all neighbors of the node.
     // Multiple calls to this function made in quick succession will be condensed into a
     // single outgoing message.
-    pub fn send_snapshot_hosts(
-        self: &Arc<Self>,
+    pub fn send_snapshot_hosts<'a>(
+        self: &'a Arc<Self>,
         data: Vec<Arc<SnapshotHostInfo>>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         let this = self.clone();
         async move {
             // Pass the data through the snapshot_hosts_demux to

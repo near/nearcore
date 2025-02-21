@@ -180,7 +180,10 @@ impl Serializer for DurationCheckSerializer {
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        panic!("The test setup should not leave any None's, otherwise it can miss some fields to check; None seen at field path {:?}", self.current_path);
+        panic!(
+            "The test setup should not leave any None's, otherwise it can miss some fields to check; None seen at field path {:?}",
+            self.current_path
+        );
     }
 
     fn serialize_some<T>(self, value: &T) -> Result<Self::Ok, Self::Error>

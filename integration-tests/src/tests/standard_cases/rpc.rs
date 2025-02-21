@@ -1,7 +1,7 @@
 //! Runs standard test cases against testnet with several nodes running in separate threads.
 //! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
 
-use crate::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
+use crate::node::{Node, NodeConfig, ThreadNode, create_nodes_from_seeds};
 use crate::tests::standard_cases::*;
 use crate::tests::test_helpers::heavy_test;
 use near_o11y::testonly::init_test_module_logger;

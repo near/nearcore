@@ -5,7 +5,7 @@
 //! Please try to keep this file as clean as possible.
 
 use near_vm_test_generator::{
-    test_directory, test_directory_module, wast_processor, with_test_module, Testsuite,
+    Testsuite, test_directory, test_directory_module, wast_processor, with_test_module,
 };
 use std::env;
 use std::fs;

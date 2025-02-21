@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 
 use actix_cors::Cors;
-use actix_web::http::header::{self, ContentType};
 use actix_web::HttpRequest;
-use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::http::header::{self, ContentType};
+use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, get, http, middleware, web};
 pub use api::{RpcFrom, RpcInto, RpcRequest};
 use near_async::actix::ActixResult;
 use near_async::messaging::{
@@ -34,12 +34,12 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
-use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
+use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -212,7 +212,7 @@ fn process_query_response(
                         return Err(RpcError::new_internal_error(
                             None,
                             format!("Failed to serialize RpcQueryError: {:?}", err),
-                        ))
+                        ));
                     }
                 };
                 Err(RpcError::new_internal_or_handler_error(error_data, error_data_value))
@@ -1768,7 +1768,9 @@ pub async fn start_http_for_readonly_debug_querying(
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Result<(), std::io::Error> {
     info!("Starting readonly debug API server at {}", addr);
-    info!("Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying.");
+    info!(
+        "Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying."
+    );
     let listener = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(entity_debug_handler.clone()))

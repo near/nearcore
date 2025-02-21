@@ -18,17 +18,17 @@ use std::sync::Arc;
 use std::task::Poll;
 
 use bytesize::ByteSize;
+use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
-use near_chain::{get_incoming_receipts_for_shard, ChainStoreAccess, ReceiptFilter};
+use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, ValidatorsSpec,
+    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
 };
-use near_client::client_actor::ClientActorInner;
 use near_client::Client;
+use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -61,8 +61,8 @@ use testlib::bandwidth_scheduler::{
 
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::env::{TestData, TestLoopEnv};
-use crate::test_loop::utils::transactions::{run_txs_parallel, TransactionRunner};
 use crate::test_loop::utils::TGAS;
+use crate::test_loop::utils::transactions::{TransactionRunner, run_txs_parallel};
 
 /// 3 shards, random receipt sizes
 #[test]

@@ -1,7 +1,7 @@
-use crate::network_protocol::proto::trace_context::SamplingPriority;
 use crate::network_protocol::proto::TraceContext;
-use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
+use crate::network_protocol::proto::trace_context::SamplingPriority;
 use opentelemetry::Context;
+use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
 use protobuf::{EnumOrUnknown, MessageField};
 
 /// Lowest available value.

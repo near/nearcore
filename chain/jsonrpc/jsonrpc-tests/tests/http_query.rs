@@ -1,5 +1,5 @@
 use actix::System;
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 
 use near_actix_test_utils::run_actix;
 use near_jsonrpc::client::new_http_client;

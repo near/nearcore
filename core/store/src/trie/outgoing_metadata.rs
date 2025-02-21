@@ -10,10 +10,10 @@ use near_primitives::version::ProtocolFeature;
 use near_schema_checker_lib::ProtocolSchema;
 use near_vm_runner::logic::ProtocolVersion;
 
-use crate::{get, set, TrieUpdate};
+use crate::{TrieUpdate, get, set};
 
-use super::receipts_column_helper::TrieQueue;
 use super::TrieAccess;
+use super::receipts_column_helper::TrieQueue;
 
 /// Keeps metadata about receipts stored in the outgoing buffers.
 #[derive(Debug)]
@@ -639,7 +639,7 @@ mod tests {
             } else if !can_push {
                 false
             } else {
-                rng.gen::<bool>()
+                rng.r#gen::<bool>()
             };
 
             if should_push {
@@ -658,7 +658,7 @@ mod tests {
                 test_queue.update_on_receipt_popped(receipt_size, receipt_gas);
             }
 
-            if rng.gen::<bool>() {
+            if rng.r#gen::<bool>() {
                 // Reload the queue from trie. Tests that all changes are persisted after every operation.
                 groups_queue =
                     ReceiptGroupsQueue::load(trie_update, ShardId::new(0)).unwrap().unwrap();

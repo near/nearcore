@@ -237,13 +237,7 @@ impl<E: 'static + Send> Service<E> {
             inner.ctx.cancel();
             inner.terminated.clone()
         });
-        async move {
-            if let Some(t) = terminated {
-                ctx::wait(t.recv()).await
-            } else {
-                Ok(())
-            }
-        }
+        async move { if let Some(t) = terminated { ctx::wait(t.recv()).await } else { Ok(()) } }
     }
 
     /// Spawns a task in this scope.
@@ -302,8 +296,10 @@ pub struct Scope<'env, E: 'static>(
     std::marker::PhantomData<fn(&'env ()) -> &'env ()>,
 );
 
+/// Extremely unsafe.
 unsafe fn to_static<'env, T>(f: BoxFuture<'env, T>) -> BoxFuture<'static, T> {
-    std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f)
+    // Yikes.
+    unsafe { std::mem::transmute::<BoxFuture<'env, _>, BoxFuture<'static, _>>(f) }
 }
 
 impl<'env, E: 'static + Send> Scope<'env, E> {

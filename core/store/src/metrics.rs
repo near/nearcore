@@ -2,10 +2,10 @@ use crate::rocksdb_metrics::export_stats_as_metrics;
 use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
 use near_o11y::metrics::{
-    exponential_buckets, try_create_histogram, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, Histogram, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec,
+    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
+    try_create_histogram, try_create_histogram_vec, try_create_histogram_with_buckets,
+    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge,
+    try_create_int_gauge_vec,
 };
 use near_time::Duration;
 use std::sync::LazyLock;
@@ -441,7 +441,7 @@ pub mod flat_state_metrics {
 
     pub mod inlining_migration {
         use near_o11y::metrics::{
-            try_create_histogram, try_create_int_counter, Histogram, IntCounter,
+            Histogram, IntCounter, try_create_histogram, try_create_int_counter,
         };
         use std::sync::LazyLock;
 
@@ -491,7 +491,7 @@ pub mod flat_state_metrics {
 
     pub mod resharding {
         use near_o11y::metrics::{
-            try_create_int_gauge, try_create_int_gauge_vec, IntGauge, IntGaugeVec,
+            IntGauge, IntGaugeVec, try_create_int_gauge, try_create_int_gauge_vec,
         };
         use std::sync::LazyLock;
 
@@ -610,7 +610,7 @@ pub fn spawn_db_metrics_loop(
 #[cfg(test)]
 mod test {
     use crate::db::{StatsValue, StoreStatistics};
-    use crate::metadata::{DbKind, DB_VERSION};
+    use crate::metadata::{DB_VERSION, DbKind};
     use crate::test_utils::create_test_node_storage_with_cold;
     use actix;
     use near_o11y::testonly::init_test_logger;

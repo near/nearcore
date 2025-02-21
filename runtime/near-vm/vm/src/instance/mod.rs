@@ -20,17 +20,17 @@ use crate::memory::{LinearMemory, MemoryError};
 use crate::sig_registry::VMSharedSignatureIndex;
 use crate::table::{Table, TableElement};
 use crate::trap::traphandlers::get_trap_handler;
-use crate::trap::{catch_traps, Trap, TrapCode};
+use crate::trap::{Trap, TrapCode, catch_traps};
 use crate::vmcontext::{
     VMBuiltinFunctionsArray, VMCallerCheckedAnyfunc, VMContext, VMFunctionBody,
     VMFunctionEnvironment, VMFunctionImport, VMFunctionKind, VMGlobalDefinition, VMGlobalImport,
     VMLocalFunction, VMMemoryDefinition, VMMemoryImport, VMTableDefinition, VMTableImport,
 };
-use crate::{near_vm_call_trampoline, Artifact, VMOffsets, VMTrampoline};
+use crate::{Artifact, VMOffsets, VMTrampoline, near_vm_call_trampoline};
 use crate::{VMExtern, VMFunction, VMGlobal};
 use memoffset::offset_of;
 use more_asserts::assert_lt;
-use near_vm_types::entity::{packed_option::ReservedValue, BoxedSlice, EntityRef, PrimaryMap};
+use near_vm_types::entity::{BoxedSlice, EntityRef, PrimaryMap, packed_option::ReservedValue};
 use near_vm_types::{
     DataIndex, DataInitializer, ElemIndex, ExportIndex, FastGasCounter, FunctionIndex, GlobalIndex,
     GlobalInit, InstanceConfig, LocalGlobalIndex, LocalMemoryIndex, LocalTableIndex, MemoryIndex,
@@ -180,7 +180,7 @@ impl Instance {
     /// Helper function to access various locations offset from our `*mut
     /// VMContext` object.
     unsafe fn vmctx_plus_offset<T>(&self, offset: u32) -> *mut T {
-        (self.vmctx_ptr() as *mut u8).add(usize::try_from(offset).unwrap()).cast()
+        unsafe { (self.vmctx_ptr() as *mut u8).add(usize::try_from(offset).unwrap()).cast() }
     }
 
     /// Offsets in the `vmctx` region.
@@ -875,54 +875,58 @@ impl InstanceHandle {
                     instance.artifact.functions().iter().map(|(_, f)| f),
                     vmctx_ptr,
                 );
-                *(instance.trap_catcher_ptr()) = get_trap_handler();
-                *(instance.gas_counter_ptr()) = instance_config.gas_counter;
-                *(instance.stack_limit_ptr()) = instance_config.stack_limit;
-                *(instance.stack_limit_initial_ptr()) = instance_config.stack_limit;
+                unsafe {
+                    *(instance.trap_catcher_ptr()) = get_trap_handler();
+                    *(instance.gas_counter_ptr()) = instance_config.gas_counter;
+                    *(instance.stack_limit_ptr()) = instance_config.stack_limit;
+                    *(instance.stack_limit_initial_ptr()) = instance_config.stack_limit;
+                }
             }
 
             Self { instance: instance_ref }
         };
         let instance = handle.instance().as_ref();
 
-        ptr::copy(
-            instance.artifact.signatures().as_ptr(),
-            instance.signature_ids_ptr() as *mut VMSharedSignatureIndex,
-            instance.artifact.signatures().len(),
-        );
+        unsafe {
+            ptr::copy(
+                instance.artifact.signatures().as_ptr(),
+                instance.signature_ids_ptr() as *mut VMSharedSignatureIndex,
+                instance.artifact.signatures().len(),
+            );
 
-        ptr::copy(
-            imports.functions.values().as_slice().as_ptr(),
-            instance.imported_functions_ptr() as *mut VMFunctionImport,
-            imports.functions.len(),
-        );
-        ptr::copy(
-            imports.tables.values().as_slice().as_ptr(),
-            instance.imported_tables_ptr() as *mut VMTableImport,
-            imports.tables.len(),
-        );
-        ptr::copy(
-            imports.memories.values().as_slice().as_ptr(),
-            instance.imported_memories_ptr() as *mut VMMemoryImport,
-            imports.memories.len(),
-        );
-        ptr::copy(
-            imports.globals.values().as_slice().as_ptr(),
-            instance.imported_globals_ptr() as *mut VMGlobalImport,
-            imports.globals.len(),
-        );
-        // these should already be set, add asserts here? for:
-        // - instance.tables_ptr() as *mut VMTableDefinition
-        // - instance.memories_ptr() as *mut VMMemoryDefinition
-        ptr::copy(
-            vmctx_globals.values().as_slice().as_ptr(),
-            instance.globals_ptr() as *mut NonNull<VMGlobalDefinition>,
-            vmctx_globals.len(),
-        );
-        ptr::write(
-            instance.builtin_functions_ptr() as *mut VMBuiltinFunctionsArray,
-            VMBuiltinFunctionsArray::initialized(),
-        );
+            ptr::copy(
+                imports.functions.values().as_slice().as_ptr(),
+                instance.imported_functions_ptr() as *mut VMFunctionImport,
+                imports.functions.len(),
+            );
+            ptr::copy(
+                imports.tables.values().as_slice().as_ptr(),
+                instance.imported_tables_ptr() as *mut VMTableImport,
+                imports.tables.len(),
+            );
+            ptr::copy(
+                imports.memories.values().as_slice().as_ptr(),
+                instance.imported_memories_ptr() as *mut VMMemoryImport,
+                imports.memories.len(),
+            );
+            ptr::copy(
+                imports.globals.values().as_slice().as_ptr(),
+                instance.imported_globals_ptr() as *mut VMGlobalImport,
+                imports.globals.len(),
+            );
+            // these should already be set, add asserts here? for:
+            // - instance.tables_ptr() as *mut VMTableDefinition
+            // - instance.memories_ptr() as *mut VMMemoryDefinition
+            ptr::copy(
+                vmctx_globals.values().as_slice().as_ptr(),
+                instance.globals_ptr() as *mut NonNull<VMGlobalDefinition>,
+                vmctx_globals.len(),
+            );
+            ptr::write(
+                instance.builtin_functions_ptr() as *mut VMBuiltinFunctionsArray,
+                VMBuiltinFunctionsArray::initialized(),
+            );
+        }
 
         // Perform infallible initialization in this constructor, while fallible
         // initialization is deferred to the `initialize` method.
@@ -967,7 +971,7 @@ impl InstanceHandle {
             let instance = self.instance().as_ref();
             instance.reset_stack_meter();
         }
-        near_vm_call_trampoline(vmctx, trampoline, callee, values_vec)
+        unsafe { near_vm_call_trampoline(vmctx, trampoline, callee, values_vec) }
     }
 
     /// Return a reference to the vmctx used by compiled wasm code.
@@ -1153,11 +1157,11 @@ pub unsafe fn initialize_host_envs<Err: Sized>(
 ) -> Result<(), Err> {
     let initializers = {
         let mut instance_lock = handle.lock().unwrap();
-        let instance_ref = instance_lock.instance.as_mut_unchecked();
+        let instance_ref = unsafe { instance_lock.instance.as_mut_unchecked() };
         let mut initializers = vec![];
         for import_function_env in instance_ref.imported_function_envs.values_mut() {
             match import_function_env {
-                ImportFunctionEnv::Env { env, ref mut initializer, .. } => {
+                ImportFunctionEnv::Env { env, initializer, .. } => {
                     if let Some(init) = initializer.take() {
                         initializers.push((init, *env));
                     }
@@ -1168,7 +1172,11 @@ pub unsafe fn initialize_host_envs<Err: Sized>(
         initializers
     };
     for (init, env) in initializers {
-        let f = mem::transmute::<&ImportInitializerFuncPtr, &ImportInitializerFuncPtr<Err>>(&init);
+        // SAFE: this is a function pointer signature cast modifying the return type… Making sure
+        // invariants hold here is delegated to the caller.
+        let f = unsafe {
+            mem::transmute::<&ImportInitializerFuncPtr, &ImportInitializerFuncPtr<Err>>(&init)
+        };
         f(env, instance_ptr)?;
     }
     Ok(())
@@ -1178,7 +1186,8 @@ pub unsafe fn initialize_host_envs<Err: Sized>(
 fn get_memory_init_start(init: &DataInitializer<'_>, instance: &Instance) -> usize {
     let mut start = init.location.offset;
     if let Some(base) = init.location.base {
-        let val = instance.global(base).to_u32();
+        // SAFE: wasm checking verifies that gloals referenced for base are u32.
+        let val = unsafe { instance.global(base).to_u32() };
         start += usize::try_from(val).unwrap();
     }
     start
@@ -1186,19 +1195,24 @@ fn get_memory_init_start(init: &DataInitializer<'_>, instance: &Instance) -> usi
 
 #[allow(clippy::mut_from_ref)]
 /// Return a byte-slice view of a memory's data.
+///
+/// # SAFETY
+///
+/// * Don't call this multiple times to create aliased mutable references, 'kay?
 unsafe fn get_memory_slice<'instance>(
     init: &DataInitializer<'_>,
     instance: &'instance Instance,
 ) -> &'instance mut [u8] {
     let memory = instance.memory_definition(init.location.memory_index);
-    slice::from_raw_parts_mut(memory.base, memory.current_length)
+    unsafe { slice::from_raw_parts_mut(memory.base, memory.current_length) }
 }
 
 /// Compute the offset for a table element initializer.
 fn get_table_init_start(init: &OwnedTableInitializer, instance: &Instance) -> usize {
     let mut start = init.offset;
     if let Some(base) = init.base {
-        let val = instance.global(base).to_u32();
+        // SAFE: wasm checking verifies that globals referenced for base are u32.
+        let val = unsafe { instance.global(base).to_u32() };
         start += usize::try_from(val).unwrap();
     }
     start

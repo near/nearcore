@@ -1,7 +1,7 @@
 use near_async::messaging::CanSend;
 use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
-use near_chain::{check_known, ChainStoreAccess};
+use near_chain::{ChainStoreAccess, check_known};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
@@ -307,8 +307,8 @@ mod test {
     use std::sync::Arc;
 
     use near_async::messaging::IntoMultiSender;
-    use near_chain::test_utils::wait_for_all_blocks_in_processing;
     use near_chain::Provenance;
+    use near_chain::test_utils::wait_for_all_blocks_in_processing;
     use near_chain_configs::GenesisConfig;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;

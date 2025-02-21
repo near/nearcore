@@ -261,13 +261,18 @@ impl NetworkConfig {
         let mut proxies = HashSet::new();
         for proxy in &cfg.public_addrs {
             if proxies.contains(&proxy.peer_id) {
-                anyhow::bail!("public_addrs: found multiple entries with peer_id {}. Only 1 entry per peer_id is supported.",proxy.peer_id);
+                anyhow::bail!(
+                    "public_addrs: found multiple entries with peer_id {}. Only 1 entry per peer_id is supported.",
+                    proxy.peer_id
+                );
             }
             proxies.insert(proxy.peer_id.clone());
             let ip = proxy.addr.ip();
             if cfg.allow_private_ip_in_public_addrs {
                 if ip.is_unspecified() {
-                    anyhow::bail!("public_addrs: {ip} is not a valid IP. If you wanted to specify a loopback IP, use 127.0.0.1 instead.");
+                    anyhow::bail!(
+                        "public_addrs: {ip} is not a valid IP. If you wanted to specify a loopback IP, use 127.0.0.1 instead."
+                    );
                 }
             } else {
                 // TODO(gprusak): use !ip.is_global() instead, once it is stable.
@@ -477,7 +482,8 @@ impl NetworkConfig {
         if !(self.ideal_connections_hi <= self.max_num_peers) {
             anyhow::bail!(
                 "max_num_peers({}) < ideal_connections_hi({}) which may lead to connection saturation and declining new connections.",
-                self.max_num_peers, self.ideal_connections_hi
+                self.max_num_peers,
+                self.ideal_connections_hi
             );
         }
 
@@ -492,7 +498,8 @@ impl NetworkConfig {
         if UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE * 2 > self.peer_recent_time_window {
             anyhow::bail!(
                 "Very short peer_recent_time_window({}). it should be at least twice update_interval_last_time_received_message({}).",
-                self.peer_recent_time_window, UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
+                self.peer_recent_time_window,
+                UPDATE_INTERVAL_LAST_TIME_RECEIVED_MESSAGE
             );
         }
 

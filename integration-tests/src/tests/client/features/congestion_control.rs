@@ -1,8 +1,8 @@
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_client::test_utils::{TestEnv, TestEnvBuilder};
 use near_client::ProcessTxResponse;
+use near_client::test_utils::{TestEnv, TestEnvBuilder};
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_o11y::testonly::init_test_logger;
@@ -17,7 +17,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{EpochId, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::ProtocolVersion;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -247,7 +247,10 @@ fn check_congestion_info(env: &TestEnv, check_congested_protocol_upgrade: bool) 
             {
                 let congestion_level = header_congestion_info
                     .localized_congestion_level(&runtime_config.congestion_control_config);
-                assert!(congestion_level > 0.0, "the congestion level should be non-zero for the congested shard during protocol upgrade");
+                assert!(
+                    congestion_level > 0.0,
+                    "the congestion level should be non-zero for the congested shard during protocol upgrade"
+                );
 
                 check_congested_protocol_upgrade_done = true;
             }

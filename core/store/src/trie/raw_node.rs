@@ -107,7 +107,7 @@ mod children {
 
     impl<T: std::fmt::Debug> std::fmt::Debug for Debug<'_, T> {
         fn fmt(&self, fmtr: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(fmtr, "{}: {:?}", self.0 .0, self.0 .1)
+            write!(fmtr, "{}: {:?}", self.0.0, self.0.1)
         }
     }
 

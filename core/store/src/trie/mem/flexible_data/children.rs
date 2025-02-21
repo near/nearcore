@@ -1,8 +1,8 @@
-use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
+use super::encoding::BorshFixedSize;
+use crate::trie::Children;
 use crate::trie::mem::arena::{ArenaMemory, ArenaMemoryMut, ArenaSlice, ArenaSliceMut};
 use crate::trie::mem::node::{MemTrieNodeId, MemTrieNodePtr};
-use crate::trie::Children;
 use borsh::{BorshDeserialize, BorshSerialize};
 use derive_where::derive_where;
 use std::mem::size_of;

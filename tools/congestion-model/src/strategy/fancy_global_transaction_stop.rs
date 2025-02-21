@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
-use crate::{GGas, QueueId, Receipt, ShardId, GAS_LIMIT};
+use crate::{GAS_LIMIT, GGas, QueueId, Receipt, ShardId};
 
 /// Fancy Global Transaction Stop implements the following ideas:
 /// * At any shard we have a dedicated outgoing queue for every other shard.

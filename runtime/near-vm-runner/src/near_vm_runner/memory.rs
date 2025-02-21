@@ -34,11 +34,7 @@ impl NearVmMemory {
         // `checked_sub` here verifies that offsetting the buffer by offset
         // still lands us in-bounds of the allocated object.
         let remaining = vmmem.current_length.checked_sub(offset).ok_or(())?;
-        if len <= remaining {
-            Ok(vmmem.base.add(offset))
-        } else {
-            Err(())
-        }
+        if len <= remaining { unsafe { Ok(vmmem.base.add(offset)) } } else { Err(()) }
     }
 
     /// Returns shared reference to slice in guest memory at given offset.

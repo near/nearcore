@@ -3,12 +3,12 @@
 use anyhow::Context;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigView;
+use near_parameters::vm::VMKind;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{
-    costs_to_runtime_config, Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig,
+    Cost, CostTable, QemuCommandBuilder, RocksDBTestConfig, costs_to_runtime_config,
 };
 use std::env;
 use std::ffi::{OsStr, OsString};

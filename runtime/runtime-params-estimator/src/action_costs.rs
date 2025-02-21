@@ -820,7 +820,7 @@ impl ActionSize {
 
 #[cfg(test)]
 mod tests {
-    use super::{deploy_action, ActionSize};
+    use super::{ActionSize, deploy_action};
     use genesis_populate::get_account_id;
 
     #[test]

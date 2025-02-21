@@ -409,8 +409,8 @@ fn create_bucket(
 #[cfg(test)]
 mod test {
     use crate::sync::external::{
-        get_num_parts_from_filename, get_part_id_from_filename, is_part_filename,
-        ExternalConnection, StateFileType,
+        ExternalConnection, StateFileType, get_num_parts_from_filename, get_part_id_from_filename,
+        is_part_filename,
     };
     use near_o11y::testonly::init_test_logger;
     use near_primitives::types::ShardId;

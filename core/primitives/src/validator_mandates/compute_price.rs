@@ -1,7 +1,7 @@
 use {
     super::ValidatorMandatesConfig,
     near_primitives_core::types::Balance,
-    std::cmp::{min, Ordering},
+    std::cmp::{Ordering, min},
 };
 
 /// Given the stakes for the validators and the target number of mandates to have,

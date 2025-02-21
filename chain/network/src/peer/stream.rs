@@ -1,13 +1,13 @@
 use crate::peer_manager::connection;
 use crate::stats::metrics;
 use crate::tcp;
-use actix::fut::future::wrap_future;
 use actix::AsyncContext as _;
+use actix::fut::future::wrap_future;
 use bytesize::{GIB, MIB};
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 

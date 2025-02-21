@@ -1,4 +1,4 @@
-use near_o11y::metrics::{exponential_buckets, try_create_histogram, Counter, Histogram};
+use near_o11y::metrics::{Counter, Histogram, exponential_buckets, try_create_histogram};
 use std::sync::LazyLock;
 
 pub static PARTIAL_ENCODED_CHUNK_REQUEST_PROCESSING_TIME: LazyLock<

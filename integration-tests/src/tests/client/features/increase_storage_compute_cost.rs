@@ -11,8 +11,8 @@
 //! parameters they should.
 
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -177,7 +177,7 @@ fn assert_compute_limit_reached(
 ) {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
+    unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
     near_o11y::testonly::init_test_logger();
 
     let old_protocol_version = INCREASED_STORAGE_COSTS_PROTOCOL_VERSION - 1;

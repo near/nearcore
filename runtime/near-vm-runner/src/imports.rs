@@ -68,7 +68,7 @@ macro_rules! call_with_name {
 
 macro_rules! imports {
     (
-      $($(#[$config_field:ident])? $(##[$feature_name:literal])?
+      $($(#[$config_field:ident])? $(#[[$feature_name:literal]])?
         $( @in $mod:ident : )?
         $( @as $name:ident : )?
         $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >,)*
@@ -290,18 +290,18 @@ imports! {
     // #############
     // #  Sandbox  #
     // #############
-    ##["sandbox"] sandbox_debug_log<[len: u64, ptr: u64] -> []>,
+    #[["sandbox"]] sandbox_debug_log<[len: u64, ptr: u64] -> []>,
 
     // Sleep for the given number of nanoseconds. This is the ultimate
     // undercharging function as it doesn't consume much gas or computes but
     // takes a lot of time to execute. It must always be gated behind a feature
     // flag and it must never be released to production.
-    ##["test_features"] sleep_nanos<[duration: u64] -> []>,
+    #[["test_features"]] sleep_nanos<[duration: u64] -> []>,
 
     // Burn the given amount of gas. This is the ultimate overcharging function
     // as it doesn't take almost any resources to execute but burns a lot of
     // gas.
-    ##["test_features"] burn_gas<[gas: u64] -> []>,
+    #[["test_features"]] burn_gas<[gas: u64] -> []>,
 }
 
 pub(crate) use {call_with_name, for_each_available_import};

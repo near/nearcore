@@ -1,10 +1,10 @@
 use near_schema_checker_lib::ProtocolSchema;
 
-use crate::errors::ContractPrecompilatonResult;
-use crate::logic::errors::{CacheError, CompilationError};
-use crate::logic::Config;
-use crate::runner::VMKindExt;
 use crate::ContractCode;
+use crate::errors::ContractPrecompilatonResult;
+use crate::logic::Config;
+use crate::logic::errors::{CacheError, CompilationError};
+use crate::runner::VMKindExt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
@@ -405,7 +405,11 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 if path.is_dir() {
-                    debug_assert!(false, "Contract code cache directory should only contain files but found directory: {}", path.display());
+                    debug_assert!(
+                        false,
+                        "Contract code cache directory should only contain files but found directory: {}",
+                        path.display()
+                    );
                 } else {
                     if let Err(err) = std::fs::remove_file(&path) {
                         tracing::error!(

@@ -5,7 +5,7 @@
 //! signature checking.
 
 use near_vm_types::FunctionType;
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::convert::TryFrom;
 
 /// An index into the shared signature registry, usable for checking signatures

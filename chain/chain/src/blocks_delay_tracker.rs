@@ -10,12 +10,12 @@ use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus, DroppedReason,
 };
-use std::collections::{hash_map::Entry, BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 use std::mem;
 use time::ext::InstantExt as _;
 use tracing::error;
 
-use crate::{metrics, Chain, ChainStoreAccess};
+use crate::{Chain, ChainStoreAccess, metrics};
 
 const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 
@@ -283,11 +283,7 @@ impl BlocksDelayTracker {
                 .floating_chunks
                 .iter()
                 .filter_map(|(chunk_hash, chunk_height)| {
-                    if chunk_height < &cutoff_height {
-                        Some(chunk_hash.clone())
-                    } else {
-                        None
-                    }
+                    if chunk_height < &cutoff_height { Some(chunk_hash.clone()) } else { None }
                 })
                 .collect();
             for chunk_hash in chunks_to_remove {

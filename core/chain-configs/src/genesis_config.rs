@@ -14,8 +14,8 @@ use near_config_utils::ValidationError;
 use near_parameters::{RuntimeConfig, RuntimeConfigView};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::StateRoot;
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::{
     hash::CryptoHash,
     serialize::dec_format,
@@ -490,11 +490,7 @@ impl<'de, F: FnMut(StateRecord)> Visitor<'de> for RecordsProcessor<&'_ mut F> {
                 }
             }
         }
-        if has_records_field {
-            Ok(())
-        } else {
-            Err(de::Error::custom("missing field: records"))
-        }
+        if has_records_field { Ok(()) } else { Err(de::Error::custom("missing field: records")) }
     }
 }
 

@@ -11,12 +11,12 @@ use crate::logic::{
 use crate::near_vm_runner::{NearVmCompiler, NearVmEngine};
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, CompiledContract, Contract, ContractCode, ContractRuntimeCache,
+    CompiledContract, Contract, ContractCode, ContractRuntimeCache, get_contract_cache_key, imports,
 };
-use crate::{prepare, NoContractRuntimeCache};
+use crate::{NoContractRuntimeCache, prepare};
 use memoffset::offset_of;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     MemoryPool, Universal, UniversalArtifact, UniversalEngine, UniversalExecutable,
@@ -514,7 +514,7 @@ impl near_vm_vm::Tunables for &NearVM {
         vm_definition_location: std::ptr::NonNull<near_vm_vm::VMTableDefinition>,
     ) -> Result<std::sync::Arc<dyn near_vm_vm::Table>, String> {
         // This is called when instantiating a module.
-        Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?))
+        unsafe { Ok(Arc::new(LinearTable::from_definition(&ty, &style, vm_definition_location)?)) }
     }
 
     fn stack_init_gas_cost(&self, stack_size: u64) -> u64 {

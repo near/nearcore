@@ -8,8 +8,8 @@ use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, EpochHeight, ShardIndex};
-use near_store::flat::FlatStorageManager;
 use near_store::ShardTries;
+use near_store::flat::FlatStorageManager;
 use std::sync::Arc;
 
 /// Runs tasks related to state snapshots.

@@ -7,11 +7,11 @@ use crate::logic::{Config, ExecutionResultState, GasCounter};
 use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, prepare, CompiledContract, CompiledContractInfo, Contract,
-    ContractCode, ContractRuntimeCache, NoContractRuntimeCache,
+    CompiledContract, CompiledContractInfo, Contract, ContractCode, ContractRuntimeCache,
+    NoContractRuntimeCache, get_contract_cache_key, imports, prepare,
 };
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use std::borrow::Cow;
 use std::cell::{RefCell, UnsafeCell};
 use std::ffi::c_void;
@@ -45,11 +45,7 @@ fn with_caller<T>(func: impl FnOnce(&mut Caller) -> T) -> T {
 impl MemoryLike for WasmtimeMemory {
     fn fits_memory(&self, slice: MemSlice) -> Result<(), ()> {
         let end = slice.end::<usize>()?;
-        if end <= with_caller(|caller| self.0.data_size(caller)) {
-            Ok(())
-        } else {
-            Err(())
-        }
+        if end <= with_caller(|caller| self.0.data_size(caller)) { Ok(()) } else { Err(()) }
     }
 
     fn view_memory(&self, slice: MemSlice) -> Result<Cow<[u8]>, ()> {
@@ -114,7 +110,7 @@ impl IntoVMError for anyhow::Error {
                     t => {
                         return Err(VMRunnerError::WasmUnknownError {
                             debug_message: format!("unhandled trap type: {:?}", t),
-                        })
+                        });
                     }
                 }));
             };

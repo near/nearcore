@@ -20,7 +20,7 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
@@ -35,8 +35,8 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
-    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX,
+    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
@@ -539,7 +539,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
     fn get_runtime_config(&self, protocol_version: ProtocolVersion)
-        -> Result<RuntimeConfig, Error>;
+    -> Result<RuntimeConfig, Error>;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 
@@ -564,10 +564,10 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use near_async::time::{Clock, Utc};
-    use near_primitives::block::{genesis_chunks, Approval};
+    use near_primitives::block::{Approval, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
-    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;

@@ -102,5 +102,9 @@ fn slow_test_public_libs_are_small_enough() {
         }
     }
 
-    assert_eq!(libs_to_fix, vec![], "Good job on reducing dependency count, but it's time to review that thresholds for next components");
+    assert_eq!(
+        libs_to_fix,
+        vec![],
+        "Good job on reducing dependency count, but it's time to review that thresholds for next components"
+    );
 }

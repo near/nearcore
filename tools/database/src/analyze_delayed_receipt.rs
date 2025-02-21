@@ -1,7 +1,7 @@
 use clap::Parser;
 use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageManager;
-use near_store::{get_delayed_receipt_indices, ShardTries, StateSnapshotConfig, TrieConfig};
+use near_store::{ShardTries, StateSnapshotConfig, TrieConfig, get_delayed_receipt_indices};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -17,7 +17,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::BlockHeight;
 
 use crate::block_iterators::{
-    make_block_iterator_from_command_args, CommandArgs, LastNBlocksIterator,
+    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
 };
 use nearcore::open_storage;
 

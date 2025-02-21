@@ -8,8 +8,8 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::util::{
-    check_apply_block_result, load_trie, load_trie_stop_at_height, resulting_chunk_extra,
-    LoadTrieMode,
+    LoadTrieMode, check_apply_block_result, load_trie, load_trie_stop_at_height,
+    resulting_chunk_extra,
 };
 use crate::{apply_chunk, epoch_info};
 use anyhow::Context;
@@ -22,8 +22,8 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
 };
 use near_chain::{
-    get_incoming_receipts_for_shard, Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error,
-    ReceiptFilter,
+    Chain, ChainGenesis, ChainStore, ChainStoreAccess, Error, ReceiptFilter,
+    get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::shard_assignment::{shard_id_to_index, shard_id_to_uid};
@@ -37,24 +37,24 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::state::FlatStateValue;
-use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
+use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::{Balance, EpochHeight};
-use near_store::adapter::trie_store::TrieStoreAdapter;
+use near_store::TrieStorage;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
-use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
-use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
@@ -888,7 +888,9 @@ pub(crate) fn view_genesis(
             Err(error) => {
                 println!("Failed to read genesis block from store. Error: {}", error);
                 if !near_config.config.archive {
-                    println!("Hint: This is not an archival node. Try running this command from an archival node since genesis block may be garbage collected.");
+                    println!(
+                        "Hint: This is not an archival node. Try running this command from an archival node since genesis block may be garbage collected."
+                    );
                 }
             }
         }
@@ -1025,7 +1027,9 @@ pub(crate) fn print_epoch_analysis(
             println!("HEIGHT | VERSION | STATE SYNCS");
         }
         EpochAnalysisMode::Backtest => {
-            println!("epoch_height,original_protocol_version,state_syncs,min_validator_num,diff_validator_num,min_stake,diff_stake,rel_diff_stake");
+            println!(
+                "epoch_height,original_protocol_version,state_syncs,min_validator_num,diff_validator_num,min_stake,diff_stake,rel_diff_stake"
+            );
             // Start from empty assignment for correct number of shards.
             *next_epoch_info.chunk_producers_settlement_mut() =
                 vec![vec![]; next_next_epoch_config.shard_layout.shard_ids().collect_vec().len()];
@@ -1568,8 +1572,8 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyFile};
     use near_epoch_manager::EpochManager;
     use near_primitives::shard_layout::ShardUId;
-    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::AccountId;
+    use near_primitives::types::chunk_extra::ChunkExtra;
     use near_store::genesis::initialize_genesis_state;
     use nearcore::config::Config;
     use nearcore::{NearConfig, NightshadeRuntime};

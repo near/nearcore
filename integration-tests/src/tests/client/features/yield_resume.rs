@@ -1,6 +1,6 @@
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -33,7 +33,7 @@ fn get_outgoing_receipts_from_latest_block(env: &TestEnv) -> Vec<Receipt> {
 fn get_promise_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
     for receipt in get_outgoing_receipts_from_latest_block(&env) {
-        if let PromiseYield(ref action_receipt) = receipt.receipt() {
+        if let PromiseYield(action_receipt) = receipt.receipt() {
             result.push(action_receipt.input_data_ids[0]);
         }
     }
@@ -43,7 +43,7 @@ fn get_promise_yield_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash
 fn get_promise_resume_data_ids_from_latest_block(env: &TestEnv) -> Vec<CryptoHash> {
     let mut result = vec![];
     for receipt in get_outgoing_receipts_from_latest_block(&env) {
-        if let PromiseResume(ref data_receipt) = receipt.receipt() {
+        if let PromiseResume(data_receipt) = receipt.receipt() {
             result.push(data_receipt.data_id);
         }
     }

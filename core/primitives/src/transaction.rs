@@ -3,7 +3,7 @@ pub use crate::action::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use crate::errors::TxExecutionError;
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{CryptoHash, hash};
 use crate::merkle::MerklePath;
 use crate::profile_data_v3::ProfileDataV3;
 use crate::types::{AccountId, Balance, Gas, Nonce};

@@ -4,20 +4,20 @@ use anyhow::Context;
 use borsh::BorshSerialize;
 use futures::future::select_all;
 use futures::{FutureExt, StreamExt};
-use near_async::futures::{respawn_for_parallelism, FutureSpawner};
+use near_async::futures::{FutureSpawner, respawn_for_parallelism};
 use near_async::time::{Clock, Duration, Interval};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation, MutableValidatorSigner};
 use near_client::sync::external::{
-    create_bucket_read_write, external_storage_location, StateFileType,
+    ExternalConnection, external_storage_location_directory, get_part_id_from_filename,
+    is_part_filename,
 };
 use near_client::sync::external::{
-    external_storage_location_directory, get_part_id_from_filename, is_part_filename,
-    ExternalConnection,
+    StateFileType, create_bucket_read_write, external_storage_location,
 };
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
@@ -29,8 +29,8 @@ use std::collections::{HashMap, HashSet};
 use std::i64;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
-use tokio::sync::oneshot;
 use tokio::sync::Semaphore;
+use tokio::sync::oneshot;
 
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
@@ -79,7 +79,8 @@ impl StateSyncDumper {
                         tracing::warn!(target: "state_sync_dump", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
                         println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
                     }
-                    std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
+                    // SAFE: no threads *yet*.
+                    unsafe {std::env::set_var("SERVICE_ACCOUNT", &credentials_file)};
                     tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
                 }
                 ExternalConnection::GCS {
@@ -386,11 +387,7 @@ impl PartUploader {
     /// Increment the STATE_SYNC_DUMP_NUM_PARTS_DUMPED metric
     fn inc_parts_dumped(&self) {
         match self.parts_dumped.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
-            if prev >= 0 {
-                Some(prev + 1)
-            } else {
-                None
-            }
+            if prev >= 0 { Some(prev + 1) } else { None }
         }) {
             Ok(prev_parts_dumped) => {
                 metrics::STATE_SYNC_DUMP_NUM_PARTS_DUMPED
@@ -779,11 +776,7 @@ impl StateDumper {
         let headers_stored = tokio_stream::iter(shards)
             .filter_map(|(uploader, shard_id)| async move {
                 let stored = uploader.header_stored(shard_id).await;
-                if stored {
-                    Some(futures::future::ready(shard_id))
-                } else {
-                    None
-                }
+                if stored { Some(futures::future::ready(shard_id)) } else { None }
             })
             .buffer_unordered(10)
             .collect::<Vec<_>>()

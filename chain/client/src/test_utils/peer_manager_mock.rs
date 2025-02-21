@@ -15,10 +15,10 @@ pub struct PeerManagerMock {
 impl PeerManagerMock {
     pub(crate) fn new(
         f: impl 'static
-            + FnMut(
-                PeerManagerMessageRequest,
-                &mut actix::Context<Self>,
-            ) -> PeerManagerMessageResponse,
+        + FnMut(
+            PeerManagerMessageRequest,
+            &mut actix::Context<Self>,
+        ) -> PeerManagerMessageResponse,
     ) -> Self {
         Self { handle: Box::new(f) }
     }

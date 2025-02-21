@@ -1,5 +1,5 @@
 use crate::opentelemetry::get_opentelemetry_filter;
-use crate::{log_config, log_counter, BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel};
+use crate::{BuildEnvFilterError, EnvFilterBuilder, OpenTelemetryLevel, log_config, log_counter};
 use opentelemetry_sdk::trace::Tracer;
 use std::str::FromStr as _;
 use std::sync::OnceLock;
@@ -8,7 +8,7 @@ use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::filter::{Filtered, Targets};
 use tracing_subscriber::layer::Layered;
 use tracing_subscriber::reload::Handle;
-use tracing_subscriber::{fmt, reload, EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Registry, fmt, reload};
 
 static LOG_LAYER_RELOAD_HANDLE: OnceLock<
     Handle<EnvFilter, log_counter::LogCountingLayer<Registry>>,
@@ -167,9 +167,5 @@ pub fn reload(
         errors.push(err);
     }
 
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }

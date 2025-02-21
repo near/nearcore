@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
-use crate::{GGas, QueueId, Receipt, ShardId, TransactionId, GAS_LIMIT, PGAS, TGAS};
+use crate::{GAS_LIMIT, GGas, PGAS, QueueId, Receipt, ShardId, TGAS, TransactionId};
 
 pub struct SmoothTrafficLight {
     pub shard_id: Option<ShardId>,
@@ -111,11 +111,7 @@ impl SmoothTrafficLight {
                 mix(self.max_send_limit, self.min_send_limit_amber, congestion_level)
             } else {
                 // red
-                if Some(self.shard_id()) == allowed_shard {
-                    self.red_send_limit
-                } else {
-                    0
-                }
+                if Some(self.shard_id()) == allowed_shard { self.red_send_limit } else { 0 }
             };
 
             self.outgoing_gas_allowance.insert(shard_id, send_limit);

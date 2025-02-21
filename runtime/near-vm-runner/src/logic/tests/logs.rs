@@ -1,6 +1,6 @@
+use crate::logic::HostError;
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::HostError;
 use crate::logic::{MemSlice, VMLogic, VMLogicError};
 use crate::map;
 use near_parameters::ExtCosts;

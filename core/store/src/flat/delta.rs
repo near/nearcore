@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::BlockInfo;
-use crate::adapter::flat_store::FlatStoreUpdateAdapter;
 use crate::CryptoHash;
+use crate::adapter::flat_store::FlatStoreUpdateAdapter;
 
 #[derive(Debug)]
 pub struct FlatStateDelta {

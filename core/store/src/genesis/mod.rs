@@ -5,6 +5,6 @@ mod initialization;
 mod state_applier;
 
 pub use initialization::{initialize_genesis_state, initialize_sharded_genesis_state};
+pub use state_applier::GenesisStateApplier;
 pub use state_applier::compute_genesis_storage_usage;
 pub use state_applier::compute_storage_usage;
-pub use state_applier::GenesisStateApplier;

@@ -1,11 +1,11 @@
+use super::StateSyncDownloadSource;
 use super::task_tracker::TaskHandle;
 use super::util::{get_state_header_if_exists_in_storage, query_epoch_id_and_height_for_block};
-use super::StateSyncDownloadSource;
-use crate::sync::external::{external_storage_location, ExternalConnection, StateFileType};
+use crate::sync::external::{ExternalConnection, StateFileType, external_storage_location};
 use crate::sync::state::util::increment_download_count;
 use borsh::BorshDeserialize;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use near_async::time::{Clock, Duration};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_sync::ShardStateSyncResponseHeader;

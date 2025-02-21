@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use crate::hash::{hash as sha256, CryptoHash};
+use crate::hash::{CryptoHash, hash as sha256};
 
 #[derive(Clone)]
 pub struct ContractCode {
