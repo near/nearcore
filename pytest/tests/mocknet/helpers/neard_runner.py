@@ -371,7 +371,7 @@ class NeardRunner:
                 # the same validator ID. But should be fine for now.
                 # This last part of the hostname should be short, but we truncate it just in case it's not
                 unique_part = host_name.split("-")[-1][:6]
-                validator_id = f'node-{unique_part}.near'
+                validator_id = f'node-{unique_part}'
             cmd += ['--account-id', validator_id]
         else:
             if validator_id is not None:
