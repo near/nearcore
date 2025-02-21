@@ -372,7 +372,7 @@ impl ChunkProducer {
             encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
             transactions_storage_proof: prepared_transactions.storage_proof,
-            state_update: Some(state_update),
+            state_update,
         }))
     }
 
@@ -384,7 +384,7 @@ impl ChunkProducer {
         last_chunk: &ShardChunk,
         chunk_extra: &ChunkExtra,
         chain_validate: &dyn Fn(&SignedTransaction) -> bool,
-    ) -> Result<(PreparedTransactions, TrieUpdate), Error> {
+    ) -> Result<(PreparedTransactions, Option<TrieUpdate>), Error> {
         let shard_id = shard_uid.shard_id();
         let (prepared_transactions, state_update) = if let Some(mut iter) =
             self.sharded_tx_pool.get_pool_iterator(shard_uid)
@@ -437,9 +437,6 @@ impl ChunkProducer {
         if reintroduced_count < prepared_transactions.transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }
-        Ok((
-            prepared_transactions,
-            state_update.expect("runtime adapter should return state update"),
-        ))
+        Ok((prepared_transactions, state_update))
     }
 }
