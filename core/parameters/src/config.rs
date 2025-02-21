@@ -281,3 +281,16 @@ pub struct BandwidthSchedulerConfig {
     /// Max value of `base_bandwidth` that is granted on all links by default.
     pub max_base_bandwidth: u64,
 }
+
+impl BandwidthSchedulerConfig {
+    /// Creates a config that effectively disables BandwidthScheduler related limits by setting them
+    /// to max values. This can be useful for tests and benchmarks.
+    pub fn test_disabled() -> Self {
+        Self {
+            max_shard_bandwidth: u64::MAX,
+            max_single_grant: u64::MAX,
+            max_allowance: u64::MAX,
+            max_base_bandwidth: u64::MAX,
+        }
+    }
+}
