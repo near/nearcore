@@ -1,4 +1,6 @@
-use crate::config::{CongestionControlConfig, RuntimeConfig, WitnessConfig};
+use crate::config::{
+    BandwidthSchedulerConfig, CongestionControlConfig, RuntimeConfig, WitnessConfig,
+};
 use crate::parameter_table::{ParameterTable, ParameterTableDiff};
 use crate::vm;
 use near_primitives_core::types::ProtocolVersion;
@@ -180,6 +182,7 @@ impl RuntimeConfigStore {
                 let mut config_store = Self::new(None);
                 let mut config = RuntimeConfig::clone(config_store.get_config(PROTOCOL_VERSION));
                 config.congestion_control_config = CongestionControlConfig::test_disabled();
+                config.bandwidth_scheduler_config = BandwidthSchedulerConfig::test_disabled();
                 config.witness_config = WitnessConfig::test_disabled();
                 let mut wasm_config = vm::Config::clone(&config.wasm_config);
                 wasm_config.limit_config.per_receipt_storage_proof_size_limit = usize::max_value();
