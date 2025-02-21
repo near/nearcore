@@ -44,6 +44,7 @@ class BinarySerializer:
     def serialize_field(self, value, fieldType):
         if type(fieldType) == tuple:
             if len(fieldType) == 0:
+                print("QQP BAM")
                 pass
             else:
                 assert len(value) == len(fieldType)
@@ -138,11 +139,14 @@ class BinarySerializer:
                     raise AssertionError(f"Error in field {fieldName}") from exc
         elif structSchema['kind'] == 'enum':
             name = getattr(obj, structSchema['field'])
+            print("QQP NAME", name)
             for idx, (fieldName,
                       fieldType) in enumerate(structSchema['values']):
+                print("QQP fieldName", fieldName)
                 if fieldName == name:
                     self.serialize_num(idx, 1)
                     try:
+                        print("QQP THINGS", getattr(obj, fieldName), fieldType)
                         self.serialize_field(getattr(obj, fieldName), fieldType)
                     except AssertionError as exc:
                         raise AssertionError(

@@ -146,18 +146,20 @@ tx_schema = [
             'kind': 'enum',
             'field': 'enum',
             'values': [
-                ['codeHash', CodeHash],
-                ['accountId', AccountId],
+                ['CodeHash', ()],
+                ['AccountId', ()],
             ]
         }
     ],
     [CodeHash, {
-        'kind': 'struct',
-        'fields': []
+        'kind': 'enum',
+        'field': 'enum',
+        'values': []
     }],
     [AccountId, {
-        'kind': 'struct',
-        'fields': []
+        'kind': 'enum',
+        'field': 'enum',
+        'values': []
     }],
     [
         FunctionCall, {

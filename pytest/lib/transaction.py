@@ -166,8 +166,8 @@ def create_deploy_contract_action(code):
 
 def create_deploy_global_contract_action(code):
     deployMode = GlobalContractDeployMode()
-    deployMode.enum = 'codeHash'
-    deployMode.codeHash = CodeHash()
+    deployMode.enum = 'CodeHash'
+    deployMode.CodeHash = ()
     deployGlobalContract = DeployGlobalContract()
     deployGlobalContract.code = code
     deployGlobalContract.deployMode = deployMode
@@ -177,13 +177,13 @@ def create_deploy_global_contract_action(code):
     return action
 
 
-# def create_use_global_contract_action(code):
-#     useGlobalContract = UseGlobalContract()
-#     useGlobalContract.contract_identifier
-#     action = Action()
-#     action.enum = 'useGlobalContract'
-#     action.useContract = useGlobalContract
-#     return action
+def create_use_global_contract_action(code):
+    useGlobalContract = UseGlobalContract()
+    useGlobalContract.contract_identifier
+    action = Action()
+    action.enum = 'useGlobalContract'
+    action.useContract = useGlobalContract
+    return action
 
 
 def create_function_call_action(methodName, args, gas, deposit):
