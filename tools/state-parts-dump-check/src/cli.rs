@@ -212,7 +212,7 @@ struct DumpCheckIterInfo {
     epoch_id: EpochId,
     epoch_height: u64,
     shard_layout: ShardLayout,
-    state_roots: Vec<CryptoHash>,
+    state_roots: HashMap<ShardId, CryptoHash>,
 }
 
 fn create_external_connection(
@@ -305,7 +305,6 @@ fn run_loop_all_shards(
         }
         let dump_check_iter_info = dump_check_iter_info_res?;
         for shard_info in dump_check_iter_info.shard_layout.shard_infos() {
-            let shard_index = shard_info.shard_index();
             let shard_id = shard_info.shard_id();
             tracing::info!(?shard_id, "started check");
             let dump_check_iter_info = dump_check_iter_info.clone();
@@ -402,7 +401,7 @@ fn run_loop_all_shards(
                     dump_check_iter_info.epoch_id,
                     dump_check_iter_info.epoch_height,
                     shard_id,
-                    dump_check_iter_info.state_roots[shard_index],
+                    *dump_check_iter_info.state_roots.get(&shard_id).unwrap(),
                     root_dir,
                     s3_bucket,
                     s3_region,
@@ -885,10 +884,9 @@ async fn get_processing_epoch_information(
     let latest_epoch_height = latest_epoch_response.epoch_height;
     let prev_epoch_last_block_response =
         get_previous_epoch_last_block_response(rpc_client, latest_epoch_id).await?;
-    let mut chunks = prev_epoch_last_block_response.chunks;
-    chunks.sort_by(|c1, c2| c1.shard_id.cmp(&c2.shard_id));
-    let prev_epoch_state_roots: Vec<CryptoHash> =
-        chunks.iter().map(|chunk| chunk.prev_state_root).collect();
+    let chunks = prev_epoch_last_block_response.chunks;
+    let prev_epoch_state_roots =
+        chunks.iter().map(|chunk| (chunk.shard_id, chunk.prev_state_root)).collect();
 
     Ok(DumpCheckIterInfo {
         epoch_id: EpochId(latest_epoch_id),
