@@ -5085,6 +5085,7 @@ dependencies = [
  "near-store",
  "nearcore",
  "reqwest",
+ "serde_json",
  "tokio",
  "tracing",
 ]
