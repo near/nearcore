@@ -52,7 +52,7 @@ pub enum RpcTransactionError {
     TimeoutError,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct RpcTransactionResponse {
     #[serde(flatten)]
     pub final_execution_outcome: Option<near_primitives::views::FinalExecutionOutcomeViewEnum>,
