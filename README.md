@@ -16,7 +16,7 @@
 ![Prerelease Status][prerelease]
 [![codecov][codecov-badge]][codecov-url]
 [![Discord chat][discord-badge]][discord-url]
-[![Twitter][twitter-badge][twitter-url]
+[![Twitter][twitter-badge]][twitter-url]
 [![Telegram Group][telegram-badge]][telegram-url]
 
 [buildkite]: https://github.com/near/nearcore/actions
