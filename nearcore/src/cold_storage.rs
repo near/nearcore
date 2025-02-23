@@ -1,4 +1,4 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{Arc, atomic::AtomicBool};
 
 use near_chain::types::Tip;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -6,15 +6,15 @@ use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::config::SplitStorageConfig;
 use near_store::{
+    DBCol, FINAL_HEAD_KEY, NodeStorage, Store, TAIL_KEY,
     archive::cold_storage::{
-        copy_all_data_to_cold, get_cold_head, update_cold_db, update_cold_head,
-        CopyAllDataToColdStatus,
+        CopyAllDataToColdStatus, copy_all_data_to_cold, get_cold_head, update_cold_db,
+        update_cold_head,
     },
     db::ColdDB,
-    DBCol, NodeStorage, Store, FINAL_HEAD_KEY, TAIL_KEY,
 };
 
-use crate::{metrics, NearConfig};
+use crate::{NearConfig, metrics};
 
 /// A handle that keeps the state of the cold store loop and can be used to stop it.
 pub struct ColdStoreLoopHandle {
@@ -52,11 +52,17 @@ enum ColdStoreCopyResult {
 /// The ColdStoreError indicates what errors were encountered while copying a blocks and running sanity checks.
 #[derive(thiserror::Error, Debug)]
 pub enum ColdStoreError {
-    #[error("Cold head is ahead of final head. cold head height: {cold_head_height} final head height {hot_final_head_height}")]
+    #[error(
+        "Cold head is ahead of final head. cold head height: {cold_head_height} final head height {hot_final_head_height}"
+    )]
     ColdHeadAheadOfFinalHeadError { cold_head_height: u64, hot_final_head_height: u64 },
-    #[error("Cold head is behind hot tail. cold head height: {cold_head_height} hot tail height {hot_tail_height}")]
+    #[error(
+        "Cold head is behind hot tail. cold head height: {cold_head_height} hot tail height {hot_tail_height}"
+    )]
     ColdHeadBehindHotTailError { cold_head_height: u64, hot_tail_height: u64 },
-    #[error("All blocks between cold head and next height were skipped, but next height > hot final head. cold head {cold_head_height} next height to copy: {next_height} final head height {hot_final_head_height}")]
+    #[error(
+        "All blocks between cold head and next height were skipped, but next height > hot final head. cold head {cold_head_height} next height to copy: {next_height} final head height {hot_final_head_height}"
+    )]
     SkippedBlocksBetweenColdHeadAndNextHeightError {
         cold_head_height: u64,
         next_height: u64,

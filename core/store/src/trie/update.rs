@@ -1,13 +1,13 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
+use crate::StorageError;
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
-use crate::StorageError;
 use near_primitives::account::AccountContract;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
@@ -15,8 +15,8 @@ use near_primitives::types::{
     StateRoot, TrieCacheMode,
 };
 use near_primitives::version::ProtocolFeature;
-use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -414,8 +414,8 @@ impl Drop for TrieCacheModeGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::TestTriesBuilder;
     use crate::ShardUId;
+    use crate::test_utils::TestTriesBuilder;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     const SHARD_VERSION: u32 = 1;

@@ -1,10 +1,10 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::Provenance;
+use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::{Genesis, NEAR_BASE};
-use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::ProcessTxResponse;
+use near_client::test_utils::{TestEnv, run_catchup};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
@@ -71,7 +71,11 @@ impl DropChunkCondition {
             return true;
         }
 
-        tracing::warn!("Inconsistent test setup. Chunk producer configured to produce one of its chunks and to skip another. This is not supported, skipping all. height {} shard_ids {:?}", height, shard_ids);
+        tracing::warn!(
+            "Inconsistent test setup. Chunk producer configured to produce one of its chunks and to skip another. This is not supported, skipping all. height {} shard_ids {:?}",
+            height,
+            shard_ids
+        );
         return true;
     }
 

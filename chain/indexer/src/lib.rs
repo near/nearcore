@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use near_chain_configs::GenesisValidationMode;
 pub use near_primitives;
 use near_primitives::types::{Finality, Gas};
-pub use nearcore::{get_default_home, init_configs, NearConfig};
+pub use nearcore::{NearConfig, get_default_home, init_configs};
 
 pub use near_indexer_primitives::{
     IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,

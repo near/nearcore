@@ -281,11 +281,7 @@ fn retain_decision(key: &[u8], intervals: &[Range<Vec<u8>>]) -> RetainDecision {
         // Otherwise, all the keys in the subtree are outside the interval.
     }
 
-    if should_descend {
-        RetainDecision::Descend
-    } else {
-        RetainDecision::DiscardAll
-    }
+    if should_descend { RetainDecision::Descend } else { RetainDecision::DiscardAll }
 }
 
 pub(crate) trait GenericTrieUpdateRetain<'a, N, V>:
@@ -332,7 +328,7 @@ mod tests {
     use near_primitives::trie_key::col;
     use near_primitives::types::AccountId;
 
-    use super::{append_key, boundary_account_to_intervals, RetainMode};
+    use super::{RetainMode, append_key, boundary_account_to_intervals};
 
     #[test]
     fn test_boundary_account_to_intervals() {

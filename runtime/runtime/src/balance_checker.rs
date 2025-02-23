@@ -2,8 +2,8 @@ use crate::config::{
     safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_prepaid_exec_fees,
     total_prepaid_gas, total_prepaid_send_fees,
 };
-use crate::{safe_add_balance_apply, SignedValidPeriodTransactions};
 use crate::{DelayedReceiptIndices, ValidatorAccountsUpdate};
+use crate::{SignedValidPeriodTransactions, safe_add_balance_apply};
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::chunk_apply_stats::BalanceStats;
 use near_primitives::errors::{
@@ -15,8 +15,8 @@ use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance, ShardId};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_promise_yield_receipt, Trie, TrieAccess,
-    TrieUpdate,
+    Trie, TrieAccess, TrieUpdate, get, get_account, get_postponed_receipt,
+    get_promise_yield_receipt,
 };
 use std::collections::{BTreeSet, HashSet};
 
@@ -393,7 +393,7 @@ pub(crate) fn check_balance(
 mod tests {
     use super::*;
     use near_crypto::InMemorySigner;
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::{
         ActionReceipt, BufferedReceiptIndices, ReceiptPriority, ReceiptV0, TrieQueueIndices,
     };
@@ -401,7 +401,7 @@ mod tests {
     use near_primitives::transaction::{Action, SignedTransaction, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{set, set_account, Trie};
+    use near_store::{Trie, set, set_account};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use crate::near_primitives::shard_layout::ShardUId;

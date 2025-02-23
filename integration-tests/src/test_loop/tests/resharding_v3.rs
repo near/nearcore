@@ -5,9 +5,9 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::shard_layout::{shard_uids_to_ids, ShardLayout};
+use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::types::{AccountId, BlockHeightDelta, ShardId, ShardIndex};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -15,15 +15,15 @@ use std::sync::Arc;
 use crate::test_loop::builder::TestLoopBuilder;
 use crate::test_loop::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::test_loop::utils::receipts::{
-    check_receipts_presence_after_resharding_block, check_receipts_presence_at_resharding_block,
-    ReceiptKind,
+    ReceiptKind, check_receipts_presence_after_resharding_block,
+    check_receipts_presence_at_resharding_block,
 };
 #[cfg(feature = "test_features")]
 use crate::test_loop::utils::resharding::fork_before_resharding_block;
 use crate::test_loop::utils::resharding::{
-    call_burn_gas_contract, call_promise_yield, check_state_cleanup, execute_money_transfers,
-    execute_storage_operations, send_large_cross_shard_receipts,
-    temporary_account_during_resharding, TrackedShardSchedule,
+    TrackedShardSchedule, call_burn_gas_contract, call_promise_yield, check_state_cleanup,
+    execute_money_transfers, execute_storage_operations, send_large_cross_shard_receipts,
+    temporary_account_during_resharding,
 };
 use crate::test_loop::utils::setups::{
     derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule,
@@ -35,10 +35,10 @@ use crate::test_loop::utils::transactions::{
     check_txs, create_account, deploy_contract, get_smallest_height_head,
 };
 use crate::test_loop::utils::trie_sanity::{
-    check_state_shard_uid_mapping_after_resharding, TrieSanityCheck,
+    TrieSanityCheck, check_state_shard_uid_mapping_after_resharding,
 };
 use crate::test_loop::utils::{ONE_NEAR, TGAS};
-use near_parameters::{vm, RuntimeConfig, RuntimeConfigStore};
+use near_parameters::{RuntimeConfig, RuntimeConfigStore, vm};
 
 /// Default and minimal epoch length used in resharding tests.
 const DEFAULT_EPOCH_LENGTH: u64 = 7;
@@ -207,7 +207,9 @@ impl TestReshardingParametersBuilder {
 
         if let Some(tracked_shard_schedule) = &tracked_shard_schedule {
             let extra_node_account_id = &clients[tracked_shard_schedule.client_index];
-            println!("Extra node: {extra_node_account_id}\ntracked_shard_schedule: {tracked_shard_schedule:?}");
+            println!(
+                "Extra node: {extra_node_account_id}\ntracked_shard_schedule: {tracked_shard_schedule:?}"
+            );
             assert!(clients_without_role.contains(&extra_node_account_id));
             let schedule_length = tracked_shard_schedule.schedule.len();
             assert!(schedule_length > num_epochs_to_wait as usize);
@@ -537,7 +539,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             let shards_will_care_about = shard_uids_to_ids(shards_will_care_about);
             let signer = client.validator_signer.get().unwrap();
             let account_id = signer.validator_id().as_str();
-            println!("client_{client_index}: id={account_id:?} tracks={tracked_shards:?}\twill_care_about={shards_will_care_about:?}");
+            println!(
+                "client_{client_index}: id={account_id:?} tracks={tracked_shards:?}\twill_care_about={shards_will_care_about:?}"
+            );
         }
 
         // Check that all chunks are included.

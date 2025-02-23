@@ -1,7 +1,7 @@
 use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::test_loop::sender::TestLoopSender;
-use near_async::test_loop::TestLoopV2;
 use near_async::time::Duration;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;

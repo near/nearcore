@@ -2,14 +2,14 @@ use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
 use near_chain_configs::test_genesis::{
-    build_genesis_and_epoch_config_store, GenesisAndEpochConfigParams, TestGenesisBuilder,
-    ValidatorsSpec,
+    GenesisAndEpochConfigParams, TestGenesisBuilder, ValidatorsSpec,
+    build_genesis_and_epoch_config_store,
 };
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
 
@@ -25,7 +25,7 @@ use near_store::test_utils::create_test_store;
 use near_store::{ShardUId, TrieConfig};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::IteratorRandom;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;

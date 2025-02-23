@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use super::types::ReshardingSender;
+use crate::ChainStoreUpdate;
 use crate::flat_storage_resharder::{FlatStorageResharder, FlatStorageResharderController};
 use crate::types::RuntimeAdapter;
-use crate::ChainStoreUpdate;
 use itertools::Itertools;
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
@@ -14,16 +14,16 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout};
+use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::state::PartialState;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_store::adapter::trie_store::get_shard_uid_mapping;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
+use near_store::trie::TrieRecorder;
 use near_store::trie::mem::memtrie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
-use near_store::trie::TrieRecorder;
 use near_store::{DBCol, ShardTries, ShardUId, Store, TrieAccess};
 
 pub struct ReshardingManager {

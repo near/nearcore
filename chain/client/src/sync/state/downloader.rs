@@ -1,9 +1,9 @@
+use super::StateSyncDownloadSource;
 use super::chain_requests::StateHeaderValidationRequest;
 use super::task_tracker::TaskTracker;
 use super::util::get_state_header_if_exists_in_storage;
-use super::StateSyncDownloadSource;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use near_async::messaging::AsyncSender;
 use near_async::time::{Clock, Duration};
 use near_chain::types::RuntimeAdapter;
@@ -12,8 +12,8 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StatePartKey};
 use near_primitives::types::ShardId;
 use near_store::{DBCol, Store};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 

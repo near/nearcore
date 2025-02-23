@@ -2,8 +2,8 @@
 
 use crate::tests::client::process_blocks::deploy_test_contract;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;

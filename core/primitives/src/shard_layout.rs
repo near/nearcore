@@ -269,7 +269,7 @@ impl TryFrom<SerdeShardLayoutV2> for ShardLayoutV2 {
                 return Err(
                     "shards_split_map and shards_parent_map must be both present or both absent"
                         .into(),
-                )
+                );
             }
         }
 
@@ -378,7 +378,7 @@ impl ShardLayout {
     /// non-contiguous ShardIds.
     #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn multi_shard_custom(boundary_accounts: Vec<AccountId>, version: ShardVersion) -> Self {
-        use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+        use rand::{SeedableRng, rngs::StdRng, seq::SliceRandom};
 
         let num_shards = (boundary_accounts.len() + 1) as u64;
 
@@ -1102,18 +1102,18 @@ impl ShardInfo {
 mod tests {
     use crate::epoch_manager::{AllEpochConfig, EpochConfig};
     use crate::shard_layout::{
-        new_shard_ids_vec, new_shards_split_map, ShardLayout, ShardLayoutV1, ShardUId,
+        ShardLayout, ShardLayoutV1, ShardUId, new_shard_ids_vec, new_shards_split_map,
     };
     use itertools::Itertools;
     use near_primitives_core::types::ProtocolVersion;
     use near_primitives_core::types::{AccountId, ShardId};
-    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
     use rand::distributions::Alphanumeric;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
     use std::collections::{BTreeMap, HashMap};
 
-    use super::{new_shards_split_map_v2, ShardVersion, ShardsSplitMap};
+    use super::{ShardVersion, ShardsSplitMap, new_shards_split_map_v2};
 
     // The old ShardLayoutV1, before fixed shards were removed. tests only
     #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]

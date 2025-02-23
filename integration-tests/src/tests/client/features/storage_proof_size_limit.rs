@@ -1,8 +1,8 @@
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
@@ -118,8 +118,10 @@ fn test_storage_proof_size_limit() {
         }
         other => panic!("Bad FinalExecutionStatus: {:?}", other),
     };
-    assert!(error_string
-        .contains("Size of the recorded trie storage proof has exceeded the allowed limit"));
+    assert!(
+        error_string
+            .contains("Size of the recorded trie storage proof has exceeded the allowed limit")
+    );
 
     // Now test the per-chunk soft limit.
     // Spawn 3 transactions, each reading 3MB of data. The first two should end up in the same chunk.

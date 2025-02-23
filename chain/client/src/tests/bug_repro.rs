@@ -11,12 +11,12 @@ use near_async::messaging::CanSend;
 use near_async::time::Clock;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_primitives::types::ShardIndex;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
-use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use crate::GetBlock;
+use crate::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use near_actix_test_utils::run_actix;
-use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
+use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockApproval, BlockResponse, ProcessTxRequest};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
@@ -24,8 +24,8 @@ use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
 use near_primitives::transaction::SignedTransaction;
 

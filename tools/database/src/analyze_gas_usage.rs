@@ -15,7 +15,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use nearcore::open_storage;
 
 use crate::block_iterators::{
-    make_block_iterator_from_command_args, CommandArgs, LastNBlocksIterator,
+    CommandArgs, LastNBlocksIterator, make_block_iterator_from_command_args,
 };
 
 /// `Gas` is an u64, but it still might overflow when analyzing a large amount of blocks.
@@ -283,11 +283,7 @@ impl BiggestAccountsFinder {
 // Calculates how much percent of `big` is `small` and returns it as a string.
 // Example: as_percentage_of(10, 100) == "10.0%"
 fn as_percentage_of(small: BigGas, big: BigGas) -> String {
-    if big > 0 {
-        format!("{:.1}%", small as f64 / big as f64 * 100.0)
-    } else {
-        format!("-")
-    }
+    if big > 0 { format!("{:.1}%", small as f64 / big as f64 * 100.0) } else { format!("-") }
 }
 
 fn display_shard_split_stats<'a>(

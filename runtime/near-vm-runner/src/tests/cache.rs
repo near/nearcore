@@ -3,19 +3,19 @@
 
 use super::{create_context, test_vm_config, with_vm_variants};
 use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
+use crate::logic::Config;
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::Config;
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
 use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[test]
 fn test_caches_compilation_error() {

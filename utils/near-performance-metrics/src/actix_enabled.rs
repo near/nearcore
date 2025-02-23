@@ -1,4 +1,4 @@
-use crate::stats_enabled::{get_thread_stats_logger, MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD};
+use crate::stats_enabled::{MyFuture, REF_COUNTER, SLOW_CALL_THRESHOLD, get_thread_stats_logger};
 use std::panic::Location;
 use std::time::{Duration, Instant};
 use tracing::warn;

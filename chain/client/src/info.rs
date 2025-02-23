@@ -1,5 +1,5 @@
 use crate::config_updater::ConfigUpdater;
-use crate::{metrics, SyncStatus};
+use crate::{SyncStatus, metrics};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
@@ -20,7 +20,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, Version};
 use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use sysinfo::{Pid, ProcessExt, System, SystemExt, get_current_pid, set_open_files_limit};
 use time::ext::InstantExt as _;
 use tracing::info;
 
@@ -867,7 +867,7 @@ impl PrettyNumber {
 
 impl std::fmt::Display for PrettyNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self(mut num, unit) = self;
+        let Self(mut num, unit) = *self;
         if num < 1_000 {
             return write!(f, "{} {}", num, unit);
         }
@@ -973,16 +973,16 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+    use near_async::messaging::{IntoMultiSender, IntoSender, noop};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_chain_configs::{Genesis, MutableConfigValue};
+    use near_epoch_manager::EpochManager;
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::test_utils::*;
-    use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
     use near_store::genesis::initialize_genesis_state;
 

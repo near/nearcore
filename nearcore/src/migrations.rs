@@ -1,6 +1,6 @@
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_primitives::utils::index_to_bytes;
-use near_store::metadata::{DbVersion, DB_VERSION};
+use near_store::metadata::{DB_VERSION, DbVersion};
 use near_store::migrations::BatchedStoreUpdate;
 use near_store::{DBCol, Store};
 

@@ -111,8 +111,8 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
+    use crate::node::runtime_node::RuntimeNode;
     use testlib::fees_utils::FeeHelper;
     use testlib::runtime_utils::{alice_account, bob_account};
 

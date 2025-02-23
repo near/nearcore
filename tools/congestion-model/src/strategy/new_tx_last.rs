@@ -1,6 +1,6 @@
+use crate::GAS_LIMIT;
 use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
-use crate::GAS_LIMIT;
 
 #[derive(Default)]
 /// No queues, no backpressure. But always prioritize existing receipts over new

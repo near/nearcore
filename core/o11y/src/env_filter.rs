@@ -1,6 +1,6 @@
 use std::borrow::Cow;
-use tracing_subscriber::filter::ParseError;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::ParseError;
 
 /// The default value for the `RUST_LOG` environment variable if one isn't specified otherwise.
 const DEFAULT_RUST_LOG: &str = "tokio_reactor=info,\

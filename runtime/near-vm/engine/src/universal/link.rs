@@ -3,8 +3,8 @@
 use near_vm_compiler::{
     JumpTable, Relocation, RelocationKind, RelocationTarget, SectionIndex, TrampolinesSection,
 };
-use near_vm_types::entity::PrimaryMap;
 use near_vm_types::LocalFunctionIndex;
+use near_vm_types::entity::PrimaryMap;
 use near_vm_vm::{SectionBodyPtr, VMLocalFunction};
 use std::collections::HashMap;
 use std::ptr::{read_unaligned, write_unaligned};

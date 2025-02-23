@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use actix::System;
 use assert_matches::assert_matches;
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
 use near_async::time::{Clock, Duration};
@@ -15,24 +15,24 @@ use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, GenesisConfig, NEAR_BASE};
 use near_client::test_utils::{
-    create_chunk_on_height, setup_mock, setup_mock_all_validators, TestEnv,
+    TestEnv, create_chunk_on_height, setup_mock, setup_mock_all_validators,
 };
 use near_client::{
     BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
     SetNetworkInfo,
 };
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
-use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
+use near_network::test_utils::{MockPeerManagerAdapter, wait_or_panic};
 use near_network::types::{
     BlockInfo, ConnectedPeerInfo, HighestHeightPeerInfo, NetworkInfo, PeerChainInfo,
     PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
 };
 use near_network::types::{FullPeerInfo, NetworkRequests, NetworkResponses};
 use near_network::types::{PeerInfo, ReasonForBan};
-use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
@@ -40,18 +40,18 @@ use near_primitives::block::GenesisId;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{verify_hash, PartialMerkleTree};
+use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::merkle::{PartialMerkleTree, verify_hash};
 use near_primitives::receipt::DelayedReceiptIndices;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
-use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
     Action, DeployContractAction, ExecutionStatus, FunctionCallAction, SignedTransaction,
     Transaction, TransactionV0,
@@ -59,18 +59,18 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
 use near_primitives_core::num_rational::{Ratio, Rational32};
+use near_store::NodeStorage;
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::archive::cold_storage::{update_cold_db, update_cold_head};
-use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
+use near_store::metadata::DbKind;
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::NodeStorage;
-use near_store::{get, DBCol, TrieChanges};
+use near_store::{DBCol, TrieChanges, get};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
@@ -1334,21 +1334,25 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
                 env.clients[0].chain.get_block_by_height(i).unwrap_err(),
                 Error::DBNotFoundErr(missing_block_hash) if missing_block_hash == format!("BLOCK: {}", block_hash)
             );
-            assert!(env.clients[0]
-                .chain
-                .mut_chain_store()
-                .get_all_block_hashes_by_height(i as BlockHeight)
-                .unwrap()
-                .is_empty());
+            assert!(
+                env.clients[0]
+                    .chain
+                    .mut_chain_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .unwrap()
+                    .is_empty()
+            );
         } else {
             assert!(env.clients[0].chain.get_block(blocks[i as usize].hash()).is_ok());
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
-            assert!(!env.clients[0]
-                .chain
-                .mut_chain_store()
-                .get_all_block_hashes_by_height(i as BlockHeight)
-                .unwrap()
-                .is_empty());
+            assert!(
+                !env.clients[0]
+                    .chain
+                    .mut_chain_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
     assert_eq!(env.clients[0].chain.chain_store().chunk_tail().unwrap(), epoch_length - 1);
@@ -1404,11 +1408,13 @@ fn test_archival_save_trie_changes() {
 
         assert!(chain.get_block(block.hash()).is_ok());
         assert!(chain.get_block_by_height(i).is_ok());
-        assert!(!chain
-            .chain_store()
-            .get_all_block_hashes_by_height(i as BlockHeight)
-            .unwrap()
-            .is_empty());
+        assert!(
+            !chain
+                .chain_store()
+                .get_all_block_hashes_by_height(i as BlockHeight)
+                .unwrap()
+                .is_empty()
+        );
 
         // The genesis block does not contain trie changes.
         if i == 0 {
@@ -1506,11 +1512,13 @@ fn test_archival_gc_common(
         } else {
             assert!(chain.get_block(block.hash()).is_ok());
             assert!(chain.get_block_by_height(i).is_ok());
-            assert!(!chain
-                .chain_store()
-                .get_all_block_hashes_by_height(i as BlockHeight)
-                .unwrap()
-                .is_empty());
+            assert!(
+                !chain
+                    .chain_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
 }
@@ -2449,15 +2457,17 @@ fn test_validate_chunk_extra() {
         .get_chunk_header_and_endorsements(chunks.get(&shard_id).unwrap())
         .unwrap();
     let chunk_extra = client.chain.get_chunk_extra(block1.hash(), &shard_uid).unwrap();
-    assert!(validate_chunk_with_chunk_extra(
-        &mut chain_store,
-        client.epoch_manager.as_ref(),
-        block1.hash(),
-        &chunk_extra,
-        block1.chunks()[0].height_included(),
-        &chunk_header,
-    )
-    .is_ok());
+    assert!(
+        validate_chunk_with_chunk_extra(
+            &mut chain_store,
+            client.epoch_manager.as_ref(),
+            block1.hash(),
+            &chunk_extra,
+            block1.chunks()[0].height_included(),
+            &chunk_header,
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -2510,10 +2520,9 @@ fn slow_test_catchup_gas_price_change() {
     }
 
     assert_ne!(blocks[3].header().next_gas_price(), blocks[4].header().next_gas_price());
-    assert!(env.clients[1]
-        .chain
-        .get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard())
-        .is_err());
+    assert!(
+        env.clients[1].chain.get_chunk_extra(blocks[4].hash(), &ShardUId::single_shard()).is_err()
+    );
 
     // Simulate state sync
 
@@ -2570,14 +2579,16 @@ fn slow_test_catchup_gas_price_change() {
     {
         let store = env.clients[1].runtime_adapter.store();
         let mut store_update = store.store_update();
-        assert!(env.clients[1]
-            .runtime_adapter
-            .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(
-                ShardUId::single_shard(),
-                &mut store_update.flat_store_update()
-            )
-            .unwrap());
+        assert!(
+            env.clients[1]
+                .runtime_adapter
+                .get_flat_storage_manager()
+                .remove_flat_storage_for_shard(
+                    ShardUId::single_shard(),
+                    &mut store_update.flat_store_update()
+                )
+                .unwrap()
+        );
         store_update.commit().unwrap();
         for part_id in 0..num_parts {
             let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id)).unwrap();
@@ -3767,7 +3778,7 @@ mod contract_precompilation_tests {
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_store::TrieUpdate;
     use near_vm_runner::{
-        get_contract_cache_key, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
+        ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, get_contract_cache_key,
     };
     use node_runtime::state_viewer::TrieViewer;
     use node_runtime::state_viewer::ViewApplyState;

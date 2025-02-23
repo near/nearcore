@@ -2,10 +2,10 @@ use std::{collections::HashMap, io, sync::Arc};
 
 use borsh::BorshDeserialize;
 
-use crate::runtime_utils::{get_runtime_and_trie, get_test_trie_viewer, TEST_SHARD_UID};
+use crate::runtime_utils::{TEST_SHARD_UID, get_runtime_and_trie, get_test_trie_viewer};
 use near_primitives::{
     account::{Account, AccountContract},
-    hash::{hash as sha256, CryptoHash},
+    hash::{CryptoHash, hash as sha256},
     serialize::to_base64,
     trie_key::trie_key_parsers,
     types::{AccountId, StateRoot},
@@ -17,7 +17,7 @@ use near_primitives::{
     types::{EpochId, StateChangeCause},
     version::PROTOCOL_VERSION,
 };
-use near_store::{set_account, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId};
+use near_store::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, set_account};
 use node_runtime::state_viewer::errors;
 use node_runtime::state_viewer::*;
 use testlib::runtime_utils::alice_account;
@@ -307,13 +307,19 @@ fn test_view_state() {
     assert_view_state(&trie_viewer, &state_update, b"", &values, &proof);
     assert_view_state(&trie_viewer, &state_update, b"test", &values, &proof);
 
-    assert_view_state(&trie_viewer, &state_update, b"xyz", &[], &[
-        "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
-        "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
-        "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
-        "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA",
-        "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA",
-    ][..]);
+    assert_view_state(
+        &trie_viewer,
+        &state_update,
+        b"xyz",
+        &[],
+        &[
+            "AwMAAAAWFsbwm2TFX4GHLT5G1LSpF8UkG7zQV1ohXBMR/OQcUAKZ3gwDAAAAAAAA",
+            "ASAC7S1KwgLNl0HPdSo8soL8sGOmPhL7O0xTSR8sDDR5pZrzu0ty3UPYJ5UKrFGKxXoyyyNG75AF9hnJHO3xxFkf5NQCAAAAAAAA",
+            "AwEAAAAW607KPj2q3O8dF6XkfALiIrd9mqGir2UlYIcZuLNksTsvAgAAAAAAAA==",
+            "AQhAP4sMdbiWZPtV6jz8hYKzRFSgwaSlQKiGsQXogAmMcrLOl+SJfiCOXMTEZ2a1ebmQOEGkRYa30FaIlB46sLI2IPsBAAAAAAAA",
+            "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA",
+        ][..],
+    );
 
     let proof_verifier = assert_view_state(
         &trie_viewer,
@@ -328,7 +334,7 @@ fn test_view_state() {
             "AwwAAAAWUubmVhcix0ZXN0PKtrEndk0LxM+qpzp0PVtjf+xlrzz4TT0qA+hTtm6BLlYBAAAAAAAA",
             "AQoAVWCdny7wv/M1LvZASC3Fw0D/NNhI1NYwch9Ux+KZ2qRdQXPC1rNsCGRJ7nd66SfcNmRUVVvQY6EYCbsIiugO6gwBAAAAAAAA",
             "AAMAAAAgMjMDAAAApmWkWSBCL51Bfkhn79xPuKBKHz//H6B+mY6G9/eieuNtAAAAAAAAAA==",
-        ]
+        ],
     );
 
     let root = state_update.get_root();

@@ -29,11 +29,7 @@ static LOCALNET: WalletContract =
 pub fn wallet_contract(code_hash: CryptoHash) -> Option<Arc<ContractCode>> {
     fn check(code_hash: &CryptoHash, contract: &WalletContract) -> Option<Arc<ContractCode>> {
         let magic_bytes = contract.magic_bytes();
-        if code_hash == magic_bytes.hash() {
-            Some(contract.read_contract())
-        } else {
-            None
-        }
+        if code_hash == magic_bytes.hash() { Some(contract.read_contract()) } else { None }
     }
     if let Some(c) = check(&code_hash, &MAINNET) {
         return Some(c);
@@ -121,7 +117,7 @@ impl WalletContract {
 
 #[cfg(test)]
 mod tests {
-    use crate::{code_hash_matches_wallet_contract, wallet_contract_magic_bytes, OLD_TESTNET};
+    use crate::{OLD_TESTNET, code_hash_matches_wallet_contract, wallet_contract_magic_bytes};
     use near_primitives_core::{
         chains::{MAINNET, TESTNET},
         hash::CryptoHash,

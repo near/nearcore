@@ -1,6 +1,6 @@
 use near_chain_configs::GenesisValidationMode;
-use near_store::metadata::DbKind;
 use near_store::NodeStorage;
+use near_store::metadata::DbKind;
 use std::path::Path;
 
 /// This can potentially support db specified not in config, but in command line.

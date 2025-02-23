@@ -1,8 +1,8 @@
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
@@ -33,7 +33,7 @@ fn protocol_upgrade() {
 
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
-    std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now");
+    unsafe { std::env::set_var("NEAR_TESTS_PROTOCOL_UPGRADE_OVERRIDE", "now") };
 
     // Prepare TestEnv with a contract at the old protocol version.
     let mut env = {

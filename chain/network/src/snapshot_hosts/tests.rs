@@ -1,9 +1,9 @@
 use crate::network_protocol::{
-    testonly as data, SnapshotHostInfoVerificationError, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
+    MAX_SHARDS_PER_SNAPSHOT_HOST_INFO, SnapshotHostInfoVerificationError, testonly as data,
 };
-use crate::snapshot_hosts::{priority_score, Config, SnapshotHostInfoError, SnapshotHostsCache};
+use crate::snapshot_hosts::{Config, SnapshotHostInfoError, SnapshotHostsCache, priority_score};
 use crate::testonly::assert_is_superset;
-use crate::testonly::{make_rng, AsSet as _};
+use crate::testonly::{AsSet as _, make_rng};
 use crate::types::SnapshotHostInfo;
 use itertools::Itertools;
 use near_crypto::SecretKey;
@@ -351,7 +351,7 @@ async fn run_select_peer_test(
 async fn test_select_peer() {
     init_test_logger();
     let mut rng = make_rng(2947294234);
-    let sync_hash = CryptoHash(rng.gen());
+    let sync_hash = CryptoHash(rng.r#gen());
     let part_id = 0;
     let num_peers = SELECT_PEER_CASES.iter().map(|t| t.num_peers).max().unwrap();
     let mut peers = Vec::with_capacity(num_peers);
