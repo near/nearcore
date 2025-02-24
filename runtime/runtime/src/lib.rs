@@ -18,6 +18,7 @@ pub use congestion_control::bootstrap_congestion_info;
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
+use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{AccessKey, Account, AccountContract};
@@ -76,7 +77,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
-use verifier::ValidateReceiptMode;
+use verifier::{verify_and_charge_transactions, ValidateReceiptMode};
 
 mod actions;
 pub mod adapter;
@@ -164,7 +165,7 @@ pub struct ValidatorAccountsUpdate {
     pub slashing_info: HashMap<AccountId, Option<Balance>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VerificationResult {
     /// The amount gas that was burnt to convert the transaction into a receipt and send it.
     pub gas_burnt: Gas,
@@ -325,18 +326,38 @@ impl Runtime {
     ///
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
     /// or a `StorageError` wrapped into `RuntimeError`.
+<<<<<<< HEAD
     #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
         tx_hash = %validated_tx.get_hash(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
     ))]
+=======
+    #[instrument(
+        target = "runtime",
+        level = "debug",
+        "process_transaction",
+        skip_all,
+        fields(
+            tx_hash = %signed_transaction.get_hash(),
+            gas_burnt = tracing::field::Empty,
+            compute_usage = tracing::field::Empty,
+        )
+    )]
+>>>>>>> e2d7c7563 (WIP(runtime): parallel verification draft (2))
     fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
+<<<<<<< HEAD
         validated_tx: &ValidatedTransaction,
         transaction_cost: &TransactionCost,
+=======
+        signed_transaction: &SignedTransaction,
+        _transaction_cost: &TransactionCost,
+>>>>>>> e2d7c7563 (WIP(runtime): parallel verification draft (2))
         stats: &mut ChunkApplyStatsV0,
+        pre_verified: Option<VerificationResult>,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
@@ -413,6 +434,55 @@ impl Runtime {
                 state_update.rollback();
                 Err(e)
             }
+        // TODO: deconflict with the above
+        if let Some(verification_result) = pre_verified {
+            state_update.commit(StateChangeCause::TransactionProcessing {
+                tx_hash: signed_transaction.get_hash(),
+            });
+            let transaction = &signed_transaction.transaction;
+            let receipt_id = create_receipt_id_from_transaction(
+                apply_state.current_protocol_version,
+                signed_transaction,
+                &apply_state.prev_block_hash,
+                &apply_state.block_hash,
+                apply_state.block_height,
+            );
+            let receipt = Receipt::V0(ReceiptV0 {
+                predecessor_id: transaction.signer_id().clone(),
+                receiver_id: transaction.receiver_id().clone(),
+                receipt_id,
+                receipt: ReceiptEnum::Action(ActionReceipt {
+                    signer_id: transaction.signer_id().clone(),
+                    signer_public_key: transaction.public_key().clone(),
+                    gas_price: verification_result.receipt_gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: transaction.actions().to_vec(),
+                }),
+            });
+            stats.balance.tx_burnt_amount =
+                safe_add_balance(stats.balance.tx_burnt_amount, verification_result.burnt_amount)
+                    .map_err(|_| InvalidTxError::CostOverflow)?;
+            let gas_burnt = verification_result.gas_burnt;
+            let compute_usage = verification_result.gas_burnt;
+            let outcome_with_id = ExecutionOutcomeWithId {
+                id: signed_transaction.get_hash(),
+                outcome: ExecutionOutcome {
+                    status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
+                    logs: vec![],
+                    receipt_ids: vec![*receipt.receipt_id()],
+                    gas_burnt,
+                    compute_usage: Some(compute_usage),
+                    tokens_burnt: verification_result.burnt_amount,
+                    executor_id: transaction.signer_id().clone(),
+                    metadata: ExecutionMetadata::V1,
+                },
+            };
+            span.record("gas_burnt", gas_burnt);
+            span.record("compute_usage", compute_usage);
+            Ok((receipt, outcome_with_id))
+        } else {
+            Err(InvalidTxError::InvalidTransactionVersion)
         }
     }
 
@@ -1698,6 +1768,16 @@ impl Runtime {
         }
     }
 
+    fn convert_verification_to_cost(vr: &VerificationResult) -> TransactionCost {
+        TransactionCost {
+            gas_burnt: vr.gas_burnt,
+            gas_remaining: vr.gas_remaining,
+            receipt_gas_price: vr.receipt_gas_price,
+            total_cost: vr.burnt_amount,
+            burnt_amount: vr.burnt_amount,
+        }
+    }
+
     /// Processes a collection of transactions.
     ///
     /// Fills the `processing_state` with local receipts generated during processing of the
@@ -1710,6 +1790,9 @@ impl Runtime {
         processing_state: &mut ApplyProcessingReceiptState<'a>,
         receipt_sink: &mut ReceiptSink,
     ) -> Result<(), RuntimeError> {
+        use rayon::prelude::*;
+        use std::collections::HashMap;
+
         let total = &mut processing_state.total;
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
@@ -1772,6 +1855,103 @@ impl Runtime {
                 }
             }
         }
+
+        // Group by (account, public_key)
+        #[derive(Debug, Clone, Hash, Eq, PartialEq)]
+        struct AcctKey {
+            account_id: AccountId,
+            public_key: PublicKey,
+        }
+        let mut grouped_map: HashMap<AcctKey, Vec<(SignedTransaction, TransactionCost)>> =
+            HashMap::new();
+        for (tx, cost) in groups_to_process {
+            let key = AcctKey {
+                account_id: tx.transaction.signer_id().clone(),
+                public_key: tx.transaction.public_key().clone(),
+            };
+            grouped_map.entry(key).or_default().push((tx.clone(), cost));
+        }
+        for items in grouped_map.values_mut() {
+            items.sort_by_key(|(tx, _)| tx.transaction.nonce());
+        }
+
+        // Process each group in parallel using the frozen snapshot.
+        let group_results: Vec<
+            Result<Vec<(SignedTransaction, VerificationResult)>, InvalidTxError>,
+        > = grouped_map
+            .into_par_iter()
+            .map(|(_key, group_list)| {
+                verify_and_charge_transactions(
+                    &apply_state.config,
+                    state_update,
+                    &group_list,
+                    Some(apply_state.block_height),
+                    apply_state.current_protocol_version,
+                    &frozen_snapshot,
+                )
+            })
+            .collect();
+
+        let mut final_map = HashMap::new();
+        for result in group_results {
+            match result {
+                Ok(list) => {
+                    for (tx, vr) in list {
+                        final_map.insert(tx.get_hash(), vr);
+                    }
+                }
+                Err(e) => {
+                    Self::handle_invalid_transaction(
+                        e,
+                        &near_primitives::hash::CryptoHash::default(),
+                        processing_state.protocol_version,
+                        "ephemeral group verify error",
+                    )?;
+                }
+            }
+        }
+
+        // Sequential pass in original order: produce receipts.
+        for tx in &original_list {
+            let tx_hash = tx.get_hash();
+            if let Some(vr) = final_map.get(&tx_hash) {
+                let cost = Self::convert_verification_to_cost(vr);
+                let outcome = self.process_transaction(
+                    state_update,
+                    apply_state,
+                    tx,
+                    &cost,
+                    &mut processing_state.stats,
+                    Some(vr.clone()),
+                );
+                match outcome {
+                    Ok((receipt, outcome_with_id)) => {
+                        if receipt.receiver_id() == tx.transaction.signer_id() {
+                            processing_state.local_receipts.push_back(receipt);
+                        } else {
+                            receipt_sink.forward_or_buffer_receipt(
+                                receipt,
+                                apply_state,
+                                state_update,
+                                processing_state.epoch_info_provider,
+                            )?;
+                        }
+                        let compute = outcome_with_id.outcome.compute_usage.unwrap_or_default();
+                        total.add(outcome_with_id.outcome.gas_burnt, compute)?;
+                        processing_state.outcomes.push(outcome_with_id);
+                    }
+                    Err(e) => {
+                        Self::handle_invalid_transaction(
+                            e,
+                            &tx_hash,
+                            processing_state.protocol_version,
+                            "final process_transaction error",
+                        )?;
+                    }
+                }
+            }
+        }
+
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
         Ok(())
     }
