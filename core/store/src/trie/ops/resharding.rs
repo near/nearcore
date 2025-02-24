@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use near_primitives::errors::StorageError;
-use near_primitives::trie_key::col;
+use near_primitives::trie_key::{TrieKey, col};
 use near_primitives::types::AccountId;
 
 use crate::NibbleSlice;
@@ -50,13 +50,20 @@ fn boundary_account_to_intervals(
         // These are the `red` and `yellow` keys in resharding design.
         // They are handled by either copying the keys to both shards or only to the lower index shard.
         match prefix {
-            col::DELAYED_RECEIPT_OR_INDICES
-            | col::PROMISE_YIELD_INDICES
-            | col::PROMISE_YIELD_TIMEOUT
-            | col::BANDWIDTH_SCHEDULER_STATE
+            col::PROMISE_YIELD_TIMEOUT
+            // TODO(resharding): Duplicate refcounts for global contract code
             | col::GLOBAL_CONTRACT_CODE => {
                 // This section contains the keys that we need to copy to both shards.
                 intervals.push(get_interval_for_copy_to_both_children(prefix))
+            }
+            col::DELAYED_RECEIPT_OR_INDICES => {
+                intervals.extend(get_interval_for_copy_to_both_children_with_leaf(&TrieKey::DelayedReceiptIndices));
+            }
+            col::PROMISE_YIELD_INDICES => {
+                intervals.extend(get_interval_for_copy_to_both_children_with_leaf(&TrieKey::PromiseYieldIndices));
+            }
+            col::BANDWIDTH_SCHEDULER_STATE => {
+                intervals.extend(get_interval_for_copy_to_both_children_with_leaf(&TrieKey::BandwidthSchedulerState));
             }
             col::BUFFERED_RECEIPT_INDICES
             | col::BUFFERED_RECEIPT
@@ -96,6 +103,27 @@ fn get_interval_for_split_keys(
         RetainMode::Left => vec![prefix]..append_key(prefix, boundary_account),
         RetainMode::Right => append_key(prefix, boundary_account)..vec![prefix + 1],
     }
+}
+
+/// This function should be called with a trie key of a singleton object that needs to be duplicated to both children.
+///
+/// Suppose the singleton key K belongs to the trie column represented by prefix P.
+/// The function returns two intervals: [P, K) and [K, P+1), whose sum equals [P, P+1).
+/// This ensures that the entire subtree is copied to both children, similar to `get_interval_for_copy_to_both_children`.
+/// The difference is that, as a side effect, we also descend to K,
+/// effectively copying the trie nodes along the path to K to both children.
+///
+/// The reason for this approach is that `col::DELAYED_RECEIPT_OR_INDICES` contains:
+/// - `TrieKey::DelayedReceipt`s, which should be shallow-copied to both children.
+/// - `TrieKey::DelayedReceiptIndices`, which should be deep-copied to both children.
+fn get_interval_for_copy_to_both_children_with_leaf(
+    trie_leaf_key: &TrieKey,
+) -> [Range<Vec<u8>>; 2] {
+    let leaf_path = trie_leaf_key.to_vec();
+    let prefix = leaf_path[0];
+    let left_range = vec![prefix]..leaf_path.clone();
+    let right_range = leaf_path..vec![prefix + 1];
+    [left_range, right_range]
 }
 
 // This function generates the range of keys that need to be retained in the both children.
