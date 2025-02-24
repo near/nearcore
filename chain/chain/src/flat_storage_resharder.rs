@@ -20,7 +20,7 @@ use crate::types::RuntimeAdapter;
 use crate::{ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use near_primitives::block::Tip;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::col::{self};
@@ -32,8 +32,8 @@ use near_primitives::trie_key::trie_key_parsers::{
 #[cfg(feature = "test_features")]
 use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStorageError, FlatStorageReadyStatus,
     FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
@@ -1109,7 +1109,9 @@ fn shard_split_handle_key_value(
         | col::BANDWIDTH_SCHEDULER_STATE
         | col::GLOBAL_CONTRACT_CODE => {
             copy_kv_to_all_children(&split_params, key, value.clone(), store_update);
-            let Some(flat_state_value) = value else { return Ok(()); };
+            let Some(flat_state_value) = value else {
+                return Ok(());
+            };
             // Doesn't matter which child ShardUId we use, as they both map to the parent.
             let shard_uid = split_params.left_child_shard;
             let (node_hash, node_value) = match flat_state_value {
