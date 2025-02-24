@@ -1,8 +1,8 @@
-use crate::test_utils::setup_no_network;
 use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
+use near_client::test_utils::setup_no_network;
 use near_client_primitives::types::GetMaintenanceWindows;
 
 use near_o11y::WithSpanContextExt;

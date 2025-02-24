@@ -1,11 +1,11 @@
-use crate::test_utils::setup_no_network;
-use crate::{
-    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
-};
 use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::{Clock, Duration};
+use near_client::test_utils::setup_no_network;
+use near_client::{
+    GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
+};
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockResponse, ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;

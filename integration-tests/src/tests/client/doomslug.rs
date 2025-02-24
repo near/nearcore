@@ -1,5 +1,5 @@
-use crate::test_utils::TestEnv;
 use near_chain::Provenance;
+use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalType};
