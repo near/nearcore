@@ -206,6 +206,7 @@ pub struct Trie {
     /// during the lifetime of this Trie struct. This is used to produce a
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
+    // FIXME: make `TrieRecorder` internally MT-safe, instead of locking the entire structure.
     recorder: Option<RwLock<TrieRecorder>>,
     /// If true, access to trie nodes (not values) charges gas and affects the
     /// accounting cache. If false, access to trie nodes will not charge gas or

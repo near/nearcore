@@ -58,7 +58,7 @@ pub struct TrieAccountingCache {
     enable: TrieAccountingCacheSwitch,
     /// Cache of trie node hash -> trie node body, or a leaf value hash ->
     /// leaf value.
-    /// FIXME: consider changing Mutex<HashMap> to a purpose-made thread-safe map.
+    // FIXME: consider changing Mutex<HashMap> to a purpose-made thread-safe map.
     cache: Mutex<HashMap<CryptoHash, Arc<[u8]>>>,
     /// The number of times a key was accessed by reading from the underlying
     /// storage. (This does not necessarily mean it was accessed from *disk*,
