@@ -1,4 +1,7 @@
+use std::sync::{Arc, Mutex};
+
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
+use crate::ephemeral_data::EphemeralAccount;
 use crate::near_primitives::account::Account;
 use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
@@ -19,6 +22,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
+use near_store::trie::mem::memtries::FrozenMemTries;
 use near_store::{
     get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
 };
@@ -129,6 +133,40 @@ pub fn validate_transaction(
 
     tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
         .map_err(|_| InvalidTxError::CostOverflow.into())
+}
+
+/// Processes a group of transactions for the same (account, public_key) in ascending nonce order,
+/// using a frozen snapshot for read‑only access.
+/// Returns a Vec of (SignedTransaction, VerificationResult).
+pub fn verify_and_charge_transactions(
+    config: &RuntimeConfig,
+    state_update: &mut TrieUpdate,
+    group: &[(SignedTransaction, TransactionCost)],
+    block_height: Option<BlockHeight>,
+    current_protocol_version: ProtocolVersion,
+    frozen_snapshot: &FrozenMemTries,
+) -> Result<Vec<(SignedTransaction, VerificationResult)>, InvalidTxError> {
+    if group.is_empty() {
+        return Ok(vec![]);
+    }
+    let first_tx = &group[0].0;
+    let signer_id = first_tx.transaction.signer_id();
+    let public_key = first_tx.transaction.public_key();
+
+    let mut ephemeral = EphemeralAccount::new_from_frozen(frozen_snapshot, signer_id, public_key)?;
+    let mut results = Vec::with_capacity(group.len());
+    for (signed_tx, cost) in group.iter() {
+        let vr = ephemeral.apply_transaction_ephemeral(
+            config,
+            signed_tx,
+            cost,
+            block_height,
+            current_protocol_version,
+        )?;
+        results.push((signed_tx.clone(), vr));
+    }
+    ephemeral.commit(state_update, signer_id, public_key);
+    Ok(results)
 }
 
 /// Verifies the signed transaction on top of given state, charges transaction fees
