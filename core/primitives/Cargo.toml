@@ -75,12 +75,7 @@ protocol_schema = ["near-schema-checker-lib/protocol_schema"]
 
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }
-near-primitives = { path = ".", features = [
-  "clock",
-  "solomon",
-  "rand",
-  "test_utils",
-] }
+near-primitives = { workspace = true, features = ["clock", "solomon", "rand", "test_utils"] }
 assert_matches.workspace = true
 bencher.workspace = true
 bolero.workspace = true
