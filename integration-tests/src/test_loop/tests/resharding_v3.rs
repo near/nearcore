@@ -22,8 +22,8 @@ use crate::test_loop::utils::receipts::{
 use crate::test_loop::utils::resharding::fork_before_resharding_block;
 use crate::test_loop::utils::resharding::{
     TrackedShardSchedule, call_burn_gas_contract, call_promise_yield, check_state_cleanup,
-    execute_money_transfers, execute_storage_operations, send_large_cross_shard_receipts,
-    temporary_account_during_resharding,
+    execute_money_transfers, execute_storage_operations, promise_yield_repro_missing_trie_value,
+    send_large_cross_shard_receipts, temporary_account_during_resharding,
 };
 use crate::test_loop::utils::setups::{
     derive_new_epoch_config_from_boundary, two_upgrades_voting_schedule,
@@ -1338,6 +1338,25 @@ fn slow_test_resharding_v3_yield_timeout() {
             ReceiptKind::PromiseYield,
         ))
         .epoch_length(INCREASED_EPOCH_LENGTH)
+        .build();
+    test_resharding_v3_base(params);
+}
+
+/// Check that adding a new promise yield after resharding in one child doesn't
+/// leave the other child's promise yield indices with a dangling trie value.
+#[test]
+fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
+    let account_in_left_child: AccountId = "account4".parse().unwrap();
+    let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_contract(account_in_left_child.clone())
+        .deploy_test_contract(account_in_right_child.clone())
+        .add_loop_action(promise_yield_repro_missing_trie_value(
+            account_in_left_child.clone(),
+            account_in_right_child.clone(),
+            GC_NUM_EPOCHS_TO_KEEP,
+            DEFAULT_EPOCH_LENGTH,
+        ))
         .build();
     test_resharding_v3_base(params);
 }
