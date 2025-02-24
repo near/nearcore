@@ -37,10 +37,6 @@ class AccountId:
     pass
 
 
-class UseGlobalContract:
-    pass
-
-
 class FunctionCall:
     pass
 
@@ -151,16 +147,6 @@ tx_schema = [
             ]
         }
     ],
-    [CodeHash, {
-        'kind': 'enum',
-        'field': 'enum',
-        'values': []
-    }],
-    [AccountId, {
-        'kind': 'enum',
-        'field': 'enum',
-        'values': []
-    }],
     [
         FunctionCall, {
             'kind':
