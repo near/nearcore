@@ -39,6 +39,10 @@ pub struct TrieUpdate {
     prospective: TrieUpdates,
 }
 
+const fn assert_send_sync<T: Send + Sync>() {}
+#[allow(dead_code)]
+const _: () = assert_send_sync::<TrieUpdate>();
+
 pub enum TrieUpdateValuePtr<'a> {
     Ref(&'a Trie, OptimizedValueRef),
     MemoryRef(&'a [u8]),
@@ -173,7 +177,7 @@ impl TrieUpdate {
         // by the runtime are assumed to be non-malicious and we don't charge extra for them.
         if let Some(recorder) = &self.trie.recorder {
             if matches!(trie_key, TrieKey::ContractData { .. }) {
-                recorder.borrow_mut().record_key_removal();
+                recorder.write().expect("no poison").record_key_removal();
             }
         }
 
@@ -254,7 +258,7 @@ impl TrieUpdate {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
         let span = tracing::Span::current();
         let TrieUpdate { trie, committed, contract_storage, .. } = self;
-        let start_counts = trie.accounting_cache.borrow().get_trie_nodes_count();
+        let start_counts = trie.accounting_cache.get_trie_nodes_count();
         let mut state_changes = Vec::with_capacity(committed.len());
         let trie_changes =
             trie.update(committed.into_iter().map(|(k, changes_with_trie_key)| {
@@ -267,7 +271,7 @@ impl TrieUpdate {
                 state_changes.push(changes_with_trie_key);
                 (k, data)
             }))?;
-        let end_counts = trie.accounting_cache.borrow().get_trie_nodes_count();
+        let end_counts = trie.accounting_cache.get_trie_nodes_count();
         if let Some(iops_delta) = end_counts.checked_sub(&start_counts) {
             span.record("mem_reads", iops_delta.mem_reads);
             span.record("db_reads", iops_delta.db_reads);
@@ -299,7 +303,7 @@ impl TrieUpdate {
     /// Only changes the cache mode if `mode` is `Some`. Will always restore the previous cache
     /// mode upon drop. The type should not be `std::mem::forget`-ten, as it will leak memory.
     pub fn with_trie_cache_mode(&self, mode: Option<TrieCacheMode>) -> TrieCacheModeGuard {
-        let switch = self.trie.accounting_cache.borrow().enable_switch();
+        let switch = self.trie.accounting_cache.enable_switch();
         let previous = switch.enabled();
         if let Some(mode) = mode {
             switch.set(mode == TrieCacheMode::CachingChunk);
