@@ -54,6 +54,7 @@ near-network.workspace = true
 near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
+near-state-viewer.workspace = true
 near-store.workspace = true
 near-o11y.workspace = true
 near-telemetry.workspace = true
