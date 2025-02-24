@@ -28,7 +28,7 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use testlib::runtime_utils::{alice_account, bob_account};
 
-use crate::tests::client::process_blocks::produce_blocks_from_height;
+use crate::utils::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.
 /// Return height of the next block.

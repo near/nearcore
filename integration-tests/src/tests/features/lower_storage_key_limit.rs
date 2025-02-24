@@ -13,7 +13,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
-use crate::tests::client::process_blocks::{
+use crate::utils::process_blocks::{
     deploy_test_contract_with_protocol_version, produce_blocks_from_height_with_protocol_version,
 };
 

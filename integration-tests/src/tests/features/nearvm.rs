@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "nightly"), allow(unused_imports))]
 
-use crate::tests::client::process_blocks::deploy_test_contract;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
@@ -9,6 +8,8 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction, TransactionV0};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::utils::process_blocks::deploy_test_contract;
 
 #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
 #[test]

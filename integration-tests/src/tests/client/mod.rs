@@ -3,7 +3,6 @@ mod block_corruption;
 mod challenges;
 mod chunks_management;
 mod cold_storage;
-mod features;
 mod flat_storage;
 mod invalid_txs;
 mod process_blocks;
