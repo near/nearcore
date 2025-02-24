@@ -250,15 +250,20 @@ pub fn start_with_config_and_synchronization(
         None
     };
 
-    let epoch_manager = EpochManager::new_arc_handle(
-        storage.get_hot_store(),
-        &config.genesis.config,
-        Some(home_dir),
-    );
+    // Get the split store. If split store is some then create a new set of structures for
+    // the view client. Otherwise just re-use the existing ones.
+    let split_store = get_split_store(&config, &storage)?;
+
+    // DO NOT COMMIT!!!
+    // Temporary measure to recover archival nodes.
+    let client_store = split_store.clone().unwrap();
+
+    let epoch_manager =
+        EpochManager::new_arc_handle(client_store.clone(), &config.genesis.config, Some(home_dir));
 
     let trie_metrics_arbiter = spawn_trie_metrics_loop(
         config.clone(),
-        storage.get_hot_store(),
+        client_store.clone(),
         config.client_config.log_summary_period,
         epoch_manager.clone(),
     )?;
@@ -268,7 +273,7 @@ pub fn start_with_config_and_synchronization(
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
     initialize_sharded_genesis_state(
-        storage.get_hot_store(),
+        client_store.clone(),
         &config.genesis,
         &genesis_epoch_config,
         Some(home_dir),
@@ -278,15 +283,12 @@ pub fn start_with_config_and_synchronization(
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime = NightshadeRuntime::from_config(
         home_dir,
-        storage.get_hot_store(),
+        client_store.clone(),
         &config,
         epoch_manager.clone(),
     )
     .context("could not create the transaction runtime")?;
 
-    // Get the split store. If split store is some then create a new set of structures for
-    // the view client. Otherwise just re-use the existing ones.
-    let split_store = get_split_store(&config, &storage)?;
     let (view_epoch_manager, view_shard_tracker, view_runtime) =
         if let Some(split_store) = &split_store {
             let view_epoch_manager = EpochManager::new_arc_handle(
