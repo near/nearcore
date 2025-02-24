@@ -542,6 +542,12 @@ impl EpochSync {
                 tracing::warn!("Ignoring epoch sync proof from unexpected peer: {}", source_peer);
                 return Ok(());
             }
+            let header_height = chain.header_head()?.height;
+            if header_height != chain.genesis().height() {
+                return Err(Error::Other(
+                    "Cannot apply epoch sync proof: header_head is not at genesis".to_owned(),
+                ));
+            }
             if proof
                 .current_epoch
                 .first_block_header_in_epoch

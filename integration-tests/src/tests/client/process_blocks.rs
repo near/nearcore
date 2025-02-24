@@ -16,6 +16,7 @@ use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Proven
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, GenesisConfig, NEAR_BASE};
+use near_client::sync::epoch::EpochSync;
 use near_client::test_utils::{
     TestEnv, create_chunk_on_height, setup_mock, setup_mock_all_validators,
 };
@@ -59,6 +60,7 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
+use near_primitives::utils::compression::CompressedData;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
@@ -1945,6 +1947,88 @@ fn test_reject_block_headers_during_epoch_sync() {
         sync_client.sync_block_headers(headers, &signer),
         Err(_),
         "Block headers accepted during epoch sync"
+    );
+}
+
+#[test]
+fn test_epoch_sync_proof_rejects_non_genesis_header_head() {
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let epoch_length = 2;
+    genesis.config.epoch_length = epoch_length;
+    let mut env =
+        TestEnv::builder(&genesis.config).clients_count(2).nightshade_runtimes(&genesis).build();
+
+    let mut blocks = vec![];
+    for i in 1..=epoch_length + 1 {
+        let block = env.clients[0].produce_block(i).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        blocks.push(block.clone());
+    }
+
+    let highest_height = env.clients[1].config.epoch_sync.epoch_sync_horizon + 1;
+    let highest_height_peers = vec![HighestHeightPeerInfo {
+        archival: false,
+        genesis_id: GenesisId::default(),
+        highest_block_hash: *blocks.last().unwrap().hash(),
+        highest_block_height: blocks.len() as u64,
+        tracked_shards: vec![],
+        peer_info: PeerInfo::random(),
+    }];
+
+    // Running epoch sync, sets SyncStatus::EpochSync
+    let sync_client = &mut env.clients[1];
+    let status = &mut sync_client.sync_handler.sync_status;
+    let chain = &sync_client.chain;
+    assert_matches!(
+        sync_client.sync_handler.epoch_sync.run(
+            status,
+            chain,
+            highest_height,
+            &highest_height_peers
+        ),
+        Ok(()),
+        "Epoch sync failure"
+    );
+
+    assert_eq!(
+        env.clients[1].chain.header_head().unwrap().height,
+        0,
+        "Sync Client header height should be at genesis"
+    );
+
+    // Produce a block on client 0 and process it on both clients
+    env.process_block(1, blocks.first().unwrap().clone(), Provenance::SYNC); // Advance client 1
+
+    assert_eq!(
+        env.clients[1].chain.header_head().unwrap().height,
+        1,
+        "Sync Client header height should be at the processed block height"
+    );
+
+    // Derive the EpochSyncProof from client 0
+    let store = env.clients[0].chain.chain_store.store();
+    let transaction_validity_period = genesis.config.transaction_validity_period;
+    let proof =
+        EpochSync::derive_epoch_sync_proof(store, transaction_validity_period, Default::default())
+            .unwrap()
+            .decode()
+            .unwrap()
+            .0;
+
+    let peer_id = PeerInfo::random().id;
+
+    // Attempt to apply proof, expect rejection
+    let sync_client = &mut env.clients[1];
+    let epoch_sync = &sync_client.sync_handler.epoch_sync;
+    let status = &mut sync_client.sync_handler.sync_status;
+    let chain = &mut sync_client.chain;
+    let epoch_manager = sync_client.epoch_manager.as_ref();
+
+    let result = epoch_sync.apply_proof(status, chain, proof, peer_id, epoch_manager);
+    assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "Cannot apply epoch sync proof: header_head is not at genesis"
     );
 }
 
