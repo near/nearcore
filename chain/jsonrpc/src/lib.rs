@@ -223,13 +223,17 @@ fn process_query_response(
 }
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
+pub struct ProcessTxSenderForRpc(
+    AsyncSender<ProcessTxRequest, ActixResult<ProcessTxRequest>>,
+    Sender<ProcessTxRequest>,
+);
+
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ClientSenderForRpc(
     AsyncSender<DebugStatus, ActixResult<DebugStatus>>,
     AsyncSender<GetClientConfig, ActixResult<GetClientConfig>>,
     AsyncSender<GetNetworkInfo, ActixResult<GetNetworkInfo>>,
-    AsyncSender<ProcessTxRequest, ActixResult<ProcessTxRequest>>,
     AsyncSender<Status, ActixResult<Status>>,
-    Sender<ProcessTxRequest>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
     #[cfg(feature = "test_features")]
     AsyncSender<
@@ -279,6 +283,7 @@ pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, ActixResult<GetDe
 struct JsonRpcHandler {
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
+    process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
     #[cfg(feature = "test_features")]
     gc_sender: GCSenderForRpc,
@@ -534,7 +539,7 @@ impl JsonRpcHandler {
     ) -> CryptoHash {
         let tx = request_data.signed_transaction;
         let hash = tx.get_hash();
-        self.client_sender.send(ProcessTxRequest {
+        self.process_tx_sender.send(ProcessTxRequest {
             transaction: tx,
             is_forwarded: false,
             check_only: false, // if we set true here it will not actually send the transaction
@@ -665,7 +670,7 @@ impl JsonRpcHandler {
         let tx_hash = tx.get_hash();
         let signer_account_id = tx.transaction.signer_id().clone();
         let response = self
-            .client_sender
+            .process_tx_sender
             .send_async(ProcessTxRequest { transaction: tx, is_forwarded: false, check_only })
             .await
             .map_err(RpcFrom::rpc_from)?;
@@ -1649,6 +1654,7 @@ pub fn start_http(
     genesis_config: GenesisConfig,
     client_sender: ClientSenderForRpc,
     view_client_sender: ViewClientSenderForRpc,
+    process_tx_sender: ProcessTxSenderForRpc,
     peer_manager_sender: PeerManagerSenderForRpc,
     #[cfg(feature = "test_features")] gc_sender: GCSenderForRpc,
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
@@ -1672,6 +1678,7 @@ pub fn start_http(
             .app_data(web::Data::new(JsonRpcHandler {
                 client_sender: client_sender.clone(),
                 view_client_sender: view_client_sender.clone(),
+                process_tx_sender: process_tx_sender.clone(),
                 peer_manager_sender: peer_manager_sender.clone(),
                 polling_config,
                 genesis_config: genesis_config.clone(),

@@ -152,11 +152,11 @@ pub struct OptimisticBlockMessage {
 pub struct ClientSenderForNetwork {
     pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
     pub tx_status_response: AsyncSender<TxStatusResponse, ()>,
+    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
     pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
     pub state_response: AsyncSender<StateResponseReceived, ()>,
     pub block_approval: AsyncSender<BlockApproval, ()>,
-    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
     pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,
     pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<BlockHeader>>>,
     pub block: AsyncSender<BlockResponse, ()>,

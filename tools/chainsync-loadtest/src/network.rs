@@ -231,11 +231,11 @@ impl Network {
         ClientSenderForNetwork {
             tx_status_request: Sender::from_async_fn(|_| None),
             tx_status_response: noop().into_sender(),
+            transaction: noop().into_sender(),
             state_request_header: Sender::from_async_fn(|_| None),
             state_request_part: Sender::from_async_fn(|_| None),
             state_response: noop().into_sender(),
             block_approval: noop().into_sender(),
-            transaction: noop().into_sender(),
             block_request: Sender::from_async_fn(|_| None),
             block_headers_request: Sender::from_async_fn(|_| None),
             block: Sender::from_async_fn(move |block: BlockResponse| {

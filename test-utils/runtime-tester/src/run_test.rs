@@ -95,7 +95,7 @@ impl Scenario {
                 if !self.is_fuzzing {
                     // fuzzing can generate invalid transactions
                     assert_eq!(
-                        env.clients[0].process_tx(signed_tx, false, false),
+                        env.tx_request_handlers[0].process_tx(signed_tx, false, false),
                         ProcessTxResponse::ValidTx
                     );
                 }
