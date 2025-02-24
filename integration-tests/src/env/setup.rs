@@ -22,7 +22,7 @@ use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, MutableConfigValue, ReshardingConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::ShardsManagerResponse;
+use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
@@ -31,6 +31,7 @@ use near_client::{
     Client, ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, StartClientResult,
     SyncStatus, ViewClientActor, ViewClientActorInner, start_client,
 };
+use near_client::{TxRequestHandlerActor, spawn_tx_request_handler_actor};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -100,6 +101,7 @@ pub fn setup(
 ) -> (
     Addr<ClientActor>,
     Addr<ViewClientActor>,
+    Addr<TxRequestHandlerActor>,
     ShardsManagerAdapterForTest,
     PartialWitnessSenderForNetwork,
 ) {
@@ -154,6 +156,22 @@ pub fn setup(
         adv.clone(),
     );
 
+    let mut rng_seed: RngSeed = [0; 32];
+    rand::thread_rng().fill(&mut rng_seed);
+    let dummy_tx_pool =
+        Arc::new(std::sync::Mutex::new(ShardedTransactionPool::new(rng_seed, Some(60000))));
+
+    let tx_processor_addr = spawn_tx_request_handler_actor(
+        clock.clone(),
+        config.clone(),
+        dummy_tx_pool.clone(),
+        epoch_manager.clone(),
+        shard_tracker.clone(),
+        signer.clone(),
+        runtime.clone(),
+        chain_genesis.clone(),
+        network_adapter.clone(),
+    );
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
@@ -213,6 +231,7 @@ pub fn setup(
     (
         client_actor,
         view_client_addr,
+        tx_processor_addr,
         shards_manager_adapter.into_multi_sender(),
         partial_witness_adapter.into_multi_sender(),
     )
@@ -350,7 +369,13 @@ pub fn setup_mock_with_validity_period(
 ) -> ActorHandlesForTesting {
     let network_adapter = LateBoundSender::new();
     let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let (client_addr, view_client_addr, shards_manager_adapter, partial_witness_sender) = setup(
+    let (
+        client_addr,
+        view_client_addr,
+        tx_request_handler_addr,
+        shards_manager_adapter,
+        partial_witness_sender,
+    ) = setup(
         clock.clone(),
         vs,
         10,
@@ -377,6 +402,7 @@ pub fn setup_mock_with_validity_period(
     ActorHandlesForTesting {
         client_actor: client_addr,
         view_client_actor: view_client_addr,
+        tx_processor_actor: tx_request_handler_addr,
         shards_manager_adapter,
         partial_witness_sender,
     }
@@ -386,6 +412,7 @@ pub fn setup_mock_with_validity_period(
 pub struct ActorHandlesForTesting {
     pub client_actor: Addr<ClientActor>,
     pub view_client_actor: Addr<ViewClientActor>,
+    pub tx_processor_actor: Addr<TxRequestHandlerActor>,
     pub shards_manager_adapter: ShardsManagerAdapterForTest,
     pub partial_witness_sender: PartialWitnessSenderForNetwork,
 }
@@ -971,7 +998,13 @@ pub fn setup_mock_all_validators(
         })
         .start();
 
-        let (client_addr, view_client_addr, shards_manager_adapter, partial_witness_sender) = setup(
+        let (
+            client_addr,
+            view_client_addr,
+            tx_processor_addr,
+            shards_manager_adapter,
+            partial_witness_sender,
+        ) = setup(
             clock.clone(),
             vs,
             epoch_length,
@@ -993,6 +1026,7 @@ pub fn setup_mock_all_validators(
         ret.push(ActorHandlesForTesting {
             client_actor: client_addr,
             view_client_actor: view_client_addr,
+            tx_processor_actor: tx_processor_addr,
             shards_manager_adapter,
             partial_witness_sender,
         });

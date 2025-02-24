@@ -408,9 +408,8 @@ impl Client {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
                     let transactions = chunk.transactions();
-                    self.chunk_producer
-                        .sharded_tx_pool
-                        .remove_transactions(shard_uid, transactions);
+                    let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                    pool_guard.remove_transactions(shard_uid, transactions);
                 }
             }
         }
@@ -442,10 +441,10 @@ impl Client {
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
-                    let reintroduced_count = self
-                        .chunk_producer
-                        .sharded_tx_pool
-                        .reintroduce_transactions(shard_uid, &chunk.transactions());
+                    let reintroduced_count = {
+                        let mut pool_guard = self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                        pool_guard.reintroduce_transactions(shard_uid, &chunk.transactions())
+                    };
                     if reintroduced_count < chunk.transactions().len() {
                         debug!(target: "client",
                             reintroduced_count,
@@ -1530,9 +1529,9 @@ impl Client {
                 match (old_shard_layout, new_shard_layout) {
                     (Ok(old_shard_layout), Ok(new_shard_layout)) => {
                         if old_shard_layout != new_shard_layout {
-                            self.chunk_producer
-                                .sharded_tx_pool
-                                .reshard(&old_shard_layout, &new_shard_layout);
+                            let mut guarded_pool =
+                                self.chunk_producer.sharded_tx_pool.lock().unwrap();
+                            guarded_pool.reshard(&old_shard_layout, &new_shard_layout);
                         }
                     }
                     (old_shard_layout, new_shard_layout) => {
