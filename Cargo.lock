@@ -8068,6 +8068,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-loop-tests"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "assert_matches",
+ "borsh",
+ "bytesize",
+ "derive_builder",
+ "itertools 0.12.1",
+ "near-async",
+ "near-chain",
+ "near-chain-configs",
+ "near-chunks",
+ "near-client",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-jsonrpc",
+ "near-network",
+ "near-o11y",
+ "near-parameters",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "near-test-contracts",
+ "near-vm-runner",
+ "nearcore",
+ "rand",
+ "rand_chacha",
+ "serde_json",
+ "tempfile",
+ "testlib",
+ "tracing",
+]
+
+[[package]]
 name = "testlib"
 version = "0.0.0"
 dependencies = [
