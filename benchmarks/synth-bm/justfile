@@ -41,7 +41,7 @@ create_sub_accounts:
 # the current max on your machine requires some experimentation.
 #
 # When profiling the node which receives the workload, consider sending
-# transactons immediately by removing --read-nonces-from-network.
+# transactions immediately by removing --read-nonces-from-network.
 benchmark_native_transfers:
     RUST_LOG=info \
     ulimit -n {{num_file_descriptors}} && \
