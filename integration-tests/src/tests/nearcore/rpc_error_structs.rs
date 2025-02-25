@@ -4,8 +4,8 @@ use actix::{Actor, System};
 
 use futures::{FutureExt, TryFutureExt, future};
 
-use crate::tests::genesis_helpers::genesis_block;
 use crate::tests::nearcore::node_cluster::NodeCluster;
+use crate::utils::genesis_helpers::genesis_block;
 use near_actix_test_utils::spawn_interruptible;
 use near_client::GetBlock;
 use near_crypto::InMemorySigner;

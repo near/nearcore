@@ -2,9 +2,8 @@
 use std::time::Duration;
 
 use crate::node::{Node, create_nodes};
+use crate::utils::test_helpers::{heavy_test, wait};
 use std::sync::{Arc, RwLock};
-
-use super::test_helpers::{heavy_test, wait};
 
 #[test]
 fn ultra_slow_test_catchup() {

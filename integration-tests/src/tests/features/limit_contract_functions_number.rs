@@ -1,4 +1,3 @@
-use crate::tests::client::process_blocks::deploy_test_contract;
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -9,6 +8,8 @@ use near_primitives::errors::{
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::utils::process_blocks::deploy_test_contract;
 
 #[allow(dead_code)]
 fn verify_contract_limits_upgrade(

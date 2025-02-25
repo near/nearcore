@@ -1,4 +1,3 @@
-use crate::tests::client::process_blocks::deploy_test_contract_with_protocol_version;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
@@ -12,6 +11,8 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::utils::process_blocks::deploy_test_contract_with_protocol_version;
 
 /// Check that after flat storage upgrade:
 /// - value read from contract is the same;

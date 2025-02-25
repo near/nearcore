@@ -1,4 +1,3 @@
-use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
@@ -30,6 +29,8 @@ use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tracing::debug;
+
+use crate::utils::process_blocks::set_block_protocol_version;
 
 const P_CATCHUP: f64 = 0.2;
 

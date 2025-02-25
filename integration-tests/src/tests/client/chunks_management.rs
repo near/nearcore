@@ -22,7 +22,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::info;
 
-use crate::tests::test_helpers::heavy_test;
+use crate::utils::test_helpers::heavy_test;
 
 /// Configuration for `test4` validator in tests.
 struct Test4Config {

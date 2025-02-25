@@ -29,7 +29,7 @@ use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 
-use crate::tests::test_helpers::heavy_test;
+use crate::utils::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
