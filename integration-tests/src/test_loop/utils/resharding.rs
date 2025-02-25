@@ -7,7 +7,7 @@ use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
-use near_chain::{ChainStoreAccess, chain};
+use near_chain::ChainStoreAccess;
 use near_client::Client;
 use near_client::{Query, QueryError::GarbageCollectedBlock};
 use near_crypto::Signer;
@@ -21,11 +21,11 @@ use near_primitives::types::{AccountId, BlockId, BlockReference, Gas, ShardId};
 use near_primitives::views::{
     FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
-use near_store::adapter::trie_store::get_shard_uid_mapping;
-use near_store::adapter::{StoreAdapter, trie_store};
+use near_store::adapter::StoreAdapter;
+use near_store::adapter::trie_store::{TrieStoreAdapter, get_shard_uid_mapping};
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
-use near_store::{DBCol, ShardUId};
+use near_store::{DBCol, ShardUId, Trie, TrieDBStorage};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -40,7 +40,7 @@ use crate::test_loop::utils::transactions::{
 };
 use crate::test_loop::utils::{ONE_NEAR, TGAS, get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
-use near_primitives::trie_key::TrieKey;
+use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.
 /// For more details, see `TrackedConfig::Schedule`.
@@ -872,15 +872,17 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
     let pre_resharding_tx_sent = Cell::new(false);
     let post_resharding_tx_sent = Cell::new(false);
     let post_gc_tx_sent = Cell::new(false);
-    // let pre_resharding_tx_resume_sent = Cell::new(false);
-    // let post_resharding_tx_resume_sent = Cell::new(false);
-    // let post_gc_tx_resume_sent = Cell::new(false);
     let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // Function to send a promise yield receipt.
             let send_promise_yield = |signer_account: &AccountId,
                                       receiver_account: &AccountId,
                                       tip: &Tip,
@@ -914,42 +916,27 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                 tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent promise yield tx");
             };
 
-            // let send_resume = |signer_account: &AccountId,
-            //                           receiver_account: &AccountId,
-            //                           tip: &Tip,
-            //                           sent_flag: &Cell<bool>| {
-            //     if sent_flag.get() {
-            //         return;
-            //     }
-            //     let signer: Signer = create_user_test_signer(&signer_account).into();
-            //     nonce.set(nonce.get() + 1);
-            //     let tx = SignedTransaction::call(
-            //         nonce.get(),
-            //         signer_account.clone(),
-            //         receiver_account.clone(),
-            //         &signer,
-            //         1,
-            //         "call_yield_resume_read_data_id_from_storage".to_string(),
-            //         yield_payload.clone(),
-            //         300 * TGAS,
-            //         tip.last_block_hash,
-            //     );
-            //     store_and_submit_tx(
-            //         &node_datas,
-            //         &client_account_id,
-            //         &txs,
-            //         &signer_account,
-            //         &receiver_account,
-            //         tip.height,
-            //         tx,
-            //     );
-            //     sent_flag.set(true);
-            //     tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent resume tx");
-            // };
-
-            let client_actor =
-                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
-            let tip = client_actor.client.chain.head().unwrap();
+            // Function to retrieve the promise yield indices from the trie. This bypasses any other
+            // intermediate layer (caching, memtrie, flat-storage).
+            let get_promise_yield_indices_for_shard = |shard_uid| {
+                client_actor
+                    .client
+                    .chain
+                    .get_chunk_extra(&tip.prev_block_hash, &shard_uid)
+                    .ok()
+                    .map(|chunk_extra| {
+                        near_store::get_promise_yield_indices(&Trie::new(
+                            Arc::new(TrieDBStorage::new(
+                                TrieStoreAdapter::new(
+                                    client_actor.client.runtime_adapter.store().clone(),
+                                ),
+                                shard_uid,
+                            )),
+                            *chunk_extra.state_root(),
+                            None,
+                        ))
+                    })
+            };
 
             // Run this action only once at every block height.
             if latest_height.get() == tip.height {
@@ -957,70 +944,19 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             }
             latest_height.set(tip.height);
 
-            let shard6 = client_actor
-                .client
-                .chain
-                .get_chunk_extra(&tip.prev_block_hash, &ShardUId { version: 3, shard_id: 6 })
-                .map(|chunk_extra| {
-                    near_store::get_promise_yield_indices(
-                        &client_actor
-                            .client
-                            .runtime_adapter
-                            .get_trie_for_shard(
-                                ShardId::new(6),
-                                &tip.prev_block_hash,
-                                *chunk_extra.state_root(),
-                                false,
-                            )
-                            .unwrap(),
-                    )
-                });
+            let indices_shard_6 =
+                get_promise_yield_indices_for_shard(ShardUId { version: 3, shard_id: 6 });
+            let indices_shard_7 =
+                get_promise_yield_indices_for_shard(ShardUId { version: 3, shard_id: 7 });
+            let indices_shard_8 =
+                get_promise_yield_indices_for_shard(ShardUId { version: 3, shard_id: 8 });
 
-            let shard7 = client_actor
-                .client
-                .chain
-                .get_chunk_extra(&tip.prev_block_hash, &ShardUId { version: 3, shard_id: 7 })
-                .map(|chunk_extra| {
-                    near_store::get_promise_yield_indices(
-                        &client_actor
-                            .client
-                            .runtime_adapter
-                            .get_trie_for_shard(
-                                ShardId::new(7),
-                                &tip.prev_block_hash,
-                                *chunk_extra.state_root(),
-                                false,
-                            )
-                            .unwrap(),
-                    )
-                });
-            let shard8 = client_actor
-                .client
-                .chain
-                .get_chunk_extra(&tip.prev_block_hash, &ShardUId { version: 3, shard_id: 8 })
-                .map(|chunk_extra| {
-                    near_store::get_promise_yield_indices(
-                        &client_actor
-                            .client
-                            .runtime_adapter
-                            .get_trie_for_shard(
-                                ShardId::new(8),
-                                &tip.prev_block_hash,
-                                *chunk_extra.state_root(),
-                                false,
-                            )
-                            .unwrap(),
-                    )
-                });
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, ?shard6, ?shard7, ?shard8, "indices");
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, ?indices_shard_6, ?indices_shard_7, ?indices_shard_8, "promise yield indices");
 
-            let txs_vec = txs.take();
-            for (index, (tx, tx_height)) in txs_vec.iter().enumerate() {
-                let tx_outcome = client_actor.client.chain.get_partial_transaction_result(&tx);
-                let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
-            }
-            txs.set(txs_vec);
+            // At any height, if the shard exists and it is tracked, the promise yield indices trie node must exist.
+            assert_matches!(indices_shard_6, Some(Ok(_)) | None);
+            assert_matches!(indices_shard_7, Some(Ok(_)) | None);
+            assert_matches!(indices_shard_8, Some(Ok(_)) | None);
 
             // The operation to be done depends on the current block height in relation to the
             // resharding height and the GC height.
@@ -1035,15 +971,6 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         &post_resharding_tx_sent,
                     );
                 }
-                // // TODO
-                // (Some(resharding), latest) if latest == resharding + 5 + 3 => {
-                //     send_resume(
-                //         &left_child_account,
-                //         &right_child_account,
-                //         &tip,
-                //         &post_resharding_tx_resume_sent,
-                //     );
-                // }
                 // Resharding happened and GC kicked in for the epoch with the old shard layout.
                 // Send a promise yield transaction in the right child shard.
                 (Some(resharding), latest)
@@ -1056,35 +983,24 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         &post_gc_tx_sent,
                     );
                 }
-                // // TODO
-                // (Some(resharding), latest)
-                //     if latest == resharding + gc_num_epochs * epoch_length + 3 + 3 =>
-                // {
-                //     send_resume(
-                //         &right_child_account,
-                //         &left_child_account,
-                //         &tip,
-                //         &post_gc_tx_resume_sent,
-                //     );
-                // }
                 // GC happened a few blocks in the past.
                 // Check transactions' outcomes.
                 (Some(resharding), latest)
-                    if latest == resharding + gc_num_epochs * epoch_length + 13 =>
+                    if latest == resharding + gc_num_epochs * epoch_length + 5 + 5 =>
                 {
-                    // let txs = txs.take();
-                    // for (index, (tx, tx_height)) in txs.iter().enumerate() {
-                    //     let tx_outcome =
-                    //         client_actor.client.chain.get_partial_transaction_result(&tx);
-                    //     let status = tx_outcome.as_ref().map(|o| o.status.clone());
-                    //     tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
-                    //     // // First two txs should have been GC'd, so these cannot be found.
-                    //     // if index <= 1 {
-                    //     //     assert_matches!(status, Err(_));
-                    //     // } else {
-                    //     //     assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
-                    //     // }
-                    // }
+                    let txs = txs.take();
+                    for (index, (tx, tx_height)) in txs.iter().enumerate() {
+                        let tx_outcome =
+                            client_actor.client.chain.get_partial_transaction_result(&tx);
+                        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+                        // First two txs should have been GC'd, so these cannot be found.
+                        if index <= 1 {
+                            assert_matches!(status, Err(_));
+                        } else {
+                            assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
+                        }
+                    }
                     checked_transactions.set(true);
                 }
                 // Catch-all case, do nothing.
