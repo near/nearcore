@@ -12,7 +12,9 @@ use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_manager::EpochConfigStore;
-use near_primitives::errors::{ActionError, ActionErrorKind, TxExecutionError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, FunctionCallError, MethodResolveError, TxExecutionError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
@@ -76,6 +78,46 @@ fn test_use_non_existent_global_contract() {
             index: _
         }))
     );
+
+    env.shutdown();
+}
+
+#[cfg_attr(not(feature = "nightly_protocol"), ignore)]
+#[test]
+fn test_global_contract_update() {
+    let mut env = GlobalContractsTestEnv::setup(1000 * ONE_NEAR);
+    let use_accounts = [env.account_shard_0.clone(), env.account_shard_1.clone()];
+
+    env.deploy_trivial_global_contract(GlobalContractDeployMode::AccountId);
+
+    for account in &use_accounts {
+        env.use_global_contract(
+            account,
+            GlobalContractIdentifier::AccountId(env.deploy_account.clone()),
+        );
+
+        // Currently deployed trivial contract doesn't have any methods,
+        // so we expect any function call to fail with MethodNotFound error
+        let call_tx = env.call_global_contract_tx(account);
+        let call_outcome = env.execute_tx(call_tx);
+        assert_matches!(
+            call_outcome.status,
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ActionError {
+                kind: ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
+                    MethodResolveError::MethodNotFound
+                )),
+                index: _
+            }))
+        );
+    }
+
+    env.deploy_global_contract(GlobalContractDeployMode::AccountId);
+
+    for account in &use_accounts {
+        // Function call should be successful after deploying rs contract
+        // containing the function we call here
+        env.call_global_contract(account);
+    }
 
     env.shutdown();
 }
@@ -185,22 +227,38 @@ impl GlobalContractsTestEnv {
         }
     }
 
-    fn deploy_global_contract_tx(
+    fn deploy_global_contract_custom_tx(
         &mut self,
         deploy_mode: GlobalContractDeployMode,
+        contract_code: Vec<u8>,
     ) -> SignedTransaction {
         SignedTransaction::deploy_global_contract(
             self.next_nonce(),
             self.deploy_account.clone(),
-            self.contract.code().to_vec(),
+            contract_code,
             &create_user_test_signer(&self.deploy_account),
             self.get_tx_block_hash(),
             deploy_mode,
         )
     }
 
+    fn deploy_global_contract_tx(
+        &mut self,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> SignedTransaction {
+        self.deploy_global_contract_custom_tx(deploy_mode, self.contract.code().to_vec())
+    }
+
     fn deploy_global_contract(&mut self, deploy_mode: GlobalContractDeployMode) {
         let tx = self.deploy_global_contract_tx(deploy_mode);
+        self.run_tx(tx);
+    }
+
+    fn deploy_trivial_global_contract(&mut self, deploy_mode: GlobalContractDeployMode) {
+        let tx = self.deploy_global_contract_custom_tx(
+            deploy_mode,
+            near_test_contracts::trivial_contract().to_vec(),
+        );
         self.run_tx(tx);
     }
 
@@ -234,8 +292,8 @@ impl GlobalContractsTestEnv {
         self.run_tx(tx);
     }
 
-    fn call_global_contract(&mut self, account: &AccountId) {
-        let tx = SignedTransaction::call(
+    fn call_global_contract_tx(&mut self, account: &AccountId) -> SignedTransaction {
+        SignedTransaction::call(
             self.next_nonce(),
             account.clone(),
             account.clone(),
@@ -245,7 +303,11 @@ impl GlobalContractsTestEnv {
             vec![],
             300 * TGAS,
             self.get_tx_block_hash(),
-        );
+        )
+    }
+
+    fn call_global_contract(&mut self, account: &AccountId) {
+        let tx = self.call_global_contract_tx(account);
         self.run_tx(tx);
     }
 
