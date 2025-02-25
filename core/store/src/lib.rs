@@ -35,7 +35,7 @@ use near_primitives::receipt::{
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{TrieKey, trie_key_parsers};
-use near_primitives::types::{AccountId, BlockHeight, ShardId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::{CompiledContractInfo, ContractRuntimeCache};
 use std::fs::File;
 use std::path::Path;
@@ -534,43 +534,6 @@ impl StoreUpdate {
     ) {
         assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::add_positive_refcount(data, increase);
-
-        let p00 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-            first_index: 0,
-            next_available_index: 0,
-        });
-        let p01 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-            first_index: 0,
-            next_available_index: 1,
-        });
-        let p02 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-            first_index: 0,
-            next_available_index: 2,
-        });
-
-        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-
-        if shard_uid == ShardUId::new(3, ShardId::new(6))
-            || shard_uid == ShardUId::new(3, ShardId::new(7))
-            || shard_uid == ShardUId::new(3, ShardId::new(8))
-        {
-            if &key[8..] == p00.as_bytes()
-                || &key[8..] == p01.as_bytes()
-                || &key[8..] == p02.as_bytes()
-            {
-                let tag = if &key[8..] == p00.as_bytes() {
-                    "PYIndices {0, 0}"
-                } else if &key[8..] == p01.as_bytes() {
-                    "PYIndices {0, 1}"
-                } else if &key[8..] == p02.as_bytes() {
-                    "PYIndices {0, 2}"
-                } else {
-                    unimplemented!()
-                };
-                tracing::info!(target = "test", tag, ?column, ?shard_uid, ?increase, ?key, "REFUP");
-            }
-        }
-
         self.transaction.update_refcount(column, key.to_vec(), value);
     }
 
@@ -594,48 +557,6 @@ impl StoreUpdate {
     ) {
         assert!(column.is_rc(), "can't update refcount: {column}");
         let value = refcount::encode_negative_refcount(decrease);
-
-        let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-
-        let p00 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-            first_index: 0,
-            next_available_index: 0,
-        });
-        let p01 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-            first_index: 0,
-            next_available_index: 1,
-        });
-        let p02 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-            first_index: 0,
-            next_available_index: 2,
-        });
-
-        if shard_uid == ShardUId::new(3, ShardId::new(6)) {
-            if &key[8..] == p00.as_bytes()
-                || &key[8..] == p01.as_bytes()
-                || &key[8..] == p02.as_bytes()
-            {
-                let tag = if &key[8..] == p00.as_bytes() {
-                    "PYIndices {0, 0}"
-                } else if &key[8..] == p01.as_bytes() {
-                    "PYIndices {0, 1}"
-                } else if &key[8..] == p02.as_bytes() {
-                    "PYIndices {0, 2}"
-                } else {
-                    unimplemented!()
-                };
-                tracing::info!(
-                    target = "test",
-                    tag,
-                    ?column,
-                    ?shard_uid,
-                    ?decrease,
-                    ?key,
-                    "REFDOWN"
-                );
-            }
-        }
-
         self.transaction.update_refcount(column, key.to_vec(), value.to_vec())
     }
 

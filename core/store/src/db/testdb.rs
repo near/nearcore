@@ -5,11 +5,6 @@ use std::sync::{Arc, RwLock};
 
 use crate::db::{DBIterator, DBOp, DBSlice, DBTransaction, Database, refcount};
 use crate::{DBCol, StoreStatistics};
-use borsh::BorshDeserialize;
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::PromiseYieldIndices;
-use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::ShardId;
 
 /// An in-memory database intended for tests and IO-agnostic estimations.
 #[derive(Default)]
@@ -82,49 +77,9 @@ impl Database for TestDB {
 
     fn write(&self, transaction: DBTransaction) -> io::Result<()> {
         let mut db = self.db.write().unwrap();
-
-        let print_pyi = |column: DBCol, key: &[u8], change| {
-            if column != DBCol::State {
-                return;
-            }
-            let shard_uid = ShardUId::try_from_slice(&key[0..8]).unwrap();
-
-            let p00 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-                first_index: 0,
-                next_available_index: 0,
-            });
-            let p01 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-                first_index: 0,
-                next_available_index: 1,
-            });
-            let p02 = CryptoHash::hash_borsh(&PromiseYieldIndices {
-                first_index: 0,
-                next_available_index: 2,
-            });
-
-            if shard_uid == ShardUId::new(3, ShardId::new(6)) {
-                if &key[8..] == p00.as_bytes()
-                    || &key[8..] == p01.as_bytes()
-                    || &key[8..] == p02.as_bytes()
-                {
-                    let tag = if &key[8..] == p00.as_bytes() {
-                        "PYIndices {0, 0}"
-                    } else if &key[8..] == p01.as_bytes() {
-                        "PYIndices {0, 1}"
-                    } else if &key[8..] == p02.as_bytes() {
-                        "PYIndices {0, 2}"
-                    } else {
-                        unimplemented!()
-                    };
-                    tracing::info!(target = "test", tag, ?shard_uid, change);
-                }
-            }
-        };
-
         for op in transaction.ops {
             match op {
                 DBOp::Set { col, key, value } => {
-                    print_pyi(col, &key, "Set".to_string());
                     db[col].insert(key, value);
                 }
                 DBOp::Insert { col, key, value } => {
@@ -133,19 +88,12 @@ impl Database for TestDB {
                             super::assert_no_overwrite(col, &key, &value, &*old_value)
                         }
                     }
-                    print_pyi(col, &key, "Insert".to_string());
                     db[col].insert(key, value);
                 }
                 DBOp::UpdateRefcount { col, key, value } => {
                     let existing = db[col].get(&key).map(Vec::as_slice);
                     let operands = [value.as_slice()];
                     let merged = refcount::refcount_merge(existing, operands);
-                    print_pyi(
-                        col,
-                        &key,
-                        format!("UpdateRefcount {:?}", refcount::decode_value_with_rc(&merged).1)
-                            .to_string(),
-                    );
                     if merged.is_empty() {
                         db[col].remove(&key);
                     } else {
@@ -157,7 +105,6 @@ impl Database for TestDB {
                     }
                 }
                 DBOp::Delete { col, key } => {
-                    print_pyi(col, &key, format!("Remove").to_string());
                     db[col].remove(&key);
                 }
                 DBOp::DeleteAll { col } => db[col].clear(),
