@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::io;
+use std::num::NonZero;
 use std::sync::Arc;
 
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
@@ -17,7 +18,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, get_block_shard_uid};
 use near_primitives::state::PartialState;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_store::adapter::trie_store::get_shard_uid_mapping;
+use near_store::adapter::trie_store::{TrieStoreUpdateAdapter, get_shard_uid_mapping};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::BlockInfo;
 use near_store::trie::TrieRecorder;
@@ -169,6 +170,23 @@ impl ReshardingManager {
         store_update.commit()
     }
 
+    /// TODO(resharding): Remove once proper solution for negative refcounts is implemented.
+    fn duplicate_nodes_at_split_boundary<'a>(
+        trie_store_update: &mut TrieStoreUpdateAdapter,
+        trie_nodes: impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)>,
+        shard_uid_prefix: ShardUId,
+    ) {
+        let refcount_increment = NonZero::new(1).unwrap();
+        for (node_hash, node_value) in trie_nodes {
+            trie_store_update.increment_refcount_by(
+                shard_uid_prefix,
+                &node_hash,
+                &node_value,
+                refcount_increment,
+            );
+        }
+    }
+
     /// Creates temporary memtries for new shards to be able to process them in the next epoch.
     /// Note this doesn't complete memtries resharding, proper memtries are to be created later.
     fn process_memtrie_resharding_storage_update(
@@ -218,6 +236,11 @@ impl ReshardingManager {
             let memtrie_update = memtries.update(*parent_chunk_extra.state_root(), mode)?;
 
             let trie_changes = memtrie_update.retain_split_shard(&boundary_account, retain_mode);
+            Self::duplicate_nodes_at_split_boundary(
+                &mut trie_store_update.trie_store_update(),
+                trie_recorder.recorded_iter(),
+                parent_shard_uid,
+            );
             let memtrie_changes = trie_changes.memtrie_changes.as_ref().unwrap();
             let new_state_root = memtries.apply_memtrie_changes(block_height, memtrie_changes);
             drop(memtries);

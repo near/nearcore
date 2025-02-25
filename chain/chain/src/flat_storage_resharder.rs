@@ -2,11 +2,13 @@
 //!
 //! See [FlatStorageResharder] for more details about how the resharding takes place.
 
+use std::num::NonZero;
 use std::sync::{Arc, Mutex};
 
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::Error;
 
+use near_store::adapter::trie_store::TrieStoreAdapter;
 use tracing::{debug, error, info, warn};
 
 use crate::resharding::event_type::{ReshardingEventType, ReshardingSplitShardParams};
@@ -18,7 +20,7 @@ use crate::types::RuntimeAdapter;
 use crate::{ChainStore, ChainStoreAccess};
 use itertools::Itertools;
 use near_primitives::block::Tip;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::col::{self};
@@ -30,8 +32,8 @@ use near_primitives::trie_key::trie_key_parsers::{
 #[cfg(feature = "test_features")]
 use near_primitives::types::BlockHeightDelta;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_store::adapter::StoreAdapter;
 use near_store::adapter::flat_store::{FlatStoreAdapter, FlatStoreUpdateAdapter};
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStorageError, FlatStorageReadyStatus,
     FlatStorageReshardingShardCatchUpMetrics, FlatStorageReshardingShardSplitMetrics,
@@ -463,6 +465,7 @@ impl FlatStorageResharder {
                 "split_shard_task_impl/batch",
                 batch_id = ?num_batches_done)
             .entered();
+            let store = flat_store.trie_store();
             let mut store_update = flat_store.store_update();
             let mut processed_size = 0;
 
@@ -476,6 +479,7 @@ impl FlatStorageResharder {
                         if let Err(err) = shard_split_handle_key_value(
                             key,
                             value,
+                            &store,
                             &mut store_update,
                             &split_params,
                         ) {
@@ -1042,6 +1046,7 @@ fn retrieve_shard_flat_head(shard: ShardUId, store: &FlatStoreAdapter) -> Result
 fn shard_split_handle_key_value(
     key: Vec<u8>,
     value: Option<FlatStateValue>,
+    store: &TrieStoreAdapter,
     store_update: &mut FlatStoreUpdateAdapter,
     split_params: &ParentSplitParameters,
 ) -> Result<(), Error> {
@@ -1103,7 +1108,30 @@ fn shard_split_handle_key_value(
         | col::PROMISE_YIELD_TIMEOUT
         | col::BANDWIDTH_SCHEDULER_STATE
         | col::GLOBAL_CONTRACT_CODE => {
-            copy_kv_to_all_children(&split_params, key, value, store_update)
+            copy_kv_to_all_children(&split_params, key, value.clone(), store_update);
+            let Some(flat_state_value) = value else {
+                return Ok(());
+            };
+            // Doesn't matter which child ShardUId we use, as they both map to the parent.
+            let shard_uid = split_params.left_child_shard;
+            let (node_hash, node_value) = match flat_state_value {
+                FlatStateValue::Inlined(node_value) => {
+                    let node_hash = hash(&node_value);
+                    (node_hash, node_value)
+                }
+                FlatStateValue::Ref(value_ref) => {
+                    let node_hash = value_ref.hash;
+                    let node_value = store.get(shard_uid, &node_hash)?.to_vec();
+                    (node_hash, node_value)
+                }
+            };
+            let refcount_increment = NonZero::new(1).unwrap();
+            store_update.trie_store_update().increment_refcount_by(
+                shard_uid,
+                &node_hash,
+                &node_value,
+                refcount_increment,
+            );
         }
         col::BUFFERED_RECEIPT_INDICES
         | col::BUFFERED_RECEIPT
