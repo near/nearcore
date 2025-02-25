@@ -1,6 +1,6 @@
 use crate::error::{DirectiveError, DirectiveErrors};
 use crate::spectest::spectest_importobject;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use near_vm_test_api::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;

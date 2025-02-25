@@ -6,7 +6,7 @@ use primitive_types::{U256, U512};
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
 use near_primitives::types::{AccountId, Balance, BlockChunkValidatorStats};
-use near_primitives::version::{ProtocolVersion, ENABLE_INFLATION_PROTOCOL_VERSION};
+use near_primitives::version::{ENABLE_INFLATION_PROTOCOL_VERSION, ProtocolVersion};
 
 use crate::validator_stats::get_validator_online_ratio;
 

@@ -14,8 +14,8 @@ use crate::{
 use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
 #[derive(Debug, Clone, rkyv::Serialize, rkyv::Deserialize, rkyv::Archive)]
 pub struct ModuleId {

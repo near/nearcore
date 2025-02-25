@@ -68,9 +68,9 @@
 //! ```
 
 pub use prometheus::{
-    self, core::MetricVec, core::MetricVecBuilder, exponential_buckets, linear_buckets, Counter,
-    CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec, Opts, Result, TextEncoder,
+    self, Counter, CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec,
+    IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Result, TextEncoder, core::MetricVec,
+    core::MetricVecBuilder, exponential_buckets, linear_buckets,
 };
 use std::collections::HashSet;
 use std::sync::LazyLock;

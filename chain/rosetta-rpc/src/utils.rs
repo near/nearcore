@@ -338,7 +338,7 @@ pub(crate) async fn query_account(
         Ok(query_response) => query_response,
         Err(err) => match err {
             near_client_primitives::types::QueryError::UnknownAccount { .. } => {
-                return Err(crate::errors::ErrorKind::NotFound(err.to_string()))
+                return Err(crate::errors::ErrorKind::NotFound(err.to_string()));
             }
             _ => return Err(crate::errors::ErrorKind::InternalError(err.to_string())),
         },
@@ -362,9 +362,9 @@ pub(crate) async fn query_accounts<R>(
 ) -> Result<R, crate::errors::ErrorKind>
 where
     R: std::iter::FromIterator<(
-        near_primitives::types::AccountId,
-        near_primitives::views::AccountView,
-    )>,
+            near_primitives::types::AccountId,
+            near_primitives::views::AccountView,
+        )>,
 {
     futures::stream::iter(account_ids)
         .map(|account_id| async move {
@@ -412,7 +412,7 @@ pub(crate) async fn query_access_key(
                         Err(crate::errors::ErrorKind::NotFound(err.to_string()))
                     }
                     _ => Err(crate::errors::ErrorKind::InternalError(err.to_string())),
-                }
+                };
             }
         };
 

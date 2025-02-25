@@ -6,7 +6,7 @@ use near_primitives::{
     hash::CryptoHash,
     sharding::{ChunkHash, ShardChunkHeader},
     stateless_validation::ChunkProductionKey,
-    types::{validator_stake::ValidatorStake, BlockHeight, EpochId, ShardId},
+    types::{BlockHeight, EpochId, ShardId, validator_stake::ValidatorStake},
 };
 
 pub fn verify_block_vrf(

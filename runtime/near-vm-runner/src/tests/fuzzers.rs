@@ -1,12 +1,12 @@
 use super::test_vm_config;
+use crate::ContractCode;
+use crate::logic::VMContext;
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::VMContext;
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
-use crate::ContractCode;
-use near_parameters::vm::{ContractPrepareVersion, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::{ContractPrepareVersion, VMKind};
 use near_test_contracts::ArbitraryModule;
 use std::sync::Arc;
 

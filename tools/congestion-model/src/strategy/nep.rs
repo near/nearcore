@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
-use crate::{GGas, QueueId, Receipt, ShardId, TransactionId, GAS_LIMIT, PGAS, TGAS};
+use crate::{GAS_LIMIT, GGas, PGAS, QueueId, Receipt, ShardId, TGAS, TransactionId};
 
 pub struct NepStrategy {
     pub shard_id: Option<ShardId>,

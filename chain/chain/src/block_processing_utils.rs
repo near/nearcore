@@ -1,7 +1,7 @@
+use crate::Provenance;
 use crate::chain::BlockMissingChunks;
 use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
 use crate::orphan::OrphanMissingChunks;
-use crate::Provenance;
 use near_async::time::Instant;
 use near_primitives::block::Block;
 use near_primitives::challenge::{ChallengeBody, ChallengesResult};
@@ -218,8 +218,8 @@ impl ApplyChunksDoneWaiter {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     use super::ApplyChunksDoneWaiter;

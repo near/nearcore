@@ -1,7 +1,7 @@
 use crate::config::ArchivalConfig;
-use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
 use crate::db::rocksdb::RocksDB;
-use crate::metadata::{DbKind, DbMetadata, DbVersion, DB_VERSION};
+use crate::db::rocksdb::snapshot::{Snapshot, SnapshotError, SnapshotRemoveError};
+use crate::metadata::{DB_VERSION, DbKind, DbMetadata, DbVersion};
 use crate::{DBCol, DBTransaction, Mode, NodeStorage, Store, StoreConfig, Temperature};
 use std::sync::Arc;
 
@@ -39,7 +39,9 @@ pub enum StoreOpenerError {
     /// Specifically, this happens if node is running with a single database and
     /// its kind is not RPC or Archive; or it’s running with two databases and
     /// their types aren’t Hot and Cold respectively.
-    #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?")]
+    #[error(
+        "{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?"
+    )]
     DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
 
     /// Unable to create a migration snapshot because one already exists.
@@ -320,22 +322,14 @@ impl<'a> StoreOpener<'a> {
             Self::ensure_created(mode, &self.hot)?;
             Self::ensure_kind(mode, &self.hot, self.is_archive(), Temperature::Hot)?;
             let snapshot = Self::ensure_version(mode, &self.hot, &self.migrator)?;
-            if snapshot.0.is_none() {
-                self.hot.snapshot()?
-            } else {
-                snapshot
-            }
+            if snapshot.0.is_none() { self.hot.snapshot()? } else { snapshot }
         };
 
         let cold_snapshot = if let Some(cold) = &self.cold {
             Self::ensure_created(mode, cold)?;
             Self::ensure_kind(mode, cold, self.is_archive(), Temperature::Cold)?;
             let snapshot = Self::ensure_version(mode, cold, &self.migrator)?;
-            if snapshot.0.is_none() {
-                cold.snapshot()?
-            } else {
-                snapshot
-            }
+            if snapshot.0.is_none() { cold.snapshot()? } else { snapshot }
         } else {
             Snapshot::none()
         };

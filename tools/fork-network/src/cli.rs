@@ -26,15 +26,15 @@ use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_k
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, NumSeats, ShardId, StateRoot,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolVersion};
 use near_store::adapter::StoreAdapter;
 use near_store::db::RocksDB;
 use near_store::flat::{BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
-    FINAL_HEAD_KEY,
+    DBCol, FINAL_HEAD_KEY, Store, TrieDBStorage, TrieStorage,
+    checkpoint_hot_storage_and_cleanup_columns,
 };
-use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config, open_storage};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -142,6 +142,9 @@ fn parse_legacy_state_roots_key(key: &[u8]) -> anyhow::Result<ShardId> {
     ShardId::from_str(int_part).with_context(|| format!("Failed parsing ShardId from {}", int_part))
 }
 
+const EPOCH_ID_KEY: &[u8; 18] = b"FORK_TOOL_EPOCH_ID";
+const FLAT_HEAD_KEY: &[u8; 19] = b"FORK_TOOL_FLAT_HEAD";
+const SHARD_LAYOUT_KEY: &[u8; 22] = b"FORK_TOOL_SHARD_LAYOUT";
 const FORKED_ROOTS_KEY_PREFIX: &[u8; 20] = b"FORK_TOOL_SHARD_UID:";
 
 fn parse_state_roots_key(key: &[u8]) -> anyhow::Result<ShardUId> {
@@ -364,9 +367,9 @@ impl ForkNetworkCommand {
         );
 
         let mut store_update = store.store_update();
-        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
-        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD", &desired_flat_head)?;
-        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_SHARD_LAYOUT", &target_shard_layout)?;
+        store_update.set_ser(DBCol::Misc, EPOCH_ID_KEY, epoch_id)?;
+        store_update.set_ser(DBCol::Misc, FLAT_HEAD_KEY, &desired_flat_head)?;
+        store_update.set_ser(DBCol::Misc, SHARD_LAYOUT_KEY, &target_shard_layout)?;
         for (shard_uid, state_root) in state_roots.iter() {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_uid), state_root)?;
         }
@@ -563,7 +566,7 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
         let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
         let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
@@ -607,11 +610,11 @@ impl ForkNetworkCommand {
         store: Store,
         epoch_manager: &dyn EpochManagerAdapter,
     ) -> anyhow::Result<(HashMap<ShardUId, StateRoot>, BlockInfo, EpochId, ShardLayout)> {
-        let Some(flat_head) = store.get_ser(DBCol::Misc, b"FORK_TOOL_FLAT_HEAD")? else {
+        let Some(flat_head) = store.get_ser(DBCol::Misc, FLAT_HEAD_KEY)? else {
             return self.legacy_get_state_roots_and_hash(store, epoch_manager);
         };
-        let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
-        let shard_layout = store.get_ser(DBCol::Misc, b"FORK_TOOL_SHARD_LAYOUT")?.unwrap();
+        let epoch_id = EpochId(store.get_ser(DBCol::Misc, EPOCH_ID_KEY)?.unwrap());
+        let shard_layout = store.get_ser(DBCol::Misc, SHARD_LAYOUT_KEY)?.unwrap();
         let mut state_roots = HashMap::new();
         for item in store.iter_prefix(DBCol::Misc, FORKED_ROOTS_KEY_PREFIX) {
             let (key, value) = item?;
@@ -871,7 +874,9 @@ impl ForkNetworkCommand {
                     if shard_id != shard_uid.shard_id() {
                         tracing::warn!(
                             "Account {} belongs to shard {} but was found in flat storage for shard {}",
-                            &account_id, shard_id, shard_uid.shard_id(),
+                            &account_id,
+                            shard_id,
+                            shard_uid.shard_id(),
                         );
                     }
                     let shard_idx = source_shard_layout.get_shard_index(shard_id).unwrap();

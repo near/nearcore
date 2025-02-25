@@ -1,15 +1,15 @@
 mod tests {
-    use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use crate::logic::MemSlice;
+    use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use ark_bls12_381::{Bls12_381, Fq, Fq2, Fr, G1Affine, G2Affine};
     use ark_ec::hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurve};
-    use ark_ec::{bls12::Bls12Config, pairing::Pairing, AffineRepr, CurveGroup};
+    use ark_ec::{AffineRepr, CurveGroup, bls12::Bls12Config, pairing::Pairing};
     use ark_ff::{Field, PrimeField};
     use ark_serialize::{
         CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
     };
     use ark_std::{One, Zero};
-    use bolero::{generator, TypeGenerator};
+    use bolero::{TypeGenerator, generator};
     use rand::{seq::SliceRandom, thread_rng};
     use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
@@ -549,7 +549,7 @@ mod tests {
 
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(bool, $EPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
+                        bolero::r#gen::<Vec<(bool, $EPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
                     )
                     .for_each(|ps: &Vec<(bool, $EPoint)>| {
                         $GOp::check_multipoint_sum(ps);
@@ -557,7 +557,7 @@ mod tests {
 
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(bool, $GPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
+                        bolero::r#gen::<Vec<(bool, $GPoint)>>().with().len(0usize..$GOp::MAX_N_SUM),
                     )
                     .for_each(|ps: &Vec<(bool, $GPoint)>| {
                         let mut points: Vec<(u8, $GAffine)> = vec![];
@@ -576,7 +576,7 @@ mod tests {
             fn $test_bls12381_crosscheck_sum_and_multiexp() {
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(bool, $GPoint)>>()
+                        bolero::r#gen::<Vec<(bool, $GPoint)>>()
                             .with()
                             .len(0usize..=$GOp::MAX_N_MULTIEXP),
                     )
@@ -712,8 +712,8 @@ mod tests {
             fn $test_bls12381_multiexp_mul() {
                 bolero::check!()
                     .with_generator((
-                        generator::gen::<$GPoint>(),
-                        generator::gen::<usize>().with().bounds(0..=200),
+                        generator::r#gen::<$GPoint>(),
+                        generator::r#gen::<usize>().with().bounds(0..=200),
                     ))
                     .for_each(|(p, n): &($GPoint, usize)| {
                         let points: Vec<(u8, $GAffine)> = vec![(0, p.p.clone()); *n];
@@ -737,7 +737,7 @@ mod tests {
             fn $test_bls12381_multiexp_many_points() {
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<(Scalar, $GPoint)>>()
+                        bolero::r#gen::<Vec<(Scalar, $GPoint)>>()
                             .with()
                             .len(0usize..=$GOp::MAX_N_MULTIEXP),
                     )
@@ -782,9 +782,9 @@ mod tests {
 
                 bolero::check!()
                     .with_generator((
-                        generator::gen::<$GPoint>(),
-                        generator::gen::<Scalar>(),
-                        generator::gen::<usize>().with().bounds(0..$GOp::MAX_N_MULTIEXP),
+                        generator::r#gen::<$GPoint>(),
+                        generator::r#gen::<Scalar>(),
+                        generator::r#gen::<usize>().with().bounds(0..$GOp::MAX_N_MULTIEXP),
                     ))
                     .for_each(|(p, scalar, n): &($GPoint, Scalar, usize)| {
                         // group_order * P = 0
@@ -892,7 +892,9 @@ mod tests {
             #[test]
             fn $test_bls12381_map_fp_to_g_many_points() {
                 bolero::check!()
-                    .with_generator(bolero::gen::<Vec<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP))
+                    .with_generator(
+                        bolero::r#gen::<Vec<$FP>>().with().len(0usize..=$GOp::MAX_N_MAP),
+                    )
                     .for_each(|fps: &Vec<$FP>| {
                         let mut fps_fq: Vec<$Fq> = vec![];
                         let mut res2_mul: Vec<u8> = vec![];
@@ -987,7 +989,7 @@ mod tests {
             fn $test_bls12381_decompress_many_points() {
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<$EPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
+                        bolero::r#gen::<Vec<$EPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
                     )
                     .for_each(|es: &Vec<$EPoint>| {
                         let mut p1s: Vec<$GAffine> = vec![];
@@ -1002,7 +1004,7 @@ mod tests {
 
                 bolero::check!()
                     .with_generator(
-                        bolero::gen::<Vec<$GPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
+                        bolero::r#gen::<Vec<$GPoint>>().with().len(0usize..=$GOp::MAX_N_DECOMPRESS),
                     )
                     .for_each(|gs: &Vec<$GPoint>| {
                         let mut p1s: Vec<$GAffine> = vec![];
@@ -1137,7 +1139,7 @@ mod tests {
     fn slow_test_bls12381_pairing_check_many_points_fuzzer() {
         bolero::check!()
             .with_generator(
-                bolero::gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),
+                bolero::r#gen::<Vec<(Scalar, Scalar)>>().with().len(0usize..MAX_N_PAIRING),
             )
             .for_each(|scalars: &Vec<(Scalar, Scalar)>| {
                 let mut scalars_1: Vec<Fr> = vec![];

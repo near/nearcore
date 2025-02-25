@@ -10,8 +10,8 @@ use near_chain::resharding::types::{
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, ChainStore, DoomslugThresholdMode};
 use near_chain_configs::MutableConfigValue;
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_store::adapter::StoreAdapter;
 use near_store::flat::FlatStorageReshardingStatus;
 use near_store::{ShardUId, StoreOpener};

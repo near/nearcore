@@ -1,5 +1,5 @@
 use crate::account::{AccessKey, Account};
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{CryptoHash, hash};
 use crate::receipt::{Receipt, ReceiptOrStateStoredReceipt, ReceivedData};
 use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
@@ -8,7 +8,7 @@ use crate::trie_key::trie_key_parsers::{
     parse_data_key_from_contract_data_key, parse_index_from_delayed_receipt_key,
     parse_public_key_from_access_key_key,
 };
-use crate::trie_key::{col, TrieKey};
+use crate::trie_key::{TrieKey, col};
 use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;

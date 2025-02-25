@@ -1,4 +1,4 @@
-use near_o11y::metrics::{exponential_buckets, HistogramVec, IntCounter, IntCounterVec};
+use near_o11y::metrics::{HistogramVec, IntCounter, IntCounterVec, exponential_buckets};
 use std::sync::LazyLock;
 
 pub static RPC_PROCESSING_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {

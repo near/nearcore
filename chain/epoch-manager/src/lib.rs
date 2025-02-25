@@ -8,7 +8,7 @@ use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, AGGREGATOR_KEY,
+    AGGREGATOR_KEY, AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -28,7 +28,7 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::epoch_info_aggregator::EpochInfoAggregator;
-use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
+use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
@@ -42,8 +42,8 @@ use validator_stats::{
 
 pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
-pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
+pub use crate::reward_calculator::RewardCalculator;
 pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
@@ -672,11 +672,7 @@ impl EpochManager {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
             let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
             let threshold = total_block_producer_stake * numer / denom;
-            if stake > threshold {
-                version
-            } else {
-                protocol_version
-            }
+            if stake > threshold { version } else { protocol_version }
         } else {
             protocol_version
         };
@@ -1327,7 +1323,7 @@ impl EpochManager {
                     epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
                 )
             }
-            ValidatorInfoIdentifier::BlockHash(ref h) => {
+            ValidatorInfoIdentifier::BlockHash(h) => {
                 // If we are here, `h` is hash of the latest block of the
                 // current epoch.
                 let aggregator = self.get_epoch_info_aggregator_upto_last(h)?;

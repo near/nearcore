@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use enum_map::{enum_map, Enum, EnumMap};
+use enum_map::{Enum, EnumMap, enum_map};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::{Compute, Gas};
 use std::fmt;

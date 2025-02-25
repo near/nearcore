@@ -1,5 +1,5 @@
 use crate::challenge::ChallengesResult;
-use crate::hash::{hash, CryptoHash};
+use crate::hash::{CryptoHash, hash};
 use crate::merkle::combine_hash;
 use crate::network::PeerId;
 use crate::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;

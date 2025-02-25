@@ -3,18 +3,18 @@ use itertools::Itertools;
 use near_chain::types::Tip;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::stateless_validation::contract_distribution::{
     ChunkContractAccesses, ContractCodeRequest, PartialEncodedContractDeploys,
 };
 use near_primitives::stateless_validation::partial_witness::{
-    PartialEncodedStateWitness, MAX_COMPRESSED_STATE_WITNESS_SIZE,
+    MAX_COMPRESSED_STATE_WITNESS_SIZE, PartialEncodedStateWitness,
 };
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature;
-use near_store::{DBCol, Store, FINAL_HEAD_KEY, HEAD_KEY};
+use near_store::{DBCol, FINAL_HEAD_KEY, HEAD_KEY, Store};
 
 /// This is taken to be the same value as near_chunks::chunk_cache::MAX_HEIGHTS_AHEAD, and we
 /// reject partial witnesses with height more than this value above the height of our current HEAD
@@ -257,7 +257,9 @@ fn validate_exclude_witness_contracts_enabled(
     if ProtocolFeature::ExcludeContractCodeFromStateWitness.enabled(protocol_version) {
         Ok(())
     } else {
-        Err(Error::Other(format!("ProtocolFeature::ExcludeContractCodeFromStateWitness is disabled for protocol version {protocol_version}")))
+        Err(Error::Other(format!(
+            "ProtocolFeature::ExcludeContractCodeFromStateWitness is disabled for protocol version {protocol_version}"
+        )))
     }
 }
 

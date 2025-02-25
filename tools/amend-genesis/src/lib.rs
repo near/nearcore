@@ -12,7 +12,7 @@ use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
-use std::collections::{hash_map, HashMap};
+use std::collections::{HashMap, hash_map};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
@@ -127,7 +127,10 @@ impl AccountRecords {
                 }
             }
             None => {
-                tracing::warn!("access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output", &account_id);
+                tracing::warn!(
+                    "access keys for {} were included in --extra-records, but no Account record was found. Not adding them to the output",
+                    &account_id
+                );
             }
         }
         Ok(())
@@ -405,7 +408,7 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
-    use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
+    use near_chain_configs::{Genesis, GenesisConfig, NEAR_BASE, get_initial_supply};
     use near_primitives::account::AccountContract;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;

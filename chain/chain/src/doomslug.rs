@@ -763,10 +763,10 @@ impl Doomslug {
 
 #[cfg(test)]
 mod tests {
+    use crate::Doomslug;
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
     };
-    use crate::Doomslug;
     use near_async::time::{Duration, FakeClock, Utc};
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};

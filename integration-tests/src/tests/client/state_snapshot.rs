@@ -1,6 +1,5 @@
 use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -12,12 +11,14 @@ use near_store::adapter::StoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::{
-    config::TrieCacheConfig, test_utils::create_test_store, Mode, ShardTries, StateSnapshotConfig,
-    StoreConfig, TrieConfig,
+    Mode, ShardTries, StateSnapshotConfig, StoreConfig, TrieConfig, config::TrieCacheConfig,
+    test_utils::create_test_store,
 };
 use near_store::{NodeStorage, Store};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::path::PathBuf;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 struct StateSnapshotTestEnv {
     home_dir: PathBuf,
@@ -99,7 +100,7 @@ fn test_maybe_open_state_snapshot_file_not_exist() {
 #[test]
 // there's garbage in the path for state snapshot, maybe_open_state_snapshot should return error instead of panic
 fn test_maybe_open_state_snapshot_garbage_snapshot() {
-    use std::fs::{create_dir_all, File};
+    use std::fs::{File, create_dir_all};
     use std::io::Write;
     use std::path::Path;
     init_test_logger();

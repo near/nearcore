@@ -1,4 +1,4 @@
-use crate::{metrics, TrieStorage};
+use crate::{TrieStorage, metrics};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::contract_distribution::{CodeHash, ContractUpdates};
@@ -196,7 +196,7 @@ mod tests {
     };
     use near_vm_runner::ContractCode;
 
-    use crate::{contract::ContractStorage, TrieStorage};
+    use crate::{TrieStorage, contract::ContractStorage};
 
     struct MockTrieStorage {
         store: HashMap<CryptoHash, Arc<[u8]>>,

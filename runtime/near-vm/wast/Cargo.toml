@@ -8,7 +8,7 @@ categories = ["wasm"]
 keywords = ["wasm", "webassembly"]
 repository.workspace = true
 readme = "README.md"
-edition = "2021"
+edition.workspace = true
 publish = false
 
 [lints]

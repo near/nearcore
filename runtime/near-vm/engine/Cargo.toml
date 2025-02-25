@@ -8,7 +8,7 @@ authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@n
 repository.workspace = true
 license = "MIT OR Apache-2.0 WITH LLVM-exception "
 readme = "README.md"
-edition = "2021"
+edition.workspace = true
 publish = true
 
 [lints]

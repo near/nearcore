@@ -42,11 +42,7 @@ impl Default for SourceLoc {
 
 impl fmt::Display for SourceLoc {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.is_default() {
-            write!(f, "0x-")
-        } else {
-            write!(f, "0x{:04x}", self.0)
-        }
+        if self.is_default() { write!(f, "0x-") } else { write!(f, "0x{:04x}", self.0) }
     }
 }
 
