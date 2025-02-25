@@ -21,12 +21,6 @@ if [ "${NUM_RPCS}" -gt "1" ]; then
     exit 1
 fi
 
-NEARD="${NEARD:-/home/ubuntu/neard}"
-
-echo "Test case: ${CASE}"
-echo "Num nodes: ${NUM_NODES}"
-echo "neard path: ${NEARD}"
-
 NEAR_HOME="${NEAR_HOME:-/home/ubuntu/.near}"
 GENESIS=${NEAR_HOME}/genesis.json
 CONFIG=${NEAR_HOME}/config.json
@@ -43,8 +37,28 @@ LOG_DIR="${LOG_DIR:-logs}"
 BENCHNET_DIR="${BENCHNET_DIR:-$HOME/bench}"
 
 RPC_ADDR="127.0.0.1:4040"
-RPC_URL="http://${RPC_ADDR}"
 SYNTH_BM_PATH="../synth-bm/Cargo.toml"
+SYNTH_BM_BIN="${SYNTH_BM_BIN:-../synth-bm/target/release/near-synth-bm}"
+RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
+
+echo "Test case: ${CASE}"
+echo "Num nodes: ${NUM_NODES}"
+if [ "${RUN_ON_FORKNET}" = true ]; then
+    if [[ -z "${VIRTUAL_ENV}" ]]; then
+        echo "Must provide VIRTUAL_ENV in environment" 1>&2
+        exit 1
+    fi
+    FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
+    FORKNET_RPC_ADDR=$(jq -r '.forknet.rpc_addr' ${BM_PARAMS})
+    RPC_ADDR=${FORKNET_RPC_ADDR}
+    NODE_BINARY_URL="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard"
+    alias mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height 1 --unique-id ${FORKNET_NAME}"
+    echo "Forknet name: ${FORKNET_NAME}"
+    echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
+else
+    NEARD="${NEARD:-/home/ubuntu/neard}"
+    echo "neard path: ${NEARD}"
+fi
 
 if [ "${NUM_NODES}" -eq "1" ]; then
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true 
@@ -57,8 +71,14 @@ else
     VALIDATOR_KEY=${NEAR_HOMES[0]}/validator_key.json
 fi
 
-start_nodes() {
-    echo "=> Starting all nodes"
+RPC_URL="http://${RPC_ADDR}"
+
+
+start_nodes_forknet() {
+    # todo mirror command
+}
+
+start_nodes_local() {
     if [ "${NUM_NODES}" -eq "1" ]; then
         sudo systemctl start neard
     else 
@@ -69,20 +89,46 @@ start_nodes() {
             nohup ${NEARD} --home ${node} run 2> ${log} &
         done
     fi
+}
+
+start_nodes() {
+    echo "=> Starting all nodes"
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        stop_nodes_forknet
+    else
+        stop_nodes_local
+    fi
     echo "=> Done"
 }
 
-stop_nodes() {
-    echo "=> Stopping all nodes"
+stop_nodes_forknet() {
+    # todo mirror command
+}
+
+stop_nodes_local() {
     if [ "${NUM_NODES}" -eq "1" ]; then
         sudo systemctl stop neard
     else 
         killall --wait neard || true
     fi
+}
+
+stop_nodes() {
+    echo "=> Stopping all nodes"
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        stop_nodes_forknet
+    else
+        stop_nodes_local
+    fi
     echo "=> Done"
 }
 
 reset() {
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        echo "Not supported on forknet"
+        exit 1
+    fi
+
     stop_nodes
     echo "=> Resetting chain history, user accounts and clearing the database"
     if [ "${NUM_NODES}" -eq "1" ]; then
@@ -94,8 +140,22 @@ reset() {
     echo "=> Done"
 }
 
-init() {
-    echo "=> Initializing ${NUM_NODES} node network"
+init_forknet() {
+    mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL}
+    mirror update-binaries
+    mirror new-test \
+    --epoch-length 15000 \
+    --genesis-protocol-version 73 \
+    --num-validators 7 \
+    --num-seats 7 \
+    --stateless-setup \
+    --new-chain-id ${FORKNET_NAME} \
+    --yes
+
+    # Todo copy synth bm & accounts
+}
+
+init_local() {
     reset
     if [ "${NUM_NODES}" -eq "1" ]; then
         rm -f ${CONFIG} ${GENESIS} 
@@ -104,6 +164,15 @@ init() {
         /${NEARD} --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} --tracked-shards=none
     fi
     tweak_config
+}
+
+init() {
+    echo "=> Initializing ${NUM_NODES} node network"
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        init_forknet
+    else
+        init_local
+    fi
     echo "=> Done"
 }
 
@@ -133,6 +202,11 @@ edit_log_config() {
 }
 
 tweak_config() {
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        echo "Not supported on forknet"
+        exit 1
+    fi
+
     echo "===> Applying configuration changes"
     if [ "${NUM_NODES}" -eq "1" ]; then
         edit_genesis ${GENESIS}
@@ -155,6 +229,11 @@ tweak_config() {
 }
 
 create_accounts() {
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        echo "Not supported on forknet"
+        exit 1
+    fi
+
     echo "=> Creating accounts"
     echo "Number of shards: ${NUM_SHARDS}"
 
@@ -183,19 +262,12 @@ create_accounts() {
     echo "=> Done"
 }
 
-native_transfers() {
-    echo "=> Running native token transfer benchmark"
-    echo "Number of shards: ${NUM_SHARDS}"
+native_transfers_forknet() {
+    # todo
+}
 
+native_transfers_local() {
     mkdir -p ${LOG_DIR}
-
-    num_transfers=$(jq '.num_transfers' ${BM_PARAMS})
-    buffer_size=$(jq '.channel_buffer_size' ${BM_PARAMS})
-    rps=$(jq '.requests_per_second' ${BM_PARAMS})
-    rps=$(bc <<< "scale=0;${rps}/${NUM_SHARDS}")
-
-    echo "Config: num_transfers: ${num_transfers}, buffer_size: ${buffer_size}, RPS: ${rps}"
-
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     for i in $(seq 0 $((NUM_SHARDS-1))); do
         log="${LOG_DIR}/gen_shard${i}"
@@ -211,7 +283,24 @@ native_transfers() {
             --amount 1 &> ${log} &
     done
     wait
-    
+}
+
+native_transfers() {
+    echo "=> Running native token transfer benchmark"
+    echo "Number of shards: ${NUM_SHARDS}"
+
+    num_transfers=$(jq '.num_transfers' ${BM_PARAMS})
+    buffer_size=$(jq '.channel_buffer_size' ${BM_PARAMS})
+    rps=$(jq '.requests_per_second' ${BM_PARAMS})
+    rps=$(bc <<< "scale=0;${rps}/${NUM_SHARDS}")
+    echo "Config: num_transfers: ${num_transfers}, buffer_size: ${buffer_size}, RPS: ${rps}"
+
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        native_transfers_forknet
+    else
+        native_transfers_local
+    fi
+
     echo "=> Done"
 }
 

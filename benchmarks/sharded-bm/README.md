@@ -14,7 +14,9 @@ Benchmark cases or scenarios are defined in the directory `cases`.
 
 Each scenario has a set of overrides for the node configuration and genesis configuration, plus a parameters config file to customize the load generation.
 
-## Usage
+## Localnet
+
+### Usage
 
 The basic flow is the following:
 
@@ -81,10 +83,16 @@ export CASE=cases/local/1_node_5_shard
 ./bench.sh native-transfers
 ```
 
-## Monitoring
+### Monitoring
 
 `neard` logs are inside `logs` for a localnet or in `journalctl` for a single node.
 
 `synth-bm` logs are inside `logs`
 
 Debug UI works, just use the machine public IP.
+
+## Forknet 
+
+### Usage
+
+TODO

@@ -10,8 +10,10 @@ Keep shared configuration overrides in the base directory, example `base_config_
 
 ```json
 {
-    // number of nodes
-    "nodes": 1, 
+    // number of chunk producer nodes
+    "chunk_producers": 5,
+    // number of RPC nodes
+    "rpcs": 1,
     // patch file for node config, can be further customize through config_patch.json
     "base_config_patch": "../../base_config_patch.json",
     // patch file for chain genesis, can be further customize through genesis_patch.json
@@ -19,8 +21,14 @@ Keep shared configuration overrides in the base directory, example `base_config_
     // configuration for synth-bm, check the tool's docs for more details
     "num_accounts": 20,
     "requests_per_second": 6000,
-    "interval_duration_micros": 23000,
-    "num_transfers": 6000
+    "num_transfers": 6000,
+    // part below is required only for forknet runs
+    "forknet": {
+        // forknet unique name
+        "name": "foo",
+        // address of RPC node
+        "rpc_addr": "127.0.0.1:4040"
+    }
 }
 ```
 
