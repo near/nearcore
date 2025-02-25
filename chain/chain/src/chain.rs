@@ -32,31 +32,31 @@ use crate::types::{
     StorageDataSource,
 };
 pub use crate::update_shard::{
-    NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
-    apply_new_chunk, apply_old_chunk,
+    apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
+    ShardContext, StorageContext,
 };
-use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
+use crate::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
 use crate::validate::{
     validate_challenge, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
 use crate::{
-    BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
-    create_light_client_block_view,
+    byzantine_assert, create_light_client_block_view, BlockStatus, ChainGenesis, Doomslug,
+    Provenance,
 };
-use crate::{DoomslugThresholdMode, metrics};
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crate::{metrics, DoomslugThresholdMode};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
-use near_async::messaging::{IntoMultiSender, noop};
+use near_async::messaging::{noop, IntoMultiSender};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error};
-use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip, genesis_chunks};
+use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Chunks, MaybeNew, Tip};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -66,7 +66,7 @@ use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
@@ -92,17 +92,17 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::DBCol;
-use near_store::adapter::StoreUpdateAdapter;
 use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::adapter::StoreUpdateAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::get_genesis_state_roots;
+use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
@@ -111,7 +111,7 @@ use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use time::ext::InstantExt as _;
-use tracing::{Span, debug, debug_span, error, info, warn};
+use tracing::{debug, debug_span, error, info, warn, Span};
 
 pub const APPLY_CHUNK_RESULTS_CACHE_SIZE: usize = 100;
 
@@ -2259,7 +2259,8 @@ impl Chain {
             if PROTOCOL_VERSION < next_epoch_protocol_version {
                 error!(
                     "The protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new protocol version {}",
-                    PROTOCOL_VERSION, next_epoch_protocol_version,
+                    PROTOCOL_VERSION,
+                    next_epoch_protocol_version,
                 );
             }
         }
@@ -2430,10 +2431,7 @@ impl Chain {
         let epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
-            panic!(
-                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
-                PROTOCOL_VERSION, epoch_protocol_version
-            );
+            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
         }
 
         // First real I/O expense.
@@ -3422,7 +3420,7 @@ impl Chain {
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
         if let Some(result) = self.apply_chunk_results_cache.peek(&cached_shard_update_key) {
-            debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+            info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
             let result = result.clone();
             return Ok(Some((
                 shard_id,
@@ -3430,7 +3428,7 @@ impl Chain {
                 Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
             )));
         }
-        debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
+        info!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
         let shard_update_reason = if is_new_chunk {
             // Validate new chunk and collect incoming receipts for it.
@@ -3618,9 +3616,7 @@ impl Chain {
             self.epoch_manager.is_next_block_epoch_start(&head.last_block_hash)?;
         let will_shard_layout_change =
             self.epoch_manager.will_shard_layout_change(&head.last_block_hash)?;
-        let next_block_epoch =
-            self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&next_block_epoch)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&head.epoch_id)?;
 
         let tries = self.runtime_adapter.get_tries();
         let snapshot_config = tries.state_snapshot_config();
@@ -3635,7 +3631,11 @@ impl Chain {
                         Ok(SnapshotAction::None)
                     }
                 } else {
-                    let is_sync_prev = self.state_sync_adapter.is_sync_prev_hash(&head)?;
+                    let is_sync_prev = crate::state_sync::is_sync_prev_hash(
+                        &self.chain_store.store(),
+                        &head.last_block_hash,
+                        &head.prev_block_hash,
+                    )?;
                     if is_sync_prev {
                         // Here the head block is the prev block of what the sync hash will be, and the previous
                         // block is the point in the chain we want to snapshot state for

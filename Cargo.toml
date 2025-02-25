@@ -72,6 +72,7 @@ members = [
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
+    "test-loop-tests",
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
     "test-utils/runtime-tester/fuzz",
@@ -366,6 +367,7 @@ target-lexicon = { version = "0.12.2", default-features = false }
 tempfile = "3.3"
 testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
+test-loop-tests = { path = "test-loop-tests" }
 thiserror = "2.0"
 tikv-jemallocator = "0.5.0"
 time = { version = "0.3.9", default-features = false }
