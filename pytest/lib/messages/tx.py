@@ -25,11 +25,19 @@ class DeployGlobalContract:
     pass
 
 
+class UseGlobalContract:
+    pass
+
+
+class GlobalContractIdentifier:
+    pass
+
+
 class GlobalContractDeployMode:
     pass
 
 
-class CodeHash:
+class CryptoHash:
     pass
 
 
@@ -114,7 +122,6 @@ tx_schema = [
             'values': [
                 ['createAccount', CreateAccount],
                 ['deployContract', DeployContract],
-                ['deployGlobalContract', DeployGlobalContract],
                 ['functionCall', FunctionCall],
                 ['transfer', Transfer],
                 ['stake', Stake],
@@ -122,6 +129,8 @@ tx_schema = [
                 ['deleteKey', DeleteKey],
                 ['deleteAccount', DeleteAccount],
                 ['delegate', SignedDelegate],
+                ['deployGlobalContract', DeployGlobalContract],
+                ['useGlobalContract', UseGlobalContract],
             ]
         }
     ],
@@ -142,8 +151,22 @@ tx_schema = [
             'kind': 'enum',
             'field': 'enum',
             'values': [
-                ['CodeHash', ()],
-                ['AccountId', ()],
+                ['codeHash', ()],
+                ['accountId', ()],
+            ]
+        }
+    ],
+    [UseGlobalContract, {
+        'kind': 'struct',
+        'fields': [['contractIdentifier', GlobalContractIdentifier]]
+    }],
+    [
+        GlobalContractIdentifier, {
+            'kind': 'enum',
+            'field': 'enum',
+            'values': [
+                ['codeHash', [32]],
+                ['accountId', AccountId],
             ]
         }
     ],

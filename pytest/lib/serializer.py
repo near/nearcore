@@ -141,8 +141,8 @@ class BinarySerializer:
             print("QQP NAME", name)
             for idx, (fieldName,
                       fieldType) in enumerate(structSchema['values']):
-                print("QQP fieldName", fieldName)
                 if fieldName == name:
+                    print("QQP fieldName", fieldName)
                     self.serialize_num(idx, 1)
                     try:
                         print("QQP THINGS", getattr(obj, fieldName), fieldType)

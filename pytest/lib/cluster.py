@@ -259,18 +259,18 @@ class BaseNode(object):
         }
         with session(timeout, max_retries) as s:
             r = s.post("http://%s:%s" % self.rpc_addr(), json=j)
-            # Convert response to JSON and pretty-print it
-            try:
-                response_data = r.json()
-            except ValueError as e:
-                print("Error decoding JSON:", e)
-                response_data = r.text
-                print("Response as text:", response_data)
-            else:
-                print("Response:")
-                print(json.dumps(response_data, indent=2))
-            import pprint
-            pprint.pprint(vars(r))
+            # print("QQP 2.5", json.dumps(r, indent=2))
+            # try:
+            #     response_data = r.json()
+            # except ValueError as e:
+            #     print("Error decoding JSON:", e)
+            #     response_data = r.text
+            #     print("Response as text:", response_data)
+            # else:
+            #     print("Response:")
+            #     print(json.dumps(response_data, indent=2))
+            # import pprint
+            # pprint.pprint(vars(r))
             r.raise_for_status()
 
         return json.loads(r.content)
@@ -283,6 +283,32 @@ class BaseNode(object):
         return self.json_rpc('broadcast_tx_commit',
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
+
+    def send_tx_and_wait2(self, signed_tx, timeout):
+        method = 'broadcast_tx_commit'
+        params = [base64.b64encode(signed_tx).decode('utf8')]
+        max_retries=5
+        j = {
+            'method': method,
+            'params': params,
+            'id': 'dontcare',
+            'jsonrpc': '2.0'
+        }
+        with session(timeout, max_retries) as s:
+            r = s.post("http://%s:%s" % self.rpc_addr(), json=j)
+            # print("QQP 2.5", json.dumps(r, indent=2))
+            try:
+                response_data = r.json()
+            except ValueError as e:
+                print("Error decoding JSON:", e)
+                response_data = r.text
+                print("Response as text:", response_data)
+            else:
+                print("Response:")
+                print(json.dumps(response_data, indent=2))
+            # import pprint
+            # pprint.pprint(vars(r))
+        r.raise_for_status()
 
     def get_status(self,
                    check_storage: bool = True,
