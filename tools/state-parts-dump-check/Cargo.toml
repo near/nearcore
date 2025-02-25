@@ -26,6 +26,7 @@ near-jsonrpc.workspace = true
 near-primitives-core.workspace = true
 near-o11y.workspace = true
 reqwest.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 [features]
