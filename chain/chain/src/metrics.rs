@@ -88,6 +88,13 @@ pub static BLOCK_ORPHANED_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram("near_block_orphaned_delay", "How long blocks stay in the orphan pool")
         .unwrap()
 });
+pub static BLOCK_OPTIMISTIC_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram(
+        "near_block_optimistic_delay",
+        "Delay between optimistic block completion and receiving the full block",
+    )
+    .unwrap()
+});
 pub static BLOCK_MISSING_CHUNKS_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram(
         "near_block_missing_chunks_delay",

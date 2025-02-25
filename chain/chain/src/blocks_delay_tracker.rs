@@ -1,3 +1,4 @@
+use lru::LruCache;
 use near_async::time::{Clock, Instant, Utc};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, Tip};
@@ -12,6 +13,7 @@ use near_primitives::views::{
 };
 use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 use std::mem;
+use std::num::NonZeroUsize;
 use time::ext::InstantExt as _;
 use tracing::error;
 
@@ -35,6 +37,9 @@ pub struct BlocksDelayTracker {
     // Theoretically, each block height should only have one block, if our block processing code
     // works correctly. We are storing a vector here just in case.
     blocks_height_map: BTreeMap<BlockHeight, Vec<CryptoHash>>,
+    // Maps block height to the timestamp when the optimistic block became
+    // ready for processing.
+    optimistic_blocks: LruCache<BlockHeight, Instant>,
     // Chunks that belong to the blocks in the tracker
     chunks: HashMap<ChunkHash, ChunkTrackingStats>,
     // Chunks that we don't know which block it belongs to yet
@@ -144,6 +149,9 @@ impl BlocksDelayTracker {
             clock,
             blocks: HashMap::new(),
             blocks_height_map: BTreeMap::new(),
+            optimistic_blocks: LruCache::new(
+                NonZeroUsize::new(BLOCK_DELAY_TRACKING_COUNT as usize).unwrap(),
+            ),
             chunks: HashMap::new(),
             floating_chunks: HashMap::new(),
             head_height: 0,
@@ -153,37 +161,45 @@ impl BlocksDelayTracker {
     pub fn mark_block_received(&mut self, block: &Block) {
         let block_hash = block.header().hash();
 
-        if let Entry::Vacant(entry) = self.blocks.entry(*block_hash) {
-            let height = block.header().height();
-            let chunks = block
-                .chunks()
-                .iter_deprecated()
-                .map(|chunk| {
-                    if chunk.height_included() == height {
-                        let chunk_hash = chunk.chunk_hash();
-                        self.chunks
-                            .entry(chunk_hash.clone())
-                            .or_insert_with(|| ChunkTrackingStats::new(chunk));
-                        self.floating_chunks.remove(&chunk_hash);
-                        Some(chunk_hash)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            entry.insert(BlockTrackingStats {
-                received_timestamp: self.clock.now(),
-                received_utc_timestamp: self.clock.now_utc(),
-                orphaned_timestamp: None,
-                missing_chunks_timestamp: None,
-                removed_from_orphan_timestamp: None,
-                removed_from_missing_chunks_timestamp: None,
-                processed_timestamp: None,
-                dropped: None,
-                error: None,
-                chunks,
-            });
-            self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
+        let Entry::Vacant(entry) = self.blocks.entry(*block_hash) else {
+            return;
+        };
+
+        let height = block.header().height();
+        let chunks = block
+            .chunks()
+            .iter_deprecated()
+            .map(|chunk| {
+                if chunk.height_included() == height {
+                    let chunk_hash = chunk.chunk_hash();
+                    self.chunks
+                        .entry(chunk_hash.clone())
+                        .or_insert_with(|| ChunkTrackingStats::new(chunk));
+                    self.floating_chunks.remove(&chunk_hash);
+                    Some(chunk_hash)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        entry.insert(BlockTrackingStats {
+            received_timestamp: self.clock.now(),
+            received_utc_timestamp: self.clock.now_utc(),
+            orphaned_timestamp: None,
+            missing_chunks_timestamp: None,
+            removed_from_orphan_timestamp: None,
+            removed_from_missing_chunks_timestamp: None,
+            processed_timestamp: None,
+            dropped: None,
+            error: None,
+            chunks,
+        });
+        self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
+
+        if let Some(optimistic_ready_time) = self.optimistic_blocks.get(&height) {
+            let delay_ms = (self.clock.now().signed_duration_since(*optimistic_ready_time))
+                .whole_milliseconds() as u128;
+            metrics::BLOCK_OPTIMISTIC_DELAY.observe(delay_ms as f64);
         }
     }
 
@@ -233,6 +249,10 @@ impl BlocksDelayTracker {
         } else {
             error!(target:"blocks_delay_tracker", "block {:?} was marked as having no missing chunks but was not marked received", block_hash);
         }
+    }
+
+    pub fn record_optimistic_block_ready(&mut self, block_height: BlockHeight) {
+        self.optimistic_blocks.put(block_height, self.clock.now());
     }
 
     pub fn mark_chunk_completed(&mut self, chunk_header: &ShardChunkHeader) {
