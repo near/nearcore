@@ -1,15 +1,15 @@
 use near_chain::Provenance;
 use near_chain::runtime::migrations::load_migration_data;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolFeature;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::set_block_protocol_version;
 
 const EPOCH_LENGTH: u64 = 5;

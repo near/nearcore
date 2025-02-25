@@ -2,7 +2,6 @@ use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::{Clock, Duration};
-use near_client::test_utils::setup_no_network;
 use near_client::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, Status, TxStatus,
 };
@@ -19,6 +18,8 @@ use near_primitives::types::{BlockReference, EpochId, ShardId};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
+
+use crate::env::setup::setup_no_network;
 
 /// Query account from view client
 #[test]

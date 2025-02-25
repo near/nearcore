@@ -1,6 +1,5 @@
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
@@ -11,7 +10,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 // The height of the next block after environment setup is complete.
 const NEXT_BLOCK_HEIGHT_AFTER_SETUP: u64 = 3;

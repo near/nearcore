@@ -6,7 +6,6 @@ use near_async::time::Duration;
 use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
-use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::InMemorySigner;
@@ -24,11 +23,12 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::DBCol;
 use near_store::adapter::StoreUpdateAdapter;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::test_helpers::heavy_test;
 
 /// One client is in front, another must sync to it using state (fast) sync.

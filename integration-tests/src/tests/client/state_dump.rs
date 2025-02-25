@@ -8,7 +8,6 @@ use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
 use near_client::ProcessTxResponse;
 use near_client::sync::external::{StateFileType, external_storage_location};
-use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -22,8 +21,10 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::Store;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use nearcore::state_sync::StateSyncDumper;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and

@@ -2,11 +2,11 @@ use actix::System;
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
-use near_client::test_utils::setup_no_network;
 use near_client_primitives::types::GetMaintenanceWindows;
-
 use near_o11y::WithSpanContextExt;
 use near_o11y::testonly::init_test_logger;
+
+use crate::env::setup::setup_no_network;
 
 /// get maintenance window from view client
 #[test]

@@ -4,7 +4,7 @@ use aurora_engine_transactions::eip_2930::Transaction2930;
 use aurora_engine_types::types::{Address, Wei};
 use ethabi::ethereum_types::U256;
 use near_chain_configs::{Genesis, NEAR_BASE};
-use near_client::{ProcessTxResponse, test_utils::TestEnv};
+use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
@@ -24,10 +24,11 @@ use near_primitives_core::{
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use testlib::runtime_utils::{alice_account, bob_account};
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.

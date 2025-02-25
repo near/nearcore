@@ -7,7 +7,6 @@ use near_chain::Provenance;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::GenesisConfig;
 use near_client::sync::block::BlockSync;
-use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::{
@@ -17,6 +16,8 @@ use near_o11y::testonly::TracingCapture;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::utils::MaybeValidated;
+
+use crate::env::test_env::TestEnv;
 
 /// Helper function for block sync tests
 fn collect_hashes_from_network_adapter(

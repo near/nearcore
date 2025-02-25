@@ -3,7 +3,6 @@ use borsh::BorshDeserialize;
 use near_chain::{Block, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
@@ -11,7 +10,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";
 const BLOCK_NOT_PARSED_MSG: &str = "Corrupt block didn't parse";

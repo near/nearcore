@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use actix::Addr;
 use futures::{FutureExt, TryFutureExt, future, future::LocalBoxFuture};
+use integration_tests::env::setup::setup_no_network_with_validity_period;
 use near_async::{
     actix::AddrWithAutoSpanContextExt,
     messaging::{IntoMultiSender, noop},
 };
 use near_chain_configs::GenesisConfig;
 use near_client::ViewClientActor;
-use near_client::test_utils::setup_no_network_with_validity_period;
 use near_jsonrpc::{RpcConfig, start_http};
 use near_jsonrpc_primitives::{
     message::{Message, from_slice},

@@ -1,13 +1,14 @@
 use near_chain::{ChainStore, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::testonly::init_test_logger;
 use near_store::Store;
 use near_store::test_utils::create_test_store;
 use near_undo_block::undo_block;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {

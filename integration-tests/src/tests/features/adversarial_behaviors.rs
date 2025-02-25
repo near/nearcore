@@ -4,7 +4,6 @@ use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
-use near_client::test_utils::TestEnv;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
@@ -14,9 +13,11 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::utils::from_timestamp;
 use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
 use tracing::log::debug;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,

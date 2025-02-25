@@ -1,7 +1,6 @@
 use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Block;
@@ -16,8 +15,10 @@ use near_store::{
     test_utils::create_test_store,
 };
 use near_store::{NodeStorage, Store};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::path::PathBuf;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 struct StateSnapshotTestEnv {
     home_dir: PathBuf,

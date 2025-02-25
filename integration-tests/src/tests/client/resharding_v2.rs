@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::ProcessTxResponse;
-use near_client::test_utils::{TestEnv, run_catchup};
+use near_client::test_utils::client::run_catchup;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
@@ -23,13 +23,14 @@ use near_primitives::views::{
 };
 use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_shard_accounts, gen_unique_accounts};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tracing::debug;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::set_block_protocol_version;
 
 const P_CATCHUP: f64 = 0.2;

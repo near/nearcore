@@ -4,7 +4,7 @@ use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainStoreAccess as _, Error, Provenance};
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
-use near_client::test_utils::{TestEnv, create_chunk_with_transactions};
+use near_client::test_utils::client::create_chunk_with_transactions;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -20,12 +20,13 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::SliceRandom;
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
 use tracing::debug;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::produce_blocks_from_height;
 
 /// Try to process tx in the next blocks, check that tx and all generated receipts succeed.

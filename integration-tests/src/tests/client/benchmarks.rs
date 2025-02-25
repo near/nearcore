@@ -5,11 +5,13 @@
 //! note the wall-clock time.
 
 use near_chain_configs::Genesis;
-use near_client::test_utils::{TestEnv, create_chunk_on_height};
+use near_client::test_utils::client::create_chunk_on_height;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 /// cspell:ignore txes
 /// How long does it take to produce a large chunk?

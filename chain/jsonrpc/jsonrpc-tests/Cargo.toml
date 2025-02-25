@@ -19,6 +19,7 @@ borsh.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+integration-tests.workspace = true
 near-time.workspace = true
 near-async.workspace = true
 near-chain-configs.workspace = true

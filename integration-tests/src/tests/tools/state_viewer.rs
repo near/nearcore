@@ -1,6 +1,6 @@
+use crate::env::test_env::TestEnv;
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{Genesis, MutableConfigValue};
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyFile};
 use near_epoch_manager::EpochManager;
 use near_primitives::shard_layout::ShardUId;

@@ -2,12 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::genesis_validate::validate_genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_chain_configs::{Genesis, GenesisChangeConfig, MutableConfigValue};
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, SecretKey};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
@@ -25,7 +26,6 @@ use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 use nearcore::config::{Config, NearConfig};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn setup(
     epoch_length: NumBlocks,
@@ -324,7 +324,7 @@ fn test_dump_state_return_locked() {
 #[ignore]
 #[test]
 fn test_dump_state_shard_upgrade() {
-    use near_client::test_utils::run_catchup;
+    use near_client::test_utils::client::run_catchup;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::version::ProtocolFeature::SimpleNightshade;
 
