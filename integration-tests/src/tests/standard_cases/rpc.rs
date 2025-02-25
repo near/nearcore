@@ -3,7 +3,7 @@
 
 use crate::node::{Node, NodeConfig, ThreadNode, create_nodes_from_seeds};
 use crate::tests::standard_cases::*;
-use crate::tests::test_helpers::heavy_test;
+use crate::utils::test_helpers::heavy_test;
 use near_o11y::testonly::init_test_module_logger;
 use std::thread;
 use std::time::Duration;

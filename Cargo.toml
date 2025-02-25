@@ -72,6 +72,7 @@ members = [
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
+    "test-loop-tests",
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
     "test-utils/runtime-tester/fuzz",
