@@ -870,8 +870,6 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
     let nonce = Cell::new(102);
     let yield_payload = vec![];
     let pre_resharding_tx_sent = Cell::new(false);
-    let post_resharding_tx_sent = Cell::new(false);
-    let post_gc_tx_sent = Cell::new(false);
     let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
 
     let action_fn = Box::new(
@@ -883,38 +881,39 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             let tip = client_actor.client.chain.head().unwrap();
 
             // Function to send a promise yield receipt.
-            let send_promise_yield = |signer_account: &AccountId,
-                                      receiver_account: &AccountId,
-                                      tip: &Tip,
-                                      sent_flag: &Cell<bool>| {
-                if sent_flag.get() {
-                    return;
-                }
-                let signer: Signer = create_user_test_signer(signer_account).into();
-                nonce.set(nonce.get() + 1);
-                let tx = SignedTransaction::call(
-                    nonce.get(),
-                    signer_account.clone(),
-                    receiver_account.clone(),
-                    &signer,
-                    0,
-                    "call_yield_create_return_promise".to_string(),
-                    yield_payload.clone(),
-                    300 * TGAS,
-                    tip.last_block_hash,
-                );
-                store_and_submit_tx(
-                    &node_datas,
-                    &client_account_id,
-                    &txs,
-                    &signer_account,
-                    &receiver_account,
-                    tip.height,
-                    tx,
-                );
-                sent_flag.set(true);
-                tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent promise yield tx");
-            };
+            let send_promise_yield =
+                |signer_account: &AccountId,
+                 receiver_account: &AccountId,
+                 tip: &Tip,
+                 sent_flag: Option<&Cell<bool>>| {
+                    if sent_flag.map(|flag| flag.get()).unwrap_or_default() {
+                        return;
+                    }
+                    let signer: Signer = create_user_test_signer(signer_account).into();
+                    nonce.set(nonce.get() + 1);
+                    let tx = SignedTransaction::call(
+                        nonce.get(),
+                        signer_account.clone(),
+                        receiver_account.clone(),
+                        &signer,
+                        0,
+                        "call_yield_create_return_promise".to_string(),
+                        yield_payload.clone(),
+                        300 * TGAS,
+                        tip.last_block_hash,
+                    );
+                    store_and_submit_tx(
+                        &node_datas,
+                        &client_account_id,
+                        &txs,
+                        &signer_account,
+                        &receiver_account,
+                        tip.height,
+                        tx,
+                    );
+                    sent_flag.map(|flag| flag.set(true));
+                    tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent promise yield tx");
+                };
 
             // Function to retrieve the promise yield indices from the trie. This bypasses any other
             // intermediate layer (caching, memtrie, flat-storage).
@@ -964,23 +963,40 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                 // Resharding happened in the previous blocks.
                 // Send a promise yield transaction in the left child shard.
                 (Some(resharding), latest) if latest == resharding + 2 => {
-                    send_promise_yield(
-                        &left_child_account,
-                        &right_child_account,
-                        &tip,
-                        &post_resharding_tx_sent,
-                    );
+                    send_promise_yield(&left_child_account, &right_child_account, &tip, None);
                 }
                 // Resharding happened and GC kicked in for the epoch with the old shard layout.
                 // Send a promise yield transaction in the right child shard.
                 (Some(resharding), latest)
                     if latest == resharding + gc_num_epochs * epoch_length + 5 =>
                 {
-                    send_promise_yield(
+                    send_promise_yield(&right_child_account, &left_child_account, &tip, None);
+                }
+                // Send a promise yield resume to complete the promise yield started one block before.
+                (Some(resharding), latest)
+                    if latest == resharding + gc_num_epochs * epoch_length + 5 + 1 =>
+                {
+                    let signer: Signer = create_user_test_signer(&right_child_account).into();
+                    nonce.set(nonce.get() + 1);
+                    let tx = SignedTransaction::call(
+                        nonce.get(),
+                        right_child_account.clone(),
+                        left_child_account.clone(),
+                        &signer,
+                        1,
+                        "call_yield_resume_read_data_id_from_storage".to_string(),
+                        yield_payload.clone(),
+                        300 * TGAS,
+                        tip.last_block_hash,
+                    );
+                    store_and_submit_tx(
+                        &node_datas,
+                        &client_account_id,
+                        &txs,
                         &right_child_account,
                         &left_child_account,
-                        &tip,
-                        &post_gc_tx_sent,
+                        tip.height,
+                        tx,
                     );
                 }
                 // GC happened a few blocks in the past.
@@ -1030,7 +1046,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         &left_child_account,
                         &right_child_account,
                         &tip,
-                        &pre_resharding_tx_sent,
+                        Some(&pre_resharding_tx_sent),
                     );
                 }
             }
