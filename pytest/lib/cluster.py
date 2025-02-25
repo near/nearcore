@@ -259,18 +259,6 @@ class BaseNode(object):
         }
         with session(timeout, max_retries) as s:
             r = s.post("http://%s:%s" % self.rpc_addr(), json=j)
-            # print("QQP 2.5", json.dumps(r, indent=2))
-            # try:
-            #     response_data = r.json()
-            # except ValueError as e:
-            #     print("Error decoding JSON:", e)
-            #     response_data = r.text
-            #     print("Response as text:", response_data)
-            # else:
-            #     print("Response:")
-            #     print(json.dumps(response_data, indent=2))
-            # import pprint
-            # pprint.pprint(vars(r))
             r.raise_for_status()
 
         return json.loads(r.content)
