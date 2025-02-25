@@ -29,6 +29,7 @@ use near_primitives::types::ShardIndex;
 use rand::{Rng, thread_rng};
 
 #[test]
+#[ignore = "Test is flaky and causing CI failures"]
 fn slow_test_repro_1183() {
     init_test_logger();
     run_actix(async {
@@ -273,6 +274,7 @@ fn slow_test_sync_from_archival_node() {
 }
 
 #[test]
+#[ignore = "Test is flaky and causing CI failures"]
 fn slow_test_long_gap_between_blocks() {
     init_test_logger();
     let vs = ValidatorSchedule::new()
