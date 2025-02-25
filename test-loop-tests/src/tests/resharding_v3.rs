@@ -1345,12 +1345,16 @@ fn slow_test_resharding_v3_yield_timeout() {
 fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
+    let base_shard_layout = get_base_shard_layout(DEFAULT_SHARD_LAYOUT_VERSION);
+    let shard_layout_after_resharding =
+        ShardLayout::derive_shard_layout(&base_shard_layout, NEW_BOUNDARY_ACCOUNT.parse().unwrap());
     let params = TestReshardingParametersBuilder::default()
         .deploy_test_contract(account_in_left_child.clone())
         .deploy_test_contract(account_in_right_child.clone())
         .add_loop_action(promise_yield_repro_missing_trie_value(
             account_in_left_child,
             account_in_right_child,
+            shard_layout_after_resharding,
             GC_NUM_EPOCHS_TO_KEEP,
             DEFAULT_EPOCH_LENGTH,
         ))

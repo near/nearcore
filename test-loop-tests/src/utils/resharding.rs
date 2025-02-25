@@ -40,6 +40,7 @@ use crate::utils::transactions::{
 };
 use crate::utils::{ONE_NEAR, TGAS, get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
+use near_primitives::shard_layout::ShardLayout;
 use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.
@@ -861,6 +862,7 @@ pub(crate) fn check_state_cleanup(
 pub(crate) fn promise_yield_repro_missing_trie_value(
     left_child_account: AccountId,
     right_child_account: AccountId,
+    shard_layout_after_resharding: ShardLayout,
     gc_num_epochs: u64,
     epoch_length: u64,
 ) -> LoopAction {
@@ -871,6 +873,14 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
     let yield_payload = vec![];
     let pre_resharding_tx_sent = Cell::new(false);
     let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
+    let left_child_shard_uid =
+        shard_layout_after_resharding.account_id_to_shard_uid(&left_child_account);
+    let right_child_shard_uid =
+        shard_layout_after_resharding.account_id_to_shard_uid(&right_child_account);
+    let parent_shard_uid = ShardUId::new(
+        3,
+        shard_layout_after_resharding.get_parent_shard_id(left_child_shard_uid.shard_id()).unwrap(),
+    );
 
     let action_fn = Box::new(
         move |node_datas: &[TestData],
@@ -886,7 +896,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                  receiver_account: &AccountId,
                  tip: &Tip,
                  sent_flag: Option<&Cell<bool>>| {
-                    if sent_flag.map(|flag| flag.get()).unwrap_or_default() {
+                    if sent_flag.map_or(false, |flag| flag.get()) {
                         return;
                     }
                     let signer: Signer = create_user_test_signer(signer_account).into();
@@ -943,19 +953,19 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             }
             latest_height.set(tip.height);
 
-            let indices_shard_6 =
-                get_promise_yield_indices_for_shard(ShardUId { version: 3, shard_id: 6 });
-            let indices_shard_7 =
-                get_promise_yield_indices_for_shard(ShardUId { version: 3, shard_id: 7 });
-            let indices_shard_8 =
-                get_promise_yield_indices_for_shard(ShardUId { version: 3, shard_id: 8 });
+            let indices_parent_shard = get_promise_yield_indices_for_shard(parent_shard_uid);
+            let indices_left_child_shard =
+                get_promise_yield_indices_for_shard(left_child_shard_uid);
+            let indices_right_child_shard =
+                get_promise_yield_indices_for_shard(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, ?indices_shard_6, ?indices_shard_7, ?indices_shard_8, "promise yield indices");
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+                    ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "promise yield indices");
 
             // At any height, if the shard exists and it is tracked, the promise yield indices trie node must exist.
-            assert_matches!(indices_shard_6, Some(Ok(_)) | None);
-            assert_matches!(indices_shard_7, Some(Ok(_)) | None);
-            assert_matches!(indices_shard_8, Some(Ok(_)) | None);
+            assert_matches!(indices_parent_shard, Some(Ok(_)) | None);
+            assert_matches!(indices_left_child_shard, Some(Ok(_)) | None);
+            assert_matches!(indices_right_child_shard, Some(Ok(_)) | None);
 
             // The operation to be done depends on the current block height in relation to the
             // resharding height and the GC height.
