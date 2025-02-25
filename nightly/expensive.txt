@@ -20,8 +20,8 @@ expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_
 expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_hold
 expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_hold --features nightly
 
-expensive integration-tests integration_tests tests::test_catchup::ultra_slow_test_catchup
-expensive integration-tests integration_tests tests::test_catchup::ultra_slow_test_catchup --features nightly
+expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup
+expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup --features nightly
 
 # cross-shard transactions tests
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
@@ -48,8 +48,8 @@ expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_tes
 expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
 
 # testnet rpc
-expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_high_load
-expensive integration-tests integration_tests tests::test_tps_regression::ultra_slow_test_high_load --features nightly
+expensive integration-tests integration_tests tests::other_tests::test_tps_regression::ultra_slow_test_high_load
+expensive integration-tests integration_tests tests::other_tests::test_tps_regression::ultra_slow_test_high_load --features nightly
 
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet
 expensive integration-tests integration_tests tests::standard_cases::rpc::ultra_slow_test_access_key_smart_contract_testnet --features nightly
@@ -166,12 +166,12 @@ expensive integration-tests integration_tests tests::client::sync_state_nodes::u
 # other tests
 expensive --timeout=300 near-chain near_chain tests::garbage_collection::ultra_slow_test_clear_old_data_too_many_heights
 
-expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_2_10_multiple_nodes
-expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_2_10_multiple_nodes --features nightly
-expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_4_10_multiple_nodes
-expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_4_10_multiple_nodes --features nightly
-expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_7_10_multiple_nodes
-expensive integration-tests integration_tests tests::test_simple::ultra_slow_test_7_10_multiple_nodes --features nightly
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_2_10_multiple_nodes
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_2_10_multiple_nodes --features nightly
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_4_10_multiple_nodes
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_4_10_multiple_nodes --features nightly
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_7_10_multiple_nodes
+expensive integration-tests integration_tests tests::other_tests::test_simple::ultra_slow_test_7_10_multiple_nodes --features nightly
 
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change
 expensive integration-tests integration_tests tests::nearcore::sync_nodes::ultra_slow_test_sync_state_stake_change --features nightly
