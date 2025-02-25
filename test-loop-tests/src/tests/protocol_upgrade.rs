@@ -1,4 +1,3 @@
-use aurora_engine_types::BTreeSet;
 use itertools::Itertools;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
@@ -14,7 +13,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::logic::ProtocolVersion;
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Deref;
 use std::sync::Arc;
 
