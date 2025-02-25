@@ -9,7 +9,7 @@ use near_primitives::{trie_key::TrieKey, types::AccountId};
 use near_store::{ShardUId, TrieAccess, TrieUpdate};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
-use crate::tests::client::process_blocks::set_block_protocol_version;
+use crate::utils::process_blocks::set_block_protocol_version;
 
 fn process_blocks_with_storage_usage_fix(
     chain_id: String,

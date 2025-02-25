@@ -1,4 +1,3 @@
-use crate::tests::client::process_blocks::set_block_protocol_version;
 use near_chain::Provenance;
 use near_chain::runtime::migrations::load_migration_data;
 use near_chain_configs::Genesis;
@@ -10,6 +9,8 @@ use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::version::ProtocolFeature;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
+
+use crate::utils::process_blocks::set_block_protocol_version;
 
 const EPOCH_LENGTH: u64 = 5;
 const HEIGHT_TIMEOUT: u64 = 10;

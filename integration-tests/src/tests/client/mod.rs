@@ -9,7 +9,6 @@ mod cold_storage;
 mod consensus;
 mod cross_shard_tx;
 mod doomslug;
-mod features;
 mod flat_storage;
 mod invalid_txs;
 mod maintenance_windows;

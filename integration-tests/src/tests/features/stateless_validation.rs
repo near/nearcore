@@ -1,6 +1,4 @@
-use crate::tests::client::features::wallet_contract::{
-    NearSigner, create_rlp_execute_tx, view_balance,
-};
+use crate::tests::features::wallet_contract::{NearSigner, create_rlp_execute_tx, view_balance};
 use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};

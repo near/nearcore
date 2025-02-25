@@ -1,10 +1,11 @@
-use super::super::process_blocks::deploy_test_contract;
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::utils::process_blocks::deploy_test_contract;
 
 /// Create a `TestEnv` with an account and a contract deployed to that account.
 fn prepare_env_with_contract(

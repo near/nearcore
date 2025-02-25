@@ -7,7 +7,6 @@ use crate::block_service::BlockService;
 use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use log::{error, info};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
@@ -15,6 +14,7 @@ use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Distribution, Uniform};
 use tokio::sync::mpsc;
 use tokio::time;
+use tracing::{error, info};
 
 #[derive(Args, Debug)]
 pub struct BenchmarkArgs {

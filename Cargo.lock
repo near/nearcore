@@ -3467,6 +3467,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "smart-default",
+ "state-viewer",
  "strum",
  "tempfile",
  "testlib",
@@ -5097,6 +5098,7 @@ dependencies = [
  "near-store",
  "nearcore",
  "reqwest",
+ "serde_json",
  "tokio",
  "tracing",
 ]

@@ -1,7 +1,7 @@
 use near_primitives::num_rational::Ratio;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 
-use crate::tests::client::process_blocks::prepare_env_with_congestion;
+use crate::utils::process_blocks::prepare_env_with_congestion;
 
 fn does_gas_price_exceed_limit(protocol_version: ProtocolVersion) -> bool {
     let mut env = prepare_env_with_congestion(protocol_version, Some(Ratio::new_raw(2, 1)), 7).0;
