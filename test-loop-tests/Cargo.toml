@@ -1,0 +1,44 @@
+[package]
+name = "test-loop-tests"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+actix.workspace = true
+assert_matches.workspace = true
+borsh.workspace = true
+bytesize.workspace = true
+derive_builder.workspace = true
+itertools.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
+
+near-async.workspace = true
+near-chain.workspace = true
+near-chain-configs.workspace = true
+near-chunks.workspace = true
+near-client.workspace = true
+near-crypto.workspace = true
+near-epoch-manager.workspace = true
+near-jsonrpc.workspace = true
+near-network.workspace = true
+near-o11y.workspace = true
+near-parameters.workspace = true
+near-primitives.workspace = true
+near-primitives-core.workspace = true
+near-store.workspace = true
+near-test-contracts.workspace = true
+near-vm-runner.workspace = true
+nearcore.workspace = true
+testlib.workspace = true
