@@ -1557,10 +1557,21 @@ impl Chain {
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
+        let prev_prev_hash = prev_block.header().prev_hash();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
-
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+
+        let (is_caught_up, _) = self.get_catchup_and_state_sync_infos(
+            &epoch_id,
+            // TODO: `optimistic_block_hash` is invalid to use here, but `is_caught_up` doesn't
+            // depend on it. We should remove dependency on `block_hash` instead.
+            &optimistic_block_hash,
+            &prev_block_hash,
+            prev_prev_hash,
+            me,
+        )?;
+
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let chunks = Chunks::from_chunk_headers(&chunk_headers, block_height);
         let incoming_receipts = self.collect_incoming_receipts_from_chunks(
@@ -1602,7 +1613,11 @@ impl Chain {
                 shard_index,
                 &prev_block,
                 prev_chunk_header,
-                ApplyChunksMode::IsCaughtUp,
+                if is_caught_up {
+                    ApplyChunksMode::IsCaughtUp
+                } else {
+                    ApplyChunksMode::NotCaughtUp
+                },
                 incoming_receipts,
                 storage_context,
             );
