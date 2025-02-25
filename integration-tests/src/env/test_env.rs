@@ -1,7 +1,7 @@
-use crate::{Client, DistributeStateWitnessRequest};
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_async::time::{Duration, Instant};
+use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
@@ -9,9 +9,9 @@ use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::GenesisConfig;
-use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
+use near_client::{Client, DistributeStateWitnessRequest};
 use near_crypto::{InMemorySigner, Signer};
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_network::client::ProcessTxResponse;
@@ -46,9 +46,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use time::ext::InstantExt as _;
 
-use super::TEST_SEED;
-use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
-use super::setup::setup_client_with_runtime;
+use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
+
+use super::setup::{TEST_SEED, setup_client_with_runtime};
 use super::test_env_builder::TestEnvBuilder;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear

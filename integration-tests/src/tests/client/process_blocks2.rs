@@ -1,7 +1,6 @@
 use assert_matches::assert_matches;
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::{Provenance, test_utils};
-use near_client::test_utils::TestEnv;
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -17,6 +16,8 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::ShardUId;
+
+use crate::env::test_env::TestEnv;
 
 /// Only process one block per height
 /// Test that if a node receives two blocks at the same height, it doesn't process the second one

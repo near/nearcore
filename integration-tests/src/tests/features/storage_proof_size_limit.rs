@@ -2,7 +2,6 @@ use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::action::{Action, DeployContractAction, FunctionCallAction};
@@ -13,7 +12,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 /// Test:
 /// * per-receipt hard storage proof size limit

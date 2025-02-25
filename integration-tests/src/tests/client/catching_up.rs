@@ -9,7 +9,6 @@ use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
 use near_chain_configs::TEST_STATE_SYNC_TIMEOUT;
-use near_client::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use near_client::{ClientActor, Query};
 use near_crypto::InMemorySigner;
 use near_network::client::ProcessTxRequest;
@@ -25,6 +24,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, BlockReference, ShardId};
 use near_primitives::views::QueryRequest;
 use near_primitives::views::QueryResponseKind::ViewAccount;
+
+use crate::env::setup::{ActorHandlesForTesting, setup_mock_all_validators};
 
 fn get_validators_and_key_pairs() -> (ValidatorSchedule, Vec<PeerInfo>) {
     let vs = ValidatorSchedule::new().num_shards(4).block_producers_per_epoch(vec![

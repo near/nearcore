@@ -1,10 +1,11 @@
 use near_chain::Provenance;
-use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::{Approval, ApprovalType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
+
+use crate::env::test_env::TestEnv;
 
 /// This file contains tests that test the interaction of client and doomslug, including how client handles approvals, etc.
 /// It does not include the unit tests for the Doomslug class. That is located in chain/chain/src/doomslug.rs

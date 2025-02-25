@@ -1,7 +1,3 @@
-use super::mock_partial_witness_adapter::MockPartialWitnessAdapter;
-use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
-use super::test_env::TestEnv;
-use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{Itertools, multizip};
 use near_async::messaging::{IntoMultiSender, IntoSender, noop};
@@ -27,6 +23,11 @@ use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use crate::utils::mock_partial_witness_adapter::MockPartialWitnessAdapter;
+
+use super::setup::{TEST_SEED, setup_client_with_runtime, setup_synchronous_shards_manager};
+use super::test_env::{AccountIndices, TestEnv};
 
 #[derive(derive_more::From, Clone)]
 enum EpochManagerKind {

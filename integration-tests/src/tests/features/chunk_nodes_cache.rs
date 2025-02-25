@@ -2,7 +2,6 @@ use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::hash::CryptoHash;
@@ -14,8 +13,9 @@ use near_primitives::types::{BlockHeightDelta, Gas};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::TrieNodesCount;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::{deploy_test_contract, set_block_protocol_version};
 
 fn process_transaction(

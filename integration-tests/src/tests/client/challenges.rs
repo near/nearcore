@@ -4,7 +4,7 @@ use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::test_utils::{TestEnv, create_chunk, create_chunk_with_transactions};
+use near_client::test_utils::client::{create_chunk, create_chunk_with_transactions};
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_network::types::NetworkRequests;
@@ -26,8 +26,10 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::Trie;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.

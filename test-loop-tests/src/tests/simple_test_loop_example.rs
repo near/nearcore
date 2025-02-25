@@ -8,7 +8,6 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_o11y::testonly::init_test_logger;
@@ -26,6 +25,11 @@ use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
 use std::sync::Arc;
+
+/// min block production time in milliseconds
+pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
+/// max block production time in milliseconds
+pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 #[test]
 fn test_client_with_simple_test_loop() {

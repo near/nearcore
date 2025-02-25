@@ -2,7 +2,6 @@ use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_parameters::RuntimeConfigStore;
@@ -11,8 +10,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction, TransactionV0};
 use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::{
     deploy_test_contract_with_protocol_version, produce_blocks_from_height_with_protocol_version,
 };

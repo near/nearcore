@@ -8,7 +8,6 @@ use near_chain_configs::{ChunkDistributionNetworkConfig, ChunkDistributionUris};
 use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
-use near_client::test_utils::{ActorHandlesForTesting, TestEnv, setup_mock_all_validators};
 use near_client::{GetBlock, ProcessTxRequest};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
@@ -24,6 +23,8 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::info;
 
+use crate::env::setup::{ActorHandlesForTesting, setup_mock_all_validators};
+use crate::env::test_env::TestEnv;
 use crate::utils::test_helpers::heavy_test;
 
 /// Configuration for `test4` validator in tests.
