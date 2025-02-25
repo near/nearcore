@@ -11,3 +11,4 @@ mod test_helpers;
 mod test_overflows;
 mod test_simple;
 mod test_tps_regression;
+mod tools;
