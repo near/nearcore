@@ -233,10 +233,10 @@ expensive integration-tests integration_tests tests::nearcore::track_shards::ult
 expensive integration-tests integration_tests tests::nearcore::track_shards::ultra_slow_test_track_shards --features nightly
 
 # TestLoop tests
-expensive --timeout=1800 test-loop-tests test-loop-tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts
-expensive --timeout=1800 test-loop-tests test-loop-tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts --features nightly
-expensive --timeout=1800 test-loop-tests test-loop-tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks
-expensive --timeout=1800 test-loop-tests test-loop-tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly
+expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts
+expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts --features nightly
+expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks
+expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly
 
 # Estimator Warehouse
 expensive --timeout=1800 estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator
