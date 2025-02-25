@@ -6,9 +6,9 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
-use near_client::sync::external::{external_storage_location, StateFileType};
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::sync::external::{StateFileType, external_storage_location};
+use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -19,8 +19,8 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::Store;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use nearcore::state_sync::StateSyncDumper;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
@@ -130,9 +130,13 @@ fn run_state_sync_with_dumped_parts(
 ) {
     init_test_logger();
     if is_final_block_in_new_epoch {
-        tracing::info!("Testing for case when both head and final block of the dumping node are in new epoch...");
+        tracing::info!(
+            "Testing for case when both head and final block of the dumping node are in new epoch..."
+        );
     } else {
-        tracing::info!("Testing for case when head is in new epoch, but final block isn't for the dumping node...");
+        tracing::info!(
+            "Testing for case when head is in new epoch, but final block isn't for the dumping node..."
+        );
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -298,13 +302,15 @@ fn run_state_sync_with_dumped_parts(
         .unwrap();
     let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
     let mut store_update = runtime_client_1.store().store_update();
-    assert!(runtime_client_1
-        .get_flat_storage_manager()
-        .remove_flat_storage_for_shard(
-            ShardUId::single_shard(),
-            &mut store_update.flat_store_update()
-        )
-        .unwrap());
+    assert!(
+        runtime_client_1
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(
+                ShardUId::single_shard(),
+                &mut store_update.flat_store_update()
+            )
+            .unwrap()
+    );
     store_update.commit().unwrap();
     let shard_id = ShardId::new(0);
     for part_id in 0..num_parts {

@@ -9,8 +9,8 @@ use near_primitives::version::Version;
 use near_time::Duration;
 use std::cmp::{max, min};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 

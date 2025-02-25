@@ -1,6 +1,6 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, processing_time_buckets, try_create_histogram_vec,
-    try_create_int_gauge_vec, HistogramVec, IntGaugeVec,
+    HistogramVec, IntGaugeVec, exponential_buckets, linear_buckets, processing_time_buckets,
+    try_create_histogram_vec, try_create_int_gauge_vec,
 };
 
 use std::sync::LazyLock;

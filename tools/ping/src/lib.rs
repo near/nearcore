@@ -1,5 +1,5 @@
 use actix_web::cookie::time::ext::InstantExt as _;
-use actix_web::{web, App, HttpServer};
+use actix_web::{App, HttpServer, web};
 use anyhow::Context;
 pub use cli::PingCommand;
 use near_network::raw::{ConnectError, Connection, DirectMessage, Message, RoutedMessage};
@@ -401,24 +401,30 @@ async fn ping_via_node(
         genesis_hash,
         head_height,
         vec![ShardId::new(0)],
-        Some(near_time::Duration::seconds(recv_timeout_seconds.into()))).await {
+        Some(near_time::Duration::seconds(recv_timeout_seconds.into())),
+    )
+    .await
+    {
         Ok(p) => p,
-        Err(ConnectError::HandshakeFailure(reason)) => {
-            match reason {
-                HandshakeFailureReason::ProtocolVersionMismatch { version, oldest_supported_version } => anyhow::bail!(
-                    "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
-                    reason, oldest_supported_version, version
-                ),
-                HandshakeFailureReason::GenesisMismatch(_) => anyhow::bail!(
-                    "Received Handshake Failure: {:?}. Try running again with --chain-id and --genesis-hash set to these values.",
-                    reason,
-                ),
-                HandshakeFailureReason::InvalidTarget => anyhow::bail!(
-                    "Received Handshake Failure: {:?}. Is the public key given with --peer correct?",
-                    reason,
-                ),
-            }
-        }
+        Err(ConnectError::HandshakeFailure(reason)) => match reason {
+            HandshakeFailureReason::ProtocolVersionMismatch {
+                version,
+                oldest_supported_version,
+            } => anyhow::bail!(
+                "Received Handshake Failure: {:?}. Try running again with --protocol-version between {} and {}",
+                reason,
+                oldest_supported_version,
+                version
+            ),
+            HandshakeFailureReason::GenesisMismatch(_) => anyhow::bail!(
+                "Received Handshake Failure: {:?}. Try running again with --chain-id and --genesis-hash set to these values.",
+                reason,
+            ),
+            HandshakeFailureReason::InvalidTarget => anyhow::bail!(
+                "Received Handshake Failure: {:?}. Is the public key given with --peer correct?",
+                reason,
+            ),
+        },
         Err(e) => {
             anyhow::bail!("Error connecting to {:?}: {}", peer_addr, e);
         }

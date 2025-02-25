@@ -1,7 +1,7 @@
 pub(crate) use crate::x64_decl::{GPR, XMM};
 use dynasm::dynasm;
 use dynasmrt::{
-    x64::X64Relocation, AssemblyOffset, DynamicLabel, DynasmApi, DynasmLabelApi, VecAssembler,
+    AssemblyOffset, DynamicLabel, DynasmApi, DynasmLabelApi, VecAssembler, x64::X64Relocation,
 };
 use enumset::EnumSet;
 use near_vm_compiler::CpuFeature;

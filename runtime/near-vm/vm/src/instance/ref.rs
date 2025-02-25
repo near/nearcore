@@ -42,8 +42,10 @@ impl InstanceInner {
     unsafe fn deallocate_instance(&mut self) {
         let instance_ptr = self.instance.as_ptr();
 
-        ptr::drop_in_place(instance_ptr);
-        std::alloc::dealloc(instance_ptr as *mut u8, self.instance_layout);
+        unsafe {
+            ptr::drop_in_place(instance_ptr);
+            std::alloc::dealloc(instance_ptr as *mut u8, self.instance_layout);
+        }
     }
 
     /// Get a reference to the `Instance`.
@@ -144,7 +146,7 @@ impl InstanceRef {
     #[inline]
     pub(super) unsafe fn as_mut_unchecked(&mut self) -> &mut Instance {
         let ptr: *mut InstanceInner = Arc::as_ptr(&self.0) as *mut _;
-        (&mut *ptr).as_mut()
+        unsafe { (&mut *ptr).as_mut() }
     }
 }
 

@@ -8,8 +8,8 @@ use near_primitives::epoch_manager::{EpochConfig, ShardConfig};
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, BlockHeight, EpochHeight, EpochId, ShardId, ShardIndex,
@@ -61,11 +61,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// chunk, if there are no errors.
     fn num_data_parts(&self) -> usize {
         let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
+        if total_parts <= 3 { 1 } else { (total_parts - 1) / 3 }
     }
 
     /// Returns `account_id` that is supposed to have the `part_id`.
@@ -845,11 +841,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 impl EpochManagerAdapter for EpochManagerHandle {
     fn num_total_parts(&self) -> usize {
         let seats = self.read().genesis_num_block_producer_seats;
-        if seats > 1 {
-            seats as usize
-        } else {
-            2
-        }
+        if seats > 1 { seats as usize } else { 2 }
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {

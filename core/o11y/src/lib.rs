@@ -7,7 +7,7 @@ pub use opentelemetry::OpenTelemetryLevel;
 pub use reload::{reload, reload_log_config};
 #[cfg(feature = "io_trace")]
 pub use subscriber::make_io_tracing_layer;
-pub use subscriber::{default_subscriber, default_subscriber_with_opentelemetry, Options};
+pub use subscriber::{Options, default_subscriber, default_subscriber_with_opentelemetry};
 pub use tracing_opentelemetry::OpenTelemetrySpanExt;
 pub use {tracing, tracing_appender, tracing_subscriber};
 

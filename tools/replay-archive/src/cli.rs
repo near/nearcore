@@ -1,28 +1,28 @@
-use crate::replaydb::{open_storage_for_replay, ReplayDB};
-use anyhow::{anyhow, bail, Context, Result};
+use crate::replaydb::{ReplayDB, open_storage_for_replay};
+use anyhow::{Context, Result, anyhow, bail};
 use clap;
 use itertools::Itertools;
 use near_chain::chain::{
-    collect_receipts_from_response, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
-    ShardContext, StorageContext,
+    NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
+    collect_receipts_from_response,
 };
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::sharding::{get_receipts_shuffle_salt, shuffle_receipt_proofs};
 use near_chain::stateless_validation::chunk_endorsement::validate_chunk_endorsements_in_block;
 use near_chain::stateless_validation::chunk_validation::apply_result_to_chunk_extra;
 use near_chain::types::StorageDataSource;
-use near_chain::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
+use near_chain::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use near_chain::validate::{
     validate_chunk_proofs, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
 use near_chain::{
-    get_incoming_receipts_for_shard, Block, BlockHeader, Chain, ChainGenesis, ChainStore,
-    ChainStoreAccess, ReceiptFilter,
+    Block, BlockHeader, Chain, ChainGenesis, ChainStore, ChainStoreAccess, ReceiptFilter,
+    get_incoming_receipts_for_shard,
 };
 use near_chain_configs::GenesisValidationMode;
 use near_chunks::logic::make_outgoing_receipts_proofs;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
@@ -32,12 +32,12 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, ProtocolVersion, ShardId};
 use near_primitives::version::ProtocolFeature;
 use near_state_viewer::progress_reporter::ProgressReporter;
-use near_store::{get_genesis_state_roots, ShardUId, Store};
-use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use near_store::{ShardUId, Store, get_genesis_state_roots};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 /// This command assumes that it is run from an archival node
 /// and not all the operations data that is available for a

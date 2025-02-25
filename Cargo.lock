@@ -3455,6 +3455,7 @@ dependencies = [
  "near-wallet-contract",
  "nearcore",
  "node-runtime",
+ "num-rational 0.3.2",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand",
@@ -3466,6 +3467,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "smart-default",
+ "state-viewer",
  "strum",
  "tempfile",
  "testlib",
@@ -5096,6 +5098,7 @@ dependencies = [
  "near-store",
  "nearcore",
  "reqwest",
+ "serde_json",
  "tokio",
  "tracing",
 ]
@@ -8063,6 +8066,41 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.87",
+]
+
+[[package]]
+name = "test-loop-tests"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "assert_matches",
+ "borsh",
+ "bytesize",
+ "derive_builder",
+ "itertools 0.12.1",
+ "near-async",
+ "near-chain",
+ "near-chain-configs",
+ "near-chunks",
+ "near-client",
+ "near-crypto",
+ "near-epoch-manager",
+ "near-jsonrpc",
+ "near-network",
+ "near-o11y",
+ "near-parameters",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "near-test-contracts",
+ "near-vm-runner",
+ "nearcore",
+ "rand",
+ "rand_chacha",
+ "serde_json",
+ "tempfile",
+ "testlib",
+ "tracing",
 ]
 
 [[package]]

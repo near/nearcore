@@ -460,11 +460,7 @@ pub struct CongestionInfoV1 {
 #[inline]
 fn clamped_f64_fraction(value: u128, max: u64) -> f64 {
     assert!(max > 0);
-    if max as u128 <= value {
-        1.0
-    } else {
-        value as f64 / max as f64
-    }
+    if max as u128 <= value { 1.0 } else { value as f64 / max as f64 }
 }
 
 /// linearly interpolate between two values
@@ -506,7 +502,7 @@ impl ShardAcceptsTransactions {
 mod tests {
     use itertools::Itertools;
     use near_parameters::RuntimeConfigStore;
-    use near_primitives_core::version::{ProtocolFeature, PROTOCOL_VERSION};
+    use near_primitives_core::version::{PROTOCOL_VERSION, ProtocolFeature};
 
     use super::*;
 

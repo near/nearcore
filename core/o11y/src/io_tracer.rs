@@ -20,11 +20,11 @@
 use base64::Engine;
 use std::collections::HashMap;
 use std::io::Write;
-use tracing::{span, Subscriber};
+use tracing::{Subscriber, span};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_subscriber::Layer;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 /// Tracing layer that produces a record of IO operations.
 pub struct IoTraceLayer {
@@ -232,8 +232,9 @@ impl IoTraceLayer {
                 let tn_db_reads = visitor.tn_db_reads.unwrap();
                 let tn_mem_reads = visitor.tn_mem_reads.unwrap();
 
-                let span_info =
-                    format!("{storage_op} key={key}{size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}");
+                let span_info = format!(
+                    "{storage_op} key={key}{size} tn_db_reads={tn_db_reads} tn_mem_reads={tn_mem_reads}"
+                );
 
                 let span =
                     ctx.event_span(event).expect("storage operations must happen inside span");

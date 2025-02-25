@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::alloc::{allocation_class, allocation_size, CHUNK_SIZE};
+use super::alloc::{CHUNK_SIZE, allocation_class, allocation_size};
 use super::single_thread::STArena;
 use super::{Arena, ArenaMemory, ArenaMemoryMut, ArenaMut, ArenaPos, ArenaSliceMut};
 

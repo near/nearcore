@@ -224,8 +224,8 @@ mod tests {
         congestion_info::CongestionInfo,
         hash::hash,
         sharding::{
-            shard_chunk_header_inner::ShardChunkHeaderInnerV4, PartialEncodedChunkV2,
-            ShardChunkHeaderInner, ShardChunkHeaderV3,
+            PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderV3,
+            shard_chunk_header_inner::ShardChunkHeaderInnerV4,
         },
         validator_signer::EmptyValidatorSigner,
     };

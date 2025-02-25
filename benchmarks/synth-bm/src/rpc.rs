@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use log::{info, warn};
 use near_crypto::{InMemorySigner, PublicKey, Signer};
 use near_jsonrpc_client::errors::JsonRpcError;
 use near_jsonrpc_client::methods::block::RpcBlockRequest;
@@ -18,6 +17,7 @@ use near_primitives::{
     },
 };
 use tokio::sync::mpsc::Receiver;
+use tracing::{info, warn};
 
 pub fn new_request(
     transaction: Transaction,

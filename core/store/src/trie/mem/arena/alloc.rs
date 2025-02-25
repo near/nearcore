@@ -1,10 +1,10 @@
 use super::metrics::MEMTRIE_ARENA_ACTIVE_ALLOCS_COUNT;
 use super::single_thread::STArenaMemory;
 use super::{ArenaMemory, ArenaPos, ArenaSliceMut};
+use crate::trie::mem::arena::ArenaMemoryMut;
 use crate::trie::mem::arena::metrics::{
     MEMTRIE_ARENA_ACTIVE_ALLOCS_BYTES, MEMTRIE_ARENA_MEMORY_USAGE_BYTES,
 };
-use crate::trie::mem::arena::ArenaMemoryMut;
 use crate::trie::mem::flexible_data::encoding::BorshFixedSize;
 use near_o11y::metrics::IntGauge;
 

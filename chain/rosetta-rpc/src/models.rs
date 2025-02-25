@@ -1,5 +1,5 @@
 // cspell:words Apiv frunk
-use paperclip::actix::{api_v2_errors, Apiv2Schema};
+use paperclip::actix::{Apiv2Schema, api_v2_errors};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, Nonce};

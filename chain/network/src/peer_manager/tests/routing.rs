@@ -9,19 +9,19 @@ use crate::peer::peer_actor::{
 };
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
-use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
+use crate::peer_manager::testonly::start as start_pm;
 use crate::private_actix::RegisterPeerError;
 use crate::tcp;
-use crate::testonly::{abort_on_panic, make_rng, Rng};
+use crate::testonly::{Rng, abort_on_panic, make_rng};
 use crate::types::{Edge, PeerMessage};
 use crate::types::{PeerInfo, ReasonForBan};
 use near_async::time;
 use near_primitives::network::PeerId;
 use near_store::db::TestDB;
 use pretty_assertions::assert_eq;
-use rand::seq::IteratorRandom;
 use rand::Rng as _;
+use rand::seq::IteratorRandom;
 use std::collections::HashSet;
 use std::net::Ipv6Addr;
 use std::sync::Arc;
@@ -911,7 +911,7 @@ async fn ttl_and_num_hops() {
     pm.wait_for_routing_table(&[(peer.cfg.id(), vec![peer.cfg.id()])]).await;
 
     for ttl in 0..5 {
-        let msg = RoutedMessageBody::Ping(Ping { nonce: rng.gen(), source: peer.cfg.id() });
+        let msg = RoutedMessageBody::Ping(Ping { nonce: rng.r#gen(), source: peer.cfg.id() });
         let msg = Box::new(peer.routed_message(msg, peer.cfg.id(), ttl, Some(clock.now_utc())));
         peer.send(PeerMessage::Routed(msg.clone())).await;
         // If TTL is <2, then the message will be dropped (at least 2 hops are required).

@@ -1,6 +1,6 @@
 use crate::config::SocketOptions;
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::PeerMessage;
+use crate::network_protocol::testonly as data;
 use crate::network_protocol::{Encoding, Handshake, OwnedAccount, PartialEdgeInfo};
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager;

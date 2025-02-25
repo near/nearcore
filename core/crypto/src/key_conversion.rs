@@ -1,4 +1,4 @@
-use crate::{signature, vrf, PublicKey};
+use crate::{PublicKey, signature, vrf};
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::ristretto::RistrettoPoint;
 use std::mem::transmute;

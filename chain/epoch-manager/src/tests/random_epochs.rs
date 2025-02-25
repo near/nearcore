@@ -3,10 +3,10 @@ use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+use crate::EpochManager;
 use crate::test_utils::{
     hash_range, record_block_with_slashes, setup_default_epoch_manager, stake,
 };
-use crate::EpochManager;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::EpochInfo;

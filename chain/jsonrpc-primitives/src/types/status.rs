@@ -68,7 +68,7 @@ impl From<RpcStatusError> for crate::errors::RpcError {
                 return Self::new_internal_error(
                     None,
                     format!("Failed to serialize RpcStateChangesError: {:?}", err),
-                )
+                );
             }
         };
         Self::new_internal_or_handler_error(Some(error_data.clone()), error_data)

@@ -23,8 +23,8 @@ use self::fetchers::{
     fetch_state_changes, fetch_status,
 };
 use self::utils::convert_transactions_sir_into_local_receipts;
-use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
+use crate::streamer::fetchers::fetch_protocol_config;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
 use near_epoch_manager::shard_tracker::ShardTracker;
 

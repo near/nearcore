@@ -2,12 +2,12 @@ use near_crypto::Signer;
 use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
 use near_primitives::account::AccessKey;
 use near_primitives::action::{Action, AddKeyAction, CreateAccountAction, TransferAction};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::test_utils::account_new;
 use near_primitives::types::{AccountId, Balance, Compute, Gas, MerkleHash, StateChangeCause};
 use near_store::test_utils::TestTriesBuilder;
-use near_store::{get_account, set_account, ShardUId};
+use near_store::{ShardUId, get_account, set_account};
 use std::sync::Arc;
 use testlib::runtime_utils::bob_account;
 

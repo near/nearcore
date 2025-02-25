@@ -9,16 +9,16 @@ use crate::stateless_validation::partial_witness::partial_witness_actor::{
     PartialWitnessActor, PartialWitnessSenderForClient,
 };
 use crate::{
-    start_client, Client, ClientActor, StartClientResult, SyncStatus, ViewClientActor,
-    ViewClientActorInner,
+    Client, ClientActor, StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner,
+    start_client,
 };
 use actix::{Actor, Addr, Context};
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::ActixFutureSpawner;
 use near_async::messaging::{
-    noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender,
+    CanSend, IntoMultiSender, IntoSender, LateBoundSender, SendAsync, Sender, noop,
 };
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
@@ -33,11 +33,11 @@ use near_chain_configs::{
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::shards_manager_actor::{start_shards_manager, ShardsManagerActor};
+use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_crypto::{KeyType, PublicKey};
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, ChunkEndorsementMessage, OptimisticBlockMessage, SetNetworkInfo,
@@ -58,7 +58,7 @@ use near_network::types::{PeerInfo, PeerType};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{ApprovalInner, GenesisId};
 use near_primitives::epoch_info::RngSeed;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, EpochId, NumBlocks, NumSeats, ShardId};
@@ -69,7 +69,7 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
@@ -711,7 +711,7 @@ fn process_peer_manager_message_default(
                     false
                 } else if height_mod < 200 {
                     let mut rng = rand::thread_rng();
-                    rng.gen()
+                    rng.r#gen()
                 } else {
                     true
                 }

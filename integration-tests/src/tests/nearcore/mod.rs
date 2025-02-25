@@ -1,3 +1,4 @@
+mod economics;
 mod node_cluster;
 mod rpc_error_structs;
 mod rpc_nodes;

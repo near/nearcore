@@ -1,8 +1,8 @@
+use crate::ApplyState;
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use crate::ApplyState;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
@@ -20,7 +20,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{get_access_key, get_account, TrieUpdate};
+use near_store::{TrieUpdate, get_access_key, get_account};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -166,7 +166,7 @@ impl TrieViewer {
             None => {
                 return Err(errors::ViewStateError::AccountDoesNotExist {
                     requested_account_id: account_id.clone(),
-                })
+                });
             }
         };
 

@@ -2,13 +2,13 @@ use crate::apply_block_cost;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::{GasCost, NonNegativeTolerance};
 use crate::transaction_builder::TransactionBuilder;
-use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_parameters::ExtCosts;
+use near_parameters::vm::{Config as VMConfig, VMKind};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
-use rand::distributions::Alphanumeric;
 use rand::Rng;
+use rand::distributions::Alphanumeric;
 use rand_xorshift::XorShiftRng;
 use std::collections::HashMap;
 use std::iter;
@@ -440,7 +440,7 @@ pub(crate) fn generate_data_only_contract(data_size: usize, config: &VMConfig) -
 
 pub(crate) fn random_vec(len: usize) -> Vec<u8> {
     let mut rng = rand::thread_rng();
-    (0..len).map(|_| rng.gen()).collect()
+    (0..len).map(|_| rng.r#gen()).collect()
 }
 
 #[cfg(test)]

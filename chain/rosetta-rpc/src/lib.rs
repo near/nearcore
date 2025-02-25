@@ -7,9 +7,8 @@ use actix::Addr;
 use actix_cors::Cors;
 use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
-    api_v2_operation,
+    OpenApiExt, api_v2_operation,
     web::{self, Json},
-    OpenApiExt,
 };
 use strum::IntoEnumIterator;
 
@@ -412,11 +411,7 @@ async fn account_balance(
                         // retrieve contract address from global config if not provided in query
                         config_currencies.as_ref().clone().and_then(|currencies| {
                             currencies.iter().find_map(|c| {
-                                if c.symbol == currency.symbol {
-                                    c.metadata.clone()
-                                } else {
-                                    None
-                                }
+                                if c.symbol == currency.symbol { c.metadata.clone() } else { None }
                             })
                         })
                     })

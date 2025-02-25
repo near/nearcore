@@ -4,7 +4,7 @@ use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
+use near_client::test_utils::{TestEnv, create_chunk, create_chunk_with_transactions};
 use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::InMemorySigner;
 use near_network::types::NetworkRequests;
@@ -24,7 +24,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::Trie;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -146,13 +146,15 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    assert!(validate_challenge(
-        env.clients[1].chain.epoch_manager.as_ref(),
-        env.clients[1].chain.runtime_adapter.as_ref(),
-        &epoch_id,
-        &invalid_challenge,
-    )
-    .is_err());
+    assert!(
+        validate_challenge(
+            env.clients[1].chain.epoch_manager.as_ref(),
+            env.clients[1].chain.runtime_adapter.as_ref(),
+            &epoch_id,
+            &invalid_challenge,
+        )
+        .is_err()
+    );
     let b3 = env.clients[0].produce_block(3).unwrap().unwrap();
     let invalid_challenge = Challenge::produce(
         ChallengeBody::BlockDoubleSign(BlockDoubleSign {
@@ -161,13 +163,15 @@ fn test_verify_block_double_sign_challenge() {
         }),
         &signer,
     );
-    assert!(validate_challenge(
-        env.clients[1].chain.epoch_manager.as_ref(),
-        env.clients[1].chain.runtime_adapter.as_ref(),
-        &epoch_id,
-        &invalid_challenge,
-    )
-    .is_err());
+    assert!(
+        validate_challenge(
+            env.clients[1].chain.epoch_manager.as_ref(),
+            env.clients[1].chain.runtime_adapter.as_ref(),
+            &epoch_id,
+            &invalid_challenge,
+        )
+        .is_err()
+    );
 
     let result = env.clients[0].process_block_test(b2.into(), Provenance::SYNC);
     assert!(result.is_ok());
@@ -403,10 +407,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         .unwrap();
 
     match &mut invalid_chunk {
-        EncodedShardChunk::V1(ref mut chunk) => {
+        EncodedShardChunk::V1(chunk) => {
             chunk.header.height_included = last_block.header().height() + 1;
         }
-        EncodedShardChunk::V2(ref mut chunk) => {
+        EncodedShardChunk::V2(chunk) => {
             *chunk.header.height_included_mut() = last_block.header().height() + 1;
         }
     }

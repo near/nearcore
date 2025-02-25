@@ -1,13 +1,13 @@
+use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
     PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
-use crate::Error;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -19,7 +19,7 @@ use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -40,16 +40,16 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
-    TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
+    TrieConfig, TrieUpdate, WrappedTrieChanges,
 };
 use near_vm_runner::ContractCode;
-use near_vm_runner::{precompile_contract, ContractRuntimeCache};
+use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
-    ValidatorAccountsUpdate,
+    ApplyState, Runtime, ValidatorAccountsUpdate, validate_transaction,
+    verify_and_charge_transaction,
 };
 use std::collections::HashMap;
 use std::sync::Arc;

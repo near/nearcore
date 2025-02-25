@@ -28,15 +28,14 @@ mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
 pub use cache::{
-    get_contract_cache_key, precompile_contract, CompiledContract, CompiledContractInfo,
-    ContractRuntimeCache, FilesystemContractRuntimeCache, MockContractRuntimeCache,
-    NoContractRuntimeCache,
+    CompiledContract, CompiledContractInfo, ContractRuntimeCache, FilesystemContractRuntimeCache,
+    MockContractRuntimeCache, NoContractRuntimeCache, get_contract_cache_key, precompile_contract,
 };
 #[cfg(feature = "metrics")]
 pub use metrics::{report_metrics, reset_metrics};
 pub use near_primitives_core::code::ContractCode;
 pub use profile::ProfileDataV3;
-pub use runner::{prepare, run, Contract, PreparedContract, VM};
+pub use runner::{Contract, PreparedContract, VM, prepare, run};
 
 /// This is public for internal experimentation use only, and should otherwise be considered an
 /// implementation detail of `near-vm-runner`.

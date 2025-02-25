@@ -1,6 +1,6 @@
 use borsh::BorshSerialize;
 use near_primitives::errors::StorageError;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::ValueRef;
 
 use super::ops::interface::{

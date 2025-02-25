@@ -1,4 +1,4 @@
-use near_o11y::metrics::{try_create_int_gauge_vec, IntGaugeVec};
+use near_o11y::metrics::{IntGaugeVec, try_create_int_gauge_vec};
 use std::sync::LazyLock;
 
 pub static MEMTRIE_ARENA_ACTIVE_ALLOCS_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
