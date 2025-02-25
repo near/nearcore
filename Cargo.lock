@@ -3455,6 +3455,7 @@ dependencies = [
  "near-wallet-contract",
  "nearcore",
  "node-runtime",
+ "num-rational 0.3.2",
  "parking_lot 0.12.1",
  "primitive-types 0.10.1",
  "rand",

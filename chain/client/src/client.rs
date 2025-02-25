@@ -986,7 +986,7 @@ impl Client {
     /// blocks multiple times.
     /// Then it process the block header. If the header if valid, broadcast the block to its peers
     /// Then it starts the block processing process to process the full block.
-    pub(crate) fn receive_block_impl(
+    pub fn receive_block_impl(
         &mut self,
         block: Block,
         peer_id: PeerId,

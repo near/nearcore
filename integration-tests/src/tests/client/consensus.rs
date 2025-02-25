@@ -3,9 +3,9 @@ use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use actix::System;
 use near_chain::test_utils::ValidatorSchedule;
+use near_client::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use rand::{Rng, thread_rng};
 
-use crate::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_chain::Block;

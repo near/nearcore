@@ -1,12 +1,10 @@
-#![allow(unused_imports)]
-
-use crate::test_utils::{ActorHandlesForTesting, BlockStats, setup_mock_all_validators};
-use crate::{ClientActor, Query, ViewClientActor};
-use actix::{Addr, MailboxError, System};
+use actix::{MailboxError, System};
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
 use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
+use near_client::test_utils::{ActorHandlesForTesting, BlockStats, setup_mock_all_validators};
+use near_client::{Query, QueryError};
 use near_crypto::InMemorySigner;
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
@@ -155,7 +153,7 @@ fn send_tx(
 }
 
 fn test_cross_shard_tx_callback(
-    res: Result<Result<QueryResponse, crate::QueryError>, MailboxError>,
+    res: Result<Result<QueryResponse, QueryError>, MailboxError>,
     account_id: AccountId,
     connectors: Arc<RwLock<Vec<ActorHandlesForTesting>>>,
     iteration: Arc<AtomicUsize>,

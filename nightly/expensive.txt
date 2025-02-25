@@ -1,24 +1,24 @@
 # catchup tests
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_last_block
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_last_block --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15 --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15 --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6 --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_sanity_blocks_produced --features nightly
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_hold
-expensive --timeout=1800 near-client near_client tests::catching_up::ultra_slow_test_catchup_receipts_sync_hold --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_third_epoch --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_last_block
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_last_block --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_distant_epoch --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_skip_15 --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_send_15 --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_non_zero_amounts --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_random_single_part_sync_height_6 --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_sanity_blocks_produced
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_sanity_blocks_produced --features nightly
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_hold
+expensive --timeout=1800 integration-tests integration_tests tests::client::catching_up::ultra_slow_test_catchup_receipts_sync_hold --features nightly
 
 expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup
 expensive integration-tests integration_tests tests::other_tests::test_catchup::ultra_slow_test_catchup --features nightly
@@ -26,26 +26,26 @@ expensive integration-tests integration_tests tests::other_tests::test_catchup::
 # cross-shard transactions tests
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx
-# expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug --features nightly
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks
-expensive --timeout=3000 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks --features nightly
+# expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx
+# expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx --features nightly
+expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug
+expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_doomslug --features nightly
+expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks
+expensive --timeout=3000 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_drop_chunks --features nightly
 # TODO(#4618): Those tests are currently broken.  Comment out while we’re
 # working on a fix / deciding whether to remove them.
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1 --features nightly
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2
-# expensive --timeout=5400 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2 --features nightly
-# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations
-# expensive --timeout=4800 near-client near_client tests::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations_drop_chunks
+# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1
+# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_1 --features nightly
+# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2
+# expensive --timeout=5400 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_with_validator_rotation_2 --features nightly
+# expensive --timeout=4800 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations
+# expensive --timeout=4800 integration-tests integration_tests tests::client::cross_shard_tx::ultra_slow_test_cross_shard_tx_8_iterations_drop_chunks
 
 # consensus tests
 expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety
 expensive --timeout=3000 near-chain near_chain tests::doomslug::ultra_slow_test_fuzzy_doomslug_liveness_and_safety --features nightly
-expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_test_consensus_with_epoch_switches
-expensive --timeout=500 near-client near_client tests::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
+expensive --timeout=500 integration-tests integration_tests tests::client::consensus::ultra_slow_test_consensus_with_epoch_switches
+expensive --timeout=500 integration-tests integration_tests tests::client::consensus::ultra_slow_test_consensus_with_epoch_switches --features nightly
 
 # testnet rpc
 expensive integration-tests integration_tests tests::other_tests::test_tps_regression::ultra_slow_test_high_load
@@ -233,10 +233,10 @@ expensive integration-tests integration_tests tests::nearcore::track_shards::ult
 expensive integration-tests integration_tests tests::nearcore::track_shards::ultra_slow_test_track_shards --features nightly
 
 # TestLoop tests
-expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts
-expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts --features nightly
-expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks
-expensive --timeout=1800 integration_tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_three_shards_random_receipts --features nightly
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks
+expensive --timeout=1800 test-loop-tests test_loop_tests tests::bandwidth_scheduler::ultra_slow_test_bandwidth_scheduler_four_shards_random_receipts_missing_chunks --features nightly
 
 # Estimator Warehouse
 expensive --timeout=1800 estimator-warehouse estimator_warehouse tests::ultra_slow_test_full_estimator

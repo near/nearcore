@@ -1,11 +1,20 @@
 mod benchmarks;
 mod block_corruption;
+mod block_sync;
+mod bug_repro;
+mod catching_up;
 mod challenges;
 mod chunks_management;
 mod cold_storage;
+mod consensus;
+mod cross_shard_tx;
+mod doomslug;
 mod flat_storage;
 mod invalid_txs;
+mod maintenance_windows;
 mod process_blocks;
+mod process_blocks2;
+mod query_client;
 mod resharding_v2;
 mod runtimes;
 #[cfg(feature = "sandbox")]
