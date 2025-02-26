@@ -37,10 +37,6 @@ class GlobalContractDeployMode:
     pass
 
 
-class AccountId:
-    pass
-
-
 class FunctionCall:
     pass
 
@@ -168,7 +164,7 @@ tx_schema = [
             'field': 'enum',
             'values': [
                 ['codeHash', [32]],
-                ['accountId', AccountId],
+                ['accountId', 'string'],
             ]
         }
     ],
