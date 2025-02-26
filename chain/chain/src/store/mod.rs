@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
@@ -282,6 +283,13 @@ pub struct ChainStore {
     save_trie_changes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
+
+    // TODO make caches evict oldest blocks when growing above threashold.
+    // TODO cache `Block` too?
+    // Refcell for inner mutability, has traits require getters to take immutable `&self`.
+    /// Blockheaders are indexed by their hash.
+    block_header_cache: RefCell<HashMap<CryptoHash, BlockHeader>>,
+    block_hash_by_height_cache: RefCell<HashMap<BlockHeight, CryptoHash>>,
 }
 
 impl Deref for ChainStore {
@@ -314,6 +322,8 @@ impl ChainStore {
             latest_known: once_cell::unsync::OnceCell::new(),
             save_trie_changes,
             transaction_validity_period,
+            block_header_cache: RefCell::new(Default::default()),
+            block_hash_by_height_cache: RefCell::new(Default::default()),
         }
     }
 
@@ -987,12 +997,26 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
-        ChainStoreAdapter::get_block_header(self, h)
+        if let Some(header) = self.block_header_cache.borrow().get(h) {
+            return Ok(header.clone());
+        }
+        let res = ChainStoreAdapter::get_block_header(self, h);
+        if let Ok(ref header) = res {
+            self.block_header_cache.borrow_mut().insert(h.clone(), header.clone());
+        }
+        res
     }
 
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
-        ChainStoreAdapter::get_block_hash_by_height(self, height)
+        if let Some(hash) = self.block_hash_by_height_cache.borrow().get(&height) {
+            return Ok(hash.clone());
+        }
+        let res = ChainStoreAdapter::get_block_hash_by_height(self, height);
+        if let Ok(ref hash) = res {
+            self.block_hash_by_height_cache.borrow_mut().insert(height, hash.clone());
+        }
+        res
     }
 
     fn get_next_block_hash(&self, hash: &CryptoHash) -> Result<CryptoHash, Error> {
