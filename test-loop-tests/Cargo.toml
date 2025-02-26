@@ -44,6 +44,12 @@ nearcore.workspace = true
 testlib.workspace = true
 
 [features]
+test_features = [
+  "nearcore/test_features",
+  "near-store/test_features",
+  "near-vm-runner/test_features",
+  "near-test-contracts/test_features",
+]
 nightly = [
   "near-async/nightly",
   "near-chain-configs/nightly",
