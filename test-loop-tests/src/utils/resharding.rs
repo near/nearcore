@@ -1234,7 +1234,7 @@ fn get_resharded_shard_uids(
     (parent_shard_uid, left_child_shard_uid, right_child_shard_uid)
 }
 
-// Helper function to retrieve the an indices-like value from the trie. This bypasses any other
+// Helper function to retrieve an indices-like value from the trie. This bypasses any other
 // intermediate layer (caching, memtrie, flat-storage).
 fn get_indices_value_for_shard<I: borsh::BorshDeserialize + Default>(
     client_actor: &ClientActorInner,
