@@ -152,15 +152,6 @@ impl NightshadeRuntime {
         Ok(ShardUId::new(shard_version, shard_id))
     }
 
-    fn account_id_to_shard_uid(
-        &self,
-        account_id: &AccountId,
-        shard_layout: &ShardLayout,
-    ) -> ShardUId {
-        let shard_id = shard_layout.account_id_to_shard_id(account_id);
-        ShardUId::from_shard_id_and_layout(shard_id, &shard_layout)
-    }
-
     /// Processes state update.
     #[instrument(target = "runtime", level = "debug", "process_state_update", skip_all)]
     fn process_state_update(
@@ -553,9 +544,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let ShardAcceptsTransactions::No(reason) =
                 congestion_control.shard_accepts_transactions()
             {
-                let receiver_shard = self
-                    .account_id_to_shard_uid(transaction.transaction.receiver_id(), &shard_layout);
-                let shard_id = receiver_shard.shard_id;
+                let shard_id = shard_layout
+                    .account_id_to_shard_id(transaction.transaction.receiver_id())
+                    .into();
                 let err = match reason {
                     RejectTransactionReason::IncomingCongestion { congestion_level }
                     | RejectTransactionReason::OutgoingCongestion { congestion_level }
@@ -583,7 +574,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         if let Some(state_root) = state_root {
             let shard_uid =
-                self.account_id_to_shard_uid(transaction.transaction.signer_id(), &shard_layout);
+                shard_layout.account_id_to_shard_uid(transaction.transaction.signer_id());
             let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(

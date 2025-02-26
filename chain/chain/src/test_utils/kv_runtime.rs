@@ -997,8 +997,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
-        #[allow(deprecated)]
-        Ok(ShardLayout::v0(self.num_shards, 0))
+        Ok(ShardLayout::multi_shard(self.num_shards, 0))
     }
 
     fn validate_tx(
