@@ -23,7 +23,7 @@ def test_deploy_global_contract():
     test_contract = load_test_contract()
     last_block_hash = nodes[0].get_latest_block().hash_bytes
     tx = sign_deploy_global_contract_tx(nodes[0].signer_key, test_contract, 10,
-                                 last_block_hash)
+                                        last_block_hash)
     nodes[0].send_tx(tx)
     time.sleep(3)
 
@@ -33,7 +33,7 @@ def test_deploy_global_contract():
 
     last_block_hash = nodes[1].get_latest_block().hash_bytes
     tx = sign_use_global_contract_tx(nodes[1].signer_key, identifier, 20,
-                                 last_block_hash)
+                                     last_block_hash)
     nodes[0].send_tx(tx)
     time.sleep(3)
 

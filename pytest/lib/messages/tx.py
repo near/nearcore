@@ -142,10 +142,14 @@ tx_schema = [
         'kind': 'struct',
         'fields': [['code', ['u8']]]
     }],
-    [DeployGlobalContract, {
-        'kind': 'struct',
-        'fields': [['code', ['u8']], ['deployMode', GlobalContractDeployMode]]
-    }],
+    [
+        DeployGlobalContract, {
+            'kind':
+                'struct',
+            'fields': [['code', ['u8']],
+                       ['deployMode', GlobalContractDeployMode]]
+        }
+    ],
     [
         GlobalContractDeployMode, {
             'kind': 'enum',
@@ -156,10 +160,12 @@ tx_schema = [
             ]
         }
     ],
-    [UseGlobalContract, {
-        'kind': 'struct',
-        'fields': [['contractIdentifier', GlobalContractIdentifier]]
-    }],
+    [
+        UseGlobalContract, {
+            'kind': 'struct',
+            'fields': [['contractIdentifier', GlobalContractIdentifier]]
+        }
+    ],
     [
         GlobalContractIdentifier, {
             'kind': 'enum',

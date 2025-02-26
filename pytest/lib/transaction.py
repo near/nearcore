@@ -185,6 +185,7 @@ def create_use_global_contract_action(identifier):
     action.useGlobalContract = useGlobalContract
     return action
 
+
 def create_function_call_action(methodName, args, gas, deposit):
     functionCall = FunctionCall()
     functionCall.methodName = methodName
@@ -304,7 +305,7 @@ def sign_deploy_contract_transaction(signer_key, code, nonce,
 
 
 def sign_deploy_global_contract_transaction(signer_key, code, nonce,
-                                     blockHash) -> SignedTransaction:
+                                            blockHash) -> SignedTransaction:
     action = create_deploy_global_contract_action(code)
     return sign_transaction(signer_key.account_id, nonce, [action], blockHash,
                             signer_key.account_id, signer_key.decoded_pk(),
@@ -312,7 +313,7 @@ def sign_deploy_global_contract_transaction(signer_key, code, nonce,
 
 
 def sign_use_global_contract_transaction(signer_key, identifier, nonce,
-                                     blockHash) -> SignedTransaction:
+                                         blockHash) -> SignedTransaction:
     action = create_use_global_contract_action(identifier)
     return sign_transaction(signer_key.account_id, nonce, [action], blockHash,
                             signer_key.account_id, signer_key.decoded_pk(),
@@ -325,12 +326,15 @@ def sign_deploy_contract_tx(signer_key, code, nonce, blockHash) -> bytes:
 
 
 def sign_deploy_global_contract_tx(signer_key, code, nonce, blockHash) -> bytes:
-    tx = sign_deploy_global_contract_transaction(signer_key, code, nonce, blockHash)
+    tx = sign_deploy_global_contract_transaction(signer_key, code, nonce,
+                                                 blockHash)
     return serialize_transaction(tx)
 
 
-def sign_use_global_contract_tx(signer_key, identifier, nonce, blockHash) -> bytes:
-    tx = sign_use_global_contract_transaction(signer_key, identifier, nonce, blockHash)
+def sign_use_global_contract_tx(signer_key, identifier, nonce,
+                                blockHash) -> bytes:
+    tx = sign_use_global_contract_transaction(signer_key, identifier, nonce,
+                                              blockHash)
     return serialize_transaction(tx)
 
 
