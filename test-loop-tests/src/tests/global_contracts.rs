@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::ValidatorsSpec;
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::Client;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
@@ -175,7 +175,7 @@ impl GlobalContractsTestEnv {
         let validators_spec =
             ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
 
-        let (genesis, epoch_config_store) = TestLoopBuilder::new_genesis_builder()
+        let genesis = TestLoopBuilder::new_genesis_builder()
             .validators_spec(validators_spec)
             .shard_layout(shard_layout)
             .add_user_accounts_simple(
@@ -183,7 +183,8 @@ impl GlobalContractsTestEnv {
                 initial_balance,
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
-            .build_with_simple_epoch_config_store();
+            .build();
+        let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
         let clients = block_and_chunk_producers
             .iter()

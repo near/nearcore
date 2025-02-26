@@ -152,6 +152,20 @@ impl TestEpochConfigBuilder {
         Default::default()
     }
 
+    pub fn from_genesis(genesis: &Genesis) -> Self {
+        let mut builder = Self::new();
+        builder.epoch_length = genesis.config.epoch_length;
+        builder.shard_layout = genesis.config.shard_layout.clone();
+        builder.num_block_producer_seats = genesis.config.num_block_producer_seats;
+        builder.num_chunk_producer_seats = genesis.config.num_chunk_producer_seats;
+        builder.num_chunk_validator_seats = genesis.config.num_chunk_validator_seats;
+        builder
+    }
+
+    pub fn build_store_from_genesis(genesis: &Genesis) -> EpochConfigStore {
+        Self::from_genesis(genesis).build_store_for_single_version(genesis.config.protocol_version)
+    }
+
     pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
         self.epoch_length = epoch_length;
         self
@@ -242,6 +256,14 @@ impl TestEpochConfigBuilder {
         };
         tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config
+    }
+
+    pub fn build_store_for_single_version(
+        self,
+        protocol_version: ProtocolVersion,
+    ) -> EpochConfigStore {
+        let epoch_config = self.build();
+        EpochConfigStore::test_single_version(protocol_version, epoch_config)
     }
 }
 
@@ -391,14 +413,6 @@ impl TestGenesisBuilder {
         self
     }
 
-    /// Creates epoch config builder compatible with the current genesis builder state
-    pub fn derive_epoch_config_builder(&self) -> TestEpochConfigBuilder {
-        TestEpochConfigBuilder::new()
-            .epoch_length(self.epoch_length)
-            .shard_layout(self.shard_layout.clone())
-            .validators_spec(self.validators_spec.clone())
-    }
-
     pub fn build(self) -> Genesis {
         if self
             .user_accounts
@@ -518,16 +532,6 @@ impl TestGenesisBuilder {
             config: genesis_config,
             contents: GenesisContents::Records { records: GenesisRecords(records) },
         }
-    }
-
-    // Builds genesis along with epoch config store containing single epoch config
-    // for the genesis protocol version.
-    pub fn build_with_simple_epoch_config_store(self) -> (Genesis, EpochConfigStore) {
-        let epoch_config = self.derive_epoch_config_builder().build();
-        let genesis = self.build();
-        let epoch_config_store =
-            EpochConfigStore::test_single_version(genesis.config.protocol_version, epoch_config);
-        (genesis, epoch_config_store)
     }
 }
 
@@ -692,13 +696,12 @@ pub fn build_genesis_and_epoch_config_store<'a>(
         .validators_spec(validators_spec)
         .add_user_accounts_simple(accounts, 1_000_000 * ONE_NEAR)
         .gas_limit_one_petagas();
-    let epoch_config_builder = genesis_builder.derive_epoch_config_builder();
     let genesis_builder = customize_genesis_builder(genesis_builder);
-    let epoch_config_builder = customize_epoch_config_builder(epoch_config_builder);
-
     let genesis = genesis_builder.build();
-    let epoch_config = epoch_config_builder.build();
-    let epoch_config_store = EpochConfigStore::test_single_version(protocol_version, epoch_config);
+
+    let epoch_config_builder = TestEpochConfigBuilder::from_genesis(&genesis);
+    let epoch_config_builder = customize_epoch_config_builder(epoch_config_builder);
+    let epoch_config_store = epoch_config_builder.build_store_for_single_version(protocol_version);
 
     (genesis, epoch_config_store)
 }
