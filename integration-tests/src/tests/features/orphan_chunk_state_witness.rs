@@ -8,7 +8,6 @@ use near_chain_configs::Genesis;
 use near_chain_configs::default_orphan_state_witness_max_size;
 use near_client::DistributeStateWitnessRequest;
 use near_client::HandleOrphanWitnessOutcome;
-use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::sharding::ShardChunkHeaderV3;
 use near_primitives::sharding::{
@@ -18,7 +17,9 @@ use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, ChunkStateWitnessSize,
 };
 use near_primitives::types::{AccountId, ShardId};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 struct OrphanWitnessTestEnv {
     env: TestEnv,

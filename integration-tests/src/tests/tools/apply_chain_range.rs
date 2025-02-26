@@ -1,11 +1,11 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+use crate::env::test_env::TestEnv;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::EpochManager;
 use near_primitives::transaction::SignedTransaction;

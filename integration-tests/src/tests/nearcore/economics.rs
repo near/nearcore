@@ -5,8 +5,8 @@ use near_client::ProcessTxResponse;
 use near_epoch_manager::EpochManager;
 use num_rational::Ratio;
 
+use crate::env::test_env::TestEnv;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;

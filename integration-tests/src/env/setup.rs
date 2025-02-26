@@ -2,16 +2,6 @@
 // code so we're in the clear.
 #![allow(clippy::arc_with_non_send_sync)]
 
-use super::block_stats::BlockStats;
-use super::peer_manager_mock::PeerManagerMock;
-use crate::client_actor::ClientActorInner;
-use crate::stateless_validation::partial_witness::partial_witness_actor::{
-    PartialWitnessActor, PartialWitnessSenderForClient,
-};
-use crate::{
-    Client, ClientActor, StartClientResult, SyncStatus, ViewClientActor, ViewClientActorInner,
-    start_client,
-};
 use actix::{Actor, Addr, Context};
 use futures::{FutureExt, future};
 use near_async::actix::AddrWithAutoSpanContextExt;
@@ -35,6 +25,12 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
+use near_client::adversarial::Controls;
+use near_client::client_actor::ClientActorInner;
+use near_client::{
+    Client, ClientActor, PartialWitnessActor, PartialWitnessSenderForClient, StartClientResult,
+    SyncStatus, ViewClientActor, ViewClientActorInner, start_client,
+};
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -74,6 +70,9 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
+
+use crate::utils::block_stats::BlockStats;
+use crate::utils::peer_manager_mock::PeerManagerMock;
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
@@ -141,7 +140,7 @@ pub fn setup(
         base
     };
 
-    let adv = crate::adversarial::Controls::default();
+    let adv = Controls::default();
 
     let view_client_addr = ViewClientActorInner::spawn_actix_actor(
         clock.clone(),
@@ -293,7 +292,7 @@ pub fn setup_only_view(
         state_sync_enabled,
     );
 
-    let adv = crate::adversarial::Controls::default();
+    let adv = Controls::default();
 
     ViewClientActorInner::spawn_actix_actor(
         clock,

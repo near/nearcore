@@ -12,7 +12,6 @@
 
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_parameters::{ActionCosts, RuntimeConfig};
@@ -23,7 +22,9 @@ use near_primitives::transaction::{
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::version::PROTOCOL_VERSION;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 /// Tracked in https://github.com/near/nearcore/issues/8938
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;

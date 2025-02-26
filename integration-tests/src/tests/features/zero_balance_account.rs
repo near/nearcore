@@ -1,6 +1,5 @@
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
 use near_network::client::ProcessTxResponse;
 use near_parameters::{ExtCostsConfig, RuntimeConfig, RuntimeConfigStore, StorageUsageConfig};
@@ -12,9 +11,11 @@ use near_primitives::transaction::Action::AddKey;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use std::sync::Arc;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 /// Assert that an account exists and has zero balance
 fn assert_zero_balance_account(env: &TestEnv, account_id: &AccountId) {

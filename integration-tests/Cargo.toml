@@ -24,6 +24,7 @@ futures.workspace = true
 hex.workspace = true
 itertools.workspace = true
 num-rational.workspace = true
+once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
@@ -34,6 +35,8 @@ smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
 tempfile.workspace = true
+thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 wat.workspace = true
@@ -60,6 +63,7 @@ near-o11y.workspace = true
 near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
+near-rosetta-rpc.workspace = true
 near-vm-runner = { workspace = true, features = ["prepare"] }
 near-wallet-contract.workspace = true
 nearcore.workspace = true
@@ -115,6 +119,7 @@ nightly = [
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-primitives/nightly",
+  "near-rosetta-rpc/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
   "near-undo-block/nightly",
@@ -144,6 +149,7 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
   "near-primitives/nightly_protocol",
+  "near-rosetta-rpc/nightly_protocol",
   "near-store/nightly_protocol",
   "near-telemetry/nightly_protocol",
   "near-undo-block/nightly_protocol",

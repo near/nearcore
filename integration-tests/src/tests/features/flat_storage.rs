@@ -1,6 +1,5 @@
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_parameters::ExtCosts;
 use near_primitives::test_utils::encode;
@@ -10,8 +9,9 @@ use near_primitives::transaction::{
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::deploy_test_contract_with_protocol_version;
 
 /// Check that after flat storage upgrade:

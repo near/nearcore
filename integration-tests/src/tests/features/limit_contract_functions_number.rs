@@ -1,14 +1,14 @@
 use assert_matches::assert_matches;
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::errors::{
     ActionErrorKind, CompilationError, FunctionCallError, PrepareError, TxExecutionError,
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::deploy_test_contract;
 
 #[allow(dead_code)]

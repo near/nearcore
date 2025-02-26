@@ -1,15 +1,15 @@
 use near_chain::types::RuntimeAdapter;
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis};
-use near_client::test_utils::TestEnvBuilder;
 use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
 use near_store::genesis::initialize_genesis_state;
 use near_store::{Store, TrieConfig};
 use near_vm_runner::ContractRuntimeCache;
+use nearcore::NightshadeRuntime;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::NightshadeRuntime;
+use super::test_env_builder::TestEnvBuilder;
 
 pub trait TestEnvNightshadeSetupExt {
     fn nightshade_runtimes(self, genesis: &Genesis) -> Self;
