@@ -52,6 +52,7 @@ mod proposals;
 mod reward_calculator;
 pub mod shard_assignment;
 pub mod shard_tracker;
+pub mod test_epoch_manager;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;

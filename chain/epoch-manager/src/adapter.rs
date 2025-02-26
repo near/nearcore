@@ -50,6 +50,36 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// parts.
     fn num_total_parts(&self) -> usize;
 
+    /// WARNING: this call may be expensive.
+    ///
+    /// This function is intended for diagnostic use in logging & rpc, don't use
+    /// it for "production" code.
+    fn get_validator_info(
+        &self,
+        epoch_identifier: ValidatorInfoIdentifier,
+    ) -> Result<EpochValidatorInfo, EpochError>;
+
+    fn add_validator_proposals(
+        &self,
+        block_info: BlockInfo,
+        random_value: CryptoHash,
+    ) -> Result<StoreUpdate, EpochError>;
+
+    /// Epoch Manager init procedure that is necessary after Epoch Sync.
+    fn init_after_epoch_sync(
+        &self,
+        store_update: &mut StoreUpdate,
+        prev_epoch_first_block_info: BlockInfo,
+        prev_epoch_prev_last_block_info: BlockInfo,
+        prev_epoch_last_block_info: BlockInfo,
+        prev_epoch_id: &EpochId,
+        prev_epoch_info: EpochInfo,
+        epoch_id: &EpochId,
+        epoch_info: EpochInfo,
+        next_epoch_id: &EpochId,
+        next_epoch_info: EpochInfo,
+    ) -> Result<(), EpochError>;
+
     /// Check if epoch exists.
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.get_epoch_info(epoch_id).is_ok()
@@ -523,21 +553,6 @@ pub trait EpochManagerAdapter: Send + Sync {
             .ok_or_else(|| EpochError::NotAValidator(account_id.clone(), *epoch_id))
     }
 
-    /// WARNING: this call may be expensive.
-    ///
-    /// This function is intended for diagnostic use in logging & rpc, don't use
-    /// it for "production" code.
-    fn get_validator_info(
-        &self,
-        epoch_identifier: ValidatorInfoIdentifier,
-    ) -> Result<EpochValidatorInfo, EpochError>;
-
-    fn add_validator_proposals(
-        &self,
-        block_info: BlockInfo,
-        random_value: CryptoHash,
-    ) -> Result<StoreUpdate, EpochError>;
-
     /// Epoch active protocol version.
     fn get_epoch_protocol_version(
         &self,
@@ -570,21 +585,6 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<bool, EpochError> {
         Ok(self.get_epoch_chunk_producers(epoch_id)?.iter().any(|v| v.account_id() == account_id))
     }
-
-    /// Epoch Manager init procedure that is necessary after Epoch Sync.
-    fn init_after_epoch_sync(
-        &self,
-        store_update: &mut StoreUpdate,
-        prev_epoch_first_block_info: BlockInfo,
-        prev_epoch_prev_last_block_info: BlockInfo,
-        prev_epoch_last_block_info: BlockInfo,
-        prev_epoch_id: &EpochId,
-        prev_epoch_info: EpochInfo,
-        epoch_id: &EpochId,
-        epoch_info: EpochInfo,
-        next_epoch_id: &EpochId,
-        next_epoch_info: EpochInfo,
-    ) -> Result<(), EpochError>;
 
     /// This is needed as a temporary hack required for legacy tests
     /// using MockEpochManager to work.
