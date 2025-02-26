@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Set default compute zone
+export CLOUDSDK_COMPUTE_ZONE=us-central1-a
+
 # Function to list nodes and select validators
 select_validators() {
     echo "Available nodes:"
@@ -29,7 +32,8 @@ select_validators() {
 # Function to check benchmark status on a specific node
 check_node_status() {
     local node=$1
-    echo "=== Status for $node ==="
+    local mode=$2
+    echo "=== Status for $node (Mode $mode) ==="
     gcloud compute ssh ubuntu@"$node" --command="tail -n 5 /tmp/err" 2>/dev/null || \
         echo "Failed to connect to $node"
     echo "----------------------------------------"
@@ -37,43 +41,83 @@ check_node_status() {
 
 # Function to check status of all benchmark nodes
 check_all_status() {
-    while read -r node; do
-        check_node_status "$node"
-    done < /tmp/benchmark_nodes
+    { read -r node1; read -r node2; } < /tmp/benchmark_nodes
+    
+    if [ -n "$node1" ]; then
+        check_node_status "$node1" "1"
+    fi
+    if [ -n "$node2" ]; then
+        check_node_status "$node2" "2"
+    fi
 }
 
 # Function to run prepare phase with periodic status checks
 run_prepare() {
+    local rpc_host=$1
     echo "Starting preparation phase..."
     
-    # Start prepare phase on all nodes in parallel
-    while read -r node; do
-        echo "Starting prepare on $node..."
-        gcloud compute ssh ubuntu@"$node" --command="/home/ubuntu/benchmark.sh prepare > /tmp/err 2>&1 &" &
-    done < /tmp/benchmark_nodes
+    # Read the two nodes
+    { read -r node1; read -r node2; } < /tmp/benchmark_nodes
+    
+    if [ -z "$node1" ] || [ -z "$node2" ]; then
+        echo "Error: Need exactly two nodes for benchmarking"
+        exit 1
+    fi
+    
+    # First set up RPC URL on both nodes
+    echo "Setting up RPC URL on nodes..."
+    for node in "$node1" "$node2"; do
+        echo "Configuring RPC URL on $node..."
+        gcloud compute ssh ubuntu@"$node" --command="
+            sudo sed -i '/^RPC_URL=/d' /etc/environment && \
+            sudo sh -c 'echo \"RPC_URL=http://${rpc_host}:3030\" >> /etc/environment'" || \
+            echo "Failed to set RPC_URL on $node"
+    done
+    
+    # Start prepare phase on nodes with different modes
+    echo "Starting prepare on $node1 (Mode 1)..."
+    gcloud compute ssh ubuntu@"$node1" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 1 --operation prepare --rpc-url http://${rpc_host}:3030 > /tmp/err 2>&1 &"
+    
+    echo "Starting prepare on $node2 (Mode 2)..."
+    gcloud compute ssh ubuntu@"$node2" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 2 --operation prepare --rpc-url http://${rpc_host}:3030 > /tmp/err 2>&1 &"
     
     echo "Preparation started on all nodes. Monitoring status..."
     
-    # Monitor status every 30 seconds until completion or error
+    # Monitor status every 10 seconds until completion or error
     while true; do
-        sleep 30
+        sleep 10
         echo -e "\n=== Status Check at $(date) ==="
         
         all_done=true
-        while read -r node; do
-            # Check if prepare phase is complete by looking for completion marker or error
-            status=$(gcloud compute ssh ubuntu@"$node" --command="tail -n 20 /tmp/err" 2>/dev/null)
-            
-            if echo "$status" | grep -q "Preparation complete"; then
-                echo "$node: Preparation completed successfully"
-            elif echo "$status" | grep -q "Error:"; then
-                echo "$node: Error detected"
-                exit 1
-            else
-                echo "$node: Still preparing..."
-                all_done=false
-            fi
-        done < /tmp/benchmark_nodes
+        
+        # Check node1 (Mode 1)
+        echo "=== Status for $node1 (Mode 1) ==="
+        status1=$(gcloud compute ssh ubuntu@"$node1" --command="tail -n 20 /tmp/err" 2>/dev/null)
+        echo "$status1"
+        echo "----------------------------------------"
+        
+        # Check node2 (Mode 2)
+        echo "=== Status for $node2 (Mode 2) ==="
+        status2=$(gcloud compute ssh ubuntu@"$node2" --command="tail -n 20 /tmp/err" 2>/dev/null)
+        echo "$status2"
+        echo "----------------------------------------"
+        
+        # Check completion status for both nodes
+        if ! echo "$status1" | grep -q "preparation complete"; then
+            echo "$node1: Still preparing Mode 1..."
+            all_done=false
+        fi
+        
+        if ! echo "$status2" | grep -q "preparation complete"; then
+            echo "$node2: Still preparing Mode 2..."
+            all_done=false
+        fi
+        
+        # Check for errors
+        if echo "$status1$status2" | grep -q "RUST_BACKTRACE"; then
+            echo "Error detected in one of the nodes"
+            exit 1
+        fi
         
         if $all_done; then
             echo "All nodes have completed preparation!"
@@ -86,30 +130,22 @@ run_prepare() {
 run_benchmark() {
     echo "Starting benchmark execution..."
     
-    # Start benchmark on all nodes in parallel
-    while read -r node; do
-        echo "Starting benchmark on $node..."
-        gcloud compute ssh ubuntu@"$node" --command="/home/ubuntu/benchmark.sh run > /tmp/err 2>&1 &" &
-    done < /tmp/benchmark_nodes
+    # Read the two nodes
+    { read -r node1; read -r node2; } < /tmp/benchmark_nodes
+    
+    if [ -z "$node1" ] || [ -z "$node2" ]; then
+        echo "Error: Need exactly two nodes for benchmarking"
+        exit 1
+    fi
+    
+    # Start different modes on different nodes
+    echo "Starting Mode 1 benchmark on $node1..."
+    gcloud compute ssh ubuntu@"$node1" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 1 --operation run --rpc-url \$RPC_URL > /tmp/err 2>&1 &"
+    
+    echo "Starting Mode 2 benchmark on $node2..."
+    gcloud compute ssh ubuntu@"$node2" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 2 --operation run --rpc-url \$RPC_URL > /tmp/err 2>&1 &"
     
     echo "Benchmark started on all nodes. Use './validator_manager.sh status' to check progress."
-}
-
-# Function to set up RPC URL on nodes
-setup_rpc_url() {
-    local rpc_host=$1
-    echo "Setting up RPC URL on all nodes..."
-    
-    while read -r node; do
-        echo "Configuring RPC URL on $node..."
-        # Remove any existing RPC_URL line and add the new one
-        gcloud compute ssh ubuntu@"$node" --command="
-            sudo sed -i '/^RPC_URL=/d' /etc/environment && \
-            sudo sh -c 'echo \"RPC_URL=http://${rpc_host}:3030\" >> /etc/environment'" || \
-            echo "Failed to set RPC_URL on $node"
-    done < /tmp/benchmark_nodes
-    
-    echo "RPC URL configuration complete. The setting will be available in all new sessions."
 }
 
 # Main execution
@@ -128,8 +164,7 @@ case "$1" in
             echo "Example: $0 prepare 35.226.42.192"
             exit 1
         fi
-        setup_rpc_url "$2"
-        run_prepare
+        run_prepare "$2"
         ;;
     "run")
         if [ ! -f /tmp/benchmark_nodes ]; then

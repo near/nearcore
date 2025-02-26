@@ -2,9 +2,9 @@
 
 # Configuration
 LOG_FILE="/tmp/err"
-RPC_URL="http://127.0.0.1:3030"  # Default RPC URL, can be overridden
 SCRIPT_MODE=""
 OPERATION=""
+NODE_RPC="http://127.0.0.1:3030"
 
 # Function to show usage
 usage() {
@@ -19,7 +19,7 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         --mode)
-            SCRIPT_MODE="$2"
+            MODE="$2"
             shift 2
             ;;
         --operation)
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --rpc-url)
-            RPC_URL="$2"
+            NODE_RPC="$2"
             shift 2
             ;;
         *)
@@ -37,12 +37,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate inputs
-if [[ ! "$SCRIPT_MODE" =~ ^[12]$ ]]; then
+if [[ -n "$MODE" && ! "$MODE" =~ ^(1|2)$ ]]; then
     echo "Error: Mode must be 1 or 2"
     usage
 fi
 
-if [[ ! "$OPERATION" =~ ^(prepare|run)$ ]]; then
+if [[ -n "$OPERATION" && ! "$OPERATION" =~ ^(prepare|run)$ ]]; then
     echo "Error: Operation must be prepare or run"
     usage
 fi
@@ -50,98 +50,109 @@ fi
 # Function to run command in background with logging
 run_background() {
     local cmd="$1"
+    local log_file="$2"
     echo "Running command in background: $cmd"
-    eval "$cmd" > "$LOG_FILE" 2>&1 &
-    echo "Process ID: $!"
-    echo "Logs are being written to $LOG_FILE"
+    eval "$cmd" > "$log_file" 2>&1 &
+    local pid=$!
+    echo "Process ID: $pid"
+    echo "Logs are being written to $log_file"
+    echo $pid > "/tmp/benchmark_pid_$3"
 }
 
 # Function to check status
 check_status() {
-    echo "=== Checking status of background process ==="
-    if ! ps -p $1 > /dev/null; then
-        echo "Process $1 has finished"
+    local pid=$1
+    local log_file=$2
+    echo "=== Checking status of background process $pid ==="
+    if ! ps -p $pid > /dev/null; then
+        echo "Process $pid has finished"
         echo "Last 10 lines of log:"
-        tail -n 10 "$LOG_FILE"
+        tail -n 10 "$log_file"
         return 1
     else
-        echo "Process $1 is still running"
+        echo "Process $pid is still running"
         echo "Last 5 lines of log:"
-        tail -n 5 "$LOG_FILE"
+        tail -n 5 "$log_file"
         return 0
     fi
 }
 
 # Mode 1: Native Transfers
 run_mode_1() {
-    if [ "$OPERATION" == "prepare" ]; then
+    local operation=$1
+    local rpc_url=$2
+    local log_file="/tmp/err"
+    
+    if [ "$operation" == "prepare" ]; then
         run_background "RUST_LOG=debug /home/ubuntu/near-synth-bm create-sub-accounts \
-            --rpc-url $RPC_URL \
+            --rpc-url $rpc_url \
             --signer-key-path /home/ubuntu/.near/validator_key.json \
-            --nonce 10 \
+            --nonce 1000 \
             --sub-account-prefix '2,c,h,m,x' \
             --num-sub-accounts 500 \
             --deposit 953060601875000000010000000 \
             --channel-buffer-size 1200 \
             --requests-per-second 1250 \
             --user-data-dir user-data && \
-            echo 'Preparation complete'"
+            echo 'Mode 1 preparation complete'" "$log_file" "mode1"
     else
         run_background "RUST_LOG=info /home/ubuntu/near-synth-bm benchmark-native-transfers \
-            --rpc-url $RPC_URL \
+            --rpc-url $rpc_url \
             --user-data-dir /home/ubuntu/user-data/ \
             --read-nonces-from-network \
             --num-transfers 90000000 \
             --channel-buffer-size 30000 \
             --requests-per-second 3000 \
-            --amount 1"
+            --amount 1" "$log_file" "mode1"
     fi
 }
 
 # Mode 2: Sweat Benchmark
 run_mode_2() {
-    if [ "$OPERATION" == "prepare" ]; then
+    local operation=$1
+    local rpc_url=$2
+    local log_file="/tmp/err"
+    
+    if [ "$operation" == "prepare" ]; then
         run_background "RUST_LOG=info /home/ubuntu/near-synth-bm \
             benchmark-sweat create-contracts \
-            --rpc-url $RPC_URL \
+            --rpc-url $rpc_url \
             --num-oracles 5 \
             --oracle-deposit 1000000000000000000000000000000 \
             --user-data-dir /home/ubuntu/oracles/ \
             --signer-key-path /home/ubuntu/.near/validator_key.json \
             --wasm-file /home/ubuntu/sweat.wasm \
-            --nonce 10 && \
+            --nonce 1000 && \
         RUST_LOG=info /home/ubuntu/near-synth-bm \
             benchmark-sweat create-users \
-            --rpc-url $RPC_URL \
+            --rpc-url $rpc_url \
             --oracle-data-dir /home/ubuntu/oracles/ \
             --users-per-oracle 1000 \
             --user-data-dir /home/ubuntu/users/ \
             --deposit 953060601875000000010000 && \
-            echo 'Preparation complete'"
+            echo 'Mode 2 preparation complete'" "$log_file" "mode2"
     else
         run_background "RUST_LOG=info /home/ubuntu/near-synth-bm \
             benchmark-sweat run-benchmark \
-            --rpc-url $RPC_URL \
+            --rpc-url $rpc_url \
             --oracle-data-dir /home/ubuntu/oracles/ \
             --user-data-dir /home/ubuntu/users/ \
             --batch-size 750 \
             --requests-per-second 10 \
-            --total-batches 2000000"
+            --total-batches 2000000" "$log_file" "mode2"
     fi
 }
 
-# Select and run the appropriate mode
-if [ "$SCRIPT_MODE" == "1" ]; then
-    run_mode_1
-elif [ "$SCRIPT_MODE" == "2" ]; then
-    run_mode_2
+# Run the specified modes
+if [ -n "$MODE" ]; then
+    if [ "$MODE" == "1" ]; then
+        run_mode_1 "$OPERATION" "$NODE_RPC"
+    elif [ "$MODE" == "2" ]; then
+        run_mode_2 "$OPERATION" "$NODE_RPC"
+    fi
 fi
 
-# Store the process ID
-PID=$!
-echo $PID > /tmp/benchmark_pid
-
 echo "Script started in background. To check status:"
-echo "  ./$(basename $0) --check-status"
+echo "  ps aux | grep near-synth-bm"
 echo "To view logs:"
-echo "  tail -f $LOG_FILE"
+echo "  tail -f /tmp/err"
