@@ -37,10 +37,6 @@ class GlobalContractDeployMode:
     pass
 
 
-class CryptoHash:
-    pass
-
-
 class AccountId:
     pass
 
