@@ -9,7 +9,7 @@ use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
 // Just re-exporting RuntimeConfig for backwards compatibility.
-use near_parameters::{transfer_exec_fee, transfer_send_fee, ActionCosts, RuntimeConfig};
+use near_parameters::{ActionCosts, RuntimeConfig, transfer_exec_fee, transfer_send_fee};
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
@@ -146,9 +146,11 @@ pub fn total_send_fees(
                         .send_fee(sender_is_receiver)
                         * num_bytes
             }
-            UseGlobalContract(_) => {
-                // TODO(#12717): implement send fees for global contracts
-                1
+            UseGlobalContract(action) => {
+                let num_bytes = action.contract_identifier.len() as u64;
+                fees.fee(ActionCosts::use_global_contract_base).send_fee(sender_is_receiver)
+                    + fees.fee(ActionCosts::use_global_contract_byte).send_fee(sender_is_receiver)
+                        * num_bytes
             }
         };
         result = safe_add_gas(result, delta)?;
@@ -236,9 +238,10 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             fees.fee(ActionCosts::deploy_global_contract_base).exec_fee()
                 + fees.fee(ActionCosts::deploy_global_contract_byte).exec_fee() * num_bytes
         }
-        UseGlobalContract(_) => {
-            // TODO(#12717): implement exec fees for global contracts
-            1
+        UseGlobalContract(action) => {
+            let num_bytes = action.contract_identifier.len() as u64;
+            fees.fee(ActionCosts::use_global_contract_base).exec_fee()
+                + fees.fee(ActionCosts::use_global_contract_byte).exec_fee() * num_bytes
         }
     }
 }

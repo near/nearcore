@@ -140,14 +140,23 @@ impl EpochInfoAggregator {
                 // For old chunks, we optimize the block and its header by not including the chunk endorsements and
                 // corresponding bitmaps. Thus, we expect that the bitmap is non-empty for new chunks only.
                 if *mask {
-                    debug_assert!(chunk_endorsements.len(shard_index).unwrap() == chunk_validators.len().div_ceil(8) * 8,
-                            "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_index={}",
-                            chunk_endorsements.len(shard_index).unwrap(), chunk_validators.len(), shard_index);
+                    debug_assert!(
+                        chunk_endorsements.len(shard_index).unwrap()
+                            == chunk_validators.len().div_ceil(8) * 8,
+                        "Chunk endorsement bitmap length is inconsistent with number of chunk validators. Bitmap length={}, num validators={}, shard_index={}",
+                        chunk_endorsements.len(shard_index).unwrap(),
+                        chunk_validators.len(),
+                        shard_index
+                    );
                     chunk_endorsements.iter(shard_index)
                 } else {
-                    debug_assert_eq!(chunk_endorsements.len(shard_index).unwrap(), 0,
-                            "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_index={}",
-                            chunk_endorsements.len(shard_index).unwrap(), shard_index);
+                    debug_assert_eq!(
+                        chunk_endorsements.len(shard_index).unwrap(),
+                        0,
+                        "Chunk endorsement bitmap must be empty for missing chunk. Bitmap length={}, shard_index={}",
+                        chunk_endorsements.len(shard_index).unwrap(),
+                        shard_index
+                    );
                     Box::new(std::iter::repeat(false).take(chunk_validators.len()))
                 }
             } else {

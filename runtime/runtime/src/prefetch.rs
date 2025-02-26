@@ -54,7 +54,7 @@ use sha2::Digest;
 use std::str::FromStr;
 use tracing::{debug, warn};
 
-use crate::{metrics, SignedValidPeriodTransactions};
+use crate::{SignedValidPeriodTransactions, metrics};
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,

@@ -4,9 +4,9 @@ use std::{fmt, io};
 
 use near_chain_configs::GCConfig;
 use near_chain_primitives::Error;
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid;
@@ -20,7 +20,7 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{DBCol, KeyForStateChanges, ShardTries, ShardUId, StoreUpdate};
 
 use crate::types::RuntimeAdapter;
-use crate::{metrics, Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate};
+use crate::{Chain, ChainStore, ChainStoreAccess, ChainStoreUpdate, metrics};
 
 #[derive(Clone)]
 pub enum GCMode {

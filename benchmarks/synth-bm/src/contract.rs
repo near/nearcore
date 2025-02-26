@@ -6,7 +6,6 @@ use crate::account::{accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use log::info;
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
@@ -19,6 +18,7 @@ use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time;
+use tracing::info;
 
 #[derive(Args, Debug)]
 pub struct BenchmarkMpcSignArgs {
@@ -59,7 +59,7 @@ pub struct BenchmarkMpcSignArgs {
 pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
     let mut accounts = accounts_from_dir(&args.user_data_dir)?;
     assert!(
-        accounts.len() > 0,
+        !accounts.is_empty(),
         "at least one account required in {:?} to send transactions",
         args.user_data_dir
     );

@@ -4,7 +4,7 @@ use crate::config::{
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
-use crate::{metrics, ActionResult, ApplyState};
+use crate::{ActionResult, ApplyState, ChunkApplyStatsV0, metrics};
 use near_crypto::PublicKey;
 use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountContract};
@@ -16,7 +16,7 @@ use near_primitives::action::{
 use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0,
 };
@@ -24,25 +24,27 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
 };
+use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::account_is_implicit;
 use near_primitives::version::{
-    ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
+    DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion,
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_promise_yield_timeout, get_access_key, get_promise_yield_indices, remove_access_key,
-    remove_account, set_access_key, set_promise_yield_indices, StorageError, TrieUpdate,
+    StorageError, TrieUpdate, enqueue_promise_yield_timeout, get_access_key,
+    get_promise_yield_indices, remove_access_key, remove_account, set_access_key,
+    set_promise_yield_indices,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::{VMContext, VMOutcome};
-use near_vm_runner::{precompile_contract, PreparedContract};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
+use near_vm_runner::{PreparedContract, precompile_contract};
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use std::sync::Arc;
 
@@ -185,9 +187,11 @@ pub(crate) fn action_function_call(
         .into());
     }
 
+    let account_contract = account.contract();
     state_update.record_contract_call(
         account_id.clone(),
         code_hash,
+        account_contract.as_ref(),
         apply_state.apply_reason.clone(),
         apply_state.current_protocol_version,
     )?;
@@ -250,12 +254,12 @@ pub(crate) fn action_function_call(
                     .with_label_values(&[err.into()])
                     .inc();
             }
-            FunctionCallError::WasmTrap(ref inner_err) => {
+            FunctionCallError::WasmTrap(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_WASM_TRAP_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
             }
-            FunctionCallError::HostError(ref inner_err) => {
+            FunctionCallError::HostError(inner_err) => {
                 metrics::FUNCTION_CALL_PROCESSED_HOST_ERRORS
                     .with_label_values(&[inner_err.into()])
                     .inc();
@@ -586,13 +590,12 @@ pub(crate) fn action_deploy_contract(
     current_protocol_version: ProtocolVersion,
 ) -> Result<(), StorageError> {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_contract").entered();
-    let prev_code_len = get_code_len_or_default(
+    clear_account_contract_storage_usage(
         state_update,
-        account_id.clone(),
-        account.local_contract_hash().unwrap_or_default(),
+        account_id,
+        account,
         current_protocol_version,
     )?;
-    account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
 
     let code = ContractCode::new(deploy_contract.code.clone(), None);
     account.set_storage_usage(
@@ -627,6 +630,7 @@ pub(crate) fn action_deploy_global_contract(
     apply_state: &ApplyState,
     deploy_contract: &DeployGlobalContractAction,
     result: &mut ActionResult,
+    stats: &mut ChunkApplyStatsV0,
 ) {
     let _span = tracing::debug_span!(target: "runtime", "action_deploy_global_contract").entered();
 
@@ -644,6 +648,8 @@ pub(crate) fn action_deploy_global_contract(
         .into());
         return;
     };
+    stats.balance.global_actions_burnt_amount =
+        stats.balance.global_actions_burnt_amount.saturating_add(storage_cost);
     account.set_amount(updated_balance);
 
     let id = match deploy_contract.deploy_mode {
@@ -663,12 +669,46 @@ pub(crate) fn action_deploy_global_contract(
 }
 
 pub(crate) fn action_use_global_contract(
-    _state_update: &mut TrieUpdate,
-    _account: &mut Account,
-    _action: &UseGlobalContractAction,
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    action: &UseGlobalContractAction,
+    current_protocol_version: ProtocolVersion,
+    result: &mut ActionResult,
 ) -> Result<(), RuntimeError> {
     let _span = tracing::debug_span!(target: "runtime", "action_use_global_contract").entered();
-    // TODO(#12716): implement global contract usage
+    let key = TrieKey::GlobalContractCode { identifier: action.contract_identifier.clone().into() };
+    if !state_update.contains_key(&key)? {
+        result.result = Err(ActionErrorKind::GlobalContractDoesNotExist {
+            identifier: action.contract_identifier.clone(),
+        }
+        .into());
+        return Ok(());
+    }
+    clear_account_contract_storage_usage(
+        state_update,
+        account_id,
+        account,
+        current_protocol_version,
+    )?;
+    if account.contract().is_local() {
+        state_update.remove(TrieKey::ContractCode { account_id: account_id.clone() });
+    }
+    let contract = match &action.contract_identifier {
+        GlobalContractIdentifier::CodeHash(code_hash) => AccountContract::Global(*code_hash),
+        GlobalContractIdentifier::AccountId(id) => AccountContract::GlobalByAccount(id.clone()),
+    };
+    account.set_storage_usage(
+        account.storage_usage().checked_add(action.contract_identifier.len() as u64).ok_or_else(
+            || {
+                StorageError::StorageInconsistentState(format!(
+                    "Storage usage integer overflow for account {}",
+                    account_id
+                ))
+            },
+        )?,
+    );
+    account.set_contract(contract);
     Ok(())
 }
 
@@ -691,9 +731,12 @@ pub(crate) fn action_delete_account(
             account.local_contract_hash().unwrap_or_default(),
             current_protocol_version,
         )?;
-        debug_assert!(code_len == 0 || account_storage_usage > code_len,
+        debug_assert!(
+            code_len == 0 || account_storage_usage > code_len,
             "Account storage usage should be larger than code size. Storage usage: {}, code size: {}",
-            account_storage_usage, code_len);
+            account_storage_usage,
+            code_len
+        );
         account_storage_usage = account_storage_usage.saturating_sub(code_len);
         if account_storage_usage > Account::MAX_ACCOUNT_DELETION_STORAGE_USAGE {
             result.result = Err(ActionErrorKind::DeleteAccountWithLargeState {
@@ -742,6 +785,35 @@ fn get_code_len_or_default(
         code_hash
     );
     Ok(code_len.unwrap_or_default().try_into().unwrap())
+}
+
+/// Clears the contract storage usage based on type for an account.
+fn clear_account_contract_storage_usage(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    account: &mut Account,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), StorageError> {
+    match account.contract().as_ref() {
+        AccountContract::None => {}
+        AccountContract::Local(code_hash) => {
+            let prev_code_len = get_code_len_or_default(
+                state_update,
+                account_id.clone(),
+                *code_hash,
+                current_protocol_version,
+            )?;
+            account.set_storage_usage(account.storage_usage().saturating_sub(prev_code_len));
+        }
+        AccountContract::Global(_) | AccountContract::GlobalByAccount(_) => {
+            account.set_storage_usage(
+                account
+                    .storage_usage()
+                    .saturating_sub(account.contract().identifier_storage_usage()),
+            );
+        }
+    };
+    Ok(())
 }
 
 pub(crate) fn action_delete_key(
@@ -988,7 +1060,7 @@ fn validate_delegate_action_key(
             .into());
             return Ok(());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = actions.get(0) {
+        if let Some(Action::FunctionCall(function_call)) = actions.get(0) {
             if function_call.deposit > 0 {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,

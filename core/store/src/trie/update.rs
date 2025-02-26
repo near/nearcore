@@ -1,21 +1,22 @@
 pub use self::iterator::TrieUpdateIterator;
 use super::accounting_cache::TrieAccountingCacheSwitch;
 use super::{OptimizedValueRef, Trie, TrieWithReadLock};
+use crate::StorageError;
 use crate::contract::ContractStorage;
 use crate::trie::TrieAccess;
 use crate::trie::{KeyLookupMode, TrieChanges};
-use crate::StorageError;
+use near_primitives::account::AccountContract;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::stateless_validation::contract_distribution::ContractUpdates;
-use near_primitives::trie_key::TrieKey;
+use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
     AccountId, RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause,
     StateRoot, TrieCacheMode,
 };
 use near_primitives::version::ProtocolFeature;
-use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
+use near_vm_runner::logic::ProtocolVersion;
 use std::collections::BTreeMap;
 
 mod iterator;
@@ -339,6 +340,7 @@ impl TrieUpdate {
         &self,
         account_id: AccountId,
         code_hash: CryptoHash,
+        account_contract: &AccountContract,
         apply_reason: ApplyChunkReason,
         protocol_version: ProtocolVersion,
     ) -> Result<(), StorageError> {
@@ -357,10 +359,16 @@ impl TrieUpdate {
         // Only record the call if trie contains the contract (with the given hash) being called deployed to the given account.
         // This avoids recording contracts that do not exist or are newly-deployed to the account.
         // Note that the check below to see if the contract exists has no side effects (not charging gas or recording trie nodes)
-        if code_hash == CryptoHash::default() {
-            return Ok(());
-        }
-        let trie_key = TrieKey::ContractCode { account_id };
+        let trie_key = match account_contract {
+            AccountContract::None => return Ok(()),
+            AccountContract::Local(_) => TrieKey::ContractCode { account_id },
+            AccountContract::Global(code_hash) => TrieKey::GlobalContractCode {
+                identifier: GlobalContractCodeIdentifier::CodeHash(*code_hash),
+            },
+            AccountContract::GlobalByAccount(account_id) => TrieKey::GlobalContractCode {
+                identifier: GlobalContractCodeIdentifier::AccountId(account_id.clone()),
+            },
+        };
         let contract_ref = self
             .trie
             .get_optimized_ref_no_side_effects(&trie_key.to_vec(), KeyLookupMode::FlatStorage)
@@ -406,8 +414,8 @@ impl Drop for TrieCacheModeGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::TestTriesBuilder;
     use crate::ShardUId;
+    use crate::test_utils::TestTriesBuilder;
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     const SHARD_VERSION: u32 = 1;

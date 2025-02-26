@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 
 use actix_cors::Cors;
-use actix_web::http::header::{self, ContentType};
 use actix_web::HttpRequest;
-use actix_web::{get, http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use actix_web::http::header::{self, ContentType};
+use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, get, http, middleware, web};
 pub use api::{RpcFrom, RpcInto, RpcRequest};
 use near_async::actix::ActixResult;
 use near_async::messaging::{
@@ -16,6 +16,7 @@ use near_client::{
     GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
     ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
 };
+use near_client_primitives::debug::{DebugBlockStatusQuery, DebugBlocksStartingMode};
 use near_client_primitives::types::GetSplitStorageInfo;
 pub use near_jsonrpc_client_internal as client;
 pub use near_jsonrpc_primitives as primitives;
@@ -33,12 +34,12 @@ use near_jsonrpc_primitives::types::transactions::{
 };
 use near_network::debug::GetDebugStatus;
 use near_network::tcp::{self, ListenerAddr};
-use near_o11y::metrics::{prometheus, Encoder, TextEncoder};
+use near_o11y::metrics::{Encoder, TextEncoder, prometheus};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockHeight, BlockId, BlockReference};
+use near_primitives::types::{AccountId, BlockId, BlockReference};
 use near_primitives::views::{QueryRequest, TxExecutionStatus};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -211,7 +212,7 @@ fn process_query_response(
                         return Err(RpcError::new_internal_error(
                             None,
                             format!("Failed to serialize RpcQueryError: {:?}", err),
-                        ))
+                        ));
                     }
                 };
                 Err(RpcError::new_internal_or_handler_error(error_data, error_data_value))
@@ -786,11 +787,12 @@ impl JsonRpcHandler {
                         self.client_send(DebugStatus::CatchupStatus).await?.rpc_into()
                     }
                     "/debug/api/epoch_info" => {
-                        self.client_send(DebugStatus::EpochInfo).await?.rpc_into()
+                        self.client_send(DebugStatus::EpochInfo(None)).await?.rpc_into()
                     }
-                    "/debug/api/block_status" => {
-                        self.client_send(DebugStatus::BlockStatus(None)).await?.rpc_into()
-                    }
+                    "/debug/api/block_status" => self
+                        .client_send(DebugStatus::BlockStatus(DebugBlockStatusQuery::default()))
+                        .await?
+                        .rpc_into(),
                     "/debug/api/validator_status" => {
                         self.client_send(DebugStatus::ValidatorStatus).await?.rpc_into()
                     }
@@ -842,14 +844,30 @@ impl JsonRpcHandler {
 
     pub async fn debug_block_status(
         &self,
-        starting_height: Option<BlockHeight>,
+        query: DebugBlockStatusQuery,
     ) -> Result<
         Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
         near_jsonrpc_primitives::types::status::RpcStatusError,
     > {
         if self.enable_debug_rpc {
-            let debug_status =
-                self.client_send(DebugStatus::BlockStatus(starting_height)).await?.rpc_into();
+            let debug_status = self.client_send(DebugStatus::BlockStatus(query)).await?.rpc_into();
+            Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
+                status_response: debug_status,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn debug_epoch_info(
+        &self,
+        epoch_id: Option<near_primitives::types::EpochId>,
+    ) -> Result<
+        Option<near_jsonrpc_primitives::types::status::RpcDebugStatusResponse>,
+        near_jsonrpc_primitives::types::status::RpcStatusError,
+    > {
+        if self.enable_debug_rpc {
+            let debug_status = self.client_send(DebugStatus::EpochInfo(epoch_id)).await?.rpc_into();
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {
                 status_response: debug_status,
             }))
@@ -1462,10 +1480,47 @@ async fn handle_entity_debug_readonly(
 }
 
 async fn debug_block_status_handler(
+    query: web::Query<DebugBlockStatusQuery>,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    match handler.debug_block_status(query.0).await {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
+#[deprecated(since = "2.6.0", note = "Use debug_block_status_handler instead")]
+async fn deprecated_debug_block_status_handler(
     path: web::Path<u64>,
     handler: web::Data<JsonRpcHandler>,
 ) -> Result<HttpResponse, HttpError> {
-    match handler.debug_block_status(Some(*path)).await {
+    match handler
+        .debug_block_status(DebugBlockStatusQuery {
+            starting_height: Some(*path),
+            mode: DebugBlocksStartingMode::All,
+            num_blocks: 50,
+        })
+        .await
+    {
+        Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
+        Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
+        Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct DebugRpcEpochInfoRequest {
+    #[serde(flatten)]
+    pub epoch_id: near_primitives::types::EpochId,
+}
+
+async fn debug_epoch_info_handler(
+    path: web::Path<String>,
+    handler: web::Data<JsonRpcHandler>,
+) -> Result<HttpResponse, HttpError> {
+    let epoch_id: near_primitives::types::EpochId = path.into_inner().parse().unwrap();
+    match handler.debug_epoch_info(Some(epoch_id)).await {
         Ok(Some(value)) => Ok(HttpResponse::Ok().json(&value)),
         Ok(None) => Ok(HttpResponse::MethodNotAllowed().finish()),
         Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
@@ -1642,11 +1697,21 @@ pub fn start_http(
             .service(web::resource("/network_info").route(web::get().to(network_info_handler)))
             .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
             .service(web::resource("/debug/api/entity").route(web::post().to(handle_entity_debug)))
-            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
+            .service(web::resource("/debug/api/block_status/{starting_height}").route(
+                web::get().to(
+                    #[allow(deprecated)]
+                    deprecated_debug_block_status_handler,
+                ),
+            ))
             .service(
-                web::resource("/debug/api/block_status/{starting_height}")
+                web::resource("/debug/api/block_status")
                     .route(web::get().to(debug_block_status_handler)),
             )
+            .service(
+                web::resource("/debug/api/epoch_info/{epoch_id}")
+                    .route(web::get().to(debug_epoch_info_handler)),
+            )
+            .service(web::resource("/debug/api/{api}").route(web::get().to(debug_handler)))
             .service(
                 web::resource("/debug/client_config").route(web::get().to(client_config_handler)),
             )
@@ -1703,7 +1768,9 @@ pub async fn start_http_for_readonly_debug_querying(
     entity_debug_handler: Arc<dyn EntityDebugHandler>,
 ) -> Result<(), std::io::Error> {
     info!("Starting readonly debug API server at {}", addr);
-    info!("Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying.");
+    info!(
+        "Use tools/debug-ui, use localhost as the node, and go to the Entity Debug tab to start querying."
+    );
     let listener = HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(entity_debug_handler.clone()))

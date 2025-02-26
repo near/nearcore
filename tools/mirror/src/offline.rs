@@ -15,6 +15,7 @@ use near_primitives::types::{AccountId, BlockHeight, TransactionOrReceiptId};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
+use near_store::genesis::initialize_genesis_state;
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
@@ -41,6 +42,7 @@ impl ChainAccess {
         let node_storage =
             nearcore::open_storage(home.as_ref(), &mut config).context("failed opening storage")?;
         let store = node_storage.get_hot_store();
+        initialize_genesis_state(store.clone(), &config.genesis, Some(home.as_ref()));
         let chain = ChainStore::new(
             store.clone(),
             config.client_config.save_trie_changes,
@@ -88,7 +90,7 @@ impl crate::ChainAccess for ChainAccess {
                 }
                 Err(e) => {
                     return Err(e)
-                        .with_context(|| format!("failed fetching block hash for #{}", height))
+                        .with_context(|| format!("failed fetching block hash for #{}", height));
                 }
             };
         }
@@ -100,7 +102,7 @@ impl crate::ChainAccess for ChainAccess {
                 Err(ChainError::Other(e)) => {
                     return Err(e).with_context(|| {
                         format!("failed getting next block height after {}", last_height)
-                    })
+                    });
                 }
             };
         }
@@ -129,7 +131,9 @@ impl crate::ChainAccess for ChainAccess {
                 Err(e) => {
                     tracing::error!(
                         "Can't fetch source chain shard {} chunk at height {}. Are we tracking all shards?: {:?}",
-                        chunk.shard_id(), height, e
+                        chunk.shard_id(),
+                        height,
+                        e
                     );
                     continue;
                 }

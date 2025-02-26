@@ -1,8 +1,8 @@
 [workspace.package]
 version = "0.0.0"                               # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
-edition = "2021"
-rust-version = "1.84.0"
+edition = "2024"
+rust-version = "1.85.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -20,6 +20,7 @@ exclude = ["neard"]
 [workspace]
 resolver = "2"
 members = [
+    "benchmarks/transactions-generator",
     "chain/chain",
     "chain/chunks",
     "chain/client",
@@ -71,6 +72,7 @@ members = [
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
+    "test-loop-tests",
     "test-utils/actix-test-utils",
     "test-utils/runtime-tester",
     "test-utils/runtime-tester/fuzz",
@@ -270,6 +272,7 @@ near-schema-checker-macro = { path = "core/schema-checker/schema-checker-macro" 
 near-schema-checker-core = { path = "core/schema-checker/schema-checker-core" }
 near-schema-checker-lib = { path = "core/schema-checker/schema-checker-lib" }
 near-store = { path = "core/store" }
+near-transactions-generator = { path = "benchmarks/transactions-generator"}
 near-telemetry = { path = "chain/telemetry" }
 near-test-contracts = { path = "runtime/near-test-contracts" }
 near-time = { path = "core/time" }

@@ -85,8 +85,8 @@ mod trie;
 
 use crate::config::Config;
 pub use crate::cost::Cost;
-use crate::cost_table::format_gas;
 pub use crate::cost_table::CostTable;
+use crate::cost_table::format_gas;
 pub use crate::costs_to_runtime_config::costs_to_runtime_config;
 use crate::estimator_context::EstimatorContext;
 use crate::gas_cost::GasCost;
@@ -107,10 +107,10 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_runner::internal::VMKindExt;
-use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockContractRuntimeCache;
+use near_vm_runner::internal::VMKindExt;
+use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use serde_json::json;
 use std::convert::TryFrom;
 use std::iter;
@@ -1451,7 +1451,9 @@ fn cpu_benchmark_sha256(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Estimate how much gas is charged for 1 CPU instruction. (Using given runtime parameters, on the specific system this is being run on.)
 fn one_cpu_instruction(ctx: &mut EstimatorContext) -> GasCost {
-    eprintln!("Cannot estimate ONE_CPU_INSTRUCTION like any other cost. The result will only show the constant value currently used in the estimator.");
+    eprintln!(
+        "Cannot estimate ONE_CPU_INSTRUCTION like any other cost. The result will only show the constant value currently used in the estimator."
+    );
     GasCost::from_gas(estimator_params::GAS_IN_INSTR, ctx.config.metric)
 }
 
@@ -1459,6 +1461,8 @@ fn one_cpu_instruction(ctx: &mut EstimatorContext) -> GasCost {
 fn one_nanosecond(ctx: &mut EstimatorContext) -> GasCost {
     // Currently we don't have a test for this, yet. 1 gas has just always been 1ns.
     // But it would be useful to go backwards and see how expensive computation time is on specific hardware.
-    eprintln!("Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator.");
+    eprintln!(
+        "Cannot estimate ONE_NANOSECOND like any other cost. The result will only show the constant value currently used in the estimator."
+    );
     GasCost::from_gas(estimator_params::GAS_IN_NS, ctx.config.metric)
 }

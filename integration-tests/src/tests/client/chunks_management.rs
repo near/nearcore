@@ -1,28 +1,31 @@
 use actix::System;
-use futures::{future, FutureExt};
+use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::CanSend;
 use near_async::time::{self, Clock};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain_configs::{ChunkDistributionNetworkConfig, ChunkDistributionUris};
 use near_chunks::shards_manager_actor::{
     CHUNK_REQUEST_RETRY, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH, CHUNK_REQUEST_SWITCH_TO_OTHERS,
 };
-use near_client::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use near_client::{GetBlock, ProcessTxRequest};
-use near_network::types::PeerManagerMessageRequest;
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{AccountIdOrPeerTrackingShard, PeerInfo};
 use near_network::types::{NetworkRequests, NetworkResponses};
-use near_o11y::testonly::init_test_logger;
+use near_network::types::{PartialEncodedChunkRequestMsg, PeerManagerMessageRequest};
 use near_o11y::WithSpanContextExt;
+use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, EpochId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::info;
 
-use crate::tests::test_helpers::heavy_test;
+use crate::env::setup::{ActorHandlesForTesting, setup_mock_all_validators};
+use crate::env::test_env::TestEnv;
+use crate::utils::test_helpers::heavy_test;
 
 /// Configuration for `test4` validator in tests.
 struct Test4Config {
@@ -131,8 +134,8 @@ impl Test {
                             && to_whom == "test4"
                         {
                             println!(
-                            "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
-                        );
+                                "Dropping Partial Encoded Chunk Forward Message from {from_whom} to test4"
+                            );
                             return (NetworkResponses::NoResponse.into(), false);
                         }
                     }
@@ -433,8 +436,8 @@ fn chunks_produced_and_distributed_all_in_all_shards_should_succeed_even_without
 }
 
 #[test]
-fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding(
-) {
+fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succeed_even_without_forwarding()
+ {
     Test {
         validator_groups: 2,
         chunk_only_producers: false,
@@ -446,8 +449,8 @@ fn ultra_slow_test_chunks_produced_and_distributed_2_vals_per_shard_should_succe
 }
 
 #[test]
-fn ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding(
-) {
+fn ultra_slow_test_chunks_produced_and_distributed_one_val_per_shard_should_succeed_even_without_forwarding()
+ {
     Test {
         validator_groups: 4,
         chunk_only_producers: false,
@@ -570,4 +573,45 @@ fn ultra_slow_test_chunks_recovered_from_full_cop() {
         block_timeout: CHUNK_REQUEST_SWITCH_TO_FULL_FETCH * 2,
     }
     .run()
+}
+
+// TODO(#8269) Enable test after fixing the issue related to KeyValueRuntime. See env.restart()
+#[ignore]
+#[test]
+fn test_request_chunk_restart() {
+    init_integration_logger();
+    let mut env = TestEnv::default_builder().build();
+    for i in 1..4 {
+        env.produce_block(0, i);
+        env.network_adapters[0].pop();
+    }
+    let block1 = env.clients[0].chain.get_block_by_height(3).unwrap();
+    let request = PartialEncodedChunkRequestMsg {
+        chunk_hash: block1.chunks()[0].chunk_hash(),
+        part_ords: vec![0],
+        tracking_shards: HashSet::default(),
+    };
+    env.shards_manager_adapters[0].send(
+        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+            partial_encoded_chunk_request: request.clone(),
+            route_back: CryptoHash::default(),
+        },
+    );
+    assert!(env.network_adapters[0].pop().is_some());
+
+    env.restart(0);
+    env.shards_manager_adapters[0].send(
+        ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
+            partial_encoded_chunk_request: request,
+            route_back: CryptoHash::default(),
+        },
+    );
+    let response = env.network_adapters[0].pop().unwrap().as_network_requests();
+
+    if let NetworkRequests::PartialEncodedChunkResponse { response: response_body, .. } = response {
+        assert_eq!(response_body.chunk_hash, block1.chunks()[0].chunk_hash());
+    } else {
+        println!("{:?}", response);
+        assert!(false);
+    }
 }

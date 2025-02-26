@@ -5,9 +5,9 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::BlockHeight;
 use std::cmp::Ordering;
 use std::collections::{
+    BinaryHeap, HashSet,
     btree_map::{self, BTreeMap},
     hash_map::{self, HashMap},
-    BinaryHeap, HashSet,
 };
 use tracing::{debug, warn};
 
@@ -387,8 +387,8 @@ impl OptimisticBlockChunksPool {
 
 #[cfg(test)]
 mod missing_chunks_test {
-    use super::{BlockHash, BlockLike, MissingChunksPool, MAX_BLOCKS_MISSING_CHUNKS};
-    use near_primitives::hash::{hash, CryptoHash};
+    use super::{BlockHash, BlockLike, MAX_BLOCKS_MISSING_CHUNKS, MissingChunksPool};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::sharding::ChunkHash;
     use near_primitives::types::BlockHeight;
 

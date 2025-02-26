@@ -6,8 +6,8 @@ use crate::lib::std::string::ToString;
 use crate::lib::std::{boxed::Box, string::String, vec::Vec};
 use crate::translate_module;
 use crate::{WasmError, WasmResult};
-use near_vm_types::entity::PrimaryMap;
 use near_vm_types::FunctionType;
+use near_vm_types::entity::PrimaryMap;
 use near_vm_types::{
     CustomSectionIndex, DataIndex, DataInitializer, DataInitializerLocation, ElemIndex,
     ExportIndex, FunctionIndex, GlobalIndex, GlobalInit, GlobalType, ImportIndex,

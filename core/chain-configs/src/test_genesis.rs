@@ -17,7 +17,7 @@ use near_time::{Clock, FakeClock};
 use num_rational::Rational32;
 
 use crate::{
-    Genesis, GenesisConfig, GenesisContents, GenesisRecords, FISHERMEN_THRESHOLD,
+    FISHERMEN_THRESHOLD, Genesis, GenesisConfig, GenesisContents, GenesisRecords,
     PROTOCOL_UPGRADE_STAKE_THRESHOLD,
 };
 
@@ -379,7 +379,7 @@ impl TestGenesisBuilder {
 
     pub fn add_user_accounts_simple(
         mut self,
-        accounts: &Vec<AccountId>,
+        accounts: &[AccountId],
         initial_balance: Balance,
     ) -> Self {
         for account_id in accounts {
