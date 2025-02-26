@@ -198,3 +198,7 @@ pub(crate) static APPLY_CHUNK_RESULTS_CACHE_MISSES: LazyLock<IntCounterVec> = La
     )
     .unwrap()
 });
+
+pub(crate) static DOOMSLUG_TIMER_VERSION: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge("near_doomslug_timer_version", "Version of Doomslug timer").unwrap()
+});

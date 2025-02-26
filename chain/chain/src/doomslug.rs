@@ -7,6 +7,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use rand::Rng;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -50,11 +51,14 @@ pub enum DoomslugBlockProductionReadiness {
 struct DoomslugTimer {
     started: Instant,
     last_endorsement_sent: Instant,
+    genesis_height: BlockHeight,
     height: BlockHeight,
-    endorsement_delay: Duration,
-    min_delay: Duration,
+    height_switch: BlockHeight,
+    endorsement_delays: [Duration; 2],
+    min_delays: [Duration; 2],
     delay_step: Duration,
-    max_delay: Duration,
+    max_delays: [Duration; 2],
+    chunks_wait_mults: [u32; 2],
 }
 
 struct DoomslugTip {
@@ -147,6 +151,28 @@ pub struct Doomslug {
 }
 
 impl DoomslugTimer {
+    fn version(&self) -> usize {
+        let version = if self.height >= self.genesis_height + self.height_switch { 1 } else { 0 };
+        metrics::DOOMSLUG_TIMER_VERSION.set(version as i64);
+        version
+    }
+
+    pub fn endorsement_delay(&self) -> Duration {
+        self.endorsement_delays[self.version()]
+    }
+
+    pub fn min_delay(&self) -> Duration {
+        self.min_delays[self.version()]
+    }
+
+    pub fn max_delay(&self) -> Duration {
+        self.max_delays[self.version()]
+    }
+
+    pub fn chunks_wait_mult(&self) -> u32 {
+        self.chunks_wait_mults[self.version()]
+    }
+
     /// Computes the delay to sleep given the number of heights from the last final block
     /// This is what `T` represents in the paper.
     ///
@@ -157,7 +183,7 @@ impl DoomslugTimer {
     /// Duration to sleep
     pub fn get_delay(&self, n: BlockHeightDelta) -> Duration {
         let n32 = u32::try_from(n).unwrap_or(u32::MAX);
-        std::cmp::min(self.max_delay, self.min_delay + self.delay_step * n32.saturating_sub(2))
+        std::cmp::min(self.max_delay(), self.min_delay() + self.delay_step * n32.saturating_sub(2))
     }
 }
 
@@ -349,6 +375,7 @@ impl DoomslugApprovalsTrackersAtHeight {
 impl Doomslug {
     pub fn new(
         clock: Clock,
+        genesis_height: BlockHeight,
         largest_target_height: BlockHeight,
         endorsement_delay: Duration,
         min_delay: Duration,
@@ -377,11 +404,14 @@ impl Doomslug {
             timer: DoomslugTimer {
                 started: clock.now(),
                 last_endorsement_sent: clock.now(),
+                genesis_height,
                 height: 0,
-                endorsement_delay,
-                min_delay,
+                height_switch: rand::thread_rng().gen_range(1000..=4000),
+                endorsement_delays: [Duration::milliseconds(1300), endorsement_delay],
+                min_delays: [Duration::seconds(3), min_delay],
                 delay_step,
-                max_delay,
+                max_delays: [Duration::seconds(6), max_delay],
+                chunks_wait_mults: [6, 3],
             },
             threshold_mode,
             history: VecDeque::new(),
@@ -466,12 +496,12 @@ impl Doomslug {
             // The `endorsement_delay` is time to send approval to the block producer at `timer.height`,
             // while the `skip_delay` is the time before sending the approval to BP of `timer_height + 1`,
             // so it makes sense for them to be at least 2x apart
-            debug_assert!(skip_delay >= 2 * self.timer.endorsement_delay);
+            debug_assert!(skip_delay >= 2 * self.timer.endorsement_delay());
 
             let tip_height = self.tip.height;
 
             if self.endorsement_pending
-                && now >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
+                && now >= self.timer.last_endorsement_sent + self.timer.endorsement_delay()
             {
                 if tip_height >= self.largest_target_height.get() {
                     self.largest_target_height.set(tip_height + 1);
@@ -488,7 +518,7 @@ impl Doomslug {
                             .signed_duration_since(self.timer.last_endorsement_sent))
                         .whole_milliseconds()
                         .max(0) as u64,
-                        expected_delay_millis: self.timer.endorsement_delay.whole_milliseconds()
+                        expected_delay_millis: self.timer.endorsement_delay().whole_milliseconds()
                             as u64,
                         approval_creation_time: self.clock.now_utc(),
                     });
@@ -740,7 +770,7 @@ impl Doomslug {
 
         let delay =
             self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()))
-                / 3;
+                / self.timer.chunks_wait_mult();
 
         let ready = now > when + delay;
         span.record("need_to_wait", !ready);
@@ -781,6 +811,7 @@ mod tests {
         let signer = Some(Arc::new(create_test_signer("test").into()));
         let mut ds = Doomslug::new(
             clock.clock(),
+            0,
             0,
             Duration::milliseconds(400),
             Duration::milliseconds(1000),
@@ -935,6 +966,7 @@ mod tests {
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut ds = Doomslug::new(
             clock.clock(),
+            0,
             0,
             Duration::milliseconds(400),
             Duration::milliseconds(1000),

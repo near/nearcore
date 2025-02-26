@@ -1,5 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account, AccountContract};
@@ -153,6 +152,20 @@ impl TestEpochConfigBuilder {
         Default::default()
     }
 
+    pub fn from_genesis(genesis: &Genesis) -> Self {
+        let mut builder = Self::new();
+        builder.epoch_length = genesis.config.epoch_length;
+        builder.shard_layout = genesis.config.shard_layout.clone();
+        builder.num_block_producer_seats = genesis.config.num_block_producer_seats;
+        builder.num_chunk_producer_seats = genesis.config.num_chunk_producer_seats;
+        builder.num_chunk_validator_seats = genesis.config.num_chunk_validator_seats;
+        builder
+    }
+
+    pub fn build_store_from_genesis(genesis: &Genesis) -> EpochConfigStore {
+        Self::from_genesis(genesis).build_store_for_single_version(genesis.config.protocol_version)
+    }
+
     pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
         self.epoch_length = epoch_length;
         self
@@ -243,6 +256,14 @@ impl TestEpochConfigBuilder {
         };
         tracing::debug!("Epoch config: {:#?}", epoch_config);
         epoch_config
+    }
+
+    pub fn build_store_for_single_version(
+        self,
+        protocol_version: ProtocolVersion,
+    ) -> EpochConfigStore {
+        let epoch_config = self.build();
+        EpochConfigStore::test_single_version(protocol_version, epoch_config)
     }
 }
 
@@ -671,21 +692,16 @@ pub fn build_genesis_and_epoch_config_store<'a>(
         .genesis_time_from_clock(&FakeClock::default().clock())
         .protocol_version(protocol_version)
         .epoch_length(epoch_length)
-        .shard_layout(shard_layout.clone())
-        .validators_spec(validators_spec.clone())
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
         .add_user_accounts_simple(accounts, 1_000_000 * ONE_NEAR)
         .gas_limit_one_petagas();
-    let epoch_config_builder = TestEpochConfigBuilder::new()
-        .epoch_length(epoch_length)
-        .shard_layout(shard_layout)
-        .validators_spec(validators_spec);
     let genesis_builder = customize_genesis_builder(genesis_builder);
-    let epoch_config_builder = customize_epoch_config_builder(epoch_config_builder);
-
     let genesis = genesis_builder.build();
-    let epoch_config = epoch_config_builder.build();
-    let epoch_config_store =
-        EpochConfigStore::test(BTreeMap::from([(protocol_version, Arc::new(epoch_config))]));
+
+    let epoch_config_builder = TestEpochConfigBuilder::from_genesis(&genesis);
+    let epoch_config_builder = customize_epoch_config_builder(epoch_config_builder);
+    let epoch_config_store = epoch_config_builder.build_store_for_single_version(protocol_version);
 
     (genesis, epoch_config_store)
 }
