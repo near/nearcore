@@ -260,7 +260,6 @@ class BaseNode(object):
         with session(timeout, max_retries) as s:
             r = s.post("http://%s:%s" % self.rpc_addr(), json=j)
             r.raise_for_status()
-
         return json.loads(r.content)
 
     def send_tx(self, signed_tx):
