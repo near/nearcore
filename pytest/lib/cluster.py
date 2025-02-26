@@ -296,7 +296,8 @@ class BaseNode(object):
                 print(json.dumps(response_data, indent=2))
             # import pprint
             # pprint.pprint(vars(r))
-        r.raise_for_status()
+            r.raise_for_status()
+        return json.loads(r.content)
 
     def get_status(self,
                    check_storage: bool = True,

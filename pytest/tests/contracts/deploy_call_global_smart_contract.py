@@ -24,10 +24,7 @@ def test_deploy_global_contract():
     last_block_hash = nodes[0].get_latest_block().hash_bytes
     tx = sign_deploy_global_contract_tx(nodes[0].signer_key, test_contract, 10,
                                  last_block_hash)
-    # nodes[0].send_tx(tx)
-    res = nodes[0].send_tx_and_wait(tx, 20)
-    import json
-    print("QQP 1", json.dumps(res, indent=2))
+    nodes[0].send_tx(tx)
     time.sleep(3)
 
     identifier = GlobalContractIdentifier()
@@ -37,17 +34,14 @@ def test_deploy_global_contract():
     last_block_hash = nodes[1].get_latest_block().hash_bytes
     tx = sign_use_global_contract_tx(nodes[0].signer_key, identifier, 20,
                                  last_block_hash)
-    # nodes[0].send_tx(tx)
-    res = nodes[0].send_tx_and_wait(tx, 20)
-    import json
-    print("QQP 2", json.dumps(res, indent=2))
+    nodes[0].send_tx(tx)
     time.sleep(3)
 
-    last_block_hash = nodes[0].get_latest_block().hash_bytes
+    last_block_hash = nodes[1].get_latest_block().hash_bytes
     tx = sign_function_call_tx(nodes[1].signer_key,
                                nodes[0].signer_key.account_id, 'log_something',
-                               [], 150 * GGAS, 30, 3, last_block_hash)
-    res = nodes[1].send_tx_and_wait2(tx, 20)
+                               [], 150 * GGAS, 1, 30, last_block_hash)
+    res = nodes[0].send_tx_and_wait(tx, 20)
     import json
     print("QQP 3", json.dumps(res, indent=2))
     assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
