@@ -1,8 +1,6 @@
 use near_async::time::Duration;
 use near_chain::ChainStoreAccess;
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::Client;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
@@ -11,6 +9,7 @@ use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::builder::TestLoopBuilder;
 use crate::env::TestLoopEnv;
+use crate::utils::ONE_NEAR;
 
 const NUM_SHARDS: usize = 4;
 
@@ -34,17 +33,15 @@ fn test_congestion_control_genesis_bootstrap() {
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(&accounts[0..1], &accounts[1..2]);
 
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout,
-            validators_spec,
-            accounts: &clients,
-        },
-        |genesis_builder| genesis_builder,
-        |epoch_config_builder| epoch_config_builder.minimum_validators_per_shard(1),
-    );
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&clients, 1_000_000 * ONE_NEAR)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .minimum_validators_per_shard(1)
+        .build_store_for_single_version(genesis.config.protocol_version);
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
