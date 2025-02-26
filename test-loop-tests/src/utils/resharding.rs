@@ -933,7 +933,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             latest_height.set(tip.height);
 
             let get_promise_yield_indices = |shard_uid| {
-                get_indices_value_for_shard::<PromiseYieldIndices>(
+                get_trie_node_value::<PromiseYieldIndices>(
                     &client_actor,
                     shard_uid,
                     &tip.prev_block_hash,
@@ -1132,7 +1132,7 @@ pub(crate) fn delayed_receipts_repro_missing_trie_value(
             };
 
             let get_delayed_receipts_indices = |shard_uid| {
-                get_indices_value_for_shard::<DelayedReceiptIndices>(
+                get_trie_node_value::<DelayedReceiptIndices>(
                     &client_actor,
                     shard_uid,
                     &tip.prev_block_hash,
@@ -1234,9 +1234,9 @@ fn get_resharded_shard_uids(
     (parent_shard_uid, left_child_shard_uid, right_child_shard_uid)
 }
 
-// Helper function to retrieve an indices-like value from the trie. This bypasses any other
-// intermediate layer (caching, memtrie, flat-storage).
-fn get_indices_value_for_shard<I: borsh::BorshDeserialize + Default>(
+// Helper function to retrieve any key from the trie. This bypasses all intermediate layers
+// (caching, memtrie, flat-storage).
+fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
     client_actor: &ClientActorInner,
     shard_uid: ShardUId,
     prev_block_hash: &CryptoHash,

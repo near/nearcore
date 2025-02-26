@@ -1367,7 +1367,6 @@ fn slow_test_resharding_v3_promise_yield_indices_gc_correctness() {
 /// leave the other child's delayed receipts indices with a dangling trie value.
 #[test]
 #[cfg_attr(not(feature = "test_features"), ignore)]
-#[ignore]
 fn slow_test_resharding_v3_delayed_receipts_gc_correctness() {
     let account_in_left_child: AccountId = "account4".parse().unwrap();
     let account_in_right_child: AccountId = "account6".parse().unwrap();
