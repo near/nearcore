@@ -37,8 +37,8 @@ def test_deploy_global_contract():
     nodes[0].send_tx(tx)
     time.sleep(3)
 
-    last_block_hash = nodes[1].get_latest_block().hash_bytes
-    tx = sign_function_call_tx(nodes[1].signer_key,
+    last_block_hash = nodes[0].get_latest_block().hash_bytes
+    tx = sign_function_call_tx(nodes[0].signer_key,
                                nodes[1].signer_key.account_id, 'log_something',
                                [], 150 * GGAS, 1, 30, last_block_hash)
     res = nodes[1].send_tx_and_wait(tx, 20)
