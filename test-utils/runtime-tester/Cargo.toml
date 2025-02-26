@@ -19,6 +19,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 tracing.workspace = true
 
+integration-tests.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-client-primitives.workspace = true

@@ -5,11 +5,10 @@ use std::cmp::Ordering;
 use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
-    block_info, change_stake, default_reward_calculator, epoch_config,
+    DEFAULT_TOTAL_SUPPLY, block_info, change_stake, default_reward_calculator, epoch_config,
     epoch_config_with_production_config, epoch_info, epoch_info_with_num_seats, hash_range,
     record_block, record_block_with_final_block_hash, record_block_with_slashes,
     record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
-    DEFAULT_TOTAL_SUPPLY,
 };
 use itertools::Itertools;
 use near_crypto::{KeyType, PublicKey};
@@ -24,18 +23,18 @@ use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::stateless_validation::chunk_endorsements_bitmap::ChunkEndorsementsBitmap;
 use near_primitives::stateless_validation::partial_witness::PartialEncodedStateWitness;
-use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::types::AccountInfo;
 use near_primitives::types::ValidatorKickoutReason::{
     NotEnoughBlocks, NotEnoughChunkEndorsements, NotEnoughChunks,
 };
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::test_utils::create_test_store;
+use near_primitives::version::ProtocolFeature::{self, SimpleNightshade};
 use near_store::ShardUId;
+use near_store::test_utils::create_test_store;
 use num_rational::Ratio;
 
 #[test]

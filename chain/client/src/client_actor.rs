@@ -12,14 +12,14 @@ use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
-use crate::info::{display_sync_status, InfoHelper};
+use crate::info::{InfoHelper, display_sync_status};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
-use crate::{metrics, StatusResponse};
+use crate::{StatusResponse, metrics};
 use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
@@ -28,6 +28,8 @@ use near_async::messaging::{self, CanSend, Handler, IntoMultiSender, LateBoundSe
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
+#[cfg(feature = "test_features")]
+use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
@@ -36,10 +38,8 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
-#[cfg(feature = "test_features")]
-use near_chain::ChainStoreAccess;
 use near_chain::{
-    byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, Provenance,
+    Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -49,8 +49,8 @@ use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
     OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
@@ -71,13 +71,13 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_telemetry::TelemetryEvent;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -314,13 +314,17 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
     if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
         && client.config.tracked_shards.is_empty()
     {
-        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+        panic!(
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector"
+        );
     }
 
     if ProtocolFeature::StatelessValidation.enabled(protocol_version)
         && !client.config.tracked_shards.is_empty()
     {
-        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector");
+        panic!(
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector"
+        );
     }
 
     Ok(())
@@ -950,10 +954,9 @@ impl ClientActorInner {
         debug!(target: "client", "Check announce account for {}, last announce time {:?}", signer.validator_id(), self.last_validator_announce_time);
 
         // Announce AccountId if client is becoming a validator soon.
-        let next_epoch_id = unwrap_or_return!(self
-            .client
-            .epoch_manager
-            .get_next_epoch_id_from_prev_block(&prev_block_hash));
+        let next_epoch_id = unwrap_or_return!(
+            self.client.epoch_manager.get_next_epoch_id_from_prev_block(&prev_block_hash)
+        );
 
         // Check client is part of the futures validators
         if self.client.is_validator(&next_epoch_id, validator_signer) {

@@ -1,5 +1,5 @@
-use crate::config::{PrefetchConfig, TrieCacheConfig};
 use crate::StoreConfig;
+use crate::config::{PrefetchConfig, TrieCacheConfig};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
 use std::str::FromStr;

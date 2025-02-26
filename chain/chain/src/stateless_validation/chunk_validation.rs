@@ -1,6 +1,6 @@
 use crate::chain::{
-    apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
-    ShardContext, StorageContext,
+    NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
+    apply_new_chunk, apply_old_chunk,
 };
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::resharding::event_type::ReshardingEventType;
@@ -17,13 +17,13 @@ use crate::{Chain, ChainStore, ChainStoreAccess};
 use lru::LruCache;
 use near_async::futures::AsyncComputationSpawnerExt;
 use near_chain_primitives::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::checked_feature;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -773,7 +773,10 @@ pub fn validate_chunk_state_witness(
             // Only the final state root check against the chunk header is required.
             return Err(Error::InvalidChunkStateWitness(format!(
                 "Post state root {:?} for implicit transition at block {:?} to shard {:?}, does not match expected state root {:?}",
-                chunk_extra.state_root(), transition.block_hash, shard_uid, transition.post_state_root
+                chunk_extra.state_root(),
+                transition.block_hash,
+                shard_uid,
+                transition.post_state_root
             )));
         }
     }

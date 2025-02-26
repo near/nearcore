@@ -10,7 +10,7 @@ use congestion_model::workload::{
     Producer,
 };
 use congestion_model::{
-    summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS, TGAS,
+    CongestionStrategy, Model, PGAS, ShardQueueLengths, StatsWriter, TGAS, summary_table,
 };
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
@@ -75,7 +75,10 @@ fn main() {
     if args.write_stats_filepath.is_some()
         && (workload_names.len() != 1 || strategy_names.len() != 1)
     {
-        panic!("write_stats_filepath can only be used with single workload and strategy. Parsed {:?} workloads and {:?} strategies. ", workload_names, strategy_names);
+        panic!(
+            "write_stats_filepath can only be used with single workload and strategy. Parsed {:?} workloads and {:?} strategies. ",
+            workload_names, strategy_names
+        );
     }
 
     for workload_name in &workload_names {
@@ -346,7 +349,10 @@ fn parse_workload_names(workload_name: &str) -> Vec<String> {
             return vec![name.to_string()];
         }
     }
-    panic!("The requested workload name did not match any available workloads. Requested workload name {:?}, The available workloads are: {:?}", workload_name, available);
+    panic!(
+        "The requested workload name did not match any available workloads. Requested workload name {:?}, The available workloads are: {:?}",
+        workload_name, available
+    );
 }
 
 fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
@@ -389,7 +395,10 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
             return vec![name.to_string()];
         }
     }
-    panic!("The requested strategy name did not match any available strategies. Requested strategy name {:?}, The available strategies are: {:?}", strategy_name, available);
+    panic!(
+        "The requested strategy name did not match any available strategies. Requested strategy name {:?}, The available strategies are: {:?}",
+        strategy_name, available
+    );
 }
 
 // for looking at more details during execution, call print_report

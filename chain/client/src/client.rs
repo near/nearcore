@@ -39,9 +39,9 @@ use near_chain_configs::{ClientConfig, MutableValidatorSigner, UpdatableClientCo
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::logic::{decode_encoded_chunk, persist_chunk};
 use near_client_primitives::types::{Error, StateSyncStatus, SyncStatus};
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::ProcessTxResponse;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
@@ -530,7 +530,10 @@ impl Client {
             .get_epoch_protocol_version(&epoch_id)
             .expect("Epoch info should be ready at this point");
         if protocol_version > PROTOCOL_VERSION {
-            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+            panic!(
+                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
+                PROTOCOL_VERSION, protocol_version
+            );
         }
 
         if !self.can_produce_block(
@@ -749,7 +752,10 @@ impl Client {
             .get_epoch_protocol_version(&epoch_id)
             .expect("Epoch info should be ready at this point");
         if protocol_version > PROTOCOL_VERSION {
-            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, protocol_version);
+            panic!(
+                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
+                PROTOCOL_VERSION, protocol_version
+            );
         }
 
         let approvals = self
@@ -980,7 +986,7 @@ impl Client {
     /// blocks multiple times.
     /// Then it process the block header. If the header if valid, broadcast the block to its peers
     /// Then it starts the block processing process to process the full block.
-    pub(crate) fn receive_block_impl(
+    pub fn receive_block_impl(
         &mut self,
         block: Block,
         peer_id: PeerId,
@@ -2204,6 +2210,7 @@ impl Client {
         }
         let gas_price = cur_block_header.next_gas_price();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
         let receiver_shard = account_id_to_shard_id(
             self.epoch_manager.as_ref(),
             tx.transaction.receiver_id(),
@@ -2213,19 +2220,15 @@ impl Client {
             cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        if let Some(err) = self
-            .runtime_adapter
-            .validate_tx(
-                gas_price,
-                None,
-                tx,
-                true,
-                &epoch_id,
-                protocol_version,
-                receiver_congestion_info,
-            )
-            .expect("no storage errors")
-        {
+        if let Err(err) = self.runtime_adapter.validate_tx(
+            gas_price,
+            None,
+            &shard_layout,
+            tx,
+            true,
+            protocol_version,
+            receiver_congestion_info,
+        ) {
             debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
             return Ok(ProcessTxResponse::InvalidTx(err));
         }
@@ -2254,19 +2257,15 @@ impl Client {
                     }
                 }
             };
-            if let Some(err) = self
-                .runtime_adapter
-                .validate_tx(
-                    gas_price,
-                    Some(state_root),
-                    tx,
-                    false,
-                    &epoch_id,
-                    protocol_version,
-                    receiver_congestion_info,
-                )
-                .expect("no storage errors")
-            {
+            if let Err(err) = self.runtime_adapter.validate_tx(
+                gas_price,
+                Some(state_root),
+                &shard_layout,
+                tx,
+                false,
+                protocol_version,
+                receiver_congestion_info,
+            ) {
                 debug!(target: "client", ?err, "Invalid tx");
                 Ok(ProcessTxResponse::InvalidTx(err))
             } else if check_only {

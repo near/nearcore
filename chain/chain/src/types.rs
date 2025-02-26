@@ -20,9 +20,10 @@ use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::congestion_info::ExtendedCongestionInfo;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::merkle::{MerklePath, merklize};
 use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
@@ -35,8 +36,8 @@ use near_primitives::types::{
 };
 use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
-    ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
-    MIN_PROTOCOL_VERSION_NEP_92_FIX,
+    MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
+    MIN_PROTOCOL_VERSION_NEP_92_FIX, ProtocolVersion,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
 use near_schema_checker_lib::ProtocolSchema;
@@ -425,23 +426,21 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
+
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
     /// only validate the transaction math, limits and signatures.
-    /// Returns an option of `InvalidTxError`, it contains `Some(InvalidTxError)` if there is
-    /// a validation error, or `None` in case the transaction succeeded.
-    /// Throws an `Error` with `ErrorKind::StorageError` in case the runtime throws
-    /// `RuntimeError::StorageError`.
     fn validate_tx(
         &self,
         gas_price: Balance,
         state_root: Option<StateRoot>,
+        shard_layout: &ShardLayout,
         transaction: &SignedTransaction,
         verify_signature: bool,
-        epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<Option<InvalidTxError>, Error>;
+    ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.
     /// Pulls transactions from the given pool iterators one by one. Validates each transaction
@@ -539,7 +538,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
 
     fn get_runtime_config(&self, protocol_version: ProtocolVersion)
-        -> Result<RuntimeConfig, Error>;
+    -> Result<RuntimeConfig, Error>;
 
     fn compiled_contract_cache(&self) -> &dyn ContractRuntimeCache;
 
@@ -564,10 +563,10 @@ pub struct LatestKnown {
 #[cfg(test)]
 mod tests {
     use near_async::time::{Clock, Utc};
-    use near_primitives::block::{genesis_chunks, Approval};
+    use near_primitives::block::{Approval, genesis_chunks};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
-    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
+    use near_primitives::test_utils::{TestBlockBuilder, create_test_signer};
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
     use std::sync::Arc;

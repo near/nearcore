@@ -1,7 +1,7 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, HistogramVec, IntCounter, IntCounterVec,
-    IntGauge,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge, exponential_buckets, linear_buckets,
+    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
+    try_create_int_gauge,
 };
 use near_primitives::stateless_validation::state_witness::ChunkStateWitness;
 use std::sync::LazyLock;

@@ -1,6 +1,6 @@
 use crate::types::AccountId;
 use crate::{action::GlobalContractIdentifier, hash::CryptoHash};
-use borsh::{to_vec, BorshDeserialize, BorshSerialize};
+use borsh::{BorshDeserialize, BorshSerialize, to_vec};
 use near_crypto::PublicKey;
 use near_primitives_core::types::ShardId;
 use near_schema_checker_lib::ProtocolSchema;

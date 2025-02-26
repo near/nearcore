@@ -15,7 +15,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, StateSyncInfo,
 };
@@ -28,7 +28,7 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
 };
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExtra, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges,
@@ -43,14 +43,14 @@ use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{
-    DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
+    KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
+    StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
 use utils::get_block_header_on_chain_by_height;
 
 use crate::types::{Block, BlockHeader, LatestKnown};
-use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
+use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
 use std::sync::Arc;
 
 mod latest_witnesses;
@@ -1168,20 +1168,12 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// The chain head.
     fn head(&self) -> Result<Tip, Error> {
-        if let Some(head) = &self.head {
-            Ok(head.clone())
-        } else {
-            self.chain_store.head()
-        }
+        if let Some(head) = &self.head { Ok(head.clone()) } else { self.chain_store.head() }
     }
 
     /// The chain Block Tail height, used by GC.
     fn tail(&self) -> Result<BlockHeight, Error> {
-        if let Some(tail) = &self.tail {
-            Ok(*tail)
-        } else {
-            self.chain_store.tail()
-        }
+        if let Some(tail) = &self.tail { Ok(*tail) } else { self.chain_store.tail() }
     }
 
     /// The chain Chunks Tail height, used by GC.
@@ -2256,8 +2248,8 @@ mod tests {
 
     use crate::test_utils::get_chain;
     use near_primitives::errors::InvalidTxError;
-    use near_primitives::test_utils::create_test_signer;
     use near_primitives::test_utils::TestBlockBuilder;
+    use near_primitives::test_utils::create_test_signer;
 
     #[test]
     fn test_tx_validity_long_fork() {
@@ -2271,10 +2263,12 @@ mod tests {
         store_update.commit().unwrap();
 
         let short_fork_head = short_fork[0].header().clone();
-        assert!(chain
-            .mut_chain_store()
-            .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
-            .is_ok());
+        assert!(
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
+                .is_ok()
+        );
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(chain.transaction_validity_period() + 3) {
@@ -2291,10 +2285,12 @@ mod tests {
         }
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header();
-        assert!(chain
-            .mut_chain_store()
-            .check_transaction_validity_period(cur_header, valid_base_hash)
-            .is_ok());
+        assert!(
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(cur_header, valid_base_hash)
+                .is_ok()
+        );
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
             chain
@@ -2326,10 +2322,12 @@ mod tests {
         }
         let valid_base_hash = blocks[1].hash();
         let cur_header = &blocks.last().unwrap().header();
-        assert!(chain
-            .chain_store()
-            .check_transaction_validity_period(cur_header, valid_base_hash,)
-            .is_ok());
+        assert!(
+            chain
+                .chain_store()
+                .check_transaction_validity_period(cur_header, valid_base_hash,)
+                .is_ok()
+        );
         let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
             .height(chain.transaction_validity_period() + 3)
             .build();

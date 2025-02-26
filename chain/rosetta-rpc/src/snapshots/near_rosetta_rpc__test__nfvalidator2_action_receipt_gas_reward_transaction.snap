@@ -1,0 +1,46 @@
+---
+source: chain/rosetta-rpc/src/test.rs
+assertion_line: 134
+expression: nfvalidator2_action_receipt_gas_reward_transaction
+snapshot_kind: text
+---
+Transaction {
+    transaction_identifier: TransactionIdentifier {
+        hash: "receipt:8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+    },
+    operations: [
+        Operation {
+            operation_identifier: OperationIdentifier {
+                index: 0,
+                network_index: None,
+            },
+            related_operations: None,
+            type_: Transfer,
+            status: Some(
+                Success,
+            ),
+            account: AccountIdentifier {
+                address: AccountId(
+                    "nfvalidator2.near",
+                ),
+                sub_account: None,
+                metadata: None,
+            },
+            amount: Some(
+                Amount {
+                    value: SignedDiff(1000000000000000000),
+                    currency: Currency {
+                        symbol: "NEAR",
+                        decimals: 24,
+                        metadata: None,
+                    },
+                },
+            ),
+            metadata: None,
+        },
+    ],
+    related_transactions: [],
+    metadata: TransactionMetadata {
+        type_: Transaction,
+    },
+}

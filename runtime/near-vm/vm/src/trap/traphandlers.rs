@@ -14,7 +14,7 @@ use std::mem::{self, MaybeUninit};
 use std::ptr;
 pub use tls::TlsRestore;
 
-extern "C" {
+unsafe extern "C" {
     fn near_vm_register_setjmp(
         jmp_buf: *mut *const u8,
         callback: extern "C" fn(*mut u8),
@@ -149,12 +149,14 @@ pub unsafe fn near_vm_call_trampoline(
     callee: *const VMFunctionBody,
     values_vec: *mut u8,
 ) -> Result<(), Trap> {
-    catch_traps(|| {
-        mem::transmute::<
-            VMTrampoline,
-            extern "C" fn(VMFunctionEnvironment, *const VMFunctionBody, *mut u8),
-        >(trampoline)(callee_env, callee, values_vec);
-    })
+    unsafe {
+        catch_traps(|| {
+            mem::transmute::<
+                VMTrampoline,
+                extern "C" fn(VMFunctionEnvironment, *const VMFunctionBody, *mut u8),
+            >(trampoline)(callee_env, callee, values_vec);
+        })
+    }
 }
 
 /// Catches any wasm traps that happen within the execution of `closure`,
@@ -167,7 +169,7 @@ pub unsafe fn catch_traps<F>(mut closure: F) -> Result<(), Trap>
 where
     F: FnMut(),
 {
-    return CallThreadState::new().with(|cx| {
+    return CallThreadState::new().with(|cx| unsafe {
         near_vm_register_setjmp(
             cx.jmp_buf.as_ptr(),
             call_closure::<F>,
@@ -197,10 +199,13 @@ where
     F: FnMut() -> R,
 {
     let mut global_results = MaybeUninit::<R>::uninit();
-    catch_traps(|| {
-        global_results.as_mut_ptr().write(closure());
-    })?;
-    Ok(global_results.assume_init())
+    unsafe {
+        catch_traps(|| {
+            global_results.as_mut_ptr().write(closure());
+        })?;
+        // FIXME: woah here, what happens if `closure()` *does* trap?
+        Ok(global_results.assume_init())
+    }
 }
 
 /// Temporary state stored on the stack which is registered in the `tls` module
@@ -335,9 +340,11 @@ mod tls {
             // null out our own previous field for safety in case it's
             // accidentally used later.
             let raw = raw::get();
-            assert!(!raw.is_null());
-            let prev = (*raw).prev.replace(ptr::null());
-            raw::replace(prev)?;
+            unsafe {
+                assert!(!raw.is_null());
+                let prev = (*raw).prev.replace(ptr::null());
+                raw::replace(prev)?;
+            }
             Ok(Self(raw))
         }
 
@@ -351,8 +358,10 @@ mod tls {
             // We need to configure our previous TLS pointer to whatever is in
             // TLS at this time, and then we set the current state to ourselves.
             let prev = raw::get();
-            assert!((*self.0).prev.get().is_null());
-            (*self.0).prev.set(prev);
+            unsafe {
+                assert!((*self.0).prev.get().is_null());
+                (*self.0).prev.set(prev);
+            }
             raw::replace(self.0)?;
             Ok(())
         }

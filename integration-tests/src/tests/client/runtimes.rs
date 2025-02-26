@@ -2,7 +2,6 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use near_chain_configs::Genesis;
-use near_client::test_utils::TestEnv;
 use near_crypto::KeyType;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::block::{Approval, ApprovalInner};
@@ -11,9 +10,11 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 #[test]
 fn test_pending_approvals() {
