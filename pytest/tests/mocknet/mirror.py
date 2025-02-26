@@ -533,6 +533,21 @@ class ParseFraction(Action):
         setattr(namespace, self.dest, (numerator, denominator))
 
 
+def list_nodes_cmd(args, traffic_generator, nodes):
+    """List all nodes with their roles and information in machine-parseable format"""
+    # Get all nodes including traffic generator for parallel status check
+    all_nodes = nodes + to_list(traffic_generator)
+    statuses = pmap(lambda node: node.neard_runner_ready(), all_nodes)
+
+    # Output format: TYPE|NAME|STATUS
+    for node, status in zip(all_nodes, statuses):
+        if node == traffic_generator:  # Direct comparison instead of type check
+            print(f"traffic|{node.name()}|{'ready' if status else 'not_ready'}")
+        elif node.want_neard_runner:
+            print(
+                f"validator|{node.name()}|{'ready' if status else 'not_ready'}")
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='Control a mocknet instance')
     parser.add_argument('--mocknet-id',
@@ -736,6 +751,10 @@ if __name__ == '__main__':
     env_cmd_parser.add_argument('--clear-all', action='store_true')
     env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
     env_cmd_parser.set_defaults(func=run_env_cmd)
+
+    list_nodes_parser = subparsers.add_parser(
+        'list-nodes', help='List all available nodes with their roles')
+    list_nodes_parser.set_defaults(func=list_nodes_cmd)
 
     args = parser.parse_args()
 
