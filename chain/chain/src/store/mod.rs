@@ -301,7 +301,7 @@ pub struct ChainStoreCache {
     // Interior mutability will not be required anymore once the apply-range command takes
     // care of populating the cache. See comments below regarding apply-range not calling finalize.
     blocks: RefCell<HashMap<CryptoHash, Block>>,
-    block_headers: HashMap<CryptoHash, BlockHeader>,
+    block_headers: RefCell<HashMap<CryptoHash, BlockHeader>>,
 }
 
 impl ChainStoreCache {
@@ -313,12 +313,12 @@ impl ChainStoreCache {
         self.blocks.borrow().get(hash).cloned()
     }
 
-    fn set_block_header(&mut self, hash: CryptoHash, header: BlockHeader) {
-        self.block_headers.insert(hash, header);
+    fn set_block_header(&self, hash: CryptoHash, header: BlockHeader) {
+        self.block_headers.borrow_mut().insert(hash, header);
     }
 
-    fn block_header(&self, hash: &CryptoHash) -> Option<&BlockHeader> {
-        self.block_headers.get(hash)
+    fn block_header(&self, hash: &CryptoHash) -> Option<BlockHeader> {
+        self.block_headers.borrow().get(hash).cloned()
     }
 
     fn cleanup_old_data(&mut self, _tip_height: u64) {
@@ -998,10 +998,10 @@ impl ChainStoreAccess for ChainStore {
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
         if let Some(block) = self.cache.block(h) {
-            println!("get_block cache hit");
-            return Ok(block.clone());
+            return Ok(block);
         }
         let res = ChainStoreAdapter::get_block(self, h);
+
         // Normally a node processes blocks and then ChainStore is populated via
         // ChainStoreUpdate::finalize, which also writes to ChainStore.cache.
         // However for the apply-range benchmark, that finalize is never called.
@@ -1063,10 +1063,20 @@ impl ChainStoreAccess for ChainStore {
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
         if let Some(header) = self.cache.block_header(h) {
-            println!("get_block_header cache hit");
-            return Ok(header.clone());
+            return Ok(header);
         }
-        ChainStoreAdapter::get_block_header(self, h)
+        let res = ChainStoreAdapter::get_block_header(self, h);
+
+        // Normally a node processes blocks and then ChainStore is populated via
+        // ChainStoreUpdate::finalize, which also writes to ChainStore.cache.
+        // However for the apply-range benchmark, that finalize is never called.
+        // For now, populating the cache here to enable cache hits in apply-range.
+        // Next step: let the apply-range command instead take care of populating the cache,
+        // e.g. when or after calling `ChainStore::new` in apply_chain_range.rs
+        if let Ok(ref header) = res {
+            self.cache.set_block_header(*h, header.clone());
+        }
+        res
     }
 
     /// Returns hash of the block on the main chain for given height.
