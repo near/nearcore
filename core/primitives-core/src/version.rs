@@ -299,7 +299,8 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protoco
 
 /// Both, outgoing and incoming tcp connections to peers, will be rejected if `peer's`
 /// protocol version is lower than this.
-pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 3;
+/// TODO(pugachag): revert back to `- 3` after mainnet is upgraded
+pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_VERSION - 4;
 
 #[macro_export]
 macro_rules! checked_feature {
