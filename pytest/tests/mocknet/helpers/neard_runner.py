@@ -581,18 +581,18 @@ class NeardRunner:
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
-            [key, value] = key_value.split("=", 1)
-            key_item_list = key.split(".")
+            for kv in key_value.split(','):
+                [key, value] = kv.split("=", 1)
+                key_item_list = key.split(".")
 
-            object = config
-            for key_item in key_item_list[:-1]:
-                if key_item not in object:
-                    object[key_item] = {}
-                object = object[key_item]
+                object = config
+                for key_item in key_item_list[:-1]:
+                    if key_item not in object:
+                        object[key_item] = {}
+                    object = object[key_item]
 
-            value = json.loads(value)
-
-            object[key_item_list[-1]] = value
+                value = json.loads(value)
+                object[key_item_list[-1]] = value
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)
