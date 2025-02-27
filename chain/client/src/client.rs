@@ -71,6 +71,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+use near_store::ShardUId;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -2211,11 +2212,7 @@ impl Client {
         let gas_price = cur_block_header.next_gas_price();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
         let shard_layout = self.runtime_adapter.get_shard_layout(&epoch_id)?;
-        let receiver_shard = account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
-            tx.transaction.receiver_id(),
-            &epoch_id,
-        )?;
+        let receiver_shard = shard_layout.account_id_to_shard_id(tx.transaction.receiver_id());
         let receiver_congestion_info =
             cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
@@ -2233,18 +2230,14 @@ impl Client {
             return Ok(ProcessTxResponse::InvalidTx(err));
         }
 
-        let shard_id = account_id_to_shard_id(
-            self.epoch_manager.as_ref(),
-            tx.transaction.signer_id(),
-            &epoch_id,
-        )?;
+        let shard_id = shard_layout.account_id_to_shard_id(tx.transaction.signer_id());
         let care_about_shard =
             self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
 
         if care_about_shard || will_care_about_shard {
-            let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
+            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                 Ok(chunk_extra) => *chunk_extra.state_root(),
                 Err(_) => {
