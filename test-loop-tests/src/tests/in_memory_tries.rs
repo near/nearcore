@@ -1,16 +1,14 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::builder::TestLoopBuilder;
 use crate::env::TestLoopEnv;
+use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 
 /// Runs chain with sequence of chunks with empty state changes, long enough to
@@ -39,18 +37,15 @@ fn test_load_memtrie_after_empty_chunks() {
         &[],
     );
 
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout: shard_layout.clone(),
-            validators_spec,
-            accounts: &accounts,
-        },
-        |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
-        |epoch_config_builder| epoch_config_builder,
-    );
-
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout.clone())
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .genesis_height(10000)
+        .transaction_validity_period(1000)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)

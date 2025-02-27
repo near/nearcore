@@ -631,6 +631,13 @@ impl EpochConfigStore {
         Self { store }
     }
 
+    pub fn test_single_version(
+        protocol_version: ProtocolVersion,
+        epoch_config: EpochConfig,
+    ) -> Self {
+        Self::test(BTreeMap::from([(protocol_version, Arc::new(epoch_config))]))
+    }
+
     /// Returns the EpochConfig for the given protocol version.
     /// This panics if no config is found for the given version, thus the initialization via `for_chain_id` should
     /// only be performed for chains with some configs stored in files.

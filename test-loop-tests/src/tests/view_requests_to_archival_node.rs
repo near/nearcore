@@ -5,9 +5,7 @@ use near_async::messaging::Handler;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::TestLoopDataHandle;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::{
     GetBlock, GetChunk, GetExecutionOutcomesForBlock, GetProtocolConfig, GetShardChunk,
     GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
@@ -29,6 +27,7 @@ use near_primitives::views::{
 
 use crate::builder::TestLoopBuilder;
 use crate::env::{TestData, TestLoopEnv};
+use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 
 const NUM_VALIDATORS: usize = 2;
@@ -63,20 +62,15 @@ fn slow_test_view_requests_to_archival_node() {
     // Contains the account of the non-validator archival node.
     let archival_clients: HashSet<AccountId> =
         vec![all_clients[NUM_VALIDATORS].clone()].into_iter().collect();
-
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length: EPOCH_LENGTH,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout: shard_layout.clone(),
-            validators_spec: ValidatorsSpec::desired_roles(&validators, &[]),
-            accounts: &accounts,
-        },
-        |genesis_builder| genesis_builder.genesis_height(GENESIS_HEIGHT),
-        |epoch_config_builder| epoch_config_builder,
-    );
-
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(shard_layout.clone())
+        .validators_spec(ValidatorsSpec::desired_roles(&validators, &[]))
+        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .genesis_height(GENESIS_HEIGHT)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)

@@ -1,3 +1,4 @@
+use near_chain_configs::test_genesis::TestGenesisBuilder;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
@@ -304,6 +305,12 @@ impl TestLoopBuilder {
             load_memtries_for_tracked_shards: true,
             upgrade_schedule: PROTOCOL_UPGRADE_SCHEDULE.clone(),
         }
+    }
+
+    // Creates TestLoop-compatible genesis builder
+    pub(crate) fn new_genesis_builder() -> TestGenesisBuilder {
+        TestGenesisBuilder::new()
+            .genesis_time_from_clock(&near_async::time::FakeClock::default().clock())
     }
 
     /// Get the clock for the test loop.
