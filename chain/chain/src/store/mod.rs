@@ -285,13 +285,6 @@ pub struct ChainStore {
     pub(super) transaction_validity_period: BlockHeightDelta,
     /// Guarantueed to be updated when storage is updated, so can be considered a source of truth.
     cache: ChainStoreCache,
-
-    // TODO make caches evict oldest blocks when growing above threashold.
-    // Refcell for inner mutability, has traits require getters to take immutable `&self`.
-    /// Blockheaders are indexed by their hash.
-    block_cache: RefCell<HashMap<CryptoHash, Block>>,
-    block_header_cache: RefCell<HashMap<CryptoHash, BlockHeader>>,
-    block_hash_by_height_cache: RefCell<HashMap<BlockHeight, CryptoHash>>,
 }
 
 #[derive(Default)]
@@ -381,9 +374,6 @@ impl ChainStore {
             save_trie_changes,
             transaction_validity_period,
             cache: Default::default(),
-            block_cache: RefCell::new(Default::default()),
-            block_header_cache: RefCell::new(Default::default()),
-            block_hash_by_height_cache: RefCell::new(Default::default()),
         }
     }
 
