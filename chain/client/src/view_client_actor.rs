@@ -563,7 +563,7 @@ impl ViewClientActorInner {
             account_id_to_shard_id(self.epoch_manager.as_ref(), &signer_account_id, &head.epoch_id)
                 .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
         // Check if we are tracking this shard.
-        if self.shard_tracker.care_about_shard(
+        if self.shard_tracker.cares_about_shard(
             validator_signer.as_ref().map(|v| v.validator_id()),
             &head.prev_block_hash,
             target_shard_id,
@@ -1127,7 +1127,7 @@ impl Handler<GetExecutionOutcome> for ViewClientActorInner {
                     &head.epoch_id,
                 )
                 .into_chain_error()?;
-                if self.shard_tracker.care_about_shard(
+                if self.shard_tracker.cares_about_shard(
                     self.validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &head.last_block_hash,
                     target_shard_id,

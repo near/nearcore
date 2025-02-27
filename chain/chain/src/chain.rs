@@ -600,7 +600,7 @@ impl Chain {
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
-                shard_tracker.care_about_shard(
+                shard_tracker.cares_about_shard(
                     validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
@@ -1361,7 +1361,7 @@ impl Chain {
         parent_hash: CryptoHash,
         block: &Block,
     ) -> Result<(), Error> {
-        if !self.care_about_any_shard_or_part(me, parent_hash)? {
+        if !self.cares_about_any_shard_or_part(me, parent_hash)? {
             return Ok(());
         }
         let mut missing = vec![];
@@ -1394,7 +1394,7 @@ impl Chain {
 
                 if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
                     missing.push(chunk_header.clone());
-                } else if self.shard_tracker.care_about_shard(
+                } else if self.shard_tracker.cares_about_shard(
                     me.as_ref(),
                     &parent_hash,
                     shard_id,
@@ -1417,14 +1417,14 @@ impl Chain {
         Ok(())
     }
 
-    fn care_about_any_shard_or_part(
+    fn cares_about_any_shard_or_part(
         &self,
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-            if self.shard_tracker.care_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+            if self.shard_tracker.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
                     &parent_hash,
@@ -1458,7 +1458,7 @@ impl Chain {
         prev_block_hash: &CryptoHash,
         shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        if !self.care_about_any_shard_or_part(me, *prev_block_hash)? {
+        if !self.cares_about_any_shard_or_part(me, *prev_block_hash)? {
             return Ok(HashMap::new());
         }
         let mut receipt_proofs_by_shard_id = HashMap::new();
@@ -2121,7 +2121,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
-            let care_about_shard = self.shard_tracker.care_about_shard(
+            let cares_about_shard = self.shard_tracker.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
@@ -2133,20 +2133,20 @@ impl Chain {
                 shard_id,
                 true,
             );
-            let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
+            let cares_about_shard_this_or_next_epoch = cares_about_shard || will_care_about_shard;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-            if care_about_shard_this_or_next_epoch {
+            if cares_about_shard_this_or_next_epoch {
                 shards_cares_this_or_next_epoch.push(shard_uid);
             }
 
             let need_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
-                care_about_shard_this_or_next_epoch
+                cares_about_shard_this_or_next_epoch
             } else {
                 // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
                 // during catchup of this block.
-                care_about_shard
+                cares_about_shard
             };
             tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
 
@@ -2908,7 +2908,7 @@ impl Chain {
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
             // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
-            if !self.shard_tracker.care_about_shard(
+            if !self.shard_tracker.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
@@ -3355,7 +3355,7 @@ impl Chain {
         mode: ApplyChunksMode,
     ) -> Result<ShardContext, Error> {
         let cares_about_shard_this_epoch =
-            self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+            self.shard_tracker.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cared_about_shard_prev_epoch = self.shard_tracker.cared_about_shard_in_prev_epoch(
