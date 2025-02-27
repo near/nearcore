@@ -249,13 +249,24 @@ impl ApplyChunksResultCache {
         }
     }
 
-    pub fn peek(&self, key: &CachedShardUpdateKey) -> Option<&ShardUpdateResult> {
+    pub fn peek(
+        &self,
+        key: &CachedShardUpdateKey,
+        shard_id: ShardId,
+    ) -> Option<&ShardUpdateResult> {
+        let shard_id_label = shard_id.to_string();
         if let Some(result) = self.cache.peek(key) {
             self.hits.set(self.hits.get() + 1);
+            metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
+                .with_label_values(&[shard_id_label.as_str()])
+                .inc();
             return Some(result);
         }
 
         self.misses.set(self.misses.get() + 1);
+        metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
+            .with_label_values(&[shard_id_label.as_str()])
+            .inc();
         None
     }
 
@@ -3421,7 +3432,9 @@ impl Chain {
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
-        if let Some(result) = self.apply_chunk_results_cache.peek(&cached_shard_update_key) {
+        if let Some(result) =
+            self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
+        {
             debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
             let result = result.clone();
             return Ok(Some((

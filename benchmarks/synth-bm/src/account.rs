@@ -10,7 +10,6 @@ use tokio::time;
 use crate::block_service::BlockService;
 use crate::rpc::{new_request, view_access_key, ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_client::JsonRpcClient;
@@ -24,6 +23,7 @@ use near_primitives::{
     types::AccountId,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info};
 
 #[derive(Args, Debug)]
 pub struct CreateSubAccountsArgs {
@@ -167,7 +167,7 @@ pub async fn update_account_nonces(
         let nonce = response?.nonce;
         let account = accounts.get_mut(idx).unwrap();
         if account.nonce != nonce {
-            tracing::debug!(name: "nonce updated",
+            debug!(name: "nonce updated",
                 user = account.id.to_string(),
                 nonce.old = account.nonce,
                 nonce.new = nonce,

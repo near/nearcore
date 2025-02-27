@@ -103,6 +103,10 @@ impl TrieRecorder {
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
     }
 
+    pub fn recorded_iter<'a>(&'a self) -> impl Iterator<Item = (&'a CryptoHash, &'a Arc<[u8]>)> {
+        self.recorded.iter()
+    }
+
     pub fn recorded_storage_size(&self) -> usize {
         self.size
     }

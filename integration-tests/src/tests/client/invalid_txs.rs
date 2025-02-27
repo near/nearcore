@@ -1,12 +1,14 @@
 use near_chain::{Chain, Provenance};
 use near_chain_configs::Genesis;
-use near_client::test_utils::{TestEnv, create_chunk_with_transactions};
+use near_client::test_utils::client::create_chunk_with_transactions;
 use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, ShardId};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 

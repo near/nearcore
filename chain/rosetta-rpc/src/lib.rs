@@ -22,6 +22,7 @@ mod adapters;
 mod config;
 mod errors;
 mod models;
+pub mod test;
 mod types;
 mod utils;
 
