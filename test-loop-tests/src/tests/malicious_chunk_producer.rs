@@ -7,9 +7,7 @@ use crate::utils::ONE_NEAR;
 use crate::utils::transactions::get_anchor_hash;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_client::test_utils::test_loop::ClientQueries;
@@ -22,24 +20,21 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 
 #[test]
 fn test_producer_with_expired_transactions() {
-    let builder = TestLoopBuilder::new();
     let accounts =
         (0..3).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
     let chunk_producer = accounts[0].as_str();
     let validators: Vec<_> = accounts[1..].iter().map(|a| a.as_str()).collect();
     let validators_spec = ValidatorsSpec::desired_roles(&[chunk_producer], &validators);
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length: 10,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout: ShardLayout::simple_v1(&[]),
-            validators_spec,
-            accounts: &accounts,
-        },
-        |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(10),
-        |epoch_config_builder| epoch_config_builder,
-    );
-    let mut test_loop_env = builder
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(10)
+        .shard_layout(ShardLayout::simple_v1(&[]))
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .genesis_height(10000)
+        .transaction_validity_period(10)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    let mut test_loop_env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())

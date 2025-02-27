@@ -4,19 +4,16 @@ use itertools::Itertools;
 use near_async::test_loop::TestLoopV2;
 use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::version::PROTOCOL_VERSION;
 
 use crate::builder::TestLoopBuilder;
 use crate::env::{TestData, TestLoopEnv};
-use crate::utils::TGAS;
 use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
+use crate::utils::{ONE_NEAR, TGAS};
 
 const NUM_ACCOUNTS: usize = 100;
 const NUM_PRODUCERS: usize = 2;
@@ -79,19 +76,17 @@ fn setup(accounts: &Vec<AccountId>) -> (TestLoopEnv, AccountId) {
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(&producers, &validators);
 
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout,
-            validators_spec,
-            accounts: &accounts,
-        },
-        |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
-        |epoch_config_builder| {
-            epoch_config_builder.shuffle_shard_assignment_for_chunk_producers(true)
-        },
-    );
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .genesis_height(10000)
+        .transaction_validity_period(1000)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_single_version(genesis.config.protocol_version);
 
     let env = TestLoopBuilder::new()
         .genesis(genesis)

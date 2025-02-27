@@ -2,8 +2,7 @@ use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
 use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, TestGenesisBuilder, ValidatorsSpec,
-    build_genesis_and_epoch_config_store,
+    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
 };
 use near_chunks::shards_manager_actor::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
 use near_chunks::test_utils::ShardsManagerResendChunkRequests;
@@ -14,7 +13,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::EpochId;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::types::AccountId;
 use near_store::test_utils::create_test_store;
 use near_store::{ShardUId, TrieConfig};
@@ -42,7 +40,6 @@ fn slow_test_in_memory_trie_node_consistency() {
 
     let genesis = TestGenesisBuilder::new()
         .genesis_time_from_clock(&clock.clock())
-        .protocol_version(PROTOCOL_VERSION)
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
         .validators_spec(validators_spec)
@@ -419,31 +416,24 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
 
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
 
-    let epoch_length = 10;
     let shard_layout = ShardLayout::simple_v1(&["account3", "account5", "account7"]);
     let validators_spec = ValidatorsSpec::desired_roles(
         &accounts[0..NUM_VALIDATORS].iter().map(|a| a.as_str()).collect::<Vec<_>>(),
         &[],
     );
 
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout,
-            validators_spec,
-            accounts: &accounts,
-        },
-        |genesis_builder| {
-            genesis_builder
-                .genesis_time_from_clock(&clock.clock())
-                .genesis_height(10000)
-                .transaction_validity_period(1000)
-        },
-        |epoch_config_builder| {
-            epoch_config_builder.minimum_validators_per_shard(NUM_VALIDATORS_PER_SHARD as u64)
-        },
-    );
+    let genesis = TestGenesisBuilder::new()
+        .genesis_time_from_clock(&clock.clock())
+        .genesis_height(10000)
+        .epoch_length(10)
+        .transaction_validity_period(1000)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, initial_balance)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .minimum_validators_per_shard(NUM_VALIDATORS_PER_SHARD as u64)
+        .build_store_for_single_version(genesis.config.protocol_version);
 
     let stores = (0..NUM_VALIDATORS).map(|_| create_test_store()).collect::<Vec<_>>();
     let mut env = TestEnv::builder(&genesis.config)

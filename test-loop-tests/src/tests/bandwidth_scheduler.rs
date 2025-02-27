@@ -24,9 +24,7 @@ use near_async::test_loop::futures::TestLoopFutureSpawner;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chain::{ChainStoreAccess, ReceiptFilter, get_incoming_receipts_for_shard};
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_crypto::Signer;
@@ -46,7 +44,6 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, Nonce, ShardId, ShardIndex};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::adapter::StoreAdapter;
 use near_store::trie::outgoing_metadata::{ReceiptGroupsConfig, ReceiptGroupsQueue};
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
@@ -61,8 +58,8 @@ use testlib::bandwidth_scheduler::{
 
 use crate::builder::TestLoopBuilder;
 use crate::env::{TestData, TestLoopEnv};
-use crate::utils::TGAS;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
+use crate::utils::{ONE_NEAR, TGAS};
 
 /// 3 shards, random receipt sizes
 #[test]
@@ -155,17 +152,15 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
 
     // Build TestLoop
     let validators_spec = ValidatorsSpec::desired_roles(&[node_account.as_str()], &[]);
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout,
-            validators_spec,
-            accounts: &all_accounts,
-        },
-        |genesis_builder| genesis_builder.genesis_height(10000).transaction_validity_period(1000),
-        |epoch_config_builder| epoch_config_builder,
-    );
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&all_accounts, 1_000_000 * ONE_NEAR)
+        .genesis_height(10000)
+        .transaction_validity_period(1000)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
         .genesis(genesis)

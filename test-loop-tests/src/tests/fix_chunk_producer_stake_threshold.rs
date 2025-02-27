@@ -4,9 +4,8 @@ use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
 use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::GenesisAndEpochConfigParams;
+use near_chain_configs::test_genesis::TestEpochConfigBuilder;
 use near_chain_configs::test_genesis::ValidatorsSpec;
-use near_chain_configs::test_genesis::build_genesis_and_epoch_config_store;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::test_utils::create_test_signer;
@@ -51,18 +50,14 @@ fn slow_test_fix_cp_stake_threshold() {
         },
     ];
     let validators_spec = ValidatorsSpec::raw(validators, 5, 5, 5);
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            protocol_version,
-            epoch_length,
-            accounts: &accounts,
-            shard_layout,
-            validators_spec,
-        },
-        |genesis_builder| genesis_builder,
-        |epoch_config_builder| epoch_config_builder,
-    );
-
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .protocol_version(protocol_version)
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store.clone())

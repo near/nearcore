@@ -1,14 +1,13 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::builder::TestLoopBuilder;
+use crate::utils::ONE_NEAR;
 
 #[test]
 fn test_optimistic_block() {
@@ -29,18 +28,13 @@ fn test_optimistic_block() {
     );
     let shard_layout = ShardLayout::multi_shard(3, 1);
     let num_shards = shard_layout.num_shards() as usize;
-
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout,
-            validators_spec,
-            accounts: &accounts,
-        },
-        |genesis_builder| genesis_builder,
-        |epoch_config_builder| epoch_config_builder,
-    );
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(epoch_length)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
     let mut env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
 
