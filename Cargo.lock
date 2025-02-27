@@ -3438,7 +3438,7 @@ dependencies = [
  "near-epoch-manager",
  "near-fmt",
  "near-jsonrpc",
- "near-jsonrpc-client",
+ "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
@@ -4028,7 +4028,7 @@ dependencies = [
  "near-crypto",
  "near-epoch-manager",
  "near-jsonrpc",
- "near-jsonrpc-client",
+ "near-jsonrpc-client-internal",
  "near-network",
  "near-o11y",
  "near-performance-metrics",
@@ -4599,7 +4599,7 @@ dependencies = [
  "near-client",
  "near-client-primitives",
  "near-jsonrpc-adversarial-primitives",
- "near-jsonrpc-client",
+ "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
@@ -4621,7 +4621,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-jsonrpc-client"
+name = "near-jsonrpc-client-internal"
 version = "0.0.0"
 dependencies = [
  "actix-http",
@@ -4727,7 +4727,7 @@ dependencies = [
  "near-epoch-manager",
  "near-indexer",
  "near-indexer-primitives",
- "near-jsonrpc-client",
+ "near-jsonrpc-client-internal",
  "near-jsonrpc-primitives",
  "near-network",
  "near-o11y",
@@ -6964,7 +6964,7 @@ dependencies = [
  "integration-tests",
  "near-chain-configs",
  "near-crypto",
- "near-jsonrpc-client",
+ "near-jsonrpc-client-internal",
  "near-o11y",
  "near-primitives",
  "nearcore",
