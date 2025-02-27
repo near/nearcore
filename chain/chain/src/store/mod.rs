@@ -297,9 +297,33 @@ pub struct ChainStore {
 #[derive(Default)]
 pub struct ChainStoreCache {
     // TODO max_distance: u64
-    /// Indexed by hash.
     // TODO Consider which container to use.
-    blocks: HashMap<CryptoHash, Block>,
+    // Interior mutability will not be required anymore once the apply-range command takes
+    // care of populating the cache. See comments below regarding apply-range not calling finalize.
+    blocks: RefCell<HashMap<CryptoHash, Block>>,
+    block_headers: HashMap<CryptoHash, BlockHeader>,
+}
+
+impl ChainStoreCache {
+    fn set_block(&self, hash: CryptoHash, block: Block) {
+        self.blocks.borrow_mut().insert(hash, block);
+    }
+
+    fn block(&self, hash: &CryptoHash) -> Option<Block> {
+        self.blocks.borrow().get(hash).cloned()
+    }
+
+    fn set_block_header(&mut self, hash: CryptoHash, header: BlockHeader) {
+        self.block_headers.insert(hash, header);
+    }
+
+    fn block_header(&self, hash: &CryptoHash) -> Option<&BlockHeader> {
+        self.block_headers.get(hash)
+    }
+
+    fn cleanup_old_data(&mut self, _tip_height: u64) {
+        // TODO cleanup blocks with tip - block.height > max_distance
+    }
 }
 
 impl ChainStore {
@@ -307,23 +331,13 @@ impl ChainStore {
         self.cache.set_block(hash, block);
     }
 
+    fn cache_block_header(&mut self, hash: CryptoHash, header: BlockHeader) {
+        self.cache.set_block_header(hash, header);
+    }
+
     fn cleanup_cache(&mut self) {
         let head = 42; // TODO get latest height
         self.cache.cleanup_old_data(head);
-    }
-}
-
-impl ChainStoreCache {
-    fn set_block(&mut self, hash: CryptoHash, block: Block) {
-        self.blocks.insert(hash, block);
-    }
-
-    fn block(&self, hash: &CryptoHash) -> Option<&Block> {
-        self.blocks.get(hash)
-    }
-
-    fn cleanup_old_data(&mut self, _tip_height: u64) {
-        // TODO cleanup blocks with tip - block.height > max_distance
     }
 }
 
@@ -352,7 +366,6 @@ impl ChainStore {
         save_trie_changes: bool,
         transaction_validity_period: BlockHeightDelta,
     ) -> ChainStore {
-        println!("constructing chain store");
         ChainStore {
             store: store.chain_store(),
             latest_known: once_cell::unsync::OnceCell::new(),
@@ -988,8 +1001,17 @@ impl ChainStoreAccess for ChainStore {
             println!("get_block cache hit");
             return Ok(block.clone());
         }
-        println!("get_block cache miss");
-        ChainStoreAdapter::get_block(self, h)
+        let res = ChainStoreAdapter::get_block(self, h);
+        // Normally a node processes blocks and then ChainStore is populated via
+        // ChainStoreUpdate::finalize, which also writes to ChainStore.cache.
+        // However for the apply-range benchmark, that finalize is never called.
+        // For now, populating the cache here to enable cache hits in apply-range.
+        // Next step: let the apply-range command instead take care of populating the cache,
+        // e.g. when or after calling `ChainStore::new` in apply_chain_range.rs
+        if let Ok(ref block) = res {
+            self.cache.set_block(*h, block.clone());
+        }
+        res
     }
 
     /// Get full chunk.
@@ -1040,10 +1062,9 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
-        // Technically this returns DBCol::Block.header() while below returns DBCol::BlockHeader
-        // Verify that both must be equal.
-        if let Some(block) = self.cache.block(h) {
-            return Ok(block.header().clone());
+        if let Some(header) = self.cache.block_header(h) {
+            println!("get_block_header cache hit");
+            return Ok(header.clone());
         }
         ChainStoreAdapter::get_block_header(self, h)
     }
@@ -1989,6 +2010,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 headers_by_height.entry(header.height()).or_default().push(header);
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
+                self.chain_store.cache_block_header(hash.clone(), header.clone());
             }
             for (height, headers) in headers_by_height {
                 let mut hash_set = match self.chain_store.get_all_header_hashes_by_height(height) {
