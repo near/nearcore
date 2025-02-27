@@ -75,7 +75,7 @@ def prompt_init_flags(args):
 
 def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
     prompt_init_flags(args)
-    if args.neard_upgrade_binary_url is None:
+    if args.neard_upgrade_binary_url is None or args.neard_upgrade_binary_url == '':
         configs = [{
             "is_traffic_generator": False,
             "binaries": [{
@@ -331,7 +331,18 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
 
 def status_cmd(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
+    logger.info(f'Checking status for {len(targeted)} nodes...')
+
     statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
+
+    # statuses = []
+    # for i, node in enumerate(targeted, 1):
+    #     logger.info(
+    #         f'[{i}/{len(targeted)}] Checking status for node {node.name()}...')
+    #     status = node.neard_runner_ready()
+    #     statuses.append(status)
+    #     logger.info(
+    #         f'Node {node.name()} status: {"ready" if status else "not ready"}')
 
     not_ready = []
     for ready, node in zip(statuses, targeted):
@@ -339,8 +350,12 @@ def status_cmd(args, traffic_generator, nodes):
             not_ready.append(node.name())
 
     if len(not_ready) == 0:
+        logger.info(f'All {len(targeted)} nodes are ready')
         print(f'all {len(targeted)} nodes ready')
     else:
+        logger.warning(
+            f'{len(targeted)-len(not_ready)}/{len(targeted)} nodes ready. Nodes not ready: {not_ready[:3]}'
+        )
         print(
             f'{len(targeted)-len(not_ready)}/{len(targeted)} ready. Nodes not ready: {not_ready[:3]}'
         )
@@ -531,6 +546,21 @@ class ParseFraction(Action):
         numerator = int(match.group(1))
         denominator = int(match.group(2))
         setattr(namespace, self.dest, (numerator, denominator))
+
+
+def list_nodes_cmd(args, traffic_generator, nodes):
+    """List all nodes with their roles and information in machine-parseable format"""
+    # Get all nodes including traffic generator for parallel status check
+    all_nodes = nodes + to_list(traffic_generator)
+    statuses = pmap(lambda node: node.neard_runner_ready(), all_nodes)
+
+    # Output format: TYPE|NAME|STATUS
+    for node, status in zip(all_nodes, statuses):
+        if node == traffic_generator:  # Direct comparison instead of type check
+            print(f"traffic|{node.name()}|{'ready' if status else 'not_ready'}")
+        elif node.want_neard_runner:
+            print(
+                f"validator|{node.name()}|{'ready' if status else 'not_ready'}")
 
 
 if __name__ == '__main__':
@@ -736,6 +766,10 @@ if __name__ == '__main__':
     env_cmd_parser.add_argument('--clear-all', action='store_true')
     env_cmd_parser.add_argument('--key-value', type=str, nargs='+')
     env_cmd_parser.set_defaults(func=run_env_cmd)
+
+    list_nodes_parser = subparsers.add_parser(
+        'list-nodes', help='List all available nodes with their roles')
+    list_nodes_parser.set_defaults(func=list_nodes_cmd)
 
     args = parser.parse_args()
 

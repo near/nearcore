@@ -53,6 +53,7 @@ fn one_iter(
         Doomslug::new(
             clock.clock(),
             0,
+            0,
             Duration::milliseconds(200),
             Duration::milliseconds(1000),
             Duration::milliseconds(100),

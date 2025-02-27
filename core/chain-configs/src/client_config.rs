@@ -48,7 +48,7 @@ pub struct GCConfig {
     /// when cleaning forks during garbage collection.
     pub gc_fork_clean_step: u64,
 
-    /// Number of epochs for which we keep store data.
+    /// Number of epochs for which we keep store data.-
     pub gc_num_epochs_to_keep: u64,
 
     /// How often gc should be run

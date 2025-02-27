@@ -297,6 +297,7 @@ impl Client {
 
         let doomslug = Doomslug::new(
             clock.clone(),
+            chain_genesis.height,
             chain.chain_store().largest_target_height()?,
             config.min_block_production_delay,
             config.max_block_production_delay,
@@ -1857,6 +1858,8 @@ impl Client {
         else {
             return;
         };
+
+        self.chain.blocks_delay_tracker.record_optimistic_block_ready(block.height());
 
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());

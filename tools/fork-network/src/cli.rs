@@ -16,6 +16,7 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, Account, AccountC
 use near_primitives::borsh;
 use near_primitives::epoch_manager::{EpochConfig, EpochConfigStore};
 use near_primitives::hash::CryptoHash;
+use near_primitives::num_rational::Rational32;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state::FlatStateValue;
@@ -144,7 +145,6 @@ fn parse_legacy_state_roots_key(key: &[u8]) -> anyhow::Result<ShardId> {
 const EPOCH_ID_KEY: &[u8; 18] = b"FORK_TOOL_EPOCH_ID";
 const FLAT_HEAD_KEY: &[u8; 19] = b"FORK_TOOL_FLAT_HEAD";
 const SHARD_LAYOUT_KEY: &[u8; 22] = b"FORK_TOOL_SHARD_LAYOUT";
-
 const FORKED_ROOTS_KEY_PREFIX: &[u8; 20] = b"FORK_TOOL_SHARD_UID:";
 
 fn parse_state_roots_key(key: &[u8]) -> anyhow::Result<ShardUId> {
@@ -680,6 +680,11 @@ impl ForkNetworkCommand {
             EpochConfigStore::for_chain_id(near_primitives::chains::MAINNET, None)
                 .expect("Could not load the EpochConfigStore for mainnet.");
         let mut new_epoch_configs = BTreeMap::new();
+
+        let deprecated_shard_layout = ShardLayout::get_simple_nightshade_layout_v3();
+        let accounts = deprecated_shard_layout.boundary_accounts().to_vec();
+        let shard_ids = deprecated_shard_layout.shard_ids().collect::<Vec<_>>();
+
         for version in first_version..=PROTOCOL_VERSION {
             let mut config = base_epoch_config_store.get_config(version).as_ref().clone();
             if let Some(num_seats) = num_seats {
@@ -687,6 +692,15 @@ impl ForkNetworkCommand {
                 config.num_chunk_producer_seats = *num_seats;
                 config.num_chunk_validator_seats = *num_seats;
             }
+
+            config.shard_layout = ShardLayout::v2(accounts.clone(), shard_ids.clone(), None);
+            config.num_block_producer_seats_per_shard = vec![100; shard_ids.len()];
+            config.avg_hidden_validator_seats_per_shard = vec![100; shard_ids.len()];
+            config.protocol_upgrade_stake_threshold = Rational32::from_integer(1);
+            config.block_producer_kickout_threshold = 0;
+            config.chunk_producer_kickout_threshold = 0;
+            config.chunk_validator_only_kickout_threshold = 0;
+
             new_epoch_configs.insert(version, Arc::new(config));
         }
         let first_config = new_epoch_configs.get(&first_version).unwrap().as_ref().clone();
@@ -1123,7 +1137,7 @@ impl ForkNetworkCommand {
             dynamic_resharding: false,
             protocol_version: genesis_protocol_version,
             validators: new_validator_accounts,
-            gas_price_adjustment_rate: original_config.gas_price_adjustment_rate,
+            gas_price_adjustment_rate: Rational32::from_integer(0),
             gas_limit: original_config.gas_limit,
             max_gas_price: original_config.max_gas_price,
             max_inflation_rate: original_config.max_inflation_rate,

@@ -88,6 +88,14 @@ pub static BLOCK_ORPHANED_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram("near_block_orphaned_delay", "How long blocks stay in the orphan pool")
         .unwrap()
 });
+pub static BLOCK_OPTIMISTIC_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_block_optimistic_delay",
+        "Delay between optimistic block completion and receiving the full block",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
+    )
+    .unwrap()
+});
 pub static BLOCK_MISSING_CHUNKS_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram(
         "near_block_missing_chunks_delay",
@@ -190,4 +198,8 @@ pub(crate) static APPLY_CHUNK_RESULTS_CACHE_MISSES: LazyLock<IntCounterVec> = La
         &["shard_id"],
     )
     .unwrap()
+});
+
+pub(crate) static DOOMSLUG_TIMER_VERSION: LazyLock<IntGauge> = LazyLock::new(|| {
+    try_create_int_gauge("near_doomslug_timer_version", "Version of Doomslug timer").unwrap()
 });
