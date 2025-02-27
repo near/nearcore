@@ -36,13 +36,12 @@ use ops::interface::{GenericNodeOrIndex, GenericTrieNode, GenericTrieUpdate};
 use ops::interface::{GenericTrieValue, UpdatedNodeId};
 use ops::resharding::{GenericTrieUpdateRetain, RetainMode};
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::Hash;
 use std::ops::DerefMut;
 use std::str;
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
 use trie_storage_update::{
     TrieStorageNodeWithSize, TrieStorageUpdate, UpdatedTrieStorageNodeWithSize,
@@ -202,12 +201,13 @@ pub struct Trie {
     /// (which can be toggled on the fly), trie nodes that have been looked up
     /// once will be guaranteed to be cached, and further reads to these nodes
     /// will encounter less gas cost.
-    accounting_cache: RefCell<TrieAccountingCache>,
+    accounting_cache: Mutex<TrieAccountingCache>,
     /// If present, we're capturing all trie nodes that have been accessed
     /// during the lifetime of this Trie struct. This is used to produce a
     /// state proof so that the same access pattern can be replayed using only
     /// the captured result.
-    recorder: Option<RefCell<TrieRecorder>>,
+    // FIXME: make `TrieRecorder` internally MT-safe, instead of locking the entire structure.
+    recorder: Option<RwLock<TrieRecorder>>,
     /// If true, access to trie nodes (not values) charges gas and affects the
     /// accounting cache. If false, access to trie nodes will not charge gas or
     /// affect the accounting cache. Value accesses always charge gas no matter
@@ -544,11 +544,10 @@ impl Trie {
         flat_storage_chunk_view: Option<FlatStorageChunkView>,
     ) -> Self {
         let accounting_cache = match storage.as_caching_storage() {
-            Some(caching_storage) => RefCell::new(TrieAccountingCache::new(Some((
-                caching_storage.shard_uid,
-                caching_storage.is_view,
-            )))),
-            None => RefCell::new(TrieAccountingCache::new(None)),
+            Some(caching_storage) => {
+                TrieAccountingCache::new(Some((caching_storage.shard_uid, caching_storage.is_view)))
+            }
+            None => TrieAccountingCache::new(None),
         };
         // Technically the charge_gas_for_trie_node_access should be set based
         // on the flat storage protocol feature. When flat storage is enabled
@@ -562,7 +561,7 @@ impl Trie {
             root,
             charge_gas_for_trie_node_access,
             flat_storage_chunk_view,
-            accounting_cache,
+            accounting_cache: Mutex::new(accounting_cache),
             recorder: None,
         }
     }
@@ -580,7 +579,7 @@ impl Trie {
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads_new_recorder(&self) -> Self {
-        let recorder = RefCell::new(TrieRecorder::new(None));
+        let recorder = RwLock::new(TrieRecorder::new(None));
         self.recording_reads_with_recorder(recorder)
     }
 
@@ -588,11 +587,11 @@ impl Trie {
     /// through that trie accumulates a state proof for all nodes accessed.
     /// We also supply a proof size limit to prevent the proof from growing too large.
     pub fn recording_reads_with_proof_size_limit(&self, proof_size_limit: usize) -> Self {
-        let recorder = RefCell::new(TrieRecorder::new(Some(proof_size_limit)));
+        let recorder = RwLock::new(TrieRecorder::new(Some(proof_size_limit)));
         self.recording_reads_with_recorder(recorder)
     }
 
-    pub fn recording_reads_with_recorder(&self, recorder: RefCell<TrieRecorder>) -> Self {
+    pub fn recording_reads_with_recorder(&self, recorder: RwLock<TrieRecorder>) -> Self {
         let mut trie = Self::new_with_memtries(
             self.storage.clone(),
             self.memtries.clone(),
@@ -605,20 +604,22 @@ impl Trie {
         trie
     }
 
-    pub fn take_recorder(self) -> Option<RefCell<TrieRecorder>> {
+    pub fn take_recorder(self) -> Option<RwLock<TrieRecorder>> {
         self.recorder
     }
 
     /// Takes the recorded state proof out of the trie.
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
-        self.recorder.as_ref().map(|recorder| recorder.borrow_mut().recorded_storage())
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.write().expect("no poison").recorded_storage())
     }
 
     /// Returns the in-memory size of the recorded state proof. Useful for checking size limit of state witness
     pub fn recorded_storage_size(&self) -> usize {
         self.recorder
             .as_ref()
-            .map(|recorder| recorder.borrow().recorded_storage_size())
+            .map(|recorder| recorder.read().expect("no poison").recorded_storage_size())
             .unwrap_or_default()
     }
 
@@ -627,14 +628,14 @@ impl Trie {
     pub fn recorded_storage_size_upper_bound(&self) -> usize {
         self.recorder
             .as_ref()
-            .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
+            .map(|recorder| recorder.read().expect("no poison").recorded_storage_size_upper_bound())
             .unwrap_or_default()
     }
 
     pub fn check_proof_size_limit_exceed(&self) -> bool {
         self.recorder
             .as_ref()
-            .map(|recorder| recorder.borrow().check_proof_size_limit_exceed())
+            .map(|recorder| recorder.read().expect("no poison").check_proof_size_limit_exceed())
             .unwrap_or_default()
     }
 
@@ -662,7 +663,9 @@ impl Trie {
     /// Get statistics about the recorded trie. Useful for observability and debugging.
     /// This scans all of the recorded data, so could potentially be expensive to run.
     pub fn recorder_stats(&self) -> Option<TrieRecorderStats> {
-        self.recorder.as_ref().map(|recorder| recorder.borrow().get_stats(&self.root))
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.read().expect("no poison").get_stats(&self.root))
     }
 
     pub fn get_root(&self) -> &StateRoot {
@@ -683,7 +686,7 @@ impl Trie {
             return;
         };
         {
-            let mut r = recorder.borrow_mut();
+            let mut r = recorder.write().expect("no poison");
             if r.codes_to_record.contains(&account_id) {
                 return;
             }
@@ -695,7 +698,7 @@ impl Trie {
         let key = TrieKey::ContractCode { account_id };
         let value_ref = self.get_optimized_ref(&key.to_vec(), KeyLookupMode::FlatStorage);
         if let Ok(Some(value_ref)) = value_ref {
-            let mut r = recorder.borrow_mut();
+            let mut r = recorder.write().expect("no poison");
             r.record_code_len(value_ref.len());
         }
     }
@@ -711,7 +714,7 @@ impl Trie {
         // that it is possible to generated continuous stream of witnesses with a fixed
         // size. Using static key achieves that since in case of multiple receipts garbage
         // data will simply be overwritten, not accumulated.
-        recorder.borrow_mut().record_unaccounted(
+        recorder.write().expect("no poison").record_unaccounted(
             &CryptoHash::hash_bytes(b"__garbage_data_key_1720025071757228"),
             data.into(),
         );
@@ -732,14 +735,15 @@ impl Trie {
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = if side_effects && use_accounting_cache {
             self.accounting_cache
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .retrieve_raw_bytes_with_accounting(hash, &*self.storage)?
         } else {
             self.storage.retrieve_raw_bytes(hash)?
         };
         if side_effects {
             if let Some(recorder) = &self.recorder {
-                recorder.borrow_mut().record(hash, result.clone());
+                recorder.write().expect("no poison").record(hash, result.clone());
             }
         }
         Ok(result)
@@ -1291,13 +1295,14 @@ impl Trie {
             if charge_gas_for_trie_node_access {
                 for (node_hash, serialized_node) in &accessed_nodes {
                     self.accounting_cache
-                        .borrow_mut()
+                        .lock()
+                        .unwrap()
                         .retroactively_account(*node_hash, serialized_node.clone());
                 }
             }
             if let Some(recorder) = &self.recorder {
                 for (node_hash, serialized_node) in accessed_nodes {
-                    recorder.borrow_mut().record(&node_hash, serialized_node);
+                    recorder.write().expect("no poison").record(&node_hash, serialized_node);
                 }
             }
             mem_value
@@ -1491,10 +1496,11 @@ impl Trie {
                 let value_hash = hash(value);
                 let arc_value: Arc<[u8]> = value.clone().into();
                 self.accounting_cache
-                    .borrow_mut()
+                    .lock()
+                    .unwrap()
                     .retroactively_account(value_hash, arc_value.clone());
                 if let Some(recorder) = &self.recorder {
-                    recorder.borrow_mut().record(&value_hash, arc_value);
+                    recorder.write().expect("no poison").record(&value_hash, arc_value);
                 }
                 Ok(value.clone())
             }
@@ -1515,7 +1521,7 @@ impl Trie {
     {
         // Call `get` for contract codes requested to be recorded.
         let codes_to_record = if let Some(recorder) = &self.recorder {
-            recorder.borrow().codes_to_record.clone()
+            recorder.read().expect("no poison").codes_to_record.clone()
         } else {
             HashSet::default()
         };
@@ -1537,7 +1543,8 @@ impl Trie {
     {
         // Get trie_update for memtrie
         let guard = self.memtries.as_ref().unwrap().read().unwrap();
-        let mut recorder = self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
+        let mut recorder =
+            self.recorder.as_ref().map(|recorder| recorder.write().expect("no poison"));
         let tracking_mode = match &mut recorder {
             Some(recorder) => TrackingMode::RefcountsAndAccesses(recorder.deref_mut()),
             None => TrackingMode::Refcounts,
@@ -1650,7 +1657,7 @@ impl Trie {
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.accounting_cache.borrow().get_trie_nodes_count()
+        self.accounting_cache.lock().unwrap().get_trie_nodes_count()
     }
 
     /// Splits the trie, separating entries by the boundary account.
