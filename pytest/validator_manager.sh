@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set default compute zone
-export CLOUDSDK_COMPUTE_ZONE=us-central1-a
+# export CLOUDSDK_COMPUTE_ZONE=europe-west4-a
 
 # Function to list nodes and select validators
 select_validators() {
@@ -15,35 +15,72 @@ select_validators() {
     echo "Network name: $UNIQUE_ID"
     
     echo "Available nodes:"
-    # Get the list of nodes, filter for ready validators, exclude archival nodes, and extract just the node names
-    SELECTED_VALIDATORS=$($MIRROR_CMD list-nodes | \
-        grep "^validator" | \
-        grep "|ready$" | \
-        grep -v "archiv" | \
-        cut -d'|' -f2 | \
-        head -n 2)
+    # Get the list of nodes using gcloud compute instances list
+    # Filter for nodes that include $UNIQUE_ID in the name
+    ALL_NODES_INFO=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID")
+    ALL_NODES=$(echo "$ALL_NODES_INFO" | awk '{print $1}')
     
-    if [ -z "$SELECTED_VALIDATORS" ]; then
-        echo "Error: No ready validator nodes found"
+    if [ -z "$ALL_NODES" ]; then
+        echo "Error: No nodes found with UNIQUE_ID: $UNIQUE_ID"
         exit 1
     fi
-
-    # Save selected validators for future reference (just the node names, one per line)
-    echo "$SELECTED_VALIDATORS" > "/tmp/benchmark_nodes_${UNIQUE_ID}"
+    
+    # Display all available nodes
+    echo "$ALL_NODES"
+    
+    # Find the RPC node (dumper)
+    RPC_NODE_LINE=$(echo "$ALL_NODES_INFO" | grep "dumper" | head -n 1)
+    RPC_NODE=$(echo "$RPC_NODE_LINE" | awk '{print $1}')
+    RPC_ZONE=$(echo "$RPC_NODE_LINE" | awk '{print $2}')
+    
+    if [ -z "$RPC_NODE" ]; then
+        echo "Warning: No dumper node found for RPC. Will use a random node instead."
+        RPC_NODE_LINE=$(echo "$ALL_NODES_INFO" | head -n 1)
+        RPC_NODE=$(echo "$RPC_NODE_LINE" | awk '{print $1}')
+        RPC_ZONE=$(echo "$RPC_NODE_LINE" | awk '{print $2}')
+    fi
+    
+    # Find validator nodes (not archiv, not dumper, not traffic)
+    VALIDATOR_LINES=$(echo "$ALL_NODES_INFO" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic" | shuf | head -n 2)
+    
+    if [ -z "$VALIDATOR_LINES" ]; then
+        echo "Error: No suitable validator nodes found"
+        exit 1
+    fi
+    
+    # Extract node names and zones
+    VALIDATOR1=$(echo "$VALIDATOR_LINES" | head -n 1 | awk '{print $1}')
+    VALIDATOR1_ZONE=$(echo "$VALIDATOR_LINES" | head -n 1 | awk '{print $2}')
+    
+    VALIDATOR2=$(echo "$VALIDATOR_LINES" | tail -n 1 | awk '{print $1}')
+    VALIDATOR2_ZONE=$(echo "$VALIDATOR_LINES" | tail -n 1 | awk '{print $2}')
+    
+    # Save selected validators and RPC node for future reference
+    # Format: node_name|zone
+    echo "${VALIDATOR1}|${VALIDATOR1_ZONE}" > "/tmp/benchmark_nodes_${UNIQUE_ID}"
+    echo "${VALIDATOR2}|${VALIDATOR2_ZONE}" >> "/tmp/benchmark_nodes_${UNIQUE_ID}"
+    echo "${RPC_NODE}|${RPC_ZONE}" > "/tmp/benchmark_rpc_${UNIQUE_ID}"
     
     # Show selected validators in a nice format for humans
     echo -e "\nSelected validators:"
-    while read -r node; do
-        echo "  $node"
-    done < "/tmp/benchmark_nodes_${UNIQUE_ID}"
+    echo "  $VALIDATOR1 (Zone: $VALIDATOR1_ZONE)"
+    echo "  $VALIDATOR2 (Zone: $VALIDATOR2_ZONE)"
+    
+    echo -e "\nSelected RPC node:"
+    echo "  $RPC_NODE (Zone: $RPC_ZONE)"
 }
 
 # Function to check benchmark status on a specific node
 check_node_status() {
-    local node=$1
+    local node_info=$1
     local mode=$2
-    echo "=== Status for $node (Mode $mode) ==="
-    gcloud compute ssh ubuntu@"$node" --command="tail -n 5 /tmp/err" 2>/dev/null || \
+    
+    # Extract node name and zone
+    local node=$(echo "$node_info" | cut -d'|' -f1)
+    local zone=$(echo "$node_info" | cut -d'|' -f2)
+    
+    echo "=== Status for $node (Mode $mode, Zone: $zone) ==="
+    gcloud compute ssh ubuntu@"$node" --zone="$zone" --command="tail -n 5 /tmp/err" 2>/dev/null || \
         echo "Failed to connect to $node"
     echo "----------------------------------------"
 }
@@ -64,20 +101,19 @@ check_all_status() {
         exit 1
     fi
     
-    { read -r node1; read -r node2; } < "$nodes_file"
+    { read -r node1_info; read -r node2_info; } < "$nodes_file"
     
-    if [ -n "$node1" ]; then
-        check_node_status "$node1" "1"
+    if [ -n "$node1_info" ]; then
+        check_node_status "$node1_info" "1"
     fi
-    if [ -n "$node2" ]; then
-        check_node_status "$node2" "2"
+    if [ -n "$node2_info" ]; then
+        check_node_status "$node2_info" "2"
     fi
 }
 
 # Function to run prepare phase with periodic status checks
 run_prepare() {
-    local rpc_host=$1
-    local nonce=$2
+    local nonce=$1
     
     # Check if UNIQUE_ID is set
     if [ -z "$UNIQUE_ID" ]; then
@@ -87,12 +123,38 @@ run_prepare() {
     fi
     
     local nodes_file="/tmp/benchmark_nodes_${UNIQUE_ID}"
+    local rpc_file="/tmp/benchmark_rpc_${UNIQUE_ID}"
+    
+    if [ ! -f "$nodes_file" ] || [ ! -f "$rpc_file" ]; then
+        echo "Error: Missing benchmark nodes or RPC node files. Run select command first."
+        exit 1
+    fi
+    
+    # Read the RPC node
+    local rpc_info=$(cat "$rpc_file")
+    local rpc_node=$(echo "$rpc_info" | cut -d'|' -f1)
+    local rpc_zone=$(echo "$rpc_info" | cut -d'|' -f2)
+    
+    # Get the RPC host IP
+    local rpc_host=$(gcloud compute instances list | cat | grep "$rpc_node" | awk '{print $5}')
+    
+    if [ -z "$rpc_host" ]; then
+        echo "Error: Could not get IP address for RPC node $rpc_node"
+        exit 1
+    fi
     
     echo "Starting preparation phase..."
     echo "Network name: $UNIQUE_ID"
+    echo "RPC node: $rpc_node ($rpc_host, Zone: $rpc_zone)"
     
     # Read the two nodes
-    { read -r node1; read -r node2; } < "$nodes_file"
+    { read -r node1_info; read -r node2_info; } < "$nodes_file"
+    
+    # Extract node names and zones
+    local node1=$(echo "$node1_info" | cut -d'|' -f1)
+    local zone1=$(echo "$node1_info" | cut -d'|' -f2)
+    local node2=$(echo "$node2_info" | cut -d'|' -f1)
+    local zone2=$(echo "$node2_info" | cut -d'|' -f2)
     
     if [ -z "$node1" ] || [ -z "$node2" ]; then
         echo "Error: Need exactly two nodes for benchmarking"
@@ -104,7 +166,8 @@ run_prepare() {
     local short_name2=$(echo "$node2" | cut -d'.' -f1)
     
     # Get all validator nodes that are ready (for fallback)
-    local all_validators=$($MIRROR_CMD list-nodes | grep "^validator" | grep "|ready$" | cut -d'|' -f2)
+    local all_validators_info=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic")
+    local all_validators=$(echo "$all_validators_info" | awk '{print $1}')
     
     # First set up RPC URL on both nodes
     echo "Setting up RPC URL on nodes..."
@@ -113,10 +176,11 @@ run_prepare() {
     setup_node_env() {
         local node=$1
         local short_name=$2
-        local node_num=$3
+        local zone=$3
+        local node_num=$4
         
-        echo "Configuring RPC URL on $node (as $short_name)..."
-        gcloud compute ssh ubuntu@"$short_name" --command="
+        echo "Configuring RPC URL on $node (as $short_name, Zone: $zone)..."
+        gcloud compute ssh ubuntu@"$short_name" --zone="$zone" --command="
             sudo sed -i '/^RPC_URL=/d' /etc/environment && \
             sudo sed -i '/^UNIQUE_ID=/d' /etc/environment && \
             sudo sh -c 'echo \"RPC_URL=http://${rpc_host}:3030\" >> /etc/environment' && \
@@ -125,10 +189,13 @@ run_prepare() {
         # If direct connection failed, try to find the node in the validator list
         if [ $? -ne 0 ]; then
             echo "Failed to connect to $short_name, trying to find matching validator..."
-            for validator in $all_validators; do
+            while read -r validator_line; do
+                local validator=$(echo "$validator_line" | awk '{print $1}')
+                local validator_zone=$(echo "$validator_line" | awk '{print $2}')
+                
                 if [[ "$validator" == *"$node"* || "$node" == *"$validator"* ]]; then
-                    echo "Found matching validator: $validator, trying to connect..."
-                    gcloud compute ssh ubuntu@"$validator" --command="
+                    echo "Found matching validator: $validator (Zone: $validator_zone), trying to connect..."
+                    gcloud compute ssh ubuntu@"$validator" --zone="$validator_zone" --command="
                         sudo sed -i '/^RPC_URL=/d' /etc/environment && \
                         sudo sed -i '/^UNIQUE_ID=/d' /etc/environment && \
                         sudo sh -c 'echo \"RPC_URL=http://${rpc_host}:3030\" >> /etc/environment' && \
@@ -138,20 +205,22 @@ run_prepare() {
                         if [ "$node_num" -eq 1 ]; then
                             node1="$validator"
                             short_name1="$validator"
+                            zone1="$validator_zone"
                         else
                             node2="$validator"
                             short_name2="$validator"
+                            zone2="$validator_zone"
                         fi && \
                         break || \
                         echo "Failed to connect to $validator"
                 fi
-            done
+            done <<< "$all_validators_info"
         fi
     }
     
     # Set up environment on both nodes
-    setup_node_env "$node1" "$short_name1" 1
-    setup_node_env "$node2" "$short_name2" 2
+    setup_node_env "$node1" "$short_name1" "$zone1" 1
+    setup_node_env "$node2" "$short_name2" "$zone2" 2
     
     # Prepare nonce argument if provided
     local nonce_arg=""
@@ -160,12 +229,12 @@ run_prepare() {
     fi
     
     # Start prepare phase on nodes with different modes
-    echo "Starting prepare on $node1 (Mode 1)..."
-    gcloud compute ssh ubuntu@"$short_name1" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 1 --operation prepare --rpc-url http://${rpc_host}:3030 $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
+    echo "Starting prepare on $node1 (Mode 1, Zone: $zone1)..."
+    gcloud compute ssh ubuntu@"$short_name1" --zone="$zone1" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 1 --operation prepare --rpc-url http://${rpc_host}:3030 $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
         echo "Failed to start prepare on $short_name1"
     
-    echo "Starting prepare on $node2 (Mode 2)..."
-    gcloud compute ssh ubuntu@"$short_name2" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 2 --operation prepare --rpc-url http://${rpc_host}:3030 $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
+    echo "Starting prepare on $node2 (Mode 2, Zone: $zone2)..."
+    gcloud compute ssh ubuntu@"$short_name2" --zone="$zone2" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode 2 --operation prepare --rpc-url http://${rpc_host}:3030 $nonce_arg > /tmp/err 2>&1 &" 2>/dev/null || \
         echo "Failed to start prepare on $short_name2"
     
     echo "Preparation started on all nodes. Monitoring status..."
@@ -178,8 +247,8 @@ run_prepare() {
         all_done=true
         
         # Check node1 (Mode 1)
-        echo "=== Status for $node1 (Mode 1) ==="
-        status1=$(gcloud compute ssh ubuntu@"$short_name1" --command="tail -n 20 /tmp/err" 2>/dev/null)
+        echo "=== Status for $node1 (Mode 1, Zone: $zone1) ==="
+        status1=$(gcloud compute ssh ubuntu@"$short_name1" --zone="$zone1" --command="tail -n 20 /tmp/err" 2>/dev/null)
         if [ $? -ne 0 ]; then
             echo "Failed to connect to $short_name1"
             status1=""
@@ -189,8 +258,8 @@ run_prepare() {
         echo "----------------------------------------"
         
         # Check node2 (Mode 2)
-        echo "=== Status for $node2 (Mode 2) ==="
-        status2=$(gcloud compute ssh ubuntu@"$short_name2" --command="tail -n 20 /tmp/err" 2>/dev/null)
+        echo "=== Status for $node2 (Mode 2, Zone: $zone2) ==="
+        status2=$(gcloud compute ssh ubuntu@"$short_name2" --zone="$zone2" --command="tail -n 20 /tmp/err" 2>/dev/null)
         if [ $? -ne 0 ]; then
             echo "Failed to connect to $short_name2"
             status2=""
@@ -225,8 +294,6 @@ run_prepare() {
 
 # Function to run the benchmark
 run_benchmark() {
-    local rpc_host=$1
-    
     # Check if UNIQUE_ID is set
     if [ -z "$UNIQUE_ID" ]; then
         echo "Error: UNIQUE_ID environment variable is not set"
@@ -235,12 +302,38 @@ run_benchmark() {
     fi
     
     local nodes_file="/tmp/benchmark_nodes_${UNIQUE_ID}"
+    local rpc_file="/tmp/benchmark_rpc_${UNIQUE_ID}"
+    
+    if [ ! -f "$nodes_file" ] || [ ! -f "$rpc_file" ]; then
+        echo "Error: Missing benchmark nodes or RPC node files. Run select command first."
+        exit 1
+    fi
+    
+    # Read the RPC node
+    local rpc_info=$(cat "$rpc_file")
+    local rpc_node=$(echo "$rpc_info" | cut -d'|' -f1)
+    local rpc_zone=$(echo "$rpc_info" | cut -d'|' -f2)
+    
+    # Get the RPC host IP
+    local rpc_host=$(gcloud compute instances list | cat | grep "$rpc_node" | awk '{print $5}')
+    
+    if [ -z "$rpc_host" ]; then
+        echo "Error: Could not get IP address for RPC node $rpc_node"
+        exit 1
+    fi
     
     echo "Starting benchmark execution..."
     echo "Network name: $UNIQUE_ID"
+    echo "RPC node: $rpc_node ($rpc_host, Zone: $rpc_zone)"
     
     # Read the two nodes
-    { read -r node1; read -r node2; } < "$nodes_file"
+    { read -r node1_info; read -r node2_info; } < "$nodes_file"
+    
+    # Extract node names and zones
+    local node1=$(echo "$node1_info" | cut -d'|' -f1)
+    local zone1=$(echo "$node1_info" | cut -d'|' -f2)
+    local node2=$(echo "$node2_info" | cut -d'|' -f1)
+    local zone2=$(echo "$node2_info" | cut -d'|' -f2)
     
     if [ -z "$node1" ] || [ -z "$node2" ]; then
         echo "Error: Need exactly two nodes for benchmarking"
@@ -252,35 +345,39 @@ run_benchmark() {
     local short_name2=$(echo "$node2" | cut -d'.' -f1)
     
     # Get all validator nodes that are ready (for fallback)
-    local all_validators=$($MIRROR_CMD list-nodes | grep "^validator" | grep "|ready$" | cut -d'|' -f2)
+    local all_validators_info=$(gcloud compute instances list | cat | grep -i "$UNIQUE_ID" | grep -v "archiv" | grep -v "dumper" | grep -v "traffic")
     
     # Function to start benchmark on a node
     start_benchmark() {
         local node=$1
         local short_name=$2
-        local mode=$3
+        local zone=$3
+        local mode=$4
         
-        echo "Starting Mode $mode benchmark on $node (as $short_name)..."
-        gcloud compute ssh ubuntu@"$short_name" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url \$RPC_URL > /tmp/err 2>&1 &" 2>/dev/null
+        echo "Starting Mode $mode benchmark on $node (as $short_name, Zone: $zone)..."
+        gcloud compute ssh ubuntu@"$short_name" --zone="$zone" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url http://${rpc_host}:3030 > /tmp/err 2>&1 &" 2>/dev/null
         
         # If direct connection failed, try to find the node in the validator list
         if [ $? -ne 0 ]; then
             echo "Failed to connect to $short_name, trying to find matching validator..."
-            for validator in $all_validators; do
+            while read -r validator_line; do
+                local validator=$(echo "$validator_line" | awk '{print $1}')
+                local validator_zone=$(echo "$validator_line" | awk '{print $2}')
+                
                 if [[ "$validator" == *"$node"* || "$node" == *"$validator"* ]]; then
-                    echo "Found matching validator: $validator, trying to connect..."
-                    gcloud compute ssh ubuntu@"$validator" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url \$RPC_URL > /tmp/err 2>&1 &" 2>/dev/null && \
+                    echo "Found matching validator: $validator (Zone: $validator_zone), trying to connect..."
+                    gcloud compute ssh ubuntu@"$validator" --zone="$validator_zone" --command="source /etc/environment && /home/ubuntu/benchmark.sh --mode $mode --operation run --rpc-url http://${rpc_host}:3030 > /tmp/err 2>&1 &" 2>/dev/null && \
                         echo "Successfully started benchmark on $validator" || \
                         echo "Failed to connect to $validator"
                     break
                 fi
-            done
+            done <<< "$all_validators_info"
         fi
     }
     
     # Start different modes on different nodes
-    start_benchmark "$node1" "$short_name1" 1
-    start_benchmark "$node2" "$short_name2" 2
+    start_benchmark "$node1" "$short_name1" "$zone1" 1
+    start_benchmark "$node2" "$short_name2" "$zone2" 2
     
     echo "Benchmark started on all nodes. Use './validator_manager.sh status' to check progress."
 }
@@ -300,38 +397,30 @@ stop_benchmark() {
     echo "Network name: $UNIQUE_ID"
     
     # Read the two nodes
-    { read -r node1; read -r node2; } < "$nodes_file"
+    { read -r node1_info; read -r node2_info; } < "$nodes_file"
     
-    if [ -z "$node1" ] && [ -z "$node2" ]; then
+    if [ -z "$node1_info" ] && [ -z "$node2_info" ]; then
         echo "No benchmark nodes found in $nodes_file"
         exit 1
     fi
     
-    # Stop processes on both nodes by calling benchmark.sh stop
-    if [ -n "$node1" ]; then
-        echo "Stopping processes on $node1..."
-        # Try to use benchmark.sh stop first
-        gcloud compute ssh ubuntu@"$node1" --command="/home/ubuntu/benchmark.sh --operation stop" 2>/dev/null
+    # Extract node names and zones
+    if [ -n "$node1_info" ]; then
+        local node1=$(echo "$node1_info" | cut -d'|' -f1)
+        local zone1=$(echo "$node1_info" | cut -d'|' -f2)
         
-        # If that fails, try direct pkill as fallback
-        if [ $? -ne 0 ]; then
-            echo "Failed to run benchmark.sh stop on $node1, trying direct pkill..."
-            gcloud compute ssh ubuntu@"$node1" --command="pkill -f near-synth-bm || true" 2>/dev/null || \
-                echo "Failed to connect to $node1"
-        fi
+        echo "Stopping processes on $node1 (Zone: $zone1)..."
+        gcloud compute ssh ubuntu@"$node1" --zone="$zone1" --command="/home/ubuntu/benchmark.sh --operation stop" 2>/dev/null || \
+            echo "Failed to connect to $node1"
     fi
     
-    if [ -n "$node2" ]; then
-        echo "Stopping processes on $node2..."
-        # Try to use benchmark.sh stop first
-        gcloud compute ssh ubuntu@"$node2" --command="/home/ubuntu/benchmark.sh --operation stop" 2>/dev/null
+    if [ -n "$node2_info" ]; then
+        local node2=$(echo "$node2_info" | cut -d'|' -f1)
+        local zone2=$(echo "$node2_info" | cut -d'|' -f2)
         
-        # If that fails, try direct pkill as fallback
-        if [ $? -ne 0 ]; then
-            echo "Failed to run benchmark.sh stop on $node2, trying direct pkill..."
-            gcloud compute ssh ubuntu@"$node2" --command="pkill -f near-synth-bm || true" 2>/dev/null || \
-                echo "Failed to connect to $node2"
-        fi
+        echo "Stopping processes on $node2 (Zone: $zone2)..."
+        gcloud compute ssh ubuntu@"$node2" --zone="$zone2" --command="/home/ubuntu/benchmark.sh --operation stop" 2>/dev/null || \
+            echo "Failed to connect to $node2"
     fi
     
     echo "Benchmark processes stopped on nodes."
@@ -340,38 +429,25 @@ stop_benchmark() {
 # Main execution
 case "$1" in
     "select")
-        select_validators "$2"
+        select_validators
         ;;
     "prepare")
-        if [ -z "$2" ]; then
-            echo "Error: RPC host is required for prepare command"
-            echo "Usage: $0 prepare <rpc_host> [nonce]"
-            echo "Example: $0 prepare 35.226.42.192 100"
-            exit 1
-        fi
-        
         # Check if the nodes file exists for this network
         if [ ! -f "/tmp/benchmark_nodes_${UNIQUE_ID}" ]; then
             echo "Error: No benchmark nodes selected for network $UNIQUE_ID. Run select command first."
             exit 1
         fi
         
-        run_prepare "$2" "$3"
+        run_prepare "$2"  # $2 is now optional nonce
         ;;
     "run")
-        if [ -z "$2" ]; then
-            echo "Error: RPC host is required for run command"
-            echo "Usage: $0 run <rpc_host>"
-            exit 1
-        fi
-        
         # Check if the nodes file exists for this network
         if [ ! -f "/tmp/benchmark_nodes_${UNIQUE_ID}" ]; then
             echo "Error: No benchmark nodes selected for network $UNIQUE_ID. Run select command first."
             exit 1
         fi
         
-        run_benchmark "$2"
+        run_benchmark
         ;;
     "status")
         check_all_status
@@ -380,12 +456,16 @@ case "$1" in
         stop_benchmark
         ;;
     *)
-        echo "Usage: $0 {select [rpc_host]|prepare <rpc_host> [nonce]|run <rpc_host>|status|stop}"
-        echo "  select [rpc_host]: Select validator nodes for benchmarking"
-        echo "  prepare <rpc_host> [nonce]: Set up RPC URL and start preparation phase"
-        echo "  run <rpc_host>: Start the benchmark execution"
+        echo "Usage: $0 {select|prepare [nonce]|run|status|stop}"
+        echo "  select: Select validator nodes for benchmarking based on UNIQUE_ID"
+        echo "  prepare [nonce]: Start preparation phase with optional nonce"
+        echo "  run: Start the benchmark execution"
         echo "  status: Check current status of all nodes"
         echo "  stop: Stop all benchmark processes on nodes"
+        echo ""
+        echo "Before running any command, set the UNIQUE_ID environment variable:"
+        echo "  export UNIQUE_ID=<network_name>"
+        echo "Example: export UNIQUE_ID=hoptnet"
         exit 1
         ;;
 esac
