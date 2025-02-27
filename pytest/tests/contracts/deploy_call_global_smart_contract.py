@@ -32,82 +32,59 @@ def test_deploy_global_contract():
         client_config_changes)
     rpc = nodes[n]
 
-    test_contract = load_test_contract()
+    testContract = load_test_contract()
 
     # Deploy global contract by code hash
     deployMode = GlobalContractDeployMode()
     deployMode.enum = 'codeHash'
     deployMode.codeHash = ()
-    last_block_hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_deploy_global_contract_tx(nodes[0].signer_key, test_contract,
-                                        deployMode, 10, last_block_hash)
-    nodes[0].send_tx(tx)
-    time.sleep(3)
+    deploy_global_contract(nodes[0], testContract, deployMode, 10)
 
     identifier = GlobalContractIdentifier()
     identifier.enum = "codeHash"
-    identifier.codeHash = hashlib.sha256(test_contract).digest()
+    identifier.codeHash = hashlib.sha256(testContract).digest()
+    use_global_contract(nodes[1], identifier, 20)
 
-    last_block_hash = nodes[1].get_latest_block().hash_bytes
-    tx = sign_use_global_contract_tx(nodes[1].signer_key, identifier, 20,
-                                     last_block_hash)
-    nodes[0].send_tx(tx)
-    time.sleep(3)
-
-    # Call from node 0
-    last_block_hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_function_call_tx(nodes[0].signer_key,
-                               nodes[1].signer_key.account_id, 'log_something',
-                               [], 150 * GGAS, 1, 30, last_block_hash)
-    res = rpc.send_tx_and_wait(tx, 20)
-    assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
-
-    # Call from node 1
-    last_block_hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_function_call_tx(nodes[1].signer_key,
-                               nodes[1].signer_key.account_id, 'log_something',
-                               [], 150 * GGAS, 1, 30, last_block_hash)
-    res = rpc.send_tx_and_wait(tx, 20)
-    print(json.dumps(res, indent=2))
-    assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
+    call_contract(rpc, nodes[0], nodes[1].signer_key.account_id, 30)
+    call_contract(rpc, nodes[1], nodes[1].signer_key.account_id, 40)
 
     # Redeploy global contract using AccountId method
     deployMode = GlobalContractDeployMode()
     deployMode.enum = 'accountId'
     deployMode.accountId = ()
-    last_block_hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_deploy_global_contract_tx(nodes[0].signer_key, test_contract,
-                                        deployMode, 40, last_block_hash)
-    nodes[0].send_tx(tx)
-    time.sleep(3)
+    deploy_global_contract(nodes[0], testContract, deployMode, 50)
 
-    # Use global contract
     identifier = GlobalContractIdentifier()
     identifier.enum = "accountId"
     identifier.accountId = nodes[0].signer_key.account_id
+    use_global_contract(nodes[1], identifier, 60)
 
-    last_block_hash = nodes[1].get_latest_block().hash_bytes
-    tx = sign_use_global_contract_tx(nodes[1].signer_key, identifier, 50,
-                                     last_block_hash)
-    nodes[0].send_tx(tx)
+    call_contract(rpc, nodes[0], nodes[1].signer_key.account_id, 70)
+    call_contract(rpc, nodes[1], nodes[1].signer_key.account_id, 80)
+
+
+def call_contract(rpc, node, contract_id, nonce):
+    last_block_hash = node.get_latest_block().hash_bytes
+    tx = sign_function_call_tx(node.signer_key, contract_id, 'log_something',
+                               [], 150 * GGAS, 1, nonce, last_block_hash)
+    res = rpc.send_tx_and_wait(tx, 20)
+    assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
+
+
+def deploy_global_contract(node, contract, deployMode, nonce):
+    last_block_hash = node.get_latest_block().hash_bytes
+    tx = sign_deploy_global_contract_tx(node.signer_key, contract, deployMode,
+                                        nonce, last_block_hash)
+    node.send_tx(tx)
     time.sleep(3)
 
-    # Call from node 0
-    last_block_hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_function_call_tx(nodes[0].signer_key,
-                               nodes[1].signer_key.account_id, 'log_something',
-                               [], 150 * GGAS, 1, 60, last_block_hash)
-    res = rpc.send_tx_and_wait(tx, 20)
-    assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
-    # Call from node 1
-    last_block_hash = nodes[0].get_latest_block().hash_bytes
-    tx = sign_function_call_tx(nodes[1].signer_key,
-                               nodes[1].signer_key.account_id, 'log_something',
-                               [], 150 * GGAS, 1, 70, last_block_hash)
-    res = rpc.send_tx_and_wait(tx, 20)
-    print(json.dumps(res, indent=2))
-    assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
+def use_global_contract(node, identifier, nonce):
+    last_block_hash = node.get_latest_block().hash_bytes
+    tx = sign_use_global_contract_tx(node.signer_key, identifier, nonce,
+                                     last_block_hash)
+    node.send_tx(tx)
+    time.sleep(3)
 
 
 if __name__ == '__main__':
