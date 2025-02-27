@@ -283,6 +283,8 @@ pub struct ChainStore {
     save_trie_changes: bool,
     /// The maximum number of blocks for which a transaction is valid since its creation.
     pub(super) transaction_validity_period: BlockHeightDelta,
+    /// Guarantueed to be updated when storage is updated, so can be considered a source of truth.
+    cache: ChainStoreCache,
 
     // TODO make caches evict oldest blocks when growing above threashold.
     // Refcell for inner mutability, has traits require getters to take immutable `&self`.
@@ -290,6 +292,39 @@ pub struct ChainStore {
     block_cache: RefCell<HashMap<CryptoHash, Block>>,
     block_header_cache: RefCell<HashMap<CryptoHash, BlockHeader>>,
     block_hash_by_height_cache: RefCell<HashMap<BlockHeight, CryptoHash>>,
+}
+
+#[derive(Default)]
+pub struct ChainStoreCache {
+    // TODO max_distance: u64
+    /// Indexed by hash.
+    // TODO Consider which container to use.
+    blocks: HashMap<CryptoHash, Block>,
+}
+
+impl ChainStore {
+    fn cache_block(&mut self, hash: CryptoHash, block: Block) {
+        self.cache.set_block(hash, block);
+    }
+
+    fn cleanup_cache(&mut self) {
+        let head = 42; // TODO get latest height
+        self.cache.cleanup_old_data(head);
+    }
+}
+
+impl ChainStoreCache {
+    fn set_block(&mut self, hash: CryptoHash, block: Block) {
+        self.blocks.insert(hash, block);
+    }
+
+    fn block(&self, hash: &CryptoHash) -> Option<&Block> {
+        self.blocks.get(hash)
+    }
+
+    fn cleanup_old_data(&mut self, _tip_height: u64) {
+        // TODO cleanup blocks with tip - block.height > max_distance
+    }
 }
 
 impl Deref for ChainStore {
@@ -317,11 +352,13 @@ impl ChainStore {
         save_trie_changes: bool,
         transaction_validity_period: BlockHeightDelta,
     ) -> ChainStore {
+        println!("constructing chain store");
         ChainStore {
             store: store.chain_store(),
             latest_known: once_cell::unsync::OnceCell::new(),
             save_trie_changes,
             transaction_validity_period,
+            cache: Default::default(),
             block_cache: RefCell::new(Default::default()),
             block_header_cache: RefCell::new(Default::default()),
             block_hash_by_height_cache: RefCell::new(Default::default()),
@@ -947,14 +984,12 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
-        if let Some(block) = self.block_cache.borrow().get(&h) {
+        if let Some(block) = self.cache.block(h) {
+            println!("get_block cache hit");
             return Ok(block.clone());
         }
-        let res = ChainStoreAdapter::get_block(self, h);
-        if let Ok(ref block) = res {
-            self.block_cache.borrow_mut().insert(h.clone(), block.clone());
-        }
-        res
+        println!("get_block cache miss");
+        ChainStoreAdapter::get_block(self, h)
     }
 
     /// Get full chunk.
@@ -1005,27 +1040,23 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
-        if let Some(header) = self.block_header_cache.borrow().get(h) {
-            return Ok(header.clone());
+        // Technically this returns DBCol::Block.header() while below returns DBCol::BlockHeader
+        // Verify that both must be equal.
+        if let Some(block) = self.cache.block(h) {
+            return Ok(block.header().clone());
         }
-        // Query block_cache and if there's a hit, return the block's header?
-        // Check if that can be done despite `Block` and `BlockHeader` being different `DBCol`.
-        let res = ChainStoreAdapter::get_block_header(self, h);
-        if let Ok(ref header) = res {
-            self.block_header_cache.borrow_mut().insert(h.clone(), header.clone());
-        }
-        res
+        ChainStoreAdapter::get_block_header(self, h)
     }
 
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
-        if let Some(hash) = self.block_hash_by_height_cache.borrow().get(&height) {
-            return Ok(hash.clone());
-        }
+        // if let Some(hash) = self.block_hash_by_height_cache.borrow().get(&height) {
+        //     return Ok(hash.clone());
+        // }
         let res = ChainStoreAdapter::get_block_hash_by_height(self, height);
-        if let Ok(ref hash) = res {
-            self.block_hash_by_height_cache.borrow_mut().insert(height, hash.clone());
-        }
+        // if let Ok(ref hash) = res {
+        //     self.block_hash_by_height_cache.borrow_mut().insert(height, hash.clone());
+        // }
         res
     }
 
@@ -1141,7 +1172,8 @@ pub(crate) struct ChainStoreCacheUpdate {
 /// Provides layer to update chain without touching the underlying database.
 /// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
 pub struct ChainStoreUpdate<'a> {
-    chain_store: &'a mut ChainStore,
+    // TODO find another way to allow clearing data from cache in garbage_collection.rs
+    pub(crate) chain_store: &'a mut ChainStore,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     pub(crate) chain_store_cache_update: ChainStoreCacheUpdate,
@@ -1946,6 +1978,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     .block_hash_per_height
                     .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
+                self.chain_store.cache_block(hash.clone(), block.clone());
             }
             // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
             let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();
@@ -2058,6 +2091,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         for (height, hash) in self.chain_store_cache_update.height_to_hashes.iter() {
             if let Some(hash) = hash {
+                //
                 store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(*height), hash)?;
             } else {
                 store_update.delete(DBCol::BlockHeight, &index_to_bytes(*height));
@@ -2264,6 +2298,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for other in self.store_updates.drain(..) {
             store_update.merge(other);
         }
+        self.chain_store.cleanup_cache();
         Ok(store_update)
     }
 
