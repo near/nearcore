@@ -52,7 +52,7 @@ near-crypto.workspace = true
 near-epoch-manager.workspace = true
 near-fmt.workspace = true
 near-jsonrpc.workspace = true
-near-jsonrpc-client.workspace = true
+near-jsonrpc-client-internal.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-network.workspace = true
 near-parameters.workspace = true
@@ -111,7 +111,7 @@ nightly = [
   "near-client/nightly",
   "near-epoch-manager/nightly",
   "near-fmt/nightly",
-  "near-jsonrpc-client/nightly",
+  "near-jsonrpc-client-internal/nightly",
   "near-jsonrpc-primitives/nightly",
   "near-jsonrpc/nightly",
   "near-network/nightly",
@@ -141,7 +141,7 @@ nightly_protocol = [
   "near-client/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
   "near-fmt/nightly_protocol",
-  "near-jsonrpc-client/nightly_protocol",
+  "near-jsonrpc-client-internal/nightly_protocol",
   "near-jsonrpc-primitives/nightly_protocol",
   "near-jsonrpc/nightly_protocol",
   "near-network/nightly_protocol",
