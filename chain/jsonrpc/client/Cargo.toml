@@ -1,5 +1,5 @@
 [package]
-name = "near-jsonrpc-client"
+name = "near-jsonrpc-client-internal"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
