@@ -5152,6 +5152,7 @@ dependencies = [
  "tempfile",
  "testlib",
  "thiserror 2.0.0",
+ "thread_local",
  "tokio",
  "tracing",
 ]

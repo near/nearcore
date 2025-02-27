@@ -41,7 +41,7 @@ use std::fmt::Write;
 use std::hash::Hash;
 use std::ops::DerefMut;
 use std::str;
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 pub use trie_recording::{SubtreeSize, TrieRecorder, TrieRecorderStats};
 use trie_storage_update::{
     TrieStorageNodeWithSize, TrieStorageUpdate, UpdatedTrieStorageNodeWithSize,
@@ -201,7 +201,7 @@ pub struct Trie {
     /// (which can be toggled on the fly), trie nodes that have been looked up
     /// once will be guaranteed to be cached, and further reads to these nodes
     /// will encounter less gas cost.
-    accounting_cache: TrieAccountingCache,
+    accounting_cache: Mutex<TrieAccountingCache>,
     /// If present, we're capturing all trie nodes that have been accessed
     /// during the lifetime of this Trie struct. This is used to produce a
     /// state proof so that the same access pattern can be replayed using only
@@ -561,7 +561,7 @@ impl Trie {
             root,
             charge_gas_for_trie_node_access,
             flat_storage_chunk_view,
-            accounting_cache,
+            accounting_cache: Mutex::new(accounting_cache),
             recorder: None,
         }
     }
@@ -734,7 +734,10 @@ impl Trie {
         side_effects: bool,
     ) -> Result<Arc<[u8]>, StorageError> {
         let result = if side_effects && use_accounting_cache {
-            self.accounting_cache.retrieve_raw_bytes_with_accounting(hash, &*self.storage)?
+            self.accounting_cache
+                .lock()
+                .unwrap()
+                .retrieve_raw_bytes_with_accounting(hash, &*self.storage)?
         } else {
             self.storage.retrieve_raw_bytes(hash)?
         };
@@ -1292,6 +1295,8 @@ impl Trie {
             if charge_gas_for_trie_node_access {
                 for (node_hash, serialized_node) in &accessed_nodes {
                     self.accounting_cache
+                        .lock()
+                        .unwrap()
                         .retroactively_account(*node_hash, serialized_node.clone());
                 }
             }
@@ -1490,7 +1495,10 @@ impl Trie {
             OptimizedValueRef::AvailableValue(ValueAccessToken { value }) => {
                 let value_hash = hash(value);
                 let arc_value: Arc<[u8]> = value.clone().into();
-                self.accounting_cache.retroactively_account(value_hash, arc_value.clone());
+                self.accounting_cache
+                    .lock()
+                    .unwrap()
+                    .retroactively_account(value_hash, arc_value.clone());
                 if let Some(recorder) = &self.recorder {
                     recorder.write().expect("no poison").record(&value_hash, arc_value);
                 }
@@ -1649,7 +1657,7 @@ impl Trie {
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.accounting_cache.get_trie_nodes_count()
+        self.accounting_cache.lock().unwrap().get_trie_nodes_count()
     }
 
     /// Splits the trie, separating entries by the boundary account.

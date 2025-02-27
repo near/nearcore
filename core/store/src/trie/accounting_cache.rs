@@ -6,19 +6,19 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
-use std::sync::atomic::{self, AtomicU64};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic;
 
 /// Switch that controls whether the `TrieAccountingCache` is enabled.
-pub struct TrieAccountingCacheSwitch(Arc<atomic::AtomicBool>);
+pub struct TrieAccountingCacheSwitch(Arc<thread_local::ThreadLocal<atomic::AtomicBool>>);
 
 impl TrieAccountingCacheSwitch {
     pub fn set(&self, enabled: bool) {
-        self.0.store(enabled, atomic::Ordering::Relaxed);
+        self.0.get_or(Default::default).store(enabled, atomic::Ordering::Relaxed);
     }
 
     pub fn enabled(&self) -> bool {
-        self.0.load(atomic::Ordering::Relaxed)
+        self.0.get_or(Default::default).load(atomic::Ordering::Relaxed)
     }
 }
 
@@ -58,15 +58,14 @@ pub struct TrieAccountingCache {
     enable: TrieAccountingCacheSwitch,
     /// Cache of trie node hash -> trie node body, or a leaf value hash ->
     /// leaf value.
-    // FIXME: consider changing Mutex<HashMap> to a purpose-made thread-safe map.
-    cache: Mutex<HashMap<CryptoHash, Arc<[u8]>>>,
+    cache: HashMap<CryptoHash, Arc<[u8]>>,
     /// The number of times a key was accessed by reading from the underlying
     /// storage. (This does not necessarily mean it was accessed from *disk*,
     /// as the underlying storage layer may have a best-effort cache.)
-    db_read_nodes: crossbeam::utils::CachePadded<AtomicU64>,
+    db_read_nodes: u64,
     /// The number of times a key was accessed when it was deterministically
     /// already cached during the processing of this chunk.
-    mem_read_nodes: crossbeam::utils::CachePadded<AtomicU64>,
+    mem_read_nodes: u64,
     /// Prometheus metrics. It's optional - in testing it can be None.
     metrics: Option<TrieAccountingCacheMetrics>,
 }
@@ -110,28 +109,27 @@ impl TrieAccountingCache {
     /// Retrieve raw bytes from the cache if it exists, otherwise retrieve it
     /// from the given storage, and count it as a db access.
     pub fn retrieve_raw_bytes_with_accounting(
-        &self,
+        &mut self,
         hash: &CryptoHash,
         storage: &dyn TrieStorage,
     ) -> Result<Arc<[u8]>, StorageError> {
-        let mut cache_guard = self.cache.lock().expect("no poison");
-        if let Some(node) = cache_guard.get(hash) {
-            self.mem_read_nodes.fetch_add(1, atomic::Ordering::Release);
+        if let Some(node) = self.cache.get(hash) {
+            self.mem_read_nodes += 1;
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_hits.inc();
             }
             Ok(node.clone())
         } else {
-            self.db_read_nodes.fetch_add(1, atomic::Ordering::Release);
+            self.db_read_nodes += 1;
             if let Some(metrics) = &self.metrics {
                 metrics.accounting_cache_misses.inc();
             }
             let node = storage.retrieve_raw_bytes(hash)?;
 
             if self.enable.enabled() {
-                cache_guard.insert(*hash, node.clone());
+                self.cache.insert(*hash, node.clone());
                 if let Some(metrics) = &self.metrics {
-                    metrics.accounting_cache_size.set(cache_guard.len() as i64);
+                    metrics.accounting_cache_size.set(self.cache.len() as i64);
                 }
             }
             Ok(node)
@@ -140,25 +138,21 @@ impl TrieAccountingCache {
 
     /// Used to retroactively account for a node or value that was already accessed
     /// through other means (e.g. flat storage read).
-    pub fn retroactively_account(&self, hash: CryptoHash, data: Arc<[u8]>) {
-        let mut cache_guard = self.cache.lock().expect("no poison");
-        if cache_guard.contains_key(&hash) {
-            self.mem_read_nodes.fetch_add(1, atomic::Ordering::Release);
+    pub fn retroactively_account(&mut self, hash: CryptoHash, data: Arc<[u8]>) {
+        if self.cache.contains_key(&hash) {
+            self.mem_read_nodes += 1;
         } else {
-            self.db_read_nodes.fetch_add(1, atomic::Ordering::Release);
+            self.db_read_nodes += 1;
         }
         if self.enable.enabled() {
-            cache_guard.insert(hash, data);
+            self.cache.insert(hash, data);
             if let Some(metrics) = &self.metrics {
-                metrics.accounting_cache_size.set(cache_guard.len() as i64);
+                metrics.accounting_cache_size.set(self.cache.len() as i64);
             }
         }
     }
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        TrieNodesCount {
-            db_reads: self.db_read_nodes.load(atomic::Ordering::Acquire),
-            mem_reads: self.mem_read_nodes.load(atomic::Ordering::Acquire),
-        }
+        TrieNodesCount { db_reads: self.db_read_nodes, mem_reads: self.mem_read_nodes }
     }
 }
