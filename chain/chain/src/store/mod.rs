@@ -311,6 +311,10 @@ impl ChainStoreCache {
         self.blocks.borrow_mut().insert(hash, block);
     }
 
+    fn delete_block(&self, hash: &CryptoHash) {
+        self.blocks.borrow_mut().remove(hash);
+    }
+
     fn block(&self, hash: &CryptoHash) -> Option<Block> {
         self.blocks.borrow().get(hash).cloned()
     }
@@ -333,6 +337,9 @@ impl ChainStore {
         self.cache.set_block(hash, block);
     }
 
+    pub fn delete_block(&mut self, hash: &CryptoHash) {
+        self.cache.delete_block(hash);
+    }
     fn cache_block_header(&mut self, hash: CryptoHash, header: BlockHeader) {
         self.cache.set_block_header(hash, header);
     }
@@ -1202,8 +1209,8 @@ pub(crate) struct ChainStoreCacheUpdate {
 /// Provides layer to update chain without touching the underlying database.
 /// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
 pub struct ChainStoreUpdate<'a> {
-    // TODO find another way to allow clearing data from cache in garbage_collection.rs
-    pub(crate) chain_store: &'a mut ChainStore,
+    // TODO make private again. pub to facilitate access in garbage_collection.rs
+    pub chain_store: &'a mut ChainStore,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     pub(crate) chain_store_cache_update: ChainStoreCacheUpdate,
