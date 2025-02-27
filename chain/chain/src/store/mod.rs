@@ -1121,7 +1121,7 @@ impl ChainStoreAccess for ChainStore {
         // Next step: let the apply-range command instead take care of populating the cache,
         // e.g. when or after calling `ChainStore::new` in apply_chain_range.rs
         if let Ok(ref hash) = res {
-            self.cache.set_block_hash_by_height(height, hash.clone());
+            self.cache.set_block_hash_by_height(height, *hash);
         }
         res
     }
@@ -2044,7 +2044,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     .block_hash_per_height
                     .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
-                self.chain_store.cache_block(hash.clone(), block.clone());
+                self.chain_store.cache_block(*hash, block.clone());
             }
             // This is a BTreeMap because the update_sync_hashes() calls below must be done in order of height
             let mut headers_by_height: BTreeMap<BlockHeight, Vec<&BlockHeader>> = BTreeMap::new();
@@ -2055,7 +2055,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
                 headers_by_height.entry(header.height()).or_default().push(header);
                 store_update.insert_ser(DBCol::BlockHeader, hash.as_ref(), header)?;
-                self.chain_store.cache_block_header(hash.clone(), header.clone());
+                self.chain_store.cache_block_header(*hash, header.clone());
             }
             for (height, headers) in headers_by_height {
                 let mut hash_set = match self.chain_store.get_all_header_hashes_by_height(height) {
@@ -2159,7 +2159,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for (height, hash) in self.chain_store_cache_update.height_to_hashes.iter() {
             if let Some(hash) = hash {
                 store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(*height), hash)?;
-                self.chain_store.cache_block_header_by_height(*height, hash.clone());
+                self.chain_store.cache_block_header_by_height(*height, *hash);
             } else {
                 store_update.delete(DBCol::BlockHeight, &index_to_bytes(*height));
                 self.chain_store.delete_block_hash_by_height(*height);
