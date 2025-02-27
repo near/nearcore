@@ -5,13 +5,15 @@ LOG_FILE="/tmp/err"
 SCRIPT_MODE=""
 OPERATION=""
 NODE_RPC="http://127.0.0.1:3030"
+NONCE=""
 
 # Function to show usage
 usage() {
-    echo "Usage: $0 [--mode 1|2] [--operation prepare|run] [--rpc-url URL]"
+    echo "Usage: $0 [--mode 1|2] [--operation prepare|run|stop] [--rpc-url URL] [--nonce NUMBER]"
     echo "  --mode: Select benchmark mode (1 for native transfers, 2 for sweat benchmark)"
-    echo "  --operation: Select operation type (prepare or run)"
+    echo "  --operation: Select operation type (prepare, run, or stop)"
     echo "  --rpc-url: RPC URL (optional, defaults to http://127.0.0.1:3030)"
+    echo "  --nonce: Starting nonce for prepare mode (optional)"
     exit 1
 }
 
@@ -30,11 +32,22 @@ while [[ $# -gt 0 ]]; do
             NODE_RPC="$2"
             shift 2
             ;;
+        --nonce)
+            NONCE="$2"
+            shift 2
+            ;;
         *)
             usage
             ;;
     esac
 done
+
+# Get network name from environment variable or use default
+if [ -z "$UNIQUE_ID" ]; then
+    NETWORK_NAME="local"
+else
+    NETWORK_NAME="$UNIQUE_ID"
+fi
 
 # Validate inputs
 if [[ -n "$MODE" && ! "$MODE" =~ ^(1|2)$ ]]; then
@@ -42,8 +55,13 @@ if [[ -n "$MODE" && ! "$MODE" =~ ^(1|2)$ ]]; then
     usage
 fi
 
-if [[ -n "$OPERATION" && ! "$OPERATION" =~ ^(prepare|run)$ ]]; then
-    echo "Error: Operation must be prepare or run"
+if [[ -n "$OPERATION" && ! "$OPERATION" =~ ^(prepare|run|stop)$ ]]; then
+    echo "Error: Operation must be prepare, run, or stop"
+    usage
+fi
+
+if [[ "$OPERATION" == "prepare" && -n "$NONCE" && ! "$NONCE" =~ ^[0-9]+$ ]]; then
+    echo "Error: Nonce must be a number"
     usage
 fi
 
@@ -51,12 +69,13 @@ fi
 run_background() {
     local cmd="$1"
     local log_file="$2"
+    local mode_suffix="$3"
     echo "Running command in background: $cmd"
     eval "$cmd" > "$log_file" 2>&1 &
     local pid=$!
     echo "Process ID: $pid"
     echo "Logs are being written to $log_file"
-    echo $pid > "/tmp/benchmark_pid_$3"
+    echo $pid > "/tmp/benchmark_pid_${NETWORK_NAME}_${mode_suffix}"
 }
 
 # Function to check status
@@ -77,17 +96,47 @@ check_status() {
     fi
 }
 
+# Function to stop benchmark processes
+stop_benchmark() {
+    echo "Stopping near-synth-bm processes..."
+    
+    # Kill all near-synth-bm processes
+    if pgrep -f "near-synth-bm" > /dev/null; then
+        pkill -f "near-synth-bm"
+        echo "Stopped all near-synth-bm processes"
+    else
+        echo "No near-synth-bm processes found"
+    fi
+    
+    # Clean up PID files
+    rm -f /tmp/benchmark_pid_${NETWORK_NAME}_mode*
+    
+    # Clean up log file
+    if [ -f "$LOG_FILE" ]; then
+        echo "Benchmark stopped at $(date)" >> "$LOG_FILE"
+    fi
+    
+    echo "Benchmark stopped successfully"
+}
+
 # Mode 1: Native Transfers
 run_mode_1() {
     local operation=$1
     local rpc_url=$2
     local log_file="/tmp/err"
+    local nonce_arg=""
+    
+    if [ -n "$NONCE" ]; then
+        nonce_arg="--nonce $NONCE"
+    else
+        nonce_arg="--nonce 10"
+    fi
     
     if [ "$operation" == "prepare" ]; then
         run_background "RUST_LOG=debug /home/ubuntu/near-synth-bm create-sub-accounts \
             --rpc-url $rpc_url \
             --signer-key-path /home/ubuntu/.near/validator_key.json \
-            --nonce 1000 \
+            $nonce_arg \
             --sub-account-prefix '2,c,h,m,x' \
             --num-sub-accounts 500 \
             --deposit 953060601875000000010000000 \
@@ -112,6 +161,13 @@ run_mode_2() {
     local operation=$1
     local rpc_url=$2
     local log_file="/tmp/err"
+    local nonce_arg=""
+    
+    if [ -n "$NONCE" ]; then
+        nonce_arg="--nonce $NONCE"
+    else
+        nonce_arg="--nonce 10"
+    fi
     
     if [ "$operation" == "prepare" ]; then
         run_background "RUST_LOG=info /home/ubuntu/near-synth-bm \
@@ -122,7 +178,7 @@ run_mode_2() {
             --user-data-dir /home/ubuntu/oracles/ \
             --signer-key-path /home/ubuntu/.near/validator_key.json \
             --wasm-file /home/ubuntu/sweat.wasm \
-            --nonce 1000 && \
+            $nonce_arg && \
         RUST_LOG=info /home/ubuntu/near-synth-bm \
             benchmark-sweat create-users \
             --rpc-url $rpc_url \
@@ -144,15 +200,23 @@ run_mode_2() {
 }
 
 # Run the specified modes
-if [ -n "$MODE" ]; then
+if [ "$OPERATION" == "stop" ]; then
+    stop_benchmark
+elif [ -n "$MODE" ]; then
     if [ "$MODE" == "1" ]; then
         run_mode_1 "$OPERATION" "$NODE_RPC"
     elif [ "$MODE" == "2" ]; then
         run_mode_2 "$OPERATION" "$NODE_RPC"
     fi
+    
+    echo "Script started in background. To check status:"
+    echo "  ps aux | grep near-synth-bm"
+    echo "To view logs:"
+    echo "  tail -f /tmp/err"
+else
+    # Only show usage if not stopping and no mode specified
+    if [ "$OPERATION" != "stop" ]; then
+        echo "Error: Mode must be specified for prepare or run operations"
+        usage
+    fi
 fi
-
-echo "Script started in background. To check status:"
-echo "  ps aux | grep near-synth-bm"
-echo "To view logs:"
-echo "  tail -f /tmp/err"

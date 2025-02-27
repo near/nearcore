@@ -331,7 +331,18 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
 
 def status_cmd(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
+    logger.info(f'Checking status for {len(targeted)} nodes...')
+
     statuses = pmap(lambda node: node.neard_runner_ready(), targeted)
+
+    # statuses = []
+    # for i, node in enumerate(targeted, 1):
+    #     logger.info(
+    #         f'[{i}/{len(targeted)}] Checking status for node {node.name()}...')
+    #     status = node.neard_runner_ready()
+    #     statuses.append(status)
+    #     logger.info(
+    #         f'Node {node.name()} status: {"ready" if status else "not ready"}')
 
     not_ready = []
     for ready, node in zip(statuses, targeted):
@@ -339,8 +350,12 @@ def status_cmd(args, traffic_generator, nodes):
             not_ready.append(node.name())
 
     if len(not_ready) == 0:
+        logger.info(f'All {len(targeted)} nodes are ready')
         print(f'all {len(targeted)} nodes ready')
     else:
+        logger.warning(
+            f'{len(targeted)-len(not_ready)}/{len(targeted)} nodes ready. Nodes not ready: {not_ready[:3]}'
+        )
         print(
             f'{len(targeted)-len(not_ready)}/{len(targeted)} ready. Nodes not ready: {not_ready[:3]}'
         )
