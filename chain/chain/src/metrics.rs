@@ -89,9 +89,10 @@ pub static BLOCK_ORPHANED_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
         .unwrap()
 });
 pub static BLOCK_OPTIMISTIC_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "near_block_optimistic_delay",
         "Delay between optimistic block completion and receiving the full block",
+        exponential_buckets(0.001, 1.6, 20).unwrap(),
     )
     .unwrap()
 });

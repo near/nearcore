@@ -197,9 +197,9 @@ impl BlocksDelayTracker {
         self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
 
         if let Some(optimistic_ready_time) = self.optimistic_blocks.get(&height) {
-            let delay_ms = (self.clock.now().signed_duration_since(*optimistic_ready_time))
-                .whole_milliseconds() as u128;
-            metrics::BLOCK_OPTIMISTIC_DELAY.observe(delay_ms as f64);
+            let delay =
+                (self.clock.now().signed_duration_since(*optimistic_ready_time)).as_seconds_f64();
+            metrics::BLOCK_OPTIMISTIC_DELAY.observe(delay);
         }
     }
 
