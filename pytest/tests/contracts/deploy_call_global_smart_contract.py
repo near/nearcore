@@ -32,27 +32,27 @@ def test_deploy_global_contract():
         client_config_changes)
     rpc = nodes[n]
 
-    testContract = load_test_contract()
+    test_contract = load_test_contract()
 
     # Deploy global contract by code hash
-    deployMode = GlobalContractDeployMode()
-    deployMode.enum = 'codeHash'
-    deployMode.codeHash = ()
-    deploy_global_contract(nodes[0], testContract, deployMode, 10)
+    deploy_mode = GlobalContractDeployMode()
+    deploy_mode.enum = 'codeHash'
+    deploy_mode.codeHash = ()
+    deploy_global_contract(nodes[0], test_contract, deploy_mode, 10)
 
     identifier = GlobalContractIdentifier()
     identifier.enum = "codeHash"
-    identifier.codeHash = hashlib.sha256(testContract).digest()
+    identifier.codeHash = hashlib.sha256(test_contract).digest()
     use_global_contract(nodes[1], identifier, 20)
 
     call_contract(rpc, nodes[0], nodes[1].signer_key.account_id, 30)
     call_contract(rpc, nodes[1], nodes[1].signer_key.account_id, 40)
 
     # Redeploy global contract using AccountId method
-    deployMode = GlobalContractDeployMode()
-    deployMode.enum = 'accountId'
-    deployMode.accountId = ()
-    deploy_global_contract(nodes[0], testContract, deployMode, 50)
+    deploy_mode = GlobalContractDeployMode()
+    deploy_mode.enum = 'accountId'
+    deploy_mode.accountId = ()
+    deploy_global_contract(nodes[0], test_contract, deploy_mode, 50)
 
     identifier = GlobalContractIdentifier()
     identifier.enum = "accountId"
@@ -71,9 +71,9 @@ def call_contract(rpc, node, contract_id, nonce):
     assert res['result']['receipts_outcome'][0]['outcome']['logs'][0] == 'hello'
 
 
-def deploy_global_contract(node, contract, deployMode, nonce):
+def deploy_global_contract(node, contract, deploy_mode, nonce):
     last_block_hash = node.get_latest_block().hash_bytes
-    tx = sign_deploy_global_contract_tx(node.signer_key, contract, deployMode,
+    tx = sign_deploy_global_contract_tx(node.signer_key, contract, deploy_mode,
                                         nonce, last_block_hash)
     node.send_tx(tx)
     time.sleep(3)
