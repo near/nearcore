@@ -297,9 +297,18 @@ pub struct ChainStore {
 #[derive(Default)]
 pub struct ChainStoreCache {
     // TODO max_distance: u64
+
     // TODO Consider which container to use.
     // Interior mutability will not be required anymore once the apply-range command takes
     // care of populating the cache. See comments below regarding apply-range not calling finalize.
+    //
+    // Why multiple caches?
+    // Different ChainStore queries hit different db columns. E.g. get_block hits DBCol::Block
+    // while get_block_header hits DBCol::BlockHeader. Each column may be treated differently by
+    // ChainStoreUpdate::finalize or in garbage collection. Hence it may happen that for fixed h
+    // cache.block(h).hash() != cache.block_header(h).
+    // This can be demonstrated by changing get_block_header below to return cache.block(h).hash(),
+    // which causes hundreds of tests to fail.
     blocks: RefCell<HashMap<CryptoHash, Block>>,
     block_headers: RefCell<HashMap<CryptoHash, BlockHeader>>,
 }
