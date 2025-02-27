@@ -285,9 +285,9 @@ pub struct ChainStore {
     pub(super) transaction_validity_period: BlockHeightDelta,
 
     // TODO make caches evict oldest blocks when growing above threashold.
-    // TODO cache `Block` too?
     // Refcell for inner mutability, has traits require getters to take immutable `&self`.
     /// Blockheaders are indexed by their hash.
+    block_cache: RefCell<HashMap<CryptoHash, Block>>,
     block_header_cache: RefCell<HashMap<CryptoHash, BlockHeader>>,
     block_hash_by_height_cache: RefCell<HashMap<BlockHeight, CryptoHash>>,
 }
@@ -322,6 +322,7 @@ impl ChainStore {
             latest_known: once_cell::unsync::OnceCell::new(),
             save_trie_changes,
             transaction_validity_period,
+            block_cache: RefCell::new(Default::default()),
             block_header_cache: RefCell::new(Default::default()),
             block_hash_by_height_cache: RefCell::new(Default::default()),
         }
@@ -946,7 +947,14 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full block.
     fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
-        ChainStoreAdapter::get_block(self, h)
+        if let Some(block) = self.block_cache.borrow().get(&h) {
+            return Ok(block.clone());
+        }
+        let res = ChainStoreAdapter::get_block(self, h);
+        if let Ok(ref block) = res {
+            self.block_cache.borrow_mut().insert(h.clone(), block.clone());
+        }
+        res
     }
 
     /// Get full chunk.
@@ -1000,6 +1008,8 @@ impl ChainStoreAccess for ChainStore {
         if let Some(header) = self.block_header_cache.borrow().get(h) {
             return Ok(header.clone());
         }
+        // Query block_cache and if there's a hit, return the block's header?
+        // Check if that can be done despite `Block` and `BlockHeader` being different `DBCol`.
         let res = ChainStoreAdapter::get_block_header(self, h);
         if let Ok(ref header) = res {
             self.block_header_cache.borrow_mut().insert(h.clone(), header.clone());
