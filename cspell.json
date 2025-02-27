@@ -4,7 +4,7 @@
         "*.ros",
         "*.toml",
         "benchmarks/continuous/db/tool/orm/migrations/**",
-        "chain/rosetta-rpc/src/adapters/snapshots/**",
+        "chain/rosetta-rpc/src/snapshots/**",
         "core/primitives/res/epoch_configs/**.json",
         "cspell.json",
         "debug_scripts/Pipfile",

@@ -86,7 +86,6 @@ impl ExecutionToReceipts {
     }
 
     /// Creates an empty mapping.  This is useful for tests.
-    #[cfg(test)]
     pub(crate) fn empty() -> Self {
         Self {
             map: Default::default(),

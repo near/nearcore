@@ -52,7 +52,7 @@ pub struct GasCounter {
     prepaid_gas: Gas,
     /// If this is a view-only call.
     is_view: bool,
-    /// FIXME(nagisa): why do we store a copy both here and in the VMLogic???
+    // FIXME(nagisa): why do we store a copy both here and in the VMLogic???
     ext_costs_config: ExtCostsConfig,
     /// Where to store profile data, if needed.
     profile: ProfileDataV3,
