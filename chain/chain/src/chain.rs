@@ -1553,9 +1553,7 @@ impl Chain {
 
         let (is_caught_up, _) = self.get_catchup_and_state_sync_infos(
             &epoch_id,
-            // TODO: `optimistic_block_hash` is invalid to use here, but `is_caught_up` doesn't
-            // depend on it. We should remove dependency on `block_hash` instead.
-            &optimistic_block_hash,
+            None,
             &prev_block_hash,
             prev_prev_hash,
             me,
@@ -2466,7 +2464,7 @@ impl Chain {
 
         let (is_caught_up, state_sync_info) = self.get_catchup_and_state_sync_infos(
             header.epoch_id(),
-            header.hash(),
+            Some(header.hash()),
             &prev_hash,
             prev_prev_hash,
             me,
@@ -2568,10 +2566,13 @@ impl Chain {
         ))
     }
 
+    /// Finds whether the block with `prev_hash` is caught up.
+    /// Additionally, if `block_hash` is provided and state sync info exists,
+    /// returns it as well.
     fn get_catchup_and_state_sync_infos(
         &self,
         epoch_id: &EpochId,
-        block_hash: &CryptoHash,
+        block_hash: Option<&CryptoHash>,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
         me: &Option<AccountId>,
@@ -2589,10 +2590,14 @@ impl Chain {
         // For the first block of the epoch we check if we need to start download states for
         // shards that we will care about in the next epoch. If there is no state to be downloaded,
         // we consider that we are caught up, otherwise not
-        let state_sync_info =
-            self.shard_tracker.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?;
+        let state_sync_info = match block_hash {
+            Some(block_hash) => {
+                self.shard_tracker.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?
+            }
+            None => None,
+        };
         debug!(
-            target: "chain", %block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
+            target: "chain", ?block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
             "Checked for shards to sync for epoch T+1 upon processing first block of epoch T"
         );
         Ok((state_sync_info.is_none(), state_sync_info))
