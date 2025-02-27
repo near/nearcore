@@ -1,6 +1,6 @@
 //! External dependencies of the near-vm-logic.
-use super::types::ReceiptIndex;
 use super::VMLogicError;
+use super::types::ReceiptIndex;
 use near_crypto::PublicKey;
 use near_parameters::vm::StorageGetMode;
 use near_primitives_core::hash::CryptoHash;

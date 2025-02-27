@@ -1,16 +1,17 @@
 use crate::bandwidth_scheduler::BandwidthRequests;
 use crate::congestion_info::CongestionInfo;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
+use crate::hash::{CryptoHash, hash};
+use crate::merkle::{MerklePath, combine_hash, merklize, verify_path};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
 use crate::types::{Balance, BlockHeight, Gas, MerkleHash, ShardId, StateRoot};
-use crate::validator_signer::ValidatorSigner;
+use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_fmt::AbbrBytes;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use near_schema_checker_lib::ProtocolSchema;
 use shard_chunk_header_inner::ShardChunkHeaderInnerV4;
 use std::cmp::Ordering;
@@ -344,6 +345,32 @@ pub enum ShardChunkHeader {
 }
 
 impl ShardChunkHeader {
+    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
+        let congestion_info = ProtocolFeature::CongestionControl
+            .enabled(PROTOCOL_VERSION)
+            .then_some(CongestionInfo::default());
+
+        ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            PROTOCOL_VERSION,
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            congestion_info,
+            BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
+            &EmptyValidatorSigner::default().into(),
+        ))
+    }
+
     #[inline]
     pub fn take_inner(self) -> ShardChunkHeaderInner {
         match self {
@@ -362,6 +389,10 @@ impl ShardChunkHeader {
         hash(&inner_bytes.expect("Failed to serialize"))
     }
 
+    /// Height at which the chunk was created.
+    /// TODO: this is always `height(prev_block_hash) + 1`. Consider using
+    /// `prev_block_height` instead as this is more explicit and
+    /// `height_created` also conflicts with `height_included`.
     #[inline]
     pub fn height_created(&self) -> BlockHeight {
         match self {
@@ -630,7 +661,9 @@ impl ShardChunkHeader {
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-#[error("Invalid chunk header version for protocol version {protocol_version}. (header: {header_version}, inner: {header_inner_version})")]
+#[error(
+    "Invalid chunk header version for protocol version {protocol_version}. (header: {header_version}, inner: {header_inner_version})"
+)]
 pub struct BadHeaderForProtocolVersionError {
     pub protocol_version: ProtocolVersion,
     pub header_version: u64,

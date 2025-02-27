@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use bytesize::ByteSize;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::code::ContractCode;
-use near_primitives_core::hash::{hash, CryptoHash};
+use near_primitives_core::hash::{CryptoHash, hash};
 use near_primitives_core::types::{AccountId, ShardId};
 use near_schema_checker_lib::ProtocolSchema;
 
@@ -370,7 +370,7 @@ impl Into<ContractCode> for CodeBytes {
 }
 
 /// Contains the accesses and changes (eg. deployments) to the contracts while applying a chunk.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ContractUpdates {
     /// Code-hashes of the contracts accessed (called) while applying the chunk.
     pub contract_accesses: HashSet<CodeHash>,

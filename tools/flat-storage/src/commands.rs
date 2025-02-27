@@ -11,13 +11,13 @@ use near_primitives::errors::EpochError;
 use near_primitives::shard_layout::ShardVersion;
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
-use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::flat_store::FlatStoreAdapter;
 use near_store::flat::{
     FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
-use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt, load_config};
 use std::{path::PathBuf, sync::Arc};
 // cspell:ignore tqdm
 use tqdm::tqdm;
@@ -430,21 +430,13 @@ impl FlatStorageCommand {
                 let maybe_trie_key = match maybe_account_id {
                     Some(account_id) => {
                         let account_shard_id = shard_layout.account_id_to_shard_id(&account_id);
-                        if shard_id == account_shard_id {
-                            Some(maybe_trie_key)
-                        } else {
-                            None
-                        }
+                        if shard_id == account_shard_id { Some(maybe_trie_key) } else { None }
                     }
                     None => {
                         assert!(maybe_trie_key.len() >= 8);
                         let (trie_key, shard_uid_raw) =
                             maybe_trie_key.split_at(maybe_trie_key.len() - 8);
-                        if shard_uid.to_bytes() == shard_uid_raw {
-                            Some(trie_key)
-                        } else {
-                            None
-                        }
+                        if shard_uid.to_bytes() == shard_uid_raw { Some(trie_key) } else { None }
                     }
                 };
 

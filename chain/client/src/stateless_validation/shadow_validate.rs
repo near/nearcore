@@ -1,5 +1,5 @@
-use crate::stateless_validation::state_witness_producer::CreateWitnessResult;
 use crate::Client;
+use crate::stateless_validation::state_witness_producer::CreateWitnessResult;
 use near_chain::get_chunk_clone_from_header;
 use near_chain::stateless_validation::chunk_validation::validate_prepared_transactions;
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};

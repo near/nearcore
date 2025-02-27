@@ -91,14 +91,14 @@ impl<'a> TrieIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
+    use crate::Trie;
+    use crate::test_utils::{TestTriesBuilder, gen_changes, simplify_changes, test_populate_trie};
     use crate::trie::iterator::TrieIterator;
     use crate::trie::nibble_slice::NibbleSlice;
-    use crate::Trie;
     use itertools::Itertools;
     use near_primitives::shard_layout::{ShardLayout, ShardUId};
-    use rand::seq::SliceRandom;
     use rand::Rng;
+    use rand::seq::SliceRandom;
     use std::collections::BTreeMap;
 
     fn value() -> Option<Vec<u8>> {

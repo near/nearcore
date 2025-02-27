@@ -1,5 +1,5 @@
 use near_crypto::{InMemorySigner, PublicKey};
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -10,7 +10,7 @@ use near_time::Clock;
 use num_rational::Ratio;
 
 use crate::{
-    Genesis, GenesisConfig, FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, INITIAL_GAS_LIMIT,
+    FAST_EPOCH_LENGTH, GAS_PRICE_ADJUSTMENT_RATE, Genesis, GenesisConfig, INITIAL_GAS_LIMIT,
     MAX_INFLATION_RATE, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
     PROTOCOL_TREASURY_ACCOUNT, TRANSACTION_VALIDITY_PERIOD,
 };
@@ -185,7 +185,7 @@ pub fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.clone(),
-        account: Account::new(amount, staked, code_hash, 0),
+        account: Account::new(amount, staked, AccountContract::from_local_code_hash(code_hash), 0),
     });
     records.push(StateRecord::AccessKey {
         account_id,

@@ -8,6 +8,7 @@ use near_parameters::config::CongestionControlConfig;
 use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BlockBandwidthRequests;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -16,7 +17,7 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionStatus, SignedTransaction};
 use near_primitives::types::{Gas, MerkleHash};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::{
     BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
@@ -24,8 +25,8 @@ use near_store::flat::{
 };
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
-use near_vm_runner::logic::LimitConfig;
 use near_vm_runner::FilesystemContractRuntimeCache;
+use near_vm_runner::logic::LimitConfig;
 use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 use std::iter;
@@ -480,7 +481,8 @@ impl Testbed<'_> {
         let mut state_update = TrieUpdate::new(self.trie());
         let mut outgoing_receipts = vec![];
         let mut validator_proposals = vec![];
-        let mut stats = node_runtime::ApplyStats::default();
+        let mut stats =
+            ChunkApplyStatsV0::new(self.apply_state.block_height, self.apply_state.shard_id);
         // TODO: mock is not accurate, potential DB requests are skipped in the mock!
         let epoch_info_provider = MockEpochInfoProvider::default();
         let clock = GasCost::measure(metric);

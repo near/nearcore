@@ -1,8 +1,8 @@
+use crate::ApplyState;
 use crate::actions::execute_function_call;
 use crate::ext::RuntimeExt;
 use crate::pipelining::ReceiptPreparationPipeline;
 use crate::receipt_manager::ReceiptManager;
-use crate::ApplyState;
 use near_crypto::{KeyType, PublicKey};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, Account};
@@ -20,7 +20,7 @@ use near_primitives::types::{
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{StateItem, ViewStateResult};
 use near_primitives_core::config::ViewConfig;
-use near_store::{get_access_key, get_account, TrieUpdate};
+use near_store::{TrieUpdate, get_access_key, get_account};
 use near_vm_runner::logic::{ProtocolVersion, ReturnData};
 use near_vm_runner::{ContractCode, ContractRuntimeCache};
 use std::{str, sync::Arc, time::Instant};
@@ -92,11 +92,11 @@ impl TrieViewer {
         account_id: &AccountId,
     ) -> Result<ContractCode, errors::ViewContractCodeError> {
         let account = self.view_account(state_update, account_id)?;
-        state_update.get_code(account_id.clone(), account.code_hash())?.ok_or_else(|| {
-            errors::ViewContractCodeError::NoContractCode {
+        state_update
+            .get_code(account_id.clone(), account.local_contract_hash().unwrap_or_default())?
+            .ok_or_else(|| errors::ViewContractCodeError::NoContractCode {
                 contract_account_id: account_id.clone(),
-            }
-        })
+            })
     }
 
     pub fn view_access_key(
@@ -150,7 +150,10 @@ impl TrieViewer {
         match get_account(state_update, account_id)? {
             Some(account) => {
                 let code_len = state_update
-                    .get_code_len(account_id.clone(), account.code_hash())?
+                    .get_code_len(
+                        account_id.clone(),
+                        account.local_contract_hash().unwrap_or_default(),
+                    )?
                     .unwrap_or_default() as u64;
                 if let Some(limit) = self.state_size_limit {
                     if account.storage_usage().saturating_sub(code_len) > limit {
@@ -163,7 +166,7 @@ impl TrieViewer {
             None => {
                 return Err(errors::ViewStateError::AccountDoesNotExist {
                     requested_account_id: account_id.clone(),
-                })
+                });
             }
         };
 
@@ -255,7 +258,12 @@ impl TrieViewer {
             state_update.contract_storage(),
         );
         let view_config = Some(ViewConfig { max_gas_burnt: self.max_gas_burnt_view });
-        let contract = pipeline.get_contract(&receipt, account.code_hash(), 0, view_config.clone());
+        let contract = pipeline.get_contract(
+            &receipt,
+            account.local_contract_hash().unwrap_or_default(),
+            0,
+            view_config.clone(),
+        );
 
         let mut runtime_ext = RuntimeExt::new(
             &mut state_update,

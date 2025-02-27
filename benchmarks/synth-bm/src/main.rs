@@ -5,6 +5,7 @@ use account::{create_sub_accounts, CreateSubAccountsArgs};
 mod block_service;
 mod contract;
 use contract::BenchmarkMpcSignArgs;
+mod metrics;
 mod native_transfer;
 mod rpc;
 
@@ -26,7 +27,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
     // TODO increase file descriptor limit, if required.

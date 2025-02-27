@@ -1,9 +1,9 @@
 use crate::metrics::try_create_int_counter_vec;
 use prometheus::{IntCounter, IntCounterVec};
 use std::sync::LazyLock;
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::{Context, Layered};
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 pub(crate) static LOG_COUNTER: LazyLock<IntCounterVec> = LazyLock::new(|| {
     try_create_int_counter_vec(

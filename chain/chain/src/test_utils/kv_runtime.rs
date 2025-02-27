@@ -1,35 +1,36 @@
 use super::ValidatorSchedule;
+use crate::BlockHeader;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
     RuntimeAdapter, RuntimeStorageConfig,
 };
-use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey};
 use near_epoch_manager::EpochManagerAdapter;
 use near_parameters::RuntimeConfig;
 use near_pool::types::TransactionGroupIterator;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::Tip;
+use near_primitives::chunk_apply_stats::ChunkApplyStatsV0;
 use near_primitives::congestion_info::{CongestionInfo, ExtendedCongestionInfo};
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum, ReceiptV0};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
-use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::stateless_validation::ChunkProductionKey;
+use near_primitives::stateless_validation::validator_assignment::ChunkValidatorAssignments;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
@@ -39,15 +40,15 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, ShardIndex, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_height, set_genesis_state_roots, DBCol, ShardTries, Store,
-    StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    DBCol, ShardTries, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, set_genesis_hash,
+    set_genesis_height, set_genesis_state_roots,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
 use node_runtime::SignedValidPeriodTransactions;
@@ -435,11 +436,7 @@ impl EpochManagerAdapter for MockEpochManager {
     fn num_data_parts(&self) -> usize {
         // Same as in Nightshade Runtime
         let total_parts = self.num_total_parts();
-        if total_parts <= 3 {
-            1
-        } else {
-            (total_parts - 1) / 3
-        }
+        if total_parts <= 3 { 1 } else { (total_parts - 1) / 3 }
     }
 
     fn get_part_owner(&self, epoch_id: &EpochId, part_id: u64) -> Result<AccountId, EpochError> {
@@ -452,6 +449,13 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         Ok(Default::default())
+    }
+
+    fn get_epoch_config_from_protocol_version(
+        &self,
+        _protocol_version: ProtocolVersion,
+    ) -> EpochConfig {
+        EpochConfig::mock(self.epoch_length, self.get_shard_layout(&EpochId::default()).unwrap())
     }
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError> {
@@ -992,17 +996,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.tries.get_view_trie_for_shard(ShardUId::new(0, shard_id), state_root))
     }
 
+    fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        Ok(ShardLayout::multi_shard(self.num_shards, 0))
+    }
+
     fn validate_tx(
         &self,
         _gas_price: Balance,
         _state_update: Option<StateRoot>,
+        _shard_layout: &ShardLayout,
         _transaction: &SignedTransaction,
         _verify_signature: bool,
-        _epoch_id: &EpochId,
         _current_protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<Option<InvalidTxError>, Error> {
-        Ok(None)
+    ) -> Result<(), InvalidTxError> {
+        Ok(())
     }
 
     fn prepare_transactions(
@@ -1011,7 +1019,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        _chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         _time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
@@ -1175,7 +1183,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                 ShardUId::new(0, shard_id),
                 TrieChanges::empty(state_root),
                 Default::default(),
-                block.block_hash,
                 block.height,
             ),
             new_root: state_root,
@@ -1192,6 +1199,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
             bandwidth_scheduler_state_hash: CryptoHash::default(),
             contract_updates: Default::default(),
+            stats: ChunkApplyStatsV0::dummy(),
         })
     }
 
@@ -1215,7 +1223,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
-                        CryptoHash::default(),
+                        AccountContract::None,
                         0,
                     )
                     .into(),

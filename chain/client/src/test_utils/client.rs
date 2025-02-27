@@ -5,19 +5,21 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
-use crate::client::{CatchupState, ProduceChunkResult};
 use crate::Client;
+use crate::chunk_producer::ProduceChunkResult;
+use crate::client::CatchupState;
 use actix_rt::System;
 use itertools::Itertools;
 use near_async::messaging::Sender;
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
+use near_chain::chain::{BlockCatchUpRequest, do_apply_chunks};
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{Chain, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::merkle::{PartialMerkleTree, merklize};
+use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::sharding::{EncodedShardChunk, ShardChunk};
 use near_primitives::stateless_validation::chunk_endorsement::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
@@ -145,7 +147,8 @@ fn create_chunk_on_height_for_shard(
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     let signer = client.validator_signer.get();
     client
-        .try_produce_chunk(
+        .chunk_producer
+        .produce_chunk(
             &last_block,
             &client.epoch_manager.get_epoch_id_from_prev_block(&last_block_hash).unwrap(),
             Chain::get_prev_chunk_header(client.epoch_manager.as_ref(), &last_block, shard_id)
@@ -153,6 +156,7 @@ fn create_chunk_on_height_for_shard(
             next_height,
             shard_id,
             signer.as_ref(),
+            &client.chain.transaction_validity_check(last_block.header().clone()),
         )
         .unwrap()
         .unwrap()
@@ -185,13 +189,15 @@ pub fn create_chunk(
         receipts,
         transactions_storage_proof,
     } = client
-        .try_produce_chunk(
+        .chunk_producer
+        .produce_chunk(
             &last_block,
             last_block.header().epoch_id(),
             last_block.chunks()[0].clone(),
             next_height,
             ShardId::new(0),
             signer.as_ref(),
+            &client.chain.transaction_validity_check(last_block.header().clone()),
         )
         .unwrap()
         .unwrap();
@@ -308,10 +314,11 @@ pub fn run_catchup(
         client.run_catchup(highest_height_peers, &block_catch_up, None, &signer)?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
-            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work)
-                .into_iter()
-                .map(|res| res.1)
-                .collect_vec();
+            let results =
+                do_apply_chunks(BlockToApply::Normal(msg.block_hash), msg.block_height, msg.work)
+                    .into_iter()
+                    .map(|res| res.2)
+                    .collect_vec();
             if let Some(CatchupState { catchup, .. }) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {

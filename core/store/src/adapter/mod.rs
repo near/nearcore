@@ -101,7 +101,7 @@ pub trait StoreAdapter {
         chunk_store::ChunkStoreAdapter::new(self.store())
     }
 
-    fn epoch(&self) -> epoch_store::EpochStoreAdapter {
+    fn epoch_store(&self) -> epoch_store::EpochStoreAdapter {
         epoch_store::EpochStoreAdapter::new(self.store())
     }
 

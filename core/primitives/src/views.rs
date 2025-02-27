@@ -15,8 +15,8 @@ use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, MerklePath};
+use crate::hash::{CryptoHash, hash};
+use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1,
@@ -47,6 +47,7 @@ use near_fmt::{AbbrBytes, Slice};
 use near_parameters::config::CongestionControlConfig;
 use near_parameters::view::CongestionControlConfigView;
 use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::account::AccountContract;
 use near_schema_checker_lib::ProtocolSchema;
 use near_time::Utc;
 use serde_with::base64::Base64;
@@ -70,6 +71,10 @@ pub struct AccountView {
     /// TODO(2271): deprecated.
     #[serde(default)]
     pub storage_paid_at: BlockHeight,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_contract_hash: Option<CryptoHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub global_contract_account_id: Option<AccountId>,
 }
 
 /// A view of the contract code.
@@ -84,12 +89,20 @@ pub struct ContractCodeView {
 
 impl From<&Account> for AccountView {
     fn from(account: &Account) -> Self {
+        let (global_contract_hash, global_contract_account_id) =
+            match account.contract().into_owned() {
+                AccountContract::Global(contract) => (Some(contract), None),
+                AccountContract::GlobalByAccount(account_id) => (None, Some(account_id)),
+                AccountContract::Local(_) | AccountContract::None => (None, None),
+            };
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
-            code_hash: account.code_hash(),
+            code_hash: account.local_contract_hash().unwrap_or_default(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
+            global_contract_hash,
+            global_contract_account_id,
         }
     }
 }
@@ -102,7 +115,14 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
+        let contract = match &view.global_contract_account_id {
+            Some(account_id) => AccountContract::GlobalByAccount(account_id.clone()),
+            None => match view.global_contract_hash {
+                Some(hash) => AccountContract::Global(hash),
+                None => AccountContract::from_local_code_hash(view.code_hash),
+            },
+        };
+        Account::new(view.amount, view.locked, contract, view.storage_usage)
     }
 }
 
@@ -935,6 +955,12 @@ pub struct ChunkHeaderView {
     pub congestion_info: Option<CongestionInfoView>,
     pub bandwidth_requests: Option<BandwidthRequests>,
     pub signature: Signature,
+}
+
+impl ChunkHeaderView {
+    pub fn is_new_chunk(&self, block_height: BlockHeight) -> bool {
+        self.height_included == block_height
+    }
 }
 
 impl From<ShardChunkHeader> for ChunkHeaderView {

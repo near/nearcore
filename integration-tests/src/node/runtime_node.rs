@@ -7,9 +7,9 @@ use near_primitives::types::AccountId;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
 use crate::node::Node;
-use crate::runtime_utils::get_runtime_and_trie_from_genesis;
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
+use crate::utils::runtime_utils::get_runtime_and_trie_from_genesis;
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
@@ -111,8 +111,8 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
-    use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
+    use crate::node::runtime_node::RuntimeNode;
     use testlib::fees_utils::FeeHelper;
     use testlib::runtime_utils::{alice_account, bob_account};
 

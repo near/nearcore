@@ -10,11 +10,12 @@ use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
 use near_primitives::checked_feature;
+use near_primitives::chunk_apply_stats::{ChunkApplyStats, ChunkApplyStatsV0};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, StateSyncInfo,
 };
@@ -27,7 +28,7 @@ use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
     SignedTransaction,
 };
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::trie_key::{TrieKey, trie_key_parsers};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExtra, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges,
@@ -42,14 +43,14 @@ use near_primitives::views::LightClientBlockView;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::{
-    DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
-    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
+    KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
+    StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
 use utils::get_block_header_on_chain_by_height;
 
 use crate::types::{Block, BlockHeader, LatestKnown};
-use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
+use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
 use std::sync::Arc;
 
 mod latest_witnesses;
@@ -112,6 +113,11 @@ pub trait ChainStoreAccess {
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error>;
+    fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error>;
     /// Get block header.
     fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -334,6 +340,22 @@ impl ChainStore {
             .collect()
     }
 
+    pub fn get_outgoing_receipts_for_shard(
+        &self,
+        epoch_manager: &dyn EpochManagerAdapter,
+        prev_block_hash: CryptoHash,
+        shard_id: ShardId,
+        last_included_height: BlockHeight,
+    ) -> Result<Vec<Receipt>, Error> {
+        Self::get_outgoing_receipts_for_shard_from_store(
+            &self.chain_store(),
+            epoch_manager,
+            prev_block_hash,
+            shard_id,
+            last_included_height,
+        )
+    }
+
     /// Get outgoing receipts that will be *sent* from shard `shard_id` from block whose prev block
     /// is `prev_block_hash`
     /// Note that the meaning of outgoing receipts here are slightly different from
@@ -352,8 +374,8 @@ impl ChainStore {
     /// But we need to implement a more theoretically correct algorithm if shard layouts will change
     /// more often in the future
     /// <https://github.com/near/nearcore/issues/4877>
-    pub fn get_outgoing_receipts_for_shard(
-        &self,
+    pub fn get_outgoing_receipts_for_shard_from_store(
+        chain_store: &ChainStoreAdapter,
         epoch_manager: &dyn EpochManagerAdapter,
         prev_block_hash: CryptoHash,
         shard_id: ShardId,
@@ -362,7 +384,7 @@ impl ChainStore {
         let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&prev_block_hash)?;
         let mut receipts_block_hash = prev_block_hash;
         loop {
-            let block_header = self.get_block_header(&receipts_block_hash)?;
+            let block_header = chain_store.get_block_header(&receipts_block_hash)?;
 
             if block_header.height() != last_included_height {
                 receipts_block_hash = *block_header.prev_hash();
@@ -377,7 +399,7 @@ impl ChainStore {
                 shard_id
             };
 
-            let mut receipts = self
+            let mut receipts = chain_store
                 .get_outgoing_receipts(&receipts_block_hash, receipts_shard_id)
                 .map(|v| v.to_vec())
                 .unwrap_or_default();
@@ -849,6 +871,20 @@ impl ChainStore {
         }
         store_update.commit().map_err(|err| err.into())
     }
+
+    pub fn prev_block_is_caught_up(
+        chain_store: &ChainStoreAdapter,
+        prev_prev_hash: &CryptoHash,
+        prev_hash: &CryptoHash,
+    ) -> Result<bool, Error> {
+        // Needs to be used with care: for the first block of each epoch the semantic is slightly
+        // different, since the prev_block is in a different epoch. So for all the blocks but the
+        // first one in each epoch this method returns true if the block is ready to have state
+        // applied for the next epoch, while for the first block in a particular epoch this method
+        // returns true if the block is ready to have state applied for the current epoch (and
+        // otherwise should be orphaned)
+        Ok(!chain_store.get_blocks_to_catchup(prev_prev_hash)?.contains(prev_hash))
+    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -939,6 +975,14 @@ impl ChainStoreAccess for ChainStore {
         shard_uid: &ShardUId,
     ) -> Result<Arc<ChunkExtra>, Error> {
         ChainStoreAdapter::get_chunk_extra(self, block_hash, shard_uid)
+    }
+
+    fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        ChainStoreAdapter::get_chunk_apply_stats(&self, block_hash, shard_id)
     }
 
     /// Get block header.
@@ -1074,7 +1118,7 @@ pub struct ChainStoreUpdate<'a> {
     header_head: Option<Tip>,
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
-    trie_changes: Vec<WrappedTrieChanges>,
+    trie_changes: Vec<(CryptoHash, WrappedTrieChanges)>,
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
@@ -1084,6 +1128,7 @@ pub struct ChainStoreUpdate<'a> {
     add_state_sync_infos: Vec<StateSyncInfo>,
     remove_state_sync_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
+    chunk_apply_stats: HashMap<(CryptoHash, ShardId), ChunkApplyStats>,
 }
 
 impl<'a> ChainStoreUpdate<'a> {
@@ -1107,6 +1152,7 @@ impl<'a> ChainStoreUpdate<'a> {
             add_state_sync_infos: vec![],
             remove_state_sync_infos: vec![],
             challenged_blocks: HashSet::default(),
+            chunk_apply_stats: HashMap::default(),
         }
     }
 }
@@ -1122,20 +1168,12 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 
     /// The chain head.
     fn head(&self) -> Result<Tip, Error> {
-        if let Some(head) = &self.head {
-            Ok(head.clone())
-        } else {
-            self.chain_store.head()
-        }
+        if let Some(head) = &self.head { Ok(head.clone()) } else { self.chain_store.head() }
     }
 
     /// The chain Block Tail height, used by GC.
     fn tail(&self) -> Result<BlockHeight, Error> {
-        if let Some(tail) = &self.tail {
-            Ok(*tail)
-        } else {
-            self.chain_store.tail()
-        }
+        if let Some(tail) = &self.tail { Ok(*tail) } else { self.chain_store.tail() }
     }
 
     /// The chain Chunks Tail height, used by GC.
@@ -1231,6 +1269,18 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
             Ok(Arc::clone(chunk_extra))
         } else {
             self.chain_store.get_chunk_extra(block_hash, shard_uid)
+        }
+    }
+
+    fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        if let Some(stats) = self.chunk_apply_stats.get(&(*block_hash, *shard_id)) {
+            Ok(Some(stats.clone()))
+        } else {
+            self.chain_store.get_chunk_apply_stats(block_hash, shard_id)
         }
     }
 
@@ -1665,8 +1715,8 @@ impl<'a> ChainStoreUpdate<'a> {
         self.chain_store_cache_update.outcome_ids.insert((*block_hash, shard_id), outcome_ids);
     }
 
-    pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
-        self.trie_changes.push(trie_changes);
+    pub fn save_trie_changes(&mut self, block_hash: CryptoHash, trie_changes: WrappedTrieChanges) {
+        self.trie_changes.push((block_hash, trie_changes));
     }
 
     pub fn save_state_transition_data(
@@ -1721,6 +1771,15 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_block_height_processed(&mut self, height: BlockHeight) {
         self.chain_store_cache_update.processed_block_heights.insert(height);
+    }
+
+    pub fn save_chunk_apply_stats(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        stats: ChunkApplyStatsV0,
+    ) {
+        self.chunk_apply_stats.insert((block_hash, shard_id), ChunkApplyStats::V0(stats));
     }
 
     pub fn inc_block_refcount(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
@@ -2029,14 +2088,16 @@ impl<'a> ChainStoreUpdate<'a> {
         {
             let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
             let mut deletions_store_update = self.store().trie_store().store_update();
-            for mut wrapped_trie_changes in self.trie_changes.drain(..) {
+            for (block_hash, mut wrapped_trie_changes) in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
                 wrapped_trie_changes.insertions_into(&mut store_update.trie_store_update());
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
-                wrapped_trie_changes.state_changes_into(&mut store_update.trie_store_update());
+                wrapped_trie_changes
+                    .state_changes_into(&block_hash, &mut store_update.trie_store_update());
 
                 if self.chain_store.save_trie_changes {
-                    wrapped_trie_changes.trie_changes_into(&mut store_update.trie_store_update());
+                    wrapped_trie_changes
+                        .trie_changes_into(&block_hash, &mut store_update.trie_store_update());
                 }
             }
 
@@ -2136,6 +2197,13 @@ impl<'a> ChainStoreUpdate<'a> {
                 &(),
             )?;
         }
+        for ((block_hash, shard_id), stats) in self.chunk_apply_stats.iter() {
+            store_update.set_ser(
+                DBCol::ChunkApplyStats,
+                &get_block_shard_id(block_hash, *shard_id),
+                stats,
+            )?;
+        }
         for other in self.store_updates.drain(..) {
             store_update.merge(other);
         }
@@ -2157,8 +2225,8 @@ mod tests {
 
     use crate::test_utils::get_chain;
     use near_primitives::errors::InvalidTxError;
-    use near_primitives::test_utils::create_test_signer;
     use near_primitives::test_utils::TestBlockBuilder;
+    use near_primitives::test_utils::create_test_signer;
 
     #[test]
     fn test_tx_validity_long_fork() {
@@ -2172,10 +2240,12 @@ mod tests {
         store_update.commit().unwrap();
 
         let short_fork_head = short_fork[0].header().clone();
-        assert!(chain
-            .mut_chain_store()
-            .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
-            .is_ok());
+        assert!(
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(&short_fork_head, genesis.hash(),)
+                .is_ok()
+        );
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(chain.transaction_validity_period() + 3) {
@@ -2192,10 +2262,12 @@ mod tests {
         }
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header();
-        assert!(chain
-            .mut_chain_store()
-            .check_transaction_validity_period(cur_header, valid_base_hash)
-            .is_ok());
+        assert!(
+            chain
+                .mut_chain_store()
+                .check_transaction_validity_period(cur_header, valid_base_hash)
+                .is_ok()
+        );
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
             chain
@@ -2227,10 +2299,12 @@ mod tests {
         }
         let valid_base_hash = blocks[1].hash();
         let cur_header = &blocks.last().unwrap().header();
-        assert!(chain
-            .chain_store()
-            .check_transaction_validity_period(cur_header, valid_base_hash,)
-            .is_ok());
+        assert!(
+            chain
+                .chain_store()
+                .check_transaction_validity_period(cur_header, valid_base_hash,)
+                .is_ok()
+        );
         let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
             .height(chain.transaction_validity_period() + 3)
             .build();

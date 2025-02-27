@@ -71,9 +71,9 @@ use pending_events_sender::{CallbackEvent, PendingEventsSender};
 use sender::TestLoopSender;
 use serde::Serialize;
 use std::collections::BinaryHeap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use time::ext::InstantExt;
 
 use crate::messaging::{Actor, LateBoundSender};
@@ -453,7 +453,7 @@ impl Drop for TestLoopV2 {
             self.events.clear();
             panic!(
                 "Event scheduled at {} is not handled at the end of the test: {}.
-                 Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
+                     Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
                 event.due, event.event.description
             );
         }
@@ -472,8 +472,8 @@ enum AdvanceDecision {
 mod tests {
     use crate::futures::FutureSpawnerExt;
     use crate::test_loop::TestLoopV2;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use time::Duration;
 
     // Tests that the TestLoop correctly handles futures that sleep on the fake clock.

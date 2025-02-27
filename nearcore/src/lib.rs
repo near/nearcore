@@ -1,5 +1,5 @@
 pub use crate::config::NightshadeRuntimeExt;
-pub use crate::config::{init_configs, load_config, load_test_config, NearConfig};
+pub use crate::config::{NearConfig, init_configs, load_config, load_test_config};
 #[cfg(feature = "json_rpc")]
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
@@ -11,7 +11,7 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::actix_wrapper::{spawn_actix_actor, ActixWrapper};
+use near_async::actix_wrapper::{ActixWrapper, spawn_actix_actor};
 use near_async::futures::TokioRuntimeFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
@@ -19,7 +19,7 @@ use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::resharding::resharding_actor::ReshardingActor;
 pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
-    get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
+    SnapshotCallbacks, StateSnapshotActor, get_delete_snapshot_callback, get_make_snapshot_callback,
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
@@ -28,12 +28,12 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult,
-    ViewClientActor, ViewClientActorInner,
+    ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult, ViewClientActor,
+    ViewClientActorInner, start_client,
 };
-use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
 use near_primitives::types::EpochId;
@@ -60,7 +60,8 @@ mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
-pub mod test_utils;
+#[cfg(feature = "tx_generator")]
+use near_transactions_generator::actix_actor::TxGeneratorActor;
 
 pub fn get_default_home() -> PathBuf {
     if let Ok(near_home) = std::env::var("NEAR_HOME") {
@@ -213,6 +214,8 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
+    #[cfg(feature = "tx_generator")]
+    pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
     pub rpc_servers: Vec<(&'static str, actix_web::dev::ServerHandle)>,
     /// The cold_store_loop_handle will only be set if the cold store is configured.
@@ -351,7 +354,6 @@ pub fn start_with_config_and_synchronization(
         runtime.get_flat_storage_manager(),
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
-        state_snapshot_sender.as_multi_sender(),
     );
     let (state_snapshot_addr, state_snapshot_arbiter) = spawn_actix_actor(state_snapshot_actor);
     state_snapshot_sender.bind(state_snapshot_addr.clone().with_auto_span_context());
@@ -439,7 +441,6 @@ pub fn start_with_config_and_synchronization(
         shard_tracker: shard_tracker.clone(),
         runtime,
         validator: config.validator_signer.clone(),
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
         future_spawner: state_sync_spawner,
         handle: None,
     };
@@ -511,9 +512,18 @@ pub fn start_with_config_and_synchronization(
         arbiters.push(db_metrics_arbiter);
     }
 
+    #[cfg(feature = "tx_generator")]
+    let tx_generator = near_transactions_generator::actix_actor::start_tx_generator(
+        config.tx_generator.unwrap_or_default(),
+        client_actor.clone().with_auto_span_context().into_multi_sender(),
+        view_client_addr.clone().with_auto_span_context().into_multi_sender(),
+    );
+
     Ok(NearNode {
         client: client_actor,
         view_client: view_client_addr,
+        #[cfg(feature = "tx_generator")]
+        tx_generator,
         rpc_servers,
         arbiters,
         cold_store_loop_handle,

@@ -6,9 +6,9 @@ use crate::network_protocol::{
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::PeerIdOrHash;
-use crate::routing::routing_table_view::FindRouteError;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
+use crate::routing::routing_table_view::FindRouteError;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::ReasonForBan;

@@ -1,6 +1,6 @@
-use check::{check, CheckConfig};
+use check::{CheckConfig, check};
 use db::{Db, EstimationRow, ParameterRow};
-use estimate::{run_estimation, EstimateConfig};
+use estimate::{EstimateConfig, run_estimation};
 use import::ImportConfig;
 use std::fmt::Write;
 use std::io::{self, Read};

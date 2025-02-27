@@ -210,11 +210,7 @@ fn test_ensure_max_open_files_limit() {
 
     impl<'a> NoFile for MockNoFile<'a> {
         fn get(&self) -> std::io::Result<(u64, u64)> {
-            if self.0 .0 == 666 {
-                Err(std::io::ErrorKind::Other.into())
-            } else {
-                Ok(*self.0)
-            }
+            if self.0.0 == 666 { Err(std::io::ErrorKind::Other.into()) } else { Ok(*self.0) }
         }
 
         fn set(&mut self, soft: u64, hard: u64) -> std::io::Result<()> {

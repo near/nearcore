@@ -53,9 +53,10 @@ class Key:
 
     @classmethod
     def from_keypair(cls, account_id, key: SigningKey):
-        sk = 'ed25519:' + base58.b58encode(bytes(key)).decode('ascii')
-        pk = 'ed25519:' + base58.b58encode(bytes(
-            key.verify_key)).decode('ascii')
+        p = bytes(key.verify_key)
+        s = bytes(key)
+        sk = 'ed25519:' + base58.b58encode(s + p).decode('ascii')
+        pk = 'ed25519:' + base58.b58encode(p).decode('ascii')
         return cls(account_id, pk, sk)
 
     def decoded_pk(self) -> bytes:

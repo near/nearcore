@@ -9,11 +9,11 @@ use crate::types::{
     RuntimeStorageConfig,
 };
 use crate::update_shard::{NewChunkResult, OldChunkResult, ShardUpdateResult};
-use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
+use crate::{DoomslugThresholdMode, metrics};
 use near_chain_primitives::error::Error;
-use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, Tip};
 use near_primitives::block_header::BlockHeader;
@@ -125,7 +125,7 @@ impl<'a> ChainUpdate<'a> {
                 )?;
                 self.chain_store_update.merge(store_update.into());
 
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 self.chain_store_update.save_outgoing_receipt(
                     block_hash,
                     shard_id,
@@ -147,6 +147,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_id,
+                    apply_result.stats,
+                );
             }
             ShardUpdateResult::OldChunk(OldChunkResult { shard_uid, apply_result }) => {
                 // The chunk is missing but some fields may need to be updated
@@ -167,7 +172,7 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.merge(store_update.into());
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
-                self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_trie_changes(*block_hash, apply_result.trie_changes);
                 if should_save_state_transition_data {
                     self.chain_store_update.save_state_transition_data(
                         *block_hash,
@@ -177,6 +182,11 @@ impl<'a> ChainUpdate<'a> {
                         apply_result.contract_updates,
                     );
                 }
+                self.chain_store_update.save_chunk_apply_stats(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.stats,
+                );
             }
         };
         Ok(())
@@ -580,7 +590,7 @@ impl<'a> ChainUpdate<'a> {
         )?;
         self.chain_store_update.merge(store_update.into());
 
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         let chunk_extra = ChunkExtra::new(
             protocol_version,
@@ -683,7 +693,7 @@ impl<'a> ChainUpdate<'a> {
             apply_result.trie_changes.state_changes(),
         )?;
         self.chain_store_update.merge(store_update.into());
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+        self.chain_store_update.save_trie_changes(*block_header.hash(), apply_result.trie_changes);
 
         // The chunk is missing but some fields may need to be updated
         // anyway. Prepare a chunk extra as a copy of the old chunk

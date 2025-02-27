@@ -7,9 +7,8 @@ use actix::Addr;
 use actix_cors::Cors;
 use actix_web::{App, HttpServer, ResponseError};
 use paperclip::actix::{
-    api_v2_operation,
+    OpenApiExt, api_v2_operation,
     web::{self, Json},
-    OpenApiExt,
 };
 use strum::IntoEnumIterator;
 
@@ -17,12 +16,13 @@ pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
-use near_primitives::borsh::BorshDeserialize;
+use near_primitives::{account::AccountContract, borsh::BorshDeserialize};
 
 mod adapters;
 mod config;
 mod errors;
 mod models;
+pub mod test;
 mod types;
 mod utils;
 
@@ -369,7 +369,7 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account::new(0, 0, Default::default(), 0).into(),
+                near_primitives::account::Account::new(0, 0, AccountContract::None, 0).into(),
             ),
             Err(err) => return Err(err.into()),
         };
@@ -412,11 +412,7 @@ async fn account_balance(
                         // retrieve contract address from global config if not provided in query
                         config_currencies.as_ref().clone().and_then(|currencies| {
                             currencies.iter().find_map(|c| {
-                                if c.symbol == currency.symbol {
-                                    c.metadata.clone()
-                                } else {
-                                    None
-                                }
+                                if c.symbol == currency.symbol { c.metadata.clone() } else { None }
                             })
                         })
                     })

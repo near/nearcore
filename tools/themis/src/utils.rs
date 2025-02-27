@@ -1,6 +1,6 @@
 use std::{fs, io, rc::Rc};
 
-use cargo_metadata::{camino::Utf8PathBuf, CargoOpt, MetadataCommand};
+use cargo_metadata::{CargoOpt, MetadataCommand, camino::Utf8PathBuf};
 
 use super::types::{Manifest, Package, Workspace};
 

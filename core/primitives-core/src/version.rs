@@ -267,6 +267,7 @@ impl ProtocolFeature {
             // Nightly features:
             #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
             ProtocolFeature::FixContractLoadingCost => 129,
+            ProtocolFeature::GlobalContracts => 129,
             // TODO(#11201): When stabilizing this feature in mainnet, also remove the temporary code
             // that always enables this for mocknet (see config_mocknet function).
             ProtocolFeature::ShuffleShardAssignments => 143,
@@ -275,7 +276,6 @@ impl ProtocolFeature {
                 149
             }
             // Place features that are not yet in Nightly below this line.
-            ProtocolFeature::GlobalContracts => 200,
         }
     }
 
@@ -303,9 +303,7 @@ pub const PEER_MIN_ALLOWED_PROTOCOL_VERSION: ProtocolVersion = STABLE_PROTOCOL_V
 
 #[macro_export]
 macro_rules! checked_feature {
-    ("stable", $feature:ident, $current_protocol_version:expr) => {{
-        $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version
-    }};
+    ("stable", $feature:ident, $current_protocol_version:expr) => {{ $crate::version::ProtocolFeature::$feature.protocol_version() <= $current_protocol_version }};
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr) => {{
         #[cfg(feature = $feature_name)]
         let is_feature_enabled = $crate::version::ProtocolFeature::$feature.protocol_version()
@@ -320,9 +318,7 @@ macro_rules! checked_feature {
         is_feature_enabled
     }};
 
-    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{
-        checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {})
-    }};
+    ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block) => {{ checked_feature!($feature_name, $feature, $current_protocol_version, $feature_block, {}) }};
 
     ($feature_name:tt, $feature:ident, $current_protocol_version:expr, $feature_block:block, $non_feature_block:block) => {{
         #[cfg(feature = $feature_name)]

@@ -2,8 +2,8 @@
 //! Useful for querying from RPC.
 
 use crate::{
-    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk,
-    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetShardChunk, GetStateChanges,
+    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, metrics, sync,
 };
 use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
@@ -11,8 +11,8 @@ use near_async::messaging::{Actor, CanSend, Handler};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
-    get_epoch_block_producers_view, retrieve_headers, Chain, ChainGenesis, ChainStoreAccess,
-    DoomslugThresholdMode, MerkleProofAccess,
+    Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, MerkleProofAccess,
+    get_epoch_block_producers_view, retrieve_headers,
 };
 
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ProtocolConfigView};
@@ -27,9 +27,9 @@ use near_client_primitives::types::{
     GetStateChangesWithCauseInBlockForTrackedShards, GetValidatorInfoError, Query, QueryError,
     TxStatus, TxStatusError,
 };
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::{account_id_to_shard_id, shard_id_to_uid};
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
     StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
@@ -42,7 +42,7 @@ use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::merkle::{PartialMerkleTree, merklize};
 use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
@@ -65,7 +65,7 @@ use near_primitives::views::{
     TxExecutionStatus, TxStatusView,
 };
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
-use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
+use near_store::{COLD_HEAD_KEY, DBCol, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
@@ -997,7 +997,7 @@ impl Handler<GetStateChangesWithCauseInBlockForTrackedShards> for ViewClientActo
             ) {
                 Ok(shard_id) => shard_id,
                 Err(err) => {
-                    return Err(GetStateChangesError::IOError { error_message: err.to_string() })
+                    return Err(GetStateChangesError::IOError { error_message: err.to_string() });
                 }
             };
 
@@ -1042,11 +1042,7 @@ impl Handler<GetNextLightClientBlock> for ViewClientActorInner {
                 self.chain.chain_store(),
             )?;
 
-            if ret.inner_lite.height <= last_height {
-                Ok(None)
-            } else {
-                Ok(Some(Arc::new(ret)))
-            }
+            if ret.inner_lite.height <= last_height { Ok(None) } else { Ok(Some(Arc::new(ret))) }
         } else {
             match self.chain.chain_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
                 Ok(light_block) => Ok(Some(light_block)),
@@ -1219,7 +1215,7 @@ impl Handler<GetProtocolConfig> for ViewClientActorInner {
             .start_timer();
         let header = match self.get_block_header_by_reference(&msg.0)? {
             None => {
-                return Err(GetProtocolConfigError::UnknownBlock("EarliestAvailable".to_string()))
+                return Err(GetProtocolConfigError::UnknownBlock("EarliestAvailable".to_string()));
             }
             Some(header) => header,
         };
@@ -1311,11 +1307,7 @@ impl Handler<BlockRequest> for ViewClientActorInner {
         let _timer =
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["BlockRequest"]).start_timer();
         let BlockRequest(hash) = msg;
-        if let Ok(block) = self.chain.get_block(&hash) {
-            Some(Box::new(block))
-        } else {
-            None
-        }
+        if let Ok(block) = self.chain.get_block(&hash) { Some(Box::new(block)) } else { None }
     }
 }
 

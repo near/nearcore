@@ -8,16 +8,16 @@ use crate::logic::{
 };
 use crate::logic::{MemSlice, MemoryLike};
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports, ContractCode};
-use crate::{prepare, Contract};
-use near_parameters::vm::{Config, VMKind};
+use crate::{Contract, prepare};
+use crate::{ContractCode, get_contract_cache_key, imports};
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::{Config, VMKind};
 use std::borrow::Cow;
 use std::ffi::c_void;
 use std::sync::Arc;
+use wasmer_runtime::Memory;
 use wasmer_runtime::units::Pages;
 use wasmer_runtime::wasm::MemoryDescriptor;
-use wasmer_runtime::Memory;
 use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {

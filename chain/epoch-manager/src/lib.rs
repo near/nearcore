@@ -8,7 +8,7 @@ use near_primitives::block::{BlockHeader, Tip};
 use near_primitives::epoch_block_info::{BlockInfo, SlashState};
 use near_primitives::epoch_info::{EpochInfo, RngSeed};
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary, AGGREGATOR_KEY,
+    AGGREGATOR_KEY, AllEpochConfig, EpochConfig, EpochConfigStore, EpochSummary,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -28,11 +28,10 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreAdapter;
 use near_store::epoch_info_aggregator::EpochInfoAggregator;
-use near_store::{DBCol, Store, StoreUpdate, HEADER_HEAD_KEY};
+use near_store::{DBCol, HEADER_HEAD_KEY, Store, StoreUpdate};
 use num_rational::BigRational;
 use primitive_types::U256;
 use reward_calculator::ValidatorOnlineThresholds;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -43,8 +42,8 @@ use validator_stats::{
 
 pub use crate::adapter::EpochManagerAdapter;
 pub use crate::proposals::proposals_to_epoch_info;
-pub use crate::reward_calculator::RewardCalculator;
 pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
+pub use crate::reward_calculator::RewardCalculator;
 pub use near_primitives::shard_layout::ShardInfo;
 
 mod adapter;
@@ -673,11 +672,7 @@ impl EpochManager {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
             let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
             let threshold = total_block_producer_stake * numer / denom;
-            if stake > threshold {
-                version
-            } else {
-                protocol_version
-            }
+            if stake > threshold { version } else { protocol_version }
         } else {
             protocol_version
         };
@@ -1098,12 +1093,6 @@ impl EpochManager {
         self.get_next_epoch_id_from_info(&block_info)
     }
 
-    pub fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let block_info = self.get_block_info(block_hash)?;
-        let epoch_first_block_info = self.get_block_info(block_info.epoch_first_block())?;
-        self.get_epoch_id(epoch_first_block_info.prev_hash())
-    }
-
     pub fn get_epoch_info_from_hash(
         &self,
         block_hash: &CryptoHash,
@@ -1334,7 +1323,7 @@ impl EpochManager {
                     epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
                 )
             }
-            ValidatorInfoIdentifier::BlockHash(ref h) => {
+            ValidatorInfoIdentifier::BlockHash(h) => {
                 // If we are here, `h` is hash of the latest block of the
                 // current epoch.
                 let aggregator = self.get_epoch_info_aggregator_upto_last(h)?;
@@ -1510,27 +1499,6 @@ impl EpochManager {
         self.record_block_info(block_info, rng_seed)
     }
 
-    /// Compare two epoch ids based on their start height. This works because finality gadget
-    /// guarantees that we cannot have two different epochs on two forks
-    pub fn compare_epoch_id(
-        &self,
-        epoch_id: &EpochId,
-        other_epoch_id: &EpochId,
-    ) -> Result<Ordering, EpochError> {
-        if epoch_id.0 == other_epoch_id.0 {
-            return Ok(Ordering::Equal);
-        }
-        match (
-            self.get_epoch_start_from_epoch_id(epoch_id),
-            self.get_epoch_start_from_epoch_id(other_epoch_id),
-        ) {
-            (Ok(index1), Ok(index2)) => Ok(index1.cmp(&index2)),
-            (Ok(_), Err(_)) => self.get_epoch_info(other_epoch_id).map(|_| Ordering::Less),
-            (Err(_), Ok(_)) => self.get_epoch_info(epoch_id).map(|_| Ordering::Greater),
-            (Err(_), Err(_)) => Err(EpochError::EpochOutOfBounds(*epoch_id)), // other_epoch_id may be out of bounds as well
-        }
-    }
-
     /// Get minimum stake allowed at current block. Attempts to stake with a lower stake will be
     /// rejected.
     pub fn minimum_stake(&self, prev_block_hash: &CryptoHash) -> Result<Balance, EpochError> {
@@ -1605,7 +1573,7 @@ impl EpochManager {
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
         self.epochs_info.get_or_try_put(*epoch_id, |epoch_id| {
-            self.store.epoch().get_epoch_info(epoch_id).map(Arc::new)
+            self.store.epoch_store().get_epoch_info(epoch_id).map(Arc::new)
         })
     }
 
@@ -1657,8 +1625,9 @@ impl EpochManager {
     }
 
     pub fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
-        self.blocks_info
-            .get_or_try_put(*hash, |hash| self.store.epoch().get_block_info(hash).map(Arc::new))
+        self.blocks_info.get_or_try_put(*hash, |hash| {
+            self.store.epoch_store().get_block_info(hash).map(Arc::new)
+        })
     }
 
     fn save_block_info(
@@ -1684,8 +1653,9 @@ impl EpochManager {
     }
 
     fn get_epoch_start_from_epoch_id(&self, epoch_id: &EpochId) -> Result<BlockHeight, EpochError> {
-        self.epoch_id_to_start
-            .get_or_try_put(*epoch_id, |epoch_id| self.store.epoch().get_epoch_start(epoch_id))
+        self.epoch_id_to_start.get_or_try_put(*epoch_id, |epoch_id| {
+            self.store.epoch_store().get_epoch_start(epoch_id)
+        })
     }
 
     /// Updates epoch info aggregator to state as of `last_final_block_hash`
@@ -1857,25 +1827,5 @@ impl EpochManager {
 
             cur_hash = prev_hash;
         }))
-    }
-
-    pub fn get_protocol_upgrade_block_height(
-        &self,
-        block_hash: CryptoHash,
-    ) -> Result<Option<BlockHeight>, EpochError> {
-        let cur_epoch_info = self.get_epoch_info_from_hash(&block_hash)?;
-        let next_epoch_id = self.get_next_epoch_id(&block_hash)?;
-        let next_epoch_info = self.get_epoch_info(&next_epoch_id)?;
-        if cur_epoch_info.protocol_version() != next_epoch_info.protocol_version() {
-            let block_info = self.get_block_info(&block_hash)?;
-            let epoch_length =
-                self.config.for_protocol_version(cur_epoch_info.protocol_version()).epoch_length;
-            let estimated_next_epoch_start =
-                self.get_block_info(block_info.epoch_first_block())?.height() + epoch_length;
-
-            Ok(Some(estimated_next_epoch_start))
-        } else {
-            Ok(None)
-        }
     }
 }

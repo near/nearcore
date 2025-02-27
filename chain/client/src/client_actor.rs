@@ -6,18 +6,20 @@
 //! <https://github.com/near/nearcore/issues/7899>
 
 #[cfg(feature = "test_features")]
+pub use crate::chunk_producer::AdvProduceChunksMode;
+#[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{CatchupState, Client, EPOCH_START_INFO_BLOCKS};
 use crate::config_updater::ConfigUpdater;
 use crate::debug::new_network_info_view;
-use crate::info::{display_sync_status, InfoHelper};
+use crate::info::{InfoHelper, display_sync_status};
 use crate::stateless_validation::partial_witness::partial_witness_actor::PartialWitnessSenderForClient;
 use crate::sync::handler::SyncHandlerRequest;
 use crate::sync::state::chain_requests::{
     ChainFinalizationRequest, ChainSenderForStateSync, StateHeaderValidationRequest,
 };
 use crate::sync_jobs_actor::{ClientSenderForSyncJobs, SyncJobsActor};
-use crate::{metrics, StatusResponse};
+use crate::{StatusResponse, metrics};
 use actix::Actor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::actix_wrapper::ActixWrapper;
@@ -26,6 +28,8 @@ use near_async::messaging::{self, CanSend, Handler, IntoMultiSender, LateBoundSe
 use near_async::time::{Clock, Utc};
 use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSenderFrom};
+#[cfg(feature = "test_features")]
+use near_chain::ChainStoreAccess;
 use near_chain::chain::{
     ApplyChunksDoneMessage, BlockCatchUpRequest, BlockCatchUpResponse, ChunkStateWitnessMessage,
 };
@@ -34,10 +38,8 @@ use near_chain::resharding::types::ReshardingSender;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
-#[cfg(feature = "test_features")]
-use near_chain::ChainStoreAccess;
 use near_chain::{
-    byzantine_assert, near_chain_primitives, Block, BlockHeader, ChainGenesis, Provenance,
+    Block, BlockHeader, ChainGenesis, Provenance, byzantine_assert, near_chain_primitives,
 };
 use near_chain_configs::{ClientConfig, MutableValidatorSigner, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
@@ -47,11 +49,12 @@ use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
-use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage, ProcessTxRequest,
-    ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponseReceived,
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
+    OptimisticBlockMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
+    StateResponseReceived,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -68,13 +71,13 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_UPGRADE_SCHEDULE, PROTOCOL_VERSION, ProtocolFeature};
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
 #[cfg(feature = "test_features")]
 use near_store::DBCol;
 use near_telemetry::TelemetryEvent;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -147,6 +150,7 @@ pub fn start_client(
     wait_until_genesis(&chain_genesis.time);
 
     let chain_sender_for_state_sync = LateBoundSender::<ChainSenderForStateSync>::new();
+    let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
     let client = Client::new(
         clock.clone(),
         client_config,
@@ -165,6 +169,7 @@ pub fn start_client(
         resharding_sender,
         state_sync_future_spawner,
         chain_sender_for_state_sync.as_multi_sender(),
+        client_sender_for_client.as_multi_sender(),
         PROTOCOL_UPGRADE_SCHEDULE.clone(),
     )
     .unwrap();
@@ -174,13 +179,10 @@ pub fn start_client(
     let sync_jobs_actor = SyncJobsActor::new(client_sender_for_sync_jobs.as_multi_sender());
     let sync_jobs_actor_addr = sync_jobs_actor.spawn_actix_actor();
 
-    let client_sender_for_client = LateBoundSender::<ClientSenderForClient>::new();
-    let client_sender_for_client_clone = client_sender_for_client.clone();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |_| {
         let client_actor_inner = ClientActorInner::new(
             clock,
             client,
-            client_sender_for_client_clone.as_multi_sender(),
             node_id,
             network_adapter,
             telemetry_sender,
@@ -223,8 +225,6 @@ pub struct ClientActorInner {
     /// Adversarial controls
     pub adv: crate::adversarial::Controls,
 
-    // Sender to be able to send a message to myself.
-    myself_sender: ClientSenderForClient,
     pub client: Client,
     network_adapter: PeerManagerAdapter,
     network_info: NetworkInfo,
@@ -314,13 +314,17 @@ fn check_validator_tracked_shards(client: &Client, validator_id: &AccountId) -> 
     if !ProtocolFeature::StatelessValidation.enabled(protocol_version)
         && client.config.tracked_shards.is_empty()
     {
-        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector");
+        panic!(
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector"
+        );
     }
 
     if ProtocolFeature::StatelessValidation.enabled(protocol_version)
         && !client.config.tracked_shards.is_empty()
     {
-        panic!("The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector");
+        panic!(
+            "The `chain_id` field specified in genesis is among mainnet/testnet, so validator must not track all shards. Please change `tracked_shards` field in config.json to be an empty vector"
+        );
     }
 
     Ok(())
@@ -330,7 +334,6 @@ impl ClientActorInner {
     pub fn new(
         clock: Clock,
         client: Client,
-        myself_sender: ClientSenderForClient,
         node_id: PeerId,
         network_adapter: PeerManagerAdapter,
         telemetry_sender: Sender<TelemetryEvent>,
@@ -349,7 +352,6 @@ impl ClientActorInner {
         Ok(ClientActorInner {
             clock,
             adv,
-            myself_sender,
             client,
             network_adapter,
             node_id,
@@ -383,15 +385,6 @@ impl ClientActorInner {
 
 #[cfg(feature = "test_features")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub enum AdvProduceChunksMode {
-    // Produce chunks as usual.
-    Valid,
-    // Stop producing chunks.
-    StopProduce,
-}
-
-#[cfg(feature = "test_features")]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum AdvProduceBlockHeightSelection {
     /// Place the new block on top of the latest known block. Block's height will be the next
     /// integer.
@@ -419,6 +412,7 @@ pub enum AdvProduceBlockHeightSelection {
 pub enum NetworkAdversarialMessage {
     AdvProduceBlocks(u64, bool),
     AdvProduceChunks(AdvProduceChunksMode),
+    AdvInsertInvalidTransactions(bool),
     AdvSwitchToHeight(u64),
     AdvDisableHeaderSync,
     AdvDisableDoomslug,
@@ -495,7 +489,12 @@ impl Handler<NetworkAdversarialMessage> for ClientActorInner {
             }
             NetworkAdversarialMessage::AdvProduceChunks(adv_produce_chunks) => {
                 info!(target: "adversary", mode=?adv_produce_chunks, "setting adversary produce chunks");
-                self.client.adv_produce_chunks = Some(adv_produce_chunks);
+                self.client.chunk_producer.adv_produce_chunks = Some(adv_produce_chunks);
+                None
+            }
+            NetworkAdversarialMessage::AdvInsertInvalidTransactions(on) => {
+                info!(target: "adversary", on, "invalid transactions");
+                self.client.chunk_producer.produce_invalid_tx_in_chunks = on;
                 None
             }
         }
@@ -506,6 +505,15 @@ impl Handler<ProcessTxRequest> for ClientActorInner {
     fn handle(&mut self, msg: ProcessTxRequest) -> ProcessTxResponse {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.client.process_tx(transaction, is_forwarded, check_only)
+    }
+}
+
+impl Handler<OptimisticBlockMessage> for ClientActorInner {
+    fn handle(&mut self, msg: OptimisticBlockMessage) {
+        let OptimisticBlockMessage { optimistic_block, from_peer } = msg;
+        debug!(target: "client", block_height = optimistic_block.inner.block_height, prev_block_hash = ?optimistic_block.inner.prev_block_hash, ?from_peer, "OptimisticBlockMessage");
+
+        self.client.receive_optimistic_block(optimistic_block, from_peer);
     }
 }
 
@@ -530,7 +538,7 @@ impl Handler<BlockResponse> for ClientActorInner {
                 block,
                 peer_id,
                 was_requested,
-                Some(self.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.apply_chunks_done.clone()),
                 &signer,
             );
         } else {
@@ -946,10 +954,9 @@ impl ClientActorInner {
         debug!(target: "client", "Check announce account for {}, last announce time {:?}", signer.validator_id(), self.last_validator_announce_time);
 
         // Announce AccountId if client is becoming a validator soon.
-        let next_epoch_id = unwrap_or_return!(self
-            .client
-            .epoch_manager
-            .get_next_epoch_id_from_prev_block(&prev_block_hash));
+        let next_epoch_id = unwrap_or_return!(
+            self.client.epoch_manager.get_next_epoch_id_from_prev_block(&prev_block_hash)
+        );
 
         // Check client is part of the futures validators
         if self.client.is_validator(&next_epoch_id, validator_signer) {
@@ -1283,7 +1290,7 @@ impl ClientActorInner {
     fn try_process_unfinished_blocks(&mut self, signer: &Option<Arc<ValidatorSigner>>) {
         let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
         let (accepted_blocks, errors) = self.client.postprocess_ready_blocks(
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
             true,
             signer,
         );
@@ -1355,7 +1362,7 @@ impl ClientActorInner {
         let res = self.client.start_process_block(
             block,
             Provenance::PRODUCED,
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
             signer,
         );
         let Err(error) = res else {
@@ -1391,14 +1398,15 @@ impl ClientActorInner {
             return Ok(());
         };
 
-        /* TODO(#10584): If we produced the optimistic block, send it out before we save it.
+        // If we produced the optimistic block, send it out before we save it.
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::OptimisticBlock { optimistic_block: block.clone() },
+            NetworkRequests::OptimisticBlock { optimistic_block: optimistic_block.clone() },
         ));
-        */
 
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
+        self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
+        self.client.maybe_process_optimistic_block();
 
         Ok(())
     }
@@ -1579,7 +1587,7 @@ impl ClientActorInner {
             if let Err(err) = self.client.run_catchup(
                 &self.network_info.highest_height_peers,
                 &self.sync_jobs_sender.block_catch_up,
-                Some(self.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.apply_chunks_done.clone()),
                 &validator_signer,
             ) {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", validator_signer.as_ref().map(|vs| vs.validator_id()), err);
@@ -1693,7 +1701,7 @@ impl ClientActorInner {
             highest_height,
             &self.network_info.highest_height_peers,
             signer,
-            Some(self.myself_sender.apply_chunks_done.clone()),
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
         );
         let Some(sync_step_result) = sync_step_result else {
             return;
@@ -1873,7 +1881,7 @@ impl ClientActorInner {
             let _ = self.client.start_process_block(
                 block.into(),
                 Provenance::PRODUCED,
-                Some(self.myself_sender.apply_chunks_done.clone()),
+                Some(self.client.myself_sender.apply_chunks_done.clone()),
                 &signer,
             );
             blocks_produced += 1;
@@ -1910,7 +1918,7 @@ impl Handler<ShardsManagerResponse> for ClientActorInner {
                 self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
-                    Some(self.myself_sender.apply_chunks_done.clone()),
+                    Some(self.client.myself_sender.apply_chunks_done.clone()),
                     &signer,
                 );
             }

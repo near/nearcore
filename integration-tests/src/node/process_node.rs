@@ -14,8 +14,8 @@ use near_primitives::types::AccountId;
 use nearcore::config::NearConfig;
 
 use crate::node::Node;
-use crate::user::rpc_user::RpcUser;
 use crate::user::User;
+use crate::user::rpc_user::RpcUser;
 use actix::System;
 use near_jsonrpc_client::new_client;
 use near_network::test_utils::wait_or_timeout;
@@ -45,7 +45,9 @@ impl Node for ProcessNode {
     fn start(&mut self) {
         match self.state {
             ProcessNodeState::Stopped => {
-                std::env::set_var("ADVERSARY_CONSENT", "1");
+                unsafe {
+                    std::env::set_var("ADVERSARY_CONSENT", "1");
+                }
                 let child =
                     self.get_start_node_command().spawn().expect("start node command failed");
                 self.state = ProcessNodeState::Running(child);
@@ -111,7 +113,7 @@ impl ProcessNode {
     /// Side effect: reset_storage
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
-        let work_dir = env::temp_dir().join(format!("process_node_{}", rng.gen::<u64>()));
+        let work_dir = env::temp_dir().join(format!("process_node_{}", rng.r#gen::<u64>()));
         let account_id = config.validator_signer.get().unwrap().validator_id().clone();
         let signer = Arc::new(InMemorySigner::test_signer(&account_id));
         let result =

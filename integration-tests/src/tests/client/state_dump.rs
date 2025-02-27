@@ -1,14 +1,13 @@
 use assert_matches::assert_matches;
 
-use near_async::futures::ActixFutureSpawner;
+use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::time::{Clock, Duration};
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis, MutableConfigValue, NEAR_BASE};
-use near_client::sync::external::{external_storage_location, StateFileType};
-use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
+use near_client::sync::external::{StateFileType, external_storage_location};
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -19,11 +18,13 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::validator_signer::{EmptyValidatorSigner, InMemoryValidatorSigner};
 use near_primitives::views::{QueryRequest, QueryResponseKind};
-use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::Store;
+use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use nearcore::state_sync::StateSyncDumper;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
@@ -58,6 +59,8 @@ fn slow_test_state_dump() {
         Some(Arc::new(EmptyValidatorSigner::new("test0".parse().unwrap()))),
         "validator_signer",
     );
+
+    let arbiter = actix::Arbiter::new();
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config,
@@ -66,8 +69,7 @@ fn slow_test_state_dump() {
         shard_tracker,
         runtime,
         validator,
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
-        future_spawner: Arc::new(ActixFutureSpawner),
+        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -129,9 +131,13 @@ fn run_state_sync_with_dumped_parts(
 ) {
     init_test_logger();
     if is_final_block_in_new_epoch {
-        tracing::info!("Testing for case when both head and final block of the dumping node are in new epoch...");
+        tracing::info!(
+            "Testing for case when both head and final block of the dumping node are in new epoch..."
+        );
     } else {
-        tracing::info!("Testing for case when head is in new epoch, but final block isn't for the dumping node...");
+        tracing::info!(
+            "Testing for case when head is in new epoch, but final block isn't for the dumping node..."
+        );
     }
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
@@ -164,6 +170,7 @@ fn run_state_sync_with_dumped_parts(
         iteration_delay: Some(Duration::ZERO),
         credentials_file: None,
     });
+    let arbiter = actix::Arbiter::new();
     let mut state_sync_dumper = StateSyncDumper {
         clock: Clock::real(),
         client_config: config.clone(),
@@ -172,8 +179,7 @@ fn run_state_sync_with_dumped_parts(
         shard_tracker,
         runtime,
         validator,
-        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
-        future_spawner: Arc::new(ActixFutureSpawner),
+        future_spawner: Arc::new(ActixArbiterHandleFutureSpawner(arbiter.handle())),
         handle: None,
     };
     state_sync_dumper.start().unwrap();
@@ -297,13 +303,15 @@ fn run_state_sync_with_dumped_parts(
         .unwrap();
     let runtime_client_1 = Arc::clone(&env.clients[1].runtime_adapter);
     let mut store_update = runtime_client_1.store().store_update();
-    assert!(runtime_client_1
-        .get_flat_storage_manager()
-        .remove_flat_storage_for_shard(
-            ShardUId::single_shard(),
-            &mut store_update.flat_store_update()
-        )
-        .unwrap());
+    assert!(
+        runtime_client_1
+            .get_flat_storage_manager()
+            .remove_flat_storage_for_shard(
+                ShardUId::single_shard(),
+                &mut store_update.flat_store_update()
+            )
+            .unwrap()
+    );
     store_update.commit().unwrap();
     let shard_id = ShardId::new(0);
     for part_id in 0..num_parts {

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::{future::LocalBoxFuture, FutureExt};
+use futures::{FutureExt, future::LocalBoxFuture};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;

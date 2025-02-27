@@ -69,6 +69,7 @@ near-primitives.workspace = true
 near-rosetta-rpc = { workspace = true, optional = true }
 near-store.workspace = true
 near-telemetry.workspace = true
+near-transactions-generator = { workspace = true, optional = true }
 near-vm-runner.workspace = true
 node-runtime.workspace = true
 near-config-utils.workspace = true
@@ -132,6 +133,7 @@ nightly = [
   "near-rosetta-rpc/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
+  "near-transactions-generator/nightly",
   "near-vm-runner/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
@@ -159,6 +161,7 @@ nightly_protocol = [
   "near-rosetta-rpc/nightly_protocol",
   "near-store/nightly_protocol",
   "near-telemetry/nightly_protocol",
+  "near-transactions-generator/nightly_protocol",
   "near-vm-runner/nightly_protocol",
   "node-runtime/nightly_protocol",
   "testlib/nightly_protocol",
@@ -172,3 +175,4 @@ sandbox = [
 io_trace = ["near-vm-runner/io_trace"]
 
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
+tx_generator = ["near-transactions-generator"]

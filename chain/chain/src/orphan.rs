@@ -12,7 +12,7 @@ use std::fmt::{Debug, Formatter};
 use tracing::{debug, debug_span};
 
 use crate::missing_chunks::BlockLike;
-use crate::{metrics, BlockProcessingArtifact, Chain, Provenance};
+use crate::{BlockProcessingArtifact, Chain, Provenance, metrics};
 
 /// Maximum number of orphans chain can store.
 const MAX_ORPHAN_SIZE: usize = 1024;

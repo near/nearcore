@@ -1,13 +1,13 @@
+use crate::Error;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext,
     PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
     PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
-use crate::Error;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_async::time::{Duration, Instant};
-use near_chain_configs::{GenesisConfig, ProtocolConfig, MIN_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{GenesisConfig, MIN_GC_NUM_EPOCHS_TO_KEEP, ProtocolConfig};
 use near_crypto::PublicKey;
 use near_epoch_manager::shard_assignment::account_id_to_shard_id;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -19,11 +19,11 @@ use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
@@ -40,16 +40,16 @@ use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
-    TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, COLD_HEAD_KEY, DBCol, ShardTries, StateSnapshotConfig, Store, Trie,
+    TrieConfig, TrieUpdate, WrappedTrieChanges,
 };
 use near_vm_runner::ContractCode;
-use near_vm_runner::{precompile_contract, ContractRuntimeCache};
+use near_vm_runner::{ContractRuntimeCache, precompile_contract};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    validate_transaction, verify_and_charge_transaction, ApplyState, Runtime,
-    ValidatorAccountsUpdate,
+    ApplyState, Runtime, ValidatorAccountsUpdate, validate_transaction,
+    verify_and_charge_transaction,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -150,17 +150,6 @@ impl NightshadeRuntime {
         let epoch_manager = self.epoch_manager.read();
         let shard_version = epoch_manager.get_shard_layout(epoch_id)?.version();
         Ok(ShardUId::new(shard_version, shard_id))
-    }
-
-    fn account_id_to_shard_uid(
-        &self,
-        account_id: &AccountId,
-        epoch_id: &EpochId,
-    ) -> Result<ShardUId, Error> {
-        let epoch_manager = self.epoch_manager.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let shard_id = shard_layout.account_id_to_shard_id(account_id);
-        Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
     }
 
     /// Processes state update.
@@ -354,9 +343,10 @@ impl NightshadeRuntime {
 
         let total_balance_burnt = apply_result
             .stats
+            .balance
             .tx_burnt_amount
-            .checked_add(apply_result.stats.other_burnt_amount)
-            .and_then(|result| result.checked_add(apply_result.stats.slashed_burnt_amount))
+            .checked_add(apply_result.stats.balance.other_burnt_amount)
+            .and_then(|result| result.checked_add(apply_result.stats.balance.slashed_burnt_amount))
             .ok_or_else(|| {
                 Error::Other("Integer overflow during burnt balance summation".to_string())
             })?;
@@ -369,7 +359,6 @@ impl NightshadeRuntime {
                 shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
-                block_hash,
                 apply_state.block_height,
             ),
             new_root: apply_result.state_root,
@@ -386,6 +375,7 @@ impl NightshadeRuntime {
             bandwidth_requests: apply_result.bandwidth_requests,
             bandwidth_scheduler_state_hash: apply_result.bandwidth_scheduler_state_hash,
             contract_updates: apply_result.contract_updates,
+            stats: apply_result.stats,
         };
 
         Ok(result)
@@ -528,16 +518,21 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_flat_storage_manager()
     }
 
+    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+        let epoch_manager = self.epoch_manager.read();
+        Ok(epoch_manager.get_shard_layout(epoch_id)?)
+    }
+
     fn validate_tx(
         &self,
         gas_price: Balance,
         state_root: Option<StateRoot>,
+        shard_layout: &ShardLayout,
         transaction: &SignedTransaction,
         verify_signature: bool,
-        epoch_id: &EpochId,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<Option<InvalidTxError>, Error> {
+    ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(congestion_info) = receiver_congestion_info {
@@ -549,9 +544,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let ShardAcceptsTransactions::No(reason) =
                 congestion_control.shard_accepts_transactions()
             {
-                let receiver_shard =
-                    self.account_id_to_shard_uid(transaction.transaction.receiver_id(), epoch_id)?;
-                let shard_id = receiver_shard.shard_id;
+                let shard_id = shard_layout
+                    .account_id_to_shard_id(transaction.transaction.receiver_id())
+                    .into();
                 let err = match reason {
                     RejectTransactionReason::IncomingCongestion { congestion_level }
                     | RejectTransactionReason::OutgoingCongestion { congestion_level }
@@ -562,7 +557,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         InvalidTxError::ShardStuck { shard_id, missed_chunks }
                     }
                 };
-                return Ok(Some(err));
+                return Err(err);
             }
         }
 
@@ -574,12 +569,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             current_protocol_version,
         ) {
             Ok(cost) => cost,
-            Err(e) => return Ok(Some(e)),
+            Err(e) => return Err(e),
         };
 
         if let Some(state_root) = state_root {
             let shard_uid =
-                self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
+                shard_layout.account_id_to_shard_uid(transaction.transaction.signer_id());
             let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(
@@ -592,12 +587,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                 None,
                 current_protocol_version,
             ) {
-                Ok(_) => Ok(None),
-                Err(e) => Ok(Some(e)),
+                Ok(_) => Ok(()),
+                Err(e) => Err(e),
             }
         } else {
             // Without a state root, verification is skipped
-            Ok(None)
+            Ok(())
         }
     }
 
@@ -607,7 +602,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: PrepareTransactionsChunkContext,
         prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
-        chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
+        chain_validate: &dyn Fn(&SignedTransaction) -> bool,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();

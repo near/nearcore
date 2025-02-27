@@ -2,8 +2,8 @@ use super::dependencies::{MemSlice, MemoryLike};
 use super::errors::{HostError, VMLogicError};
 use super::gas_counter::GasCounter;
 use core::mem::size_of;
-use near_parameters::vm::LimitConfig;
 use near_parameters::ExtCosts::*;
+use near_parameters::vm::LimitConfig;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 
@@ -255,8 +255,8 @@ pub(super) fn get_memory_or_register<'a>(
 mod tests {
     use super::HostError;
     use super::Registers;
-    use crate::logic::gas_counter::GasCounter;
     use crate::logic::LimitConfig;
+    use crate::logic::gas_counter::GasCounter;
     use crate::tests::test_vm_config;
     use near_parameters::ExtCostsConfig;
 

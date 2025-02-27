@@ -1,5 +1,5 @@
-import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Fragment, ReactElement, useCallback, useMemo, useState } from 'react';
 import Xarrow, { Xwrapper, useXarrow } from 'react-xarrows';
 import { DebugBlockStatus, MissedHeightInfo, fetchBlockStatus, fetchFullStatus } from './api';
 import './LatestBlocksView.scss';
@@ -266,12 +266,29 @@ type LatestBlockViewProps = {
     addr: string;
 };
 
+const calculateAvgBlockTime = (blocks: BlockTableRowBlock[]): number => {
+    let totalTime = 0;
+    let count = 0;
+    
+    for (let i = 1; i < blocks.length; i++) {
+        const timeDiff = (blocks[i-1].block.block_timestamp - blocks[i].block.block_timestamp) / 1e9;
+        totalTime += timeDiff;
+        count++;
+    }
+    
+    return count > 0 ? totalTime / count : 0;
+};
+
 export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
     const [height, setHeight] = useState<number | null>(null);
     const [heightInInput, setHeightInInput] = useState<string>('');
     const [expandAll, setExpandAll] = useState(false);
     const [hideMissingHeights, setHideMissingHeights] = useState(false);
     const [showMissingChunksStats, setShowMissingChunksStats] = useState(false);
+    const [numBlocks, setNumBlocks] = useState<number | null>(null);
+    const [numBlocksInInput, setNumBlocksInInput] = useState<string>('');
+    const [mode, setMode] = useState<string | null>(null);
+    const [modeInInput, setModeInInput] = useState<string>('');
     const updateXarrow = useXarrow();
 
     const { data: status } = useQuery(
@@ -282,7 +299,9 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
         data: blockData,
         error,
         isLoading,
-    } = useQuery(['latestBlocks', addr, height], async () => await fetchBlockStatus(addr, height));
+    } = useQuery(['latestBlocks', addr, height, mode, numBlocks], async () => {
+        return await fetchBlockStatus(addr, height, mode, numBlocks);
+    });
 
     const { rows, knownProducerSet } = useMemo(() => {
         if (status && blockData) {
@@ -339,18 +358,40 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
     }, [rows]);
 
     const goToHeightCallback = useCallback(() => {
-        const height = parseInt(heightInInput);
-        setHeight(height);
-    }, [heightInInput]);
+        if (heightInInput != '') {
+            const height = parseInt(heightInInput);
+            setHeight(height);
+        } else {
+            setHeight(null);
+        }
+        if (numBlocksInInput != '') {
+            const numBlocks = Math.min(parseInt(numBlocksInInput), 1000);
+            setNumBlocks(numBlocks);
+        } else {
+            setNumBlocks(null);
+        }
+        if (modeInInput != '') {
+            setMode(modeInInput);
+        } else {
+            setMode(null);
+        }
+    }, [heightInInput, numBlocksInInput, modeInInput]);
 
     return (
         <Xwrapper>
             <div className="latest-blocks-view">
                 <div className="height-controller">
                     <span className="prompt">
-                        {height == null
-                            ? 'Displaying most recent blocks'
-                            : `Displaying blocks from height ${height}`}
+                        {(() => {
+                            let blocksText = `${numBlocks == null ? '' : numBlocks} blocks`;
+                            let promptText = height == null ? 
+                                `Displaying most recent ${blocksText}` : 
+                                `Displaying ${blocksText} from height ${height}`;
+                            if (mode != null && mode != 'all') {
+                                promptText += ` in mode ${mode}`;
+                            }
+                            return promptText;
+                        })()}
                     </span>
                     <input
                         type="text"
@@ -358,6 +399,22 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                         value={heightInInput}
                         onChange={(e) => setHeightInInput(e.target.value)}
                     />
+                    <input
+                        type="text"
+                        placeholder="enter number of blocks"
+                        value={numBlocksInInput}
+                        onChange={(e) => setNumBlocksInInput(e.target.value)}
+                    />
+                    <select
+                        value={modeInInput}
+                        onChange={(e) => setModeInInput(e.target.value)}
+                    >
+                        <option value="all">All</option>
+                        <option value="first_block_miss">Jump To Block Miss</option>
+                        <option value="first_chunk_miss">Jump To Chunk Miss</option>
+                        <option value="first_block_produced">Jump To Block Produced</option>
+                        <option value="all_chunks_included">Jump To All Chunks Included</option>
+                    </select>
                     <button onClick={goToHeightCallback}>Go</button>
                     <button onClick={() => setHeight(null)}>Show HEADER_HEAD</button>
                 </div>
@@ -375,7 +432,11 @@ export const LatestBlocksView = ({ addr }: LatestBlockViewProps) => {
                         ((canonicalHeightCount - numCanonicalBlocks) / canonicalHeightCount) *
                         100
                     ).toFixed(2)}
-                    %
+                    % {}
+                    Average Block Time:{' '}
+                    {calculateAvgBlockTime(
+                        rows.filter((row): row is BlockTableRowBlock => 'block' in row)
+                    ).toFixed(2)}s
                 </div>
                 <button
                     onClick={() => {

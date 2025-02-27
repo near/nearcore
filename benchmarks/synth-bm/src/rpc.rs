@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use log::{info, warn};
 use near_crypto::{InMemorySigner, PublicKey, Signer};
 use near_jsonrpc_client::errors::JsonRpcError;
 use near_jsonrpc_client::methods::block::RpcBlockRequest;
@@ -18,6 +17,7 @@ use near_primitives::{
     },
 };
 use tokio::sync::mpsc::Receiver;
+use tracing::{info, warn};
 
 pub fn new_request(
     transaction: Transaction,
@@ -109,8 +109,19 @@ impl RpcResponseHandler {
                 timer = Some(Instant::now());
             }
 
-            let rpc_response = response.expect("rpc call should succeed");
-            check_tx_response(rpc_response, self.wait_until.clone(), self.response_check_severity);
+            match response {
+                Ok(rpc_response) => {
+                    check_tx_response(
+                        rpc_response,
+                        self.wait_until.clone(),
+                        self.response_check_severity,
+                    );
+                }
+                Err(err) => {
+                    let msg = format!("RPC call failed: {}", err);
+                    warn_or_panic(&msg, self.response_check_severity);
+                }
+            }
         }
 
         if let Some(timer) = timer {

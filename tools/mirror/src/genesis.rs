@@ -350,12 +350,16 @@ mod test {
             nonce: 0,
             max_block_height: 1234,
             public_key: secret_key.public_key(),
-            actions: vec![Action::AddKey(Box::new(AddKeyAction {
-                public_key: "ed25519:Eo9W44tRMwcYcoua11yM7Xfr1DjgR4EWQFM3RU27MEX8".parse().unwrap(),
-                access_key: AccessKey::full_access(),
-            }))
-            .try_into()
-            .unwrap()],
+            actions: vec![
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: "ed25519:Eo9W44tRMwcYcoua11yM7Xfr1DjgR4EWQFM3RU27MEX8"
+                        .parse()
+                        .unwrap(),
+                    access_key: AccessKey::full_access(),
+                }))
+                .try_into()
+                .unwrap(),
+            ],
         };
         let tx_hash = delegate_action.get_nep461_hash();
         let signature = secret_key.sign(tx_hash.as_ref());
@@ -394,12 +398,16 @@ mod test {
             nonce: 0,
             max_block_height: 1234,
             public_key: mapped_secret_key.public_key(),
-            actions: vec![Action::AddKey(Box::new(AddKeyAction {
-                public_key: "ed25519:4etp3kcYH2rwGdbwbLbUd1AKHMEPLKosCMSQFqYqPL6V".parse().unwrap(),
-                access_key: AccessKey::full_access(),
-            }))
-            .try_into()
-            .unwrap()],
+            actions: vec![
+                Action::AddKey(Box::new(AddKeyAction {
+                    public_key: "ed25519:4etp3kcYH2rwGdbwbLbUd1AKHMEPLKosCMSQFqYqPL6V"
+                        .parse()
+                        .unwrap(),
+                    access_key: AccessKey::full_access(),
+                }))
+                .try_into()
+                .unwrap(),
+            ],
         };
         let tx_hash = delegate_action.get_nep461_hash();
         let signature = mapped_secret_key.sign(tx_hash.as_ref());

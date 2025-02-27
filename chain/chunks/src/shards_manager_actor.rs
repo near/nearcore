@@ -115,7 +115,7 @@ use near_primitives::block::Tip;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{verify_path, MerklePath};
+use near_primitives::merkle::{MerklePath, verify_path};
 use near_primitives::receipt::Receipt;
 use near_primitives::reed_solomon::{reed_solomon_decode, reed_solomon_encode};
 use near_primitives::sharding::{
@@ -133,11 +133,11 @@ use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::adapter::StoreAdapter;
-use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
-use rand::seq::IteratorRandom;
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
+use near_store::{DBCol, HEAD_KEY, HEADER_HEAD_KEY, Store};
 use rand::Rng;
+use rand::seq::IteratorRandom;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -527,7 +527,7 @@ impl ShardsManagerActor {
         for (target_account, part_ords) in bp_to_parts {
             // extra check that we are not sending request to ourselves.
             if no_account_id || me != target_account.as_ref() {
-                let prefer_peer = request_from_archival || rand::thread_rng().gen::<bool>();
+                let prefer_peer = request_from_archival || rand::thread_rng().r#gen::<bool>();
                 debug!(
                     target: "chunks",
                     ?part_ords,
@@ -2286,7 +2286,7 @@ mod test {
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::NetworkRequests;
     use near_primitives::block::Tip;
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::types::EpochId;
     use near_primitives::validator_signer::EmptyValidatorSigner;
     use near_store::test_utils::create_test_store;
@@ -2686,9 +2686,11 @@ mod test {
             most_parts,
         );
         // The validator receives the chunk forward
-        assert!(shards_manager
-            .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
-            .is_ok());
+        assert!(
+            shards_manager
+                .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
+                .is_ok()
+        );
         let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header: fixture.mock_chunk_header.clone(),
             parts: other_parts,
@@ -2717,19 +2719,21 @@ mod test {
         );
         clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
-        assert!(fixture
-            .mock_network
-            .requests
-            .read()
-            .unwrap()
-            .iter()
-            .find(|r| {
-                match r.as_network_requests_ref() {
-                    NetworkRequests::PartialEncodedChunkRequest { .. } => true,
-                    _ => false,
-                }
-            })
-            .is_none());
+        assert!(
+            fixture
+                .mock_network
+                .requests
+                .read()
+                .unwrap()
+                .iter()
+                .find(|r| {
+                    match r.as_network_requests_ref() {
+                        NetworkRequests::PartialEncodedChunkRequest { .. } => true,
+                        _ => false,
+                    }
+                })
+                .is_none()
+        );
     }
 
     #[test]
@@ -2757,9 +2761,11 @@ mod test {
             fixture.mock_chunk_parts.clone(),
         );
         // The validator receives the chunk forward
-        assert!(shards_manager
-            .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
-            .is_ok(),);
+        assert!(
+            shards_manager
+                .process_partial_encoded_chunk_forward(forward, Some(&fixture.mock_shard_tracker))
+                .is_ok(),
+        );
         // The validator then receives the block, which is missing chunks; it notifies the
         // ShardsManager of the chunk header, and ShardsManager is able to complete the chunk
         // because of the forwarded parts.shards_manager
@@ -2790,19 +2796,21 @@ mod test {
 
         clock.advance(CHUNK_REQUEST_RETRY * 2);
         shards_manager.resend_chunk_requests();
-        assert!(fixture
-            .mock_network
-            .requests
-            .read()
-            .unwrap()
-            .iter()
-            .find(|r| {
-                match r.as_network_requests_ref() {
-                    NetworkRequests::PartialEncodedChunkRequest { .. } => true,
-                    _ => false,
-                }
-            })
-            .is_none());
+        assert!(
+            fixture
+                .mock_network
+                .requests
+                .read()
+                .unwrap()
+                .iter()
+                .find(|r| {
+                    match r.as_network_requests_ref() {
+                        NetworkRequests::PartialEncodedChunkRequest { .. } => true,
+                        _ => false,
+                    }
+                })
+                .is_none()
+        );
     }
 
     #[test]

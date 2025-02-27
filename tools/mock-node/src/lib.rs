@@ -1,18 +1,21 @@
 //! Implements `ChainHistoryAccess` and `MockPeerManagerActor`, which is the main
 //! components of the mock network.
 
-use anyhow::{anyhow, Context as AnyhowContext};
-use near_chain::{retrieve_headers, Block, Error};
+use anyhow::{Context as AnyhowContext, anyhow};
+use near_chain::{Block, Error, retrieve_headers};
 use near_client::sync::header::MAX_BLOCK_HEADERS;
 use near_crypto::SecretKey;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::raw::{Connection, DirectMessage, Listener, Message, RoutedMessage};
+use near_network::raw::{
+    ConnectError, Connection, DirectMessage, Listener, Message, RoutedMessage,
+};
 use near_network::tcp;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::version::ProtocolVersion;
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -139,7 +142,7 @@ fn get_head_block(chain: &ChainStoreAdapter, max_height: BlockHeight) -> anyhow:
             Err(Error::DBNotFoundErr(_)) => continue,
             Err(e) => {
                 return Err(e)
-                    .with_context(|| format!("get_block_hash_by_height #{} failed", height))
+                    .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
         return chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash));
@@ -389,7 +392,7 @@ impl MockPeer {
             Err(Error::DBNotFoundErr(_)) => return Ok(None),
             Err(e) => {
                 return Err(e)
-                    .with_context(|| format!("get_block_hash_by_height #{} failed", height))
+                    .with_context(|| format!("get_block_hash_by_height #{} failed", height));
             }
         };
         self.chain.get_block(&hash).with_context(|| format!("get_block {} failed", &hash)).map(Some)
@@ -468,6 +471,7 @@ impl MockNode {
         shard_layout: ShardLayout,
         network_start_height: BlockHeight,
         network_config: MockNetworkConfig,
+        handshake_protocol_version: Option<ProtocolVersion>,
     ) -> anyhow::Result<Self> {
         let listener = Listener::bind(
             listen_addr,
@@ -477,7 +481,8 @@ impl MockNode {
             network_start_height,
             shard_layout.shard_ids().collect(),
             archival,
-            30 * near_time::Duration::SECOND,
+            None,
+            handshake_protocol_version,
         )
         .await?;
 
@@ -497,7 +502,16 @@ impl MockNode {
         let head_block = get_head_block(&self.chain, self.network_start_height)?;
 
         loop {
-            let conn = self.listener.accept().await?;
+            let conn = match self.listener.accept().await {
+                Ok(conn) => conn,
+                Err(ConnectError::Accept(e)) => {
+                    return Err(e).context("error accepting from TCP socket");
+                }
+                Err(e) => {
+                    tracing::warn!("Error accepting incoming connection: {:?}", &e);
+                    continue;
+                }
+            };
 
             let peer = MockPeer::new(
                 self.chain.clone(),
@@ -507,7 +521,7 @@ impl MockNode {
                 head_block.clone(),
             );
 
-            actix::spawn(async move {
+            tokio::spawn(async move {
                 if let Err(e) = peer.serve_peer(conn, target_height).await {
                     tracing::error!("error serving requests: {:?}", e);
                 }

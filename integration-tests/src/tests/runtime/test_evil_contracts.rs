@@ -114,8 +114,14 @@ fn slow_test_self_delay() {
     match res.status {
         FinalExecutionStatus::SuccessValue(depth_bytes) => {
             let depth = u32::from_be_bytes(depth_bytes.try_into().unwrap());
-            assert!(depth >= min_expected_depth, "The function has recursed fewer times than expected: {depth} < {min_expected_depth}",);
-            assert!(depth <= max_expected_depth, "The function has recursed more times than expected: {depth} > {max_expected_depth}",);
+            assert!(
+                depth >= min_expected_depth,
+                "The function has recursed fewer times than expected: {depth} < {min_expected_depth}",
+            );
+            assert!(
+                depth <= max_expected_depth,
+                "The function has recursed more times than expected: {depth} > {max_expected_depth}",
+            );
         }
         _ => panic!("Expected success, got: {:?}", res),
     }

@@ -2,11 +2,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::account::accounts_from_dir;
+use crate::account::{accounts_from_dir, update_account_nonces};
 use crate::block_service::BlockService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use log::info;
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
@@ -19,6 +18,7 @@ use serde::Serialize;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::time;
+use tracing::info;
 
 #[derive(Args, Debug)]
 pub struct BenchmarkMpcSignArgs {
@@ -31,7 +31,7 @@ pub struct BenchmarkMpcSignArgs {
     /// The number of transactions to send per second. May be lower when reaching hardware limits or
     /// network congestion.
     #[arg(long)]
-    pub transactions_per_second: u64,
+    pub requests_per_second: u64,
     /// The total number of transactions to send.
     #[arg(long)]
     pub num_transactions: u64,
@@ -50,21 +50,33 @@ pub struct BenchmarkMpcSignArgs {
     /// The deposit (in yoctoNEAR) attached to each `sign` function call transaction.
     #[arg(long)]
     pub deposit: u128,
+
+    /// If set, this flag updates the nonce values from the network.
+    #[arg(default_value_t = false, long)]
+    pub read_nonces_from_network: bool,
 }
 
 pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<()> {
     let mut accounts = accounts_from_dir(&args.user_data_dir)?;
     assert!(
-        accounts.len() > 0,
+        !accounts.is_empty(),
         "at least one account required in {:?} to send transactions",
         args.user_data_dir
     );
 
     // Pick interval to achieve desired TPS.
-    let mut interval =
-        time::interval(Duration::from_micros(1_000_000 / args.transactions_per_second));
+    let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
 
     let client = JsonRpcClient::connect(&args.rpc_url);
+    if args.read_nonces_from_network {
+        accounts = update_account_nonces(
+            client.clone(),
+            accounts,
+            args.requests_per_second,
+            Some(&args.user_data_dir),
+        )
+        .await?;
+    }
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
     let mut rng = thread_rng();

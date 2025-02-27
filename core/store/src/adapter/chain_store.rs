@@ -4,10 +4,11 @@ use std::sync::Arc;
 
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
+use near_primitives::chunk_apply_stats::ChunkApplyStats;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk,
 };
@@ -19,8 +20,8 @@ use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, inde
 use near_primitives::views::LightClientBlockView;
 
 use crate::{
-    get_genesis_height, DBCol, Store, StoreUpdate, CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY,
-    HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, DBCol, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEAD_KEY, HEADER_HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, Store, StoreUpdate, TAIL_KEY, get_genesis_height,
 };
 
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
@@ -50,6 +51,10 @@ impl ChainStoreAdapter {
         ChainStoreUpdateAdapter {
             store_update: StoreUpdateHolder::Owned(self.store.store_update()),
         }
+    }
+
+    pub fn genesis_height(&self) -> BlockHeight {
+        self.genesis_height
     }
 
     /// The chain head.
@@ -253,6 +258,16 @@ impl ChainStoreAdapter {
             self.store.get_ser(DBCol::ChunkExtra, &get_block_shard_uid(block_hash, shard_uid)),
             format_args!("CHUNK EXTRA: {}:{:?}", block_hash, shard_uid),
         )
+    }
+
+    pub fn get_chunk_apply_stats(
+        &self,
+        block_hash: &CryptoHash,
+        shard_id: &ShardId,
+    ) -> Result<Option<ChunkApplyStats>, Error> {
+        self.store
+            .get_ser(DBCol::ChunkApplyStats, &get_block_shard_id(block_hash, *shard_id))
+            .map_err(|e| e.into())
     }
 
     pub fn get_outgoing_receipts(

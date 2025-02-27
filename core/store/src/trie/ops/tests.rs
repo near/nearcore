@@ -9,6 +9,7 @@ use itertools::Itertools;
 use near_primitives::{shard_layout::ShardUId, types::StateRoot};
 
 use crate::test_utils::TestTriesBuilder;
+use crate::trie::Trie;
 use crate::trie::mem::iter::{MemTrieIteratorInner, STMemTrieIterator};
 use crate::trie::mem::memtrie_update::TrackingMode;
 use crate::trie::mem::memtries::MemTries;
@@ -18,7 +19,6 @@ use crate::trie::mem::nibbles_utils::{
 use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::trie_storage_update::TrieStorageUpdate;
-use crate::trie::Trie;
 
 use super::resharding::retain_split_shard_custom_ranges;
 
@@ -324,7 +324,7 @@ fn random_key(max_key_len: usize, rng: &mut StdRng) -> Vec<u8> {
     let key_len = rng.gen_range(0..=max_key_len);
     let mut key = Vec::new();
     for _ in 0..key_len {
-        let byte: u8 = rng.gen();
+        let byte: u8 = rng.r#gen();
         key.push(byte);
     }
     key

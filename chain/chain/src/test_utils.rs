@@ -4,13 +4,13 @@ mod validator_schedule;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use crate::DoomslugThresholdMode;
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
-use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
 use near_async::time::Clock;
 use near_chain_configs::{Genesis, MutableConfigValue};
@@ -19,21 +19,22 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::optimistic_block::BlockToApply;
 use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::DBCol;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
-use near_store::DBCol;
 use num_rational::Ratio;
 use tracing::debug;
 
-pub use self::kv_runtime::{account_id_to_shard_id, KeyValueRuntime, MockEpochManager};
+pub use self::kv_runtime::{KeyValueRuntime, MockEpochManager, account_id_to_shard_id};
 pub use self::validator_schedule::ValidatorSchedule;
-use near_async::messaging::{noop, IntoMultiSender};
+use near_async::messaging::{IntoMultiSender, noop};
 
 pub fn get_chain(clock: Clock) -> Chain {
     get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
@@ -90,7 +91,7 @@ pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
 }
 
 pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
-    chain.blocks_in_processing.contains(block_hash)
+    chain.blocks_in_processing.contains(&BlockToApply::Normal(*block_hash))
 }
 
 pub fn wait_for_block_in_processing(
@@ -200,11 +201,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         }
     }
     headers.sort_by(|h_left, h_right| {
-        if h_left.height() > h_right.height() {
-            Ordering::Greater
-        } else {
-            Ordering::Less
-        }
+        if h_left.height() > h_right.height() { Ordering::Greater } else { Ordering::Less }
     });
     for header in headers {
         if header.is_genesis() {

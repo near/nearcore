@@ -1,5 +1,5 @@
 use crate::config_updater::ConfigUpdater;
-use crate::{metrics, SyncStatus};
+use crate::{SyncStatus, metrics};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::Sender;
@@ -20,7 +20,7 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::validator_signer::ValidatorSigner;
-use near_primitives::version::{Version, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, Version};
 use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
+use sysinfo::{Pid, ProcessExt, System, SystemExt, get_current_pid, set_open_files_limit};
 use time::ext::InstantExt as _;
 use tracing::info;
 
@@ -178,14 +178,18 @@ impl InfoHelper {
     fn record_chunk_producers(
         head: &Tip,
         client: &crate::client::Client,
-        shard_layout: Option<&ShardLayout>,
+        shard_layout: &ShardLayout,
     ) {
         if let (Some(account_id), Ok(epoch_info)) = (
             client.validator_signer.get().map(|x| x.validator_id().clone()),
             client.epoch_manager.get_epoch_info(&head.epoch_id),
         ) {
-            for (shard_id, validators) in epoch_info.chunk_producers_settlement().iter().enumerate()
+            for (shard_index, validators) in
+                epoch_info.chunk_producers_settlement().iter().enumerate()
             {
+                let Ok(shard_id) = shard_layout.get_shard_id(shard_index) else {
+                    continue;
+                };
                 let is_chunk_producer_for_shard = validators.iter().any(|&validator_id| {
                     *epoch_info.validator_account_id(validator_id) == account_id
                 });
@@ -193,7 +197,7 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Some(shard_layout) = shard_layout {
+        } else {
             for shard_id in shard_layout.shard_ids() {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
@@ -350,9 +354,10 @@ impl InfoHelper {
 
         if let Some(shard_layout) = shard_layout.as_ref() {
             InfoHelper::record_tracked_shards(&head, &client, shard_layout);
+            InfoHelper::record_chunk_producers(&head, &client, shard_layout);
         }
         InfoHelper::record_block_producers(&head, &client);
-        InfoHelper::record_chunk_producers(&head, &client, shard_layout.as_ref());
+
         let next_epoch_id = Some(head.epoch_id);
         if self.epoch_id.ne(&next_epoch_id) {
             // We only want to compute this once per epoch to avoid heavy computational work, that can last up to 100ms.
@@ -862,7 +867,7 @@ impl PrettyNumber {
 
 impl std::fmt::Display for PrettyNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self(mut num, unit) = self;
+        let Self(mut num, unit) = *self;
         if num < 1_000 {
             return write!(f, "{} {}", num, unit);
         }
@@ -968,16 +973,16 @@ fn get_validator_production_status(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
-    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+    use near_async::messaging::{IntoMultiSender, IntoSender, noop};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::runtime::NightshadeRuntime;
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
     use near_chain_configs::{Genesis, MutableConfigValue};
+    use near_epoch_manager::EpochManager;
     use near_epoch_manager::shard_tracker::ShardTracker;
     use near_epoch_manager::test_utils::*;
-    use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
     use near_store::genesis::initialize_genesis_state;
 
