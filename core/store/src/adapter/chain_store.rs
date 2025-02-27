@@ -439,15 +439,16 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
         Self { store_update: StoreUpdateHolder::Reference(store_update) }
     }
 
-    /// USE THIS FUNCTION WITH CARE; proceed only if you know what you're doing.
-    /// Typically while saving the block header we would also like to update
+    /// Note: Typically while saving the block header we would also like to update
     /// block_header_hashes_by_height and update block_merkle_tree
+    /// This is a primitive function and changing only the BlockHeader column can lead to inconsistencies
     pub fn set_block_header_only(&mut self, header: &BlockHeader) {
         self.store_update.insert_ser(DBCol::BlockHeader, header.hash().as_ref(), header).unwrap();
     }
 
-    /// USE THIS FUNCTION WITH CARE; proceed only if you know what you're doing.
-    /// Typically block_header_hashes_by_height is saved while saving the block header
+    /// Note: Typically block_header_hashes_by_height is saved while saving the block header
+    /// This is a primitive function and changing only the HeaderHashesByHeight column can lead to inconsistencies
+    /// Use with update_block_header_hashes_by_height
     pub fn set_block_header_hashes_by_height(
         &mut self,
         height: BlockHeight,
@@ -458,8 +459,8 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
             .unwrap();
     }
 
-    /// USE THIS FUNCTION WITH CARE; proceed only if you know what you're doing.
-    /// Typically block_merkle_tree is saved while saving the block header
+    /// Note: Typically block_merkle_tree is saved while saving the block header
+    /// This is a primitive function and changing only the BlockMerkleTree column can lead to inconsistencies
     pub fn set_block_merkle_tree(
         &mut self,
         block_hash: &CryptoHash,
@@ -491,6 +492,7 @@ impl<'a> ChainStoreUpdateAdapter<'a> {
     }
 
     /// This function is normally clubbed with set_block_header_only
+    /// This is a primitive function and changing only the HeaderHashesByHeight column can lead to inconsistencies
     pub fn update_block_header_hashes_by_height(&mut self, header: &BlockHeader) {
         let height = header.height();
         let mut hash_set =
