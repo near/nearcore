@@ -2117,8 +2117,8 @@ impl Client {
         if let Some(account_id) = signer.as_ref().map(|bp| bp.validator_id()) {
             validators.remove(account_id);
         }
+        let tx_hash = tx.get_hash();
         for validator in validators {
-            let tx_hash = tx.get_hash();
             trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, ?shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
