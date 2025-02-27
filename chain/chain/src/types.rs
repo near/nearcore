@@ -428,18 +428,22 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
-    /// Validates a given signed transaction.
-    /// If the state root is given, then the verification will use the account. Otherwise it will
-    /// only validate the transaction math, limits and signatures.
-    fn validate_tx(
+    fn validate_tx_metadata(
         &self,
-        gas_price: Balance,
-        state_root: Option<StateRoot>,
         shard_layout: &ShardLayout,
+        gas_price: Balance,
         transaction: &SignedTransaction,
-        verify_signature: bool,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
+    ) -> Result<(), InvalidTxError>;
+
+    fn validate_tx_against_state(
+        &self,
+        shard_layout: &ShardLayout,
+        gas_price: Balance,
+        state_root: StateRoot,
+        transaction: &SignedTransaction,
+        current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
 
     /// Returns an ordered list of valid transactions from the pool up the given limits.

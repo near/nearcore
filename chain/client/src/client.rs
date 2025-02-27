@@ -2220,12 +2220,10 @@ impl Client {
             cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        if let Err(err) = self.runtime_adapter.validate_tx(
-            gas_price,
-            None,
+        if let Err(err) = self.runtime_adapter.validate_tx_metadata(
             &shard_layout,
+            gas_price,
             tx,
-            true,
             protocol_version,
             receiver_congestion_info,
         ) {
@@ -2258,14 +2256,12 @@ impl Client {
                     }
                 }
             };
-            if let Err(err) = self.runtime_adapter.validate_tx(
-                gas_price,
-                Some(state_root),
+            if let Err(err) = self.runtime_adapter.validate_tx_against_state(
                 &shard_layout,
+                gas_price,
+                state_root,
                 tx,
-                false,
                 protocol_version,
-                receiver_congestion_info,
             ) {
                 debug!(target: "client", ?err, "Invalid tx");
                 return Ok(ProcessTxResponse::InvalidTx(err));
