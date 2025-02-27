@@ -302,8 +302,9 @@ pub struct ChainStoreCache {
     // cache.block(h).hash() != cache.block_header(h).
     // This can be demonstrated by changing get_block_header below to return cache.block(h).hash(),
     // which causes hundreds of tests to fail.
-    blocks: RefCell<HashMap<CryptoHash, Block>>,
-    block_headers: RefCell<HashMap<CryptoHash, BlockHeader>>,
+    blocks: RefCell<HashMap<CryptoHash, Block>>, // DBCol::Block
+    block_headers: RefCell<HashMap<CryptoHash, BlockHeader>>, // DBCol::BlockHeader
+    block_hashes_by_height: RefCell<HashMap<BlockHeight, CryptoHash>>, // DBCol::BlockHeight
 }
 
 impl ChainStoreCache {
@@ -327,6 +328,18 @@ impl ChainStoreCache {
         self.block_headers.borrow().get(hash).cloned()
     }
 
+    fn set_block_hash_by_height(&self, height: BlockHeight, hash: CryptoHash) {
+        self.block_hashes_by_height.borrow_mut().insert(height, hash);
+    }
+
+    fn block_hash_by_height(&self, height: BlockHeight) -> Option<CryptoHash> {
+        self.block_hashes_by_height.borrow().get(&height).cloned()
+    }
+
+    fn delete_hash_by_height(&self, height: BlockHeight) {
+        self.block_hashes_by_height.borrow_mut().remove(&height);
+    }
+
     fn cleanup_old_data(&mut self, _tip_height: u64) {
         // TODO cleanup blocks with tip - block.height > max_distance
     }
@@ -340,8 +353,17 @@ impl ChainStore {
     pub fn delete_block(&mut self, hash: &CryptoHash) {
         self.cache.delete_block(hash);
     }
+
     fn cache_block_header(&mut self, hash: CryptoHash, header: BlockHeader) {
         self.cache.set_block_header(hash, header);
+    }
+
+    fn cache_block_header_by_height(&mut self, height: BlockHeight, hash: CryptoHash) {
+        self.cache.set_block_hash_by_height(height, hash);
+    }
+
+    pub fn delete_block_hash_by_height(&mut self, height: BlockHeight) {
+        self.cache.delete_hash_by_height(height);
     }
 
     fn cleanup_cache(&mut self) {
@@ -1087,13 +1109,20 @@ impl ChainStoreAccess for ChainStore {
 
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&self, height: BlockHeight) -> Result<CryptoHash, Error> {
-        // if let Some(hash) = self.block_hash_by_height_cache.borrow().get(&height) {
-        //     return Ok(hash.clone());
-        // }
+        if let Some(hash) = self.cache.block_hash_by_height(height) {
+            return Ok(hash);
+        }
         let res = ChainStoreAdapter::get_block_hash_by_height(self, height);
-        // if let Ok(ref hash) = res {
-        //     self.block_hash_by_height_cache.borrow_mut().insert(height, hash.clone());
-        // }
+
+        // Normally a node processes blocks and then ChainStore is populated via
+        // ChainStoreUpdate::finalize, which also writes to ChainStore.cache.
+        // However for the apply-range benchmark, that finalize is never called.
+        // For now, populating the cache here to enable cache hits in apply-range.
+        // Next step: let the apply-range command instead take care of populating the cache,
+        // e.g. when or after calling `ChainStore::new` in apply_chain_range.rs
+        if let Ok(ref hash) = res {
+            self.cache.set_block_hash_by_height(height, hash.clone());
+        }
         res
     }
 
@@ -2129,10 +2158,11 @@ impl<'a> ChainStoreUpdate<'a> {
 
         for (height, hash) in self.chain_store_cache_update.height_to_hashes.iter() {
             if let Some(hash) = hash {
-                //
                 store_update.set_ser(DBCol::BlockHeight, &index_to_bytes(*height), hash)?;
+                self.chain_store.cache_block_header_by_height(*height, hash.clone());
             } else {
                 store_update.delete(DBCol::BlockHeight, &index_to_bytes(*height));
+                self.chain_store.delete_block_hash_by_height(*height);
             }
         }
         for (block_hash, next_hash) in self.chain_store_cache_update.next_block_hashes.iter() {
