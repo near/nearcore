@@ -2231,12 +2231,12 @@ impl Client {
         }
 
         let shard_id = shard_layout.account_id_to_shard_id(tx.transaction.signer_id());
-        let care_about_shard =
-            self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
+        let cares_about_shard =
+            self.shard_tracker.cares_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
 
-        if care_about_shard || will_care_about_shard {
+        if cares_about_shard || will_care_about_shard {
             let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                 Ok(chunk_extra) => *chunk_extra.state_root(),

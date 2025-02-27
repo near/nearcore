@@ -457,7 +457,7 @@ impl TestReshardingEnv {
             for (i, validator_account_id) in env.validators.iter().enumerate() {
                 let client = &env.clients[i];
 
-                let cares_about_shard = client.shard_tracker.care_about_shard(
+                let cares_about_shard = client.shard_tracker.cares_about_shard(
                     Some(validator_account_id),
                     block.header().prev_hash(),
                     shard_uid.shard_id(),
@@ -533,9 +533,9 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     for (i, me) in env.validators.iter().enumerate() {
         let client = &env.clients[i];
-        let care_about_shard =
-            client.shard_tracker.care_about_shard(Some(me), prev_hash, shard_id, true);
-        if !care_about_shard {
+        let cares_about_shard =
+            client.shard_tracker.cares_about_shard(Some(me), prev_hash, shard_id, true);
+        if !cares_about_shard {
             continue;
         }
         let chunk_extra = &client.chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();

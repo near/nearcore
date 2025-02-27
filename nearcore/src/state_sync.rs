@@ -715,7 +715,7 @@ impl StateDumper {
         let mut dump_state = HashMap::new();
         let mut senders = HashMap::new();
         for shard_id in shard_ids {
-            if !self.shard_tracker.care_about_shard(
+            if !self.shard_tracker.cares_about_shard(
                 account_id,
                 sync_header.prev_hash(),
                 shard_id,
