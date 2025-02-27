@@ -1,12 +1,9 @@
 use itertools::Itertools;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    GenesisAndEpochConfigParams, ValidatorsSpec, build_genesis_and_epoch_config_store,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
-use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::ContractCode;
 
 use crate::builder::TestLoopBuilder;
@@ -15,10 +12,10 @@ use crate::utils::contract_distribution::{
     assert_all_chunk_endorsements_received, clear_compiled_contract_caches,
     run_until_caches_contain_contract,
 };
-use crate::utils::get_head_height;
 use crate::utils::transactions::{
     do_call_contract, do_delete_account, do_deploy_contract, make_account, make_accounts,
 };
+use crate::utils::{ONE_NEAR, get_head_height};
 
 const EPOCH_LENGTH: u64 = 10;
 const GENESIS_HEIGHT: u64 = 1000;
@@ -229,22 +226,17 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
     let shard_layout = ShardLayout::single_shard();
     let validators_spec =
         ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
-
-    let (genesis, epoch_config_store) = build_genesis_and_epoch_config_store(
-        GenesisAndEpochConfigParams {
-            epoch_length: EPOCH_LENGTH,
-            protocol_version: PROTOCOL_VERSION,
-            shard_layout,
-            validators_spec,
-            accounts: &accounts,
-        },
-        |genesis_builder| {
-            genesis_builder.genesis_height(GENESIS_HEIGHT).transaction_validity_period(1000)
-        },
-        |epoch_config_builder| {
-            epoch_config_builder.shuffle_shard_assignment_for_chunk_producers(true)
-        },
-    );
+    let genesis = TestLoopBuilder::new_genesis_builder()
+        .epoch_length(EPOCH_LENGTH)
+        .shard_layout(shard_layout)
+        .validators_spec(validators_spec)
+        .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
+        .genesis_height(GENESIS_HEIGHT)
+        .transaction_validity_period(1000)
+        .build();
+    let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
+        .shuffle_shard_assignment_for_chunk_producers(true)
+        .build_store_for_single_version(genesis.config.protocol_version);
 
     let env =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
