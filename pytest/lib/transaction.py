@@ -322,9 +322,10 @@ def sign_deploy_contract_tx(signer_key, code, nonce, blockHash) -> bytes:
     return serialize_transaction(tx)
 
 
-def sign_deploy_global_contract_tx(signer_key, code, deployMode, nonce, blockHash) -> bytes:
-    tx = sign_deploy_global_contract_transaction(signer_key, code, deployMode, nonce,
-                                                 blockHash)
+def sign_deploy_global_contract_tx(signer_key, code, deployMode, nonce,
+                                   blockHash) -> bytes:
+    tx = sign_deploy_global_contract_transaction(signer_key, code, deployMode,
+                                                 nonce, blockHash)
     return serialize_transaction(tx)
 
 
