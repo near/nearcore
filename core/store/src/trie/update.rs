@@ -39,9 +39,7 @@ pub struct TrieUpdate {
     prospective: TrieUpdates,
 }
 
-const fn assert_send_sync<T: Send + Sync>() {}
-#[allow(dead_code)]
-const _: () = assert_send_sync::<TrieUpdate>();
+static_assertions::assert_impl_all!(TrieUpdate: Send, Sync);
 
 pub enum TrieUpdateValuePtr<'a> {
     Ref(&'a Trie, OptimizedValueRef),
@@ -308,7 +306,7 @@ impl TrieUpdate {
         if let Some(mode) = mode {
             switch.set(mode == TrieCacheMode::CachingChunk);
         }
-        TrieCacheModeGuard(previous, switch)
+        TrieCacheModeGuard(previous, switch, Default::default())
     }
 
     fn get_from_updates(
@@ -408,12 +406,17 @@ impl TrieAccess for TrieUpdate {
     }
 }
 
-pub struct TrieCacheModeGuard(bool, TrieAccountingCacheSwitch);
+pub struct TrieCacheModeGuard(
+    bool,
+    TrieAccountingCacheSwitch,
+    std::marker::PhantomData<std::sync::MutexGuard<'static, ()>>,
+);
 impl Drop for TrieCacheModeGuard {
     fn drop(&mut self) {
         self.1.set(self.0);
     }
 }
+static_assertions::assert_not_impl_all!(TrieCacheModeGuard: Send);
 
 #[cfg(test)]
 mod tests {
