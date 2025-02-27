@@ -5153,10 +5153,12 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec",
+ "static_assertions",
  "strum",
  "tempfile",
  "testlib",
  "thiserror 2.0.0",
+ "thread_local",
  "tokio",
  "tracing",
 ]
