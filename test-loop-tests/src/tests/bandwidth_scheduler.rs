@@ -181,7 +181,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
 
     let client_handle = node_datas[0].client_sender.actor_handle();
     let client_sender = node_datas[0].client_sender.clone();
-    let future_spawner = test_loop.future_spawner();
+    let future_spawner = test_loop.future_spawner("WorkloadGenerator");
 
     // Run the workload for a number of blocks and verify that the bandwidth requests are generated correctly.
     let mut last_height: Option<BlockHeight> = None;
