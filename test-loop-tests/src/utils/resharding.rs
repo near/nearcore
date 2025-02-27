@@ -14,7 +14,9 @@ use near_crypto::Signer;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_primitives::action::{Action, FunctionCallAction};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptOrStateStoredReceipt;
+use near_primitives::receipt::{
+    DelayedReceiptIndices, PromiseYieldIndices, ReceiptOrStateStoredReceipt,
+};
 use near_primitives::test_utils::create_user_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockId, BlockReference, Gas, ShardId};
@@ -25,7 +27,7 @@ use near_store::adapter::StoreAdapter;
 use near_store::adapter::trie_store::{TrieStoreAdapter, get_shard_uid_mapping};
 use near_store::db::refcount::decode_value_with_rc;
 use near_store::trie::receipts_column_helper::{ShardsOutgoingReceiptBuffer, TrieQueue};
-use near_store::{DBCol, ShardUId, Trie, TrieDBStorage};
+use near_store::{DBCol, ShardUId, StorageError, Trie, TrieDBStorage, get};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -40,7 +42,9 @@ use crate::utils::transactions::{
 };
 use crate::utils::{ONE_NEAR, TGAS, get_node_data, retrieve_client_actor};
 use near_chain::types::Tip;
+use near_client::client_actor::ClientActorInner;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::trie_key::TrieKey;
 use std::sync::Arc;
 
 /// A config to tell what shards will be tracked by the client at the given index.
@@ -873,13 +877,10 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
     let yield_payload = vec![];
     let pre_resharding_tx_sent = Cell::new(false);
     let (checked_transactions, succeeded) = LoopAction::shared_success_flag();
-    let left_child_shard_uid =
-        shard_layout_after_resharding.account_id_to_shard_uid(&left_child_account);
-    let right_child_shard_uid =
-        shard_layout_after_resharding.account_id_to_shard_uid(&right_child_account);
-    let parent_shard_uid = ShardUId::new(
-        3,
-        shard_layout_after_resharding.get_parent_shard_id(left_child_shard_uid.shard_id()).unwrap(),
+    let (parent_shard_uid, left_child_shard_uid, right_child_shard_uid) = get_resharded_shard_uids(
+        &left_child_account,
+        &right_child_account,
+        &shard_layout_after_resharding,
     );
 
     let action_fn = Box::new(
@@ -925,44 +926,30 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                     tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent promise yield tx");
                 };
 
-            // Function to retrieve the promise yield indices from the trie. This bypasses any other
-            // intermediate layer (caching, memtrie, flat-storage).
-            let get_promise_yield_indices_for_shard = |shard_uid| {
-                client_actor
-                    .client
-                    .chain
-                    .get_chunk_extra(&tip.prev_block_hash, &shard_uid)
-                    .ok()
-                    .map(|chunk_extra| {
-                        near_store::get_promise_yield_indices(&Trie::new(
-                            Arc::new(TrieDBStorage::new(
-                                TrieStoreAdapter::new(
-                                    client_actor.client.runtime_adapter.store().clone(),
-                                ),
-                                shard_uid,
-                            )),
-                            *chunk_extra.state_root(),
-                            None,
-                        ))
-                    })
-            };
-
             // Run this action only once at every block height.
             if latest_height.get() == tip.height {
                 return;
             }
             latest_height.set(tip.height);
 
-            let indices_parent_shard = get_promise_yield_indices_for_shard(parent_shard_uid);
-            let indices_left_child_shard =
-                get_promise_yield_indices_for_shard(left_child_shard_uid);
-            let indices_right_child_shard =
-                get_promise_yield_indices_for_shard(right_child_shard_uid);
+            let get_promise_yield_indices = |shard_uid| {
+                get_trie_node_value::<PromiseYieldIndices>(
+                    &client_actor,
+                    shard_uid,
+                    &tip.prev_block_hash,
+                    TrieKey::PromiseYieldIndices,
+                )
+            };
+
+            let indices_parent_shard = get_promise_yield_indices(parent_shard_uid);
+            let indices_left_child_shard = get_promise_yield_indices(left_child_shard_uid);
+            let indices_right_child_shard = get_promise_yield_indices(right_child_shard_uid);
 
             tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "promise yield indices");
 
-            // At any height, if the shard exists and it is tracked, the promise yield indices trie node must exist.
+            // At any height, if the shard exists and it is tracked, the promise yield indices trie
+            // node must exist.
             assert_matches!(indices_parent_shard, Some(Ok(_)) | None);
             assert_matches!(indices_left_child_shard, Some(Ok(_)) | None);
             assert_matches!(indices_right_child_shard, Some(Ok(_)) | None);
@@ -1040,7 +1027,8 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
                         resharding_height.set(Some(tip.height));
                         return;
                     }
-                    // Before resharding, send a set of promise transactions close to the resharding boundary, just once.
+                    // Before resharding, send a set of promise transactions close to the resharding
+                    // boundary, just once.
                     let will_reshard =
                         epoch_manager.will_shard_layout_change(&tip.prev_block_hash).unwrap();
                     if !will_reshard {
@@ -1063,4 +1051,206 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
         },
     );
     LoopAction::new(action_fn, succeeded)
+}
+
+/// Repro case for the issue of 'Missing TrieValue' after GC period for refcounted trie nodes
+/// that are duplicated to both children during resharding.
+/// This scenario tests a particular combination of contract calls, in order to create
+/// delayed receipts only in one child, and verifies that the other child shard is not left
+/// with missing trie values.
+pub(crate) fn delayed_receipts_repro_missing_trie_value(
+    left_child_account: AccountId,
+    right_child_account: AccountId,
+    shard_layout_after_resharding: ShardLayout,
+    gc_num_epochs: u64,
+    epoch_length: u64,
+) -> LoopAction {
+    const CALLS_PER_BLOCK_HEIGHT: usize = 5;
+    const GAS_BURNT_PER_CALL: u64 = 275 * TGAS;
+    let resharding_height: Cell<Option<u64>> = Cell::new(None);
+    let txs = Cell::new(vec![]);
+    let latest_height = Cell::new(0);
+    let nonce = Cell::new(102);
+    let pre_resharding_tx_sent = Cell::new(false);
+    let (done, succeeded) = LoopAction::shared_success_flag();
+    let (parent_shard_uid, left_child_shard_uid, right_child_shard_uid) = get_resharded_shard_uids(
+        &left_child_account,
+        &right_child_account,
+        &shard_layout_after_resharding,
+    );
+
+    let action_fn = Box::new(
+        move |node_datas: &[TestData],
+              test_loop_data: &mut TestLoopData,
+              client_account_id: AccountId| {
+            let client_actor =
+                retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
+            let tip = client_actor.client.chain.head().unwrap();
+
+            // Run this action only once at every block height.
+            if latest_height.get() == tip.height {
+                return;
+            }
+            latest_height.set(tip.height);
+
+            // Function to burn gas and create delayed receipts.
+            let burn_gas = |signer_account: &AccountId,
+                            receiver_account: &AccountId,
+                            tip: &Tip,
+                            sent_flag: Option<&Cell<bool>>| {
+                if sent_flag.map_or(false, |flag| flag.get()) {
+                    return;
+                }
+                for _ in 0..CALLS_PER_BLOCK_HEIGHT {
+                    let signer: Signer = create_user_test_signer(signer_account).into();
+                    nonce.set(nonce.get() + 1);
+                    let method_name = "burn_gas_raw".to_owned();
+                    let args = GAS_BURNT_PER_CALL.to_le_bytes().to_vec();
+                    let tx = SignedTransaction::call(
+                        nonce.get(),
+                        signer_account.clone(),
+                        receiver_account.clone(),
+                        &signer,
+                        1,
+                        method_name,
+                        args,
+                        GAS_BURNT_PER_CALL + 10 * TGAS,
+                        tip.last_block_hash,
+                    );
+                    store_and_submit_tx(
+                        &node_datas,
+                        &client_account_id,
+                        &txs,
+                        &signer_account,
+                        &receiver_account,
+                        tip.height,
+                        tx,
+                    );
+                }
+                sent_flag.map(|flag| flag.set(true));
+                tracing::debug!(target: "test", height=tip.height, ?signer_account, ?receiver_account, "sent burn gas txs");
+            };
+
+            let get_delayed_receipts_indices = |shard_uid| {
+                get_trie_node_value::<DelayedReceiptIndices>(
+                    &client_actor,
+                    shard_uid,
+                    &tip.prev_block_hash,
+                    TrieKey::DelayedReceiptIndices,
+                )
+            };
+
+            let indices_parent_shard = get_delayed_receipts_indices(parent_shard_uid);
+            let indices_left_child_shard = get_delayed_receipts_indices(left_child_shard_uid);
+            let indices_right_child_shard = get_delayed_receipts_indices(right_child_shard_uid);
+
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+                    ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "delayed receipts indices");
+
+            // At any height, if the shard exists and it is tracked, the delayed receipts indices
+            // trie node must exist.
+            assert_matches!(indices_parent_shard, Some(Ok(_)) | None);
+            assert_matches!(indices_left_child_shard, Some(Ok(_)) | None);
+            assert_matches!(indices_right_child_shard, Some(Ok(_)) | None);
+
+            // The operation to be done depends on the current block height in relation to the
+            // resharding height and the GC height.
+            match (resharding_height.get(), latest_height.get()) {
+                // Resharding happened in the previous blocks. Send a batch of transactions to pile
+                // up delayed receipts. This will decrease the refcount of the original, shared
+                // delayed receipts indices trie node.
+                (Some(resharding), latest) if latest == resharding + 2 => {
+                    burn_gas(&left_child_account, &right_child_account, &tip, None);
+                }
+                // A few blocks after sending the transactions, we want to verify that they have
+                // been executed correctly.
+                (Some(resharding), latest) if latest == resharding + 5 + 5 => {
+                    let txs = txs.take();
+                    for (tx, tx_height) in txs.iter() {
+                        let tx_outcome =
+                            client_actor.client.chain.get_partial_transaction_result(&tx);
+                        let status = tx_outcome.as_ref().map(|o| o.status.clone());
+                        tracing::debug!(target: "test", ?tx_height, ?tx, ?status, "transaction status");
+                        assert_matches!(status, Ok(FinalExecutionStatus::SuccessValue(_)));
+                    }
+                }
+                // GC happened a few blocks in the past.
+                (Some(resharding), latest)
+                    if latest == resharding + gc_num_epochs * epoch_length + 10 =>
+                {
+                    done.set(true)
+                }
+                // Catch-all case, do nothing.
+                (Some(_resharding), _latest) => {}
+                // Resharding didn't happen yet.
+                (None, _) => {
+                    let epoch_manager = client_actor.client.epoch_manager.as_ref();
+                    // Check if resharding will happen in this block.
+                    if next_block_has_new_shard_layout(epoch_manager, &tip) {
+                        tracing::debug!(target: "test", height=tip.height, "resharding height set");
+                        resharding_height.set(Some(tip.height));
+                        return;
+                    }
+                    // Before resharding, send transactions to trigger delayed receipts buffering,
+                    // just once.
+                    let will_reshard =
+                        epoch_manager.will_shard_layout_change(&tip.prev_block_hash).unwrap();
+                    if !will_reshard {
+                        return;
+                    }
+                    let epoch_length = client_actor.client.config.epoch_length;
+                    let epoch_start =
+                        epoch_manager.get_epoch_start_height(&tip.last_block_hash).unwrap();
+                    if tip.height + 5 < epoch_start + epoch_length {
+                        return;
+                    }
+                    burn_gas(
+                        &left_child_account,
+                        &right_child_account,
+                        &tip,
+                        Some(&pre_resharding_tx_sent),
+                    );
+                }
+            }
+        },
+    );
+    LoopAction::new(action_fn, succeeded)
+}
+
+/// Returns a tuple with the shard uids of: parent, left child, right child.
+fn get_resharded_shard_uids(
+    left_child_account: &AccountId,
+    right_child_account: &AccountId,
+    shard_layout_after_resharding: &ShardLayout,
+) -> (ShardUId, ShardUId, ShardUId) {
+    let left_child_shard_uid =
+        shard_layout_after_resharding.account_id_to_shard_uid(&left_child_account);
+    let right_child_shard_uid =
+        shard_layout_after_resharding.account_id_to_shard_uid(&right_child_account);
+    let parent_shard_uid = ShardUId::new(
+        3,
+        shard_layout_after_resharding.get_parent_shard_id(left_child_shard_uid.shard_id()).unwrap(),
+    );
+    (parent_shard_uid, left_child_shard_uid, right_child_shard_uid)
+}
+
+// Helper function to retrieve any key from the trie. This bypasses all intermediate layers
+// (caching, memtrie, flat-storage).
+fn get_trie_node_value<I: borsh::BorshDeserialize + Default>(
+    client_actor: &ClientActorInner,
+    shard_uid: ShardUId,
+    prev_block_hash: &CryptoHash,
+    key: TrieKey,
+) -> Option<Result<I, StorageError>> {
+    client_actor.client.chain.get_chunk_extra(prev_block_hash, &shard_uid).ok().map(|chunk_extra| {
+        let trie = Trie::new(
+            Arc::new(TrieDBStorage::new(
+                TrieStoreAdapter::new(client_actor.client.runtime_adapter.store().clone()),
+                shard_uid,
+            )),
+            *chunk_extra.state_root(),
+            None,
+        );
+        Ok(get(&trie, &key)?.unwrap_or_default())
+    })
 }
