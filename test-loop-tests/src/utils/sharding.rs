@@ -11,7 +11,7 @@ use near_store::{ShardUId, Trie};
 pub fn client_tracking_shard(client: &Client, shard_id: ShardId, parent_hash: &CryptoHash) -> bool {
     let signer = client.validator_signer.get();
     let account_id = signer.as_ref().map(|s| s.validator_id());
-    client.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, true)
+    client.shard_tracker.cares_about_shard(account_id, parent_hash, shard_id, true)
 }
 
 // Finds the client who tracks the shard with `shard_id` among the list of `clients`.
@@ -130,7 +130,7 @@ pub fn get_tracked_shards_from_prev_block(
         client.epoch_manager.get_shard_layout_from_prev_block(prev_block_hash).unwrap();
     let mut tracked_shards = vec![];
     for shard_uid in shard_layout.shard_uids() {
-        if client.shard_tracker.care_about_shard(
+        if client.shard_tracker.cares_about_shard(
             account_id,
             prev_block_hash,
             shard_uid.shard_id(),
