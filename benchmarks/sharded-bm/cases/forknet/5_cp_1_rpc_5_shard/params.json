@@ -9,6 +9,7 @@
     "num_transfers": 70000,
     "forknet": {
         "name": "tps5shards",
-        "rpc_addr": "127.0.0.1:4040"
+        "start_height": "138038232",
+        "rpc_addr": "34.90.99.163:4040"
     }
 }

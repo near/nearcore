@@ -34,12 +34,13 @@ CONFIG_PATCH=${CASE}/config_patch.json
 
 USERS_DATA_DIR="${USERS_DATA_DIR:-user-data}"
 LOG_DIR="${LOG_DIR:-logs}"
-BENCHNET_DIR="${BENCHNET_DIR:-$HOME/bench}"
+BENCHNET_DIR="${BENCHNET_DIR:-/home/ubuntu/bench}"
 
 RPC_ADDR="127.0.0.1:4040"
 SYNTH_BM_PATH="../synth-bm/Cargo.toml"
-SYNTH_BM_BIN="${SYNTH_BM_BIN:-../synth-bm/target/release/near-synth-bm}"
+SYNTH_BM_BIN="${SYNTH_BM_BIN:-/home/ubuntu/nearcore/benchmarks/synth-bm/target/release/near-synth-bm}"
 RUN_ON_FORKNET=$(jq 'has("forknet")' ${BM_PARAMS})
+PYTEST_PATH="../../pytest/"
 
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
@@ -50,9 +51,10 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
     fi
     FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
     FORKNET_RPC_ADDR=$(jq -r '.forknet.rpc_addr' ${BM_PARAMS})
+    FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
     RPC_ADDR=${FORKNET_RPC_ADDR}
     NODE_BINARY_URL="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard"
-    alias mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height 1 --unique-id ${FORKNET_NAME}"
+    mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} --unique-id ${FORKNET_NAME}"
     echo "Forknet name: ${FORKNET_NAME}"
     echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
 else
@@ -75,7 +77,9 @@ RPC_URL="http://${RPC_ADDR}"
 
 
 start_nodes_forknet() {
-    # todo mirror command
+    cd ${PYTEST_PATH}
+    $mirror start-nodes
+    cd -
 }
 
 start_nodes_local() {
@@ -94,15 +98,17 @@ start_nodes_local() {
 start_nodes() {
     echo "=> Starting all nodes"
     if [ "${RUN_ON_FORKNET}" = true ]; then
-        stop_nodes_forknet
+        start_nodes_forknet
     else
-        stop_nodes_local
+        start_nodes_local
     fi
     echo "=> Done"
 }
 
 stop_nodes_forknet() {
-    # todo mirror command
+    cd ${PYTEST_PATH}
+    $mirror stop-nodes || true
+    cd -
 }
 
 stop_nodes_local() {
@@ -123,56 +129,68 @@ stop_nodes() {
     echo "=> Done"
 }
 
-reset() {
-    if [ "${RUN_ON_FORKNET}" = true ]; then
-        echo "Not supported on forknet"
-        exit 1
-    fi
+reset_forknet() {
+    cd ${PYTEST_PATH}
+    $mirror --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete && rm -rf ${BENCHNET_DIR}"
+    cd -
+}
 
-    stop_nodes
-    echo "=> Resetting chain history, user accounts and clearing the database"
+reset_local() {
     if [ "${NUM_NODES}" -eq "1" ]; then
         find ${NEAR_HOME}/data -mindepth 1 -delete
     else 
         rm -rf ${BENCHNET_DIR}
     fi
     rm -rf ${USERS_DATA_DIR}
+}
+
+reset() {
+    stop_nodes
+    echo "=> Resetting chain history, user accounts and clearing the database"
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        reset_forknet
+    else
+        reset_local
+    fi
     echo "=> Done"
 }
 
 init_forknet() {
-    mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL}
-    mirror update-binaries
-    mirror new-test \
-    --epoch-length 15000 \
-    --genesis-protocol-version 73 \
-    --num-validators 7 \
-    --num-seats 7 \
-    --stateless-setup \
-    --new-chain-id ${FORKNET_NAME} \
-    --yes
-
-    # Todo copy synth bm & accounts
+    epoch_length=$(jq -r '.epoch_length' ${BASE_GENESIS_PATCH})
+    cd ${PYTEST_PATH}
+    $mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL}
+    $mirror --host-type nodes new-test \
+        --epoch-length ${epoch_length} \
+        --genesis-protocol-version 76 \
+        --num-validators ${NUM_CHUNK_PRODUCERS} \
+        --num-seats ${NUM_CHUNK_PRODUCERS} \
+        --stateless-setup \
+        --new-chain-id ${FORKNET_NAME} \
+        --yes
+    $mirror --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"    
+    $mirror --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
+    $mirror --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/near-synth-bm"
+    cd -
 }
 
 init_local() {
-    reset
     if [ "${NUM_NODES}" -eq "1" ]; then
         rm -f ${CONFIG} ${GENESIS} 
         /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
     else
         /${NEARD} --home ${BENCHNET_DIR} localnet -v ${NUM_CHUNK_PRODUCERS} --non-validators-rpc ${NUM_RPCS} --tracked-shards=none
     fi
-    tweak_config
 }
 
 init() {
     echo "=> Initializing ${NUM_NODES} node network"
+    reset
     if [ "${RUN_ON_FORKNET}" = true ]; then
         init_forknet
     else
         init_local
     fi
+    tweak_config
     echo "=> Done"
 }
 
@@ -201,13 +219,16 @@ edit_log_config() {
         ${1} ${BASE_LOG_CONFIG_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
 }
 
-tweak_config() {
-    if [ "${RUN_ON_FORKNET}" = true ]; then
-        echo "Not supported on forknet"
-        exit 1
-    fi
+tweak_config_forknet() {
+    cwd=$(pwd)
+    cd ${PYTEST_PATH}
+    $mirror --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
+    $mirror --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
+    # $mirror --host-type nodes run-cmd --cmd "./bench.sh tweak-config"
+    cd -
+}
 
-    echo "===> Applying configuration changes"
+tweak_config_local() {
     if [ "${NUM_NODES}" -eq "1" ]; then
         edit_genesis ${GENESIS}
         edit_config ${CONFIG}
@@ -224,6 +245,15 @@ tweak_config() {
         # set single node RPC port to known value
         jq --arg val "${RPC_ADDR}" \
             '.rpc.addr |= $val' ${NEAR_HOMES[-1]}/config.json > tmp.$$.json && mv tmp.$$.json ${NEAR_HOMES[-1]}/config.json || rm tmp.$$.json
+    fi
+}
+
+tweak_config() {
+    echo "===> Applying configuration changes"
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        tweak_config_forknet
+    else
+        tweak_config_local
     fi
     echo "===> Done"
 }
@@ -263,7 +293,7 @@ create_accounts() {
 }
 
 native_transfers_forknet() {
-    # todo
+    echo "todo"
 }
 
 native_transfers_local() {

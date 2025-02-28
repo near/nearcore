@@ -16,7 +16,7 @@ Each scenario has a set of overrides for the node configuration and genesis conf
 
 ## Localnet
 
-### Usage
+### Localnet - Usage
 
 The basic flow is the following:
 
@@ -91,8 +91,26 @@ export CASE=cases/local/1_node_5_shard
 
 Debug UI works, just use the machine public IP.
 
-## Forknet 
+## Forknet
 
-### Usage
+### Forknet - Usage
 
-TODO
+You should be able to use any valid forknet image with [forknet terraform recipes](https://docs.nearone.org/doc/mocknet-guide-7VnYUXjs2A).
+
+Set correct `forknet.name` and `forknet.start_height` in `params.json`
+
+```sh
+export CASE=cases/forknet/5_cp_1_rpc_5_shard/
+export VIRTUAL_ENV=<absolute path to virtual env bin directory>
+export SYNTH_BM_BIN=<absolute path to near-synth-bm>
+
+./bench.sh init
+./bench.sh start-nodes
+```
+
+Set correct `forknet.rpc_addr` in `params.json`
+
+```sh
+./bench.sh create-accounts
+./bench.sh native-transfers
+```

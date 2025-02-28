@@ -27,7 +27,8 @@ Keep shared configuration overrides in the base directory, example `base_config_
         // forknet unique name
         "name": "foo",
         // address of RPC node
-        "rpc_addr": "127.0.0.1:4040"
+        "rpc_addr": "127.0.0.1:4040",
+        "start_height": "0"
     }
 }
 ```
