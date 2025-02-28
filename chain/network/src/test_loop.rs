@@ -154,9 +154,9 @@ impl TestLoopNetworkSharedState {
         let peer_id = PeerId::from(data);
 
         let mut guard = self.0.lock().unwrap();
-        guard.account_to_peer_id.insert(account_id.clone(), peer_id.clone());
+        guard.account_to_peer_id.insert(account_id, peer_id.clone());
         guard.senders.insert(
-            peer_id.clone(),
+            peer_id,
             Arc::new(OneClientSenders {
                 client_sender: ClientSenderForTestLoopNetwork::from(data),
                 view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
@@ -305,7 +305,7 @@ fn network_message_to_client_handler(
             shared_state
                 .senders_for_peer(&peer_id)
                 .client_sender
-                .send(EpochSyncRequestMessage { from_peer: my_peer_id.clone() });
+                .send(EpochSyncRequestMessage { from_peer: my_peer_id });
             None
         }
         NetworkRequests::EpochSyncResponse { peer_id, proof } => {
@@ -313,7 +313,7 @@ fn network_message_to_client_handler(
             shared_state
                 .senders_for_peer(&peer_id)
                 .client_sender
-                .send(EpochSyncResponseMessage { from_peer: my_peer_id.clone(), proof });
+                .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
             None
         }
         NetworkRequests::StateRequestPart { .. } => None,
