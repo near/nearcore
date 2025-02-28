@@ -410,7 +410,6 @@ impl TestLoopBuilder {
     }
 
     /// Custom function to change the configs before constructing each client.
-    #[allow(dead_code)]
     pub fn config_modifier(
         mut self,
         modifier: impl Fn(&mut ClientConfig, usize) + 'static,
@@ -500,6 +499,8 @@ impl TestLoopBuilder {
         Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>,
         Arc<dyn EpochManagerAdapter>,
     ) {
+        let account_id = self.clients[idx].as_str();
+
         let client_adapter = LateBoundSender::new();
         let network_adapter = LateBoundSender::new();
         let state_snapshot_adapter = LateBoundSender::new();
@@ -619,7 +620,7 @@ impl TestLoopBuilder {
             SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
         let validator_signer = MutableConfigValue::new(
-            Some(Arc::new(create_test_signer(self.clients[idx].as_str()))),
+            Some(Arc::new(create_test_signer(account_id))),
             "validator_signer",
         );
 
@@ -631,7 +632,7 @@ impl TestLoopBuilder {
 
         // Generate a PeerId. It doesn't matter what this is. We're just making it based on
         // the account ID, so that it is stable across multiple runs in the same test.
-        let peer_id = PeerId::new(create_test_signer(self.clients[idx].as_str()).public_key());
+        let peer_id = PeerId::new(create_test_signer(account_id).public_key());
 
         let client = Client::new(
             self.test_loop.clock(),
@@ -646,10 +647,13 @@ impl TestLoopBuilder {
             true,
             [0; 32],
             Some(snapshot_callbacks),
-            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(
+                self.test_loop
+                    .async_computation_spawner(account_id, |_| Duration::milliseconds(80)),
+            ),
             partial_witness_adapter.as_multi_sender(),
             resharding_sender.as_multi_sender(),
-            Arc::new(self.test_loop.future_spawner()),
+            Arc::new(self.test_loop.future_spawner(account_id)),
             client_adapter.as_multi_sender(),
             client_adapter.as_multi_sender(),
             self.upgrade_schedule.clone(),
@@ -732,8 +736,14 @@ impl TestLoopBuilder {
             validator_signer.clone(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
-            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
-            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(
+                self.test_loop
+                    .async_computation_spawner(account_id, |_| Duration::milliseconds(80)),
+            ),
+            Arc::new(
+                self.test_loop
+                    .async_computation_spawner(account_id, |_| Duration::milliseconds(80)),
+            ),
         );
 
         let gc_actor = GCActor::new(
@@ -747,7 +757,7 @@ impl TestLoopBuilder {
             client_config.archive,
         );
         // We don't send messages to `GCActor` so adapter is not needed.
-        self.test_loop.register_actor_for_index(idx, gc_actor, None);
+        self.test_loop.data.register_actor(account_id, gc_actor, None);
 
         let resharding_actor =
             ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
@@ -760,28 +770,32 @@ impl TestLoopBuilder {
             shard_tracker,
             runtime: runtime_adapter,
             validator: validator_signer,
-            future_spawner: Arc::new(self.test_loop.future_spawner()),
+            future_spawner: Arc::new(self.test_loop.future_spawner(account_id)),
             handle: None,
         };
         let state_sync_dumper_handle = self.test_loop.data.register_data(state_sync_dumper);
 
         let client_sender =
-            self.test_loop.register_actor_for_index(idx, client_actor, Some(client_adapter));
+            self.test_loop.data.register_actor(account_id, client_actor, Some(client_adapter));
         let view_client_sender =
-            self.test_loop.register_actor_for_index(idx, view_client_actor, None);
-        let shards_manager_sender = self.test_loop.register_actor_for_index(
-            idx,
+            self.test_loop.data.register_actor(account_id, view_client_actor, None);
+        let shards_manager_sender = self.test_loop.data.register_actor(
+            account_id,
             shards_manager,
             Some(shards_manager_adapter),
         );
-        let partial_witness_sender = self.test_loop.register_actor_for_index(
-            idx,
+        let partial_witness_sender = self.test_loop.data.register_actor(
+            account_id,
             partial_witness_actor,
             Some(partial_witness_adapter),
         );
-        self.test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
-        self.test_loop.register_actor_for_index(idx, state_snapshot, Some(state_snapshot_adapter));
-        self.test_loop.register_actor_for_index(idx, resharding_actor, Some(resharding_sender));
+        self.test_loop.data.register_actor(account_id, sync_jobs_actor, Some(sync_jobs_adapter));
+        self.test_loop.data.register_actor(
+            account_id,
+            state_snapshot,
+            Some(state_snapshot_adapter),
+        );
+        self.test_loop.data.register_actor(account_id, resharding_actor, Some(resharding_sender));
 
         // State sync dumper is not an Actor, handle starting separately.
         let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
@@ -818,7 +832,7 @@ impl TestLoopBuilder {
                 self.test_loop.clock(),
                 &data.account_id,
                 shared_state.clone(),
-                Arc::new(self.test_loop.future_spawner()),
+                Arc::new(self.test_loop.future_spawner(data.account_id.as_str())),
             );
 
             for condition in &self.drop_condition_kinds {
@@ -830,8 +844,8 @@ impl TestLoopBuilder {
                 );
             }
 
-            self.test_loop.register_actor_for_index(
-                idx,
+            self.test_loop.data.register_actor(
+                data.account_id.as_str(),
                 peer_manager_actor,
                 Some(network_adapters[idx].clone()),
             );
