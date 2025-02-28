@@ -54,6 +54,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     // Fix wasm_yield_resume_byte and relax congestion control.
     (73, include_config!("73.yaml")),
     (74, include_config!("74.yaml")),
+    (77, include_config!("77.yaml")),
     (129, include_config!("129.yaml")),
 ];
 

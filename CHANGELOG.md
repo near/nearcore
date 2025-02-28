@@ -3,7 +3,8 @@
 ## [unreleased]
 
 ### Protocol Changes
-**No Changes**
+
+* Implemented support for global contracts: [NEP-591](https://github.com/near/NEPs/pull/591)
 
 ### Non-protocol Changes
 **No Changes**
