@@ -2395,7 +2395,7 @@ impl Chain {
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
 
-        if prev_height != block.height() - 1 {
+        if prev_height + 1 != block.height() {
             return Err(Error::InvalidBlockHeight(block.height()));
         }
 
