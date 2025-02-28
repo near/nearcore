@@ -58,21 +58,12 @@ pub struct BenchmarkMpcSignArgs {
 
 pub async fn benchmark_mpc_sign_impl(
     args: &BenchmarkMpcSignArgs,
+    client: JsonRpcClient,
     accounts: &mut Vec<Account>,
 ) -> anyhow::Result<()> {
     // Pick interval to achieve desired TPS.
     let mut interval = time::interval(Duration::from_micros(1_000_000 / args.requests_per_second));
 
-    let client = JsonRpcClient::connect(&args.rpc_url);
-    if args.read_nonces_from_network {
-        accounts = update_account_nonces(
-            client.clone(),
-            accounts,
-            args.requests_per_second,
-            Some(&args.user_data_dir),
-        )
-        .await?;
-    }
     let block_service = Arc::new(BlockService::new(client.clone()).await);
     block_service.clone().start().await;
     let mut rng = thread_rng();
@@ -160,7 +151,18 @@ pub async fn benchmark_mpc_sign(args: &BenchmarkMpcSignArgs) -> anyhow::Result<(
         args.user_data_dir
     );
 
-    let result = benchmark_mpc_sign_impl(args, &mut accounts).await;
+    let client = JsonRpcClient::connect(&args.rpc_url);
+    if args.read_nonces_from_network {
+        accounts = update_account_nonces(
+            client.clone(),
+            accounts.to_vec(),
+            args.requests_per_second,
+            Some(&args.user_data_dir),
+        )
+        .await?;
+    }
+
+    let result = benchmark_mpc_sign_impl(args, client, &mut accounts).await;
 
     info!("Writing updated nonces to {:?}", args.user_data_dir);
     for account in accounts.iter() {
