@@ -263,8 +263,8 @@ impl ProtocolFeature {
             | ProtocolFeature::CurrentEpochStateSync => 74,
             ProtocolFeature::SimpleNightshadeV4 => 75,
             ProtocolFeature::SimpleNightshadeV5 => 76,
-            ProtocolFeature::GlobalContracts 
-            | ProtocolFeature::BlockHeightForReceiptId 
+            ProtocolFeature::GlobalContracts
+            | ProtocolFeature::BlockHeightForReceiptId
             | ProtocolFeature::ProduceOptimisticBlock => 77,
 
             // Nightly features:
