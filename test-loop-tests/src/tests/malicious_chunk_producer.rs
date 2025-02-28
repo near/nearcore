@@ -33,7 +33,10 @@ fn test_producer_with_expired_transactions() {
         .genesis_height(10000)
         .transaction_validity_period(10)
         .build();
-    let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
+    let epoch_config_store =
+        near_chain_configs::test_genesis::TestEpochConfigBuilder::build_store_from_genesis(
+            &genesis,
+        );
     let mut test_loop_env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
