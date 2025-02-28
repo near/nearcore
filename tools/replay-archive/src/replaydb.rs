@@ -3,7 +3,7 @@ use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use itertools::Itertools;
 use near_store::db::{
     DBIterator, DBSlice, DBTransaction, Database, SplitDB, StoreStatistics, TestDB,

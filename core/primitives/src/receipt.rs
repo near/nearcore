@@ -1,4 +1,4 @@
-use crate::action::{base64, GlobalContractIdentifier};
+use crate::action::{GlobalContractIdentifier, base64};
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -315,7 +315,10 @@ impl BorshDeserialize for StateStoredReceipt<'_> {
         let u3 = u8::deserialize_reader(reader)?;
 
         if u1 != STATE_STORED_RECEIPT_TAG || u2 != STATE_STORED_RECEIPT_TAG {
-            let error = format!("Invalid tag found when deserializing StateStoredReceipt. Found: {}, {}. Expected: {}, {}", u1, u2, STATE_STORED_RECEIPT_TAG, STATE_STORED_RECEIPT_TAG);
+            let error = format!(
+                "Invalid tag found when deserializing StateStoredReceipt. Found: {}, {}. Expected: {}, {}",
+                u1, u2, STATE_STORED_RECEIPT_TAG, STATE_STORED_RECEIPT_TAG
+            );
             let error = Error::new(ErrorKind::Other, error);
             return Err(io::Error::new(ErrorKind::InvalidData, error));
         }
@@ -330,7 +333,10 @@ impl BorshDeserialize for StateStoredReceipt<'_> {
                 Ok(StateStoredReceipt::V1(v1))
             }
             v => {
-                let error = format!("Invalid version found when deserializing StateStoredReceipt. Found: {}. Expected: 0", v);
+                let error = format!(
+                    "Invalid version found when deserializing StateStoredReceipt. Found: {}. Expected: 0",
+                    v
+                );
                 let error = Error::new(ErrorKind::Other, error);
                 Err(io::Error::new(ErrorKind::InvalidData, error))
             }

@@ -120,7 +120,11 @@ impl Ignores {
                             compiler = Some(alias.to_string());
                         }
                         other => {
-                            panic!("Alias {:?} not currently supported (defined in ignores.txt in line {})", other, i+1);
+                            panic!(
+                                "Alias {:?} not currently supported (defined in ignores.txt in line {})",
+                                other,
+                                i + 1
+                            );
                         }
                     }
                 }
@@ -157,70 +161,78 @@ mod tests {
 
     #[test]
     fn features_match() -> Result<(), ()> {
-        assert!(IgnorePattern {
-            os: None,
-            arch: None,
-            target_env: None,
-            engine: None,
-            compiler: None,
-            pattern_to_ignore: "*".to_string()
-        }
-        .should_ignore(
-            "unknown",
-            "unknown",
-            "",
-            "engine",
-            "compiler",
-            "some::random::text"
-        ));
-        assert!(IgnorePattern {
-            os: None,
-            arch: None,
-            target_env: None,
-            engine: None,
-            compiler: None,
-            pattern_to_ignore: "some::random".to_string()
-        }
-        .should_ignore(
-            "unknown",
-            "unknown",
-            "",
-            "engine",
-            "compiler",
-            "some::random::text"
-        ));
-        assert!(!IgnorePattern {
-            os: Some("macos".to_string()),
-            arch: None,
-            target_env: None,
-            engine: None,
-            compiler: None,
-            pattern_to_ignore: "other".to_string()
-        }
-        .should_ignore(
-            "unknown",
-            "unknown",
-            "",
-            "engine",
-            "compiler",
-            "some::random::text"
-        ));
-        assert!(!IgnorePattern {
-            os: Some("macos".to_string()),
-            arch: None,
-            target_env: None,
-            engine: Some("universal".to_string()),
-            compiler: None,
-            pattern_to_ignore: "other".to_string()
-        }
-        .should_ignore(
-            "macos",
-            "unknown",
-            "",
-            "universal",
-            "compiler",
-            "some::random::text"
-        ));
+        assert!(
+            IgnorePattern {
+                os: None,
+                arch: None,
+                target_env: None,
+                engine: None,
+                compiler: None,
+                pattern_to_ignore: "*".to_string()
+            }
+            .should_ignore(
+                "unknown",
+                "unknown",
+                "",
+                "engine",
+                "compiler",
+                "some::random::text"
+            )
+        );
+        assert!(
+            IgnorePattern {
+                os: None,
+                arch: None,
+                target_env: None,
+                engine: None,
+                compiler: None,
+                pattern_to_ignore: "some::random".to_string()
+            }
+            .should_ignore(
+                "unknown",
+                "unknown",
+                "",
+                "engine",
+                "compiler",
+                "some::random::text"
+            )
+        );
+        assert!(
+            !IgnorePattern {
+                os: Some("macos".to_string()),
+                arch: None,
+                target_env: None,
+                engine: None,
+                compiler: None,
+                pattern_to_ignore: "other".to_string()
+            }
+            .should_ignore(
+                "unknown",
+                "unknown",
+                "",
+                "engine",
+                "compiler",
+                "some::random::text"
+            )
+        );
+        assert!(
+            !IgnorePattern {
+                os: Some("macos".to_string()),
+                arch: None,
+                target_env: None,
+                engine: Some("universal".to_string()),
+                compiler: None,
+                pattern_to_ignore: "other".to_string()
+            }
+            .should_ignore(
+                "macos",
+                "unknown",
+                "",
+                "universal",
+                "compiler",
+                "some::random::text"
+            )
+        );
         Ok(())
     }
 }

@@ -5,10 +5,10 @@ use std::sync::Arc;
 use borsh::BorshDeserialize;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid};
 use near_primitives::types::RawStateChangesWithTrieKey;
 
-use crate::{DBCol, KeyForStateChanges, Store, StoreUpdate, TrieChanges, STATE_SNAPSHOT_KEY};
+use crate::{DBCol, KeyForStateChanges, STATE_SNAPSHOT_KEY, Store, StoreUpdate, TrieChanges};
 
 use super::{StoreAdapter, StoreUpdateAdapter, StoreUpdateHolder};
 
@@ -223,8 +223,8 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardUId;
 
-    use crate::adapter::trie_store::TrieStoreAdapter;
     use crate::NodeStorage;
+    use crate::adapter::trie_store::TrieStoreAdapter;
 
     const ONE: std::num::NonZeroU32 = match std::num::NonZeroU32::new(1) {
         Some(num) => num,

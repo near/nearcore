@@ -626,8 +626,8 @@ mod tests {
     use near_primitives::account::id::AccountIdRef;
     use near_primitives::epoch_info::{EpochInfo, EpochInfoV3};
     use near_primitives::shard_layout::ShardLayout;
-    use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::NumSeats;
+    use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -732,10 +732,12 @@ mod tests {
         // the top stakes are the chosen block producers
         let mut sorted_proposals = proposals;
         sorted_proposals.sort_unstable_by(|a, b| b.stake().cmp(&a.stake()));
-        assert!(sorted_proposals.iter().take(num_bp_seats as usize).cloned().eq(epoch_info
-            .block_producers_settlement()
-            .into_iter()
-            .map(|id| epoch_info.get_validator(*id))));
+        assert!(
+            sorted_proposals.iter().take(num_bp_seats as usize).cloned().eq(epoch_info
+                .block_producers_settlement()
+                .into_iter()
+                .map(|id| epoch_info.get_validator(*id)))
+        );
 
         // The top proposals are all chunk producers
         let mut chosen_chunk_producers: Vec<ValidatorStake> = epoch_info
@@ -745,10 +747,12 @@ mod tests {
             .map(|id| epoch_info.get_validator(*id))
             .collect();
         chosen_chunk_producers.sort_unstable_by(|a, b| b.stake().cmp(&a.stake()));
-        assert!(sorted_proposals
-            .into_iter()
-            .take((num_bp_seats + num_cp_seats) as usize)
-            .eq(chosen_chunk_producers));
+        assert!(
+            sorted_proposals
+                .into_iter()
+                .take((num_bp_seats + num_cp_seats) as usize)
+                .eq(chosen_chunk_producers)
+        );
 
         // the old, low-stake proposals were not accepted
         let kickout = epoch_info.validator_kickout();

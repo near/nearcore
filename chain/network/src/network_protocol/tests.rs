@@ -4,7 +4,7 @@ use crate::network_protocol::{Encoding, PeersResponse};
 use crate::testonly::make_rng;
 use crate::types::{Disconnect, HandshakeFailureReason, PeerMessage};
 use crate::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
-use anyhow::{bail, Context as _};
+use anyhow::{Context as _, bail};
 use itertools::Itertools as _;
 use near_async::time;
 use rand::Rng as _;
@@ -50,7 +50,7 @@ fn bad_account_data_size() {
             peer_id: data::make_peer_id(&mut rng),
         },
         account_key: signer.public_key(),
-        version: rng.gen(),
+        version: rng.r#gen(),
         timestamp: clock.now_utc(),
     };
     assert!(ad.sign(&signer.into()).is_err());

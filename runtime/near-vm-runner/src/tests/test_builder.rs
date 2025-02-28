@@ -1,8 +1,8 @@
+use crate::ContractCode;
 use crate::logic::{
-    mocks::mock_external::MockedExternal, ProtocolVersion, ReturnData, VMContext, VMOutcome,
+    ProtocolVersion, ReturnData, VMContext, VMOutcome, mocks::mock_external::MockedExternal,
 };
 use crate::runner::VMKindExt;
-use crate::ContractCode;
 use near_parameters::vm::{ContractPrepareVersion, VMKind};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives_core::types::Gas;

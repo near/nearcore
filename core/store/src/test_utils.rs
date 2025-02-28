@@ -1,10 +1,10 @@
 use crate::adapter::{StoreAdapter, StoreUpdateAdapter};
 use crate::db::TestDB;
 use crate::flat::{BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus};
-use crate::metadata::{DbKind, DbVersion, DB_VERSION};
+use crate::metadata::{DB_VERSION, DbKind, DbVersion};
 use crate::{
-    get, get_delayed_receipt_indices, get_promise_yield_indices, DBCol, NodeStorage, ShardTries,
-    StateSnapshotConfig, Store, Trie, TrieConfig,
+    DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig, get,
+    get_delayed_receipt_indices, get_promise_yield_indices,
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
@@ -12,16 +12,16 @@ use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV1};
-use near_primitives::shard_layout::{get_block_shard_uid, ShardLayout, ShardUId};
+use near_primitives::shard_layout::{ShardLayout, ShardUId, get_block_shard_uid};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::StateRoot;
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use rand::seq::SliceRandom;
+use near_primitives::types::chunk_extra::ChunkExtra;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use rand::Rng;
+use rand::seq::SliceRandom;
 use std::collections::HashMap;
-use std::str::{from_utf8, FromStr};
+use std::str::{FromStr, from_utf8};
 use std::sync::Arc;
 
 /// Creates an in-memory node storage.

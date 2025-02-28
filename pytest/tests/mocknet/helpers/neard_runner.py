@@ -365,7 +365,13 @@ class NeardRunner:
         ]
         if not self.is_traffic_generator():
             if validator_id is None:
-                validator_id = f'{socket.gethostname()}.near'
+                host_name = socket.gethostname()
+                # Note that here we are assuming the last part is the unique part of the name
+                # If that changes for some reason then this will fail because multiple nodes will have
+                # the same validator ID. But should be fine for now.
+                # This last part of the hostname should be short, but we truncate it just in case it's not
+                unique_part = host_name.split("-")[-1][:6]
+                validator_id = f'node-{unique_part}'
             cmd += ['--account-id', validator_id]
         else:
             if validator_id is not None:
@@ -550,7 +556,7 @@ class NeardRunner:
                     code=-32600,
                     message='Can only call network_init after a call to init')
 
-            if len(validators) < 3:
+            if len(validators) <= 3:
                 with open(self.target_near_home_path('config.json'), 'r') as f:
                     config = json.load(f)
                 config['consensus']['min_num_peers'] = len(validators) - 1
@@ -575,18 +581,18 @@ class NeardRunner:
             with open(self.target_near_home_path('config.json'), 'r') as f:
                 config = json.load(f)
 
-            [key, value] = key_value.split("=", 1)
-            key_item_list = key.split(".")
+            for kv in key_value.split(','):
+                [key, value] = kv.split("=", 1)
+                key_item_list = key.split(".")
 
-            object = config
-            for key_item in key_item_list[:-1]:
-                if key_item not in object:
-                    object[key_item] = {}
-                object = object[key_item]
+                object = config
+                for key_item in key_item_list[:-1]:
+                    if key_item not in object:
+                        object[key_item] = {}
+                    object = object[key_item]
 
-            value = json.loads(value)
-
-            object[key_item_list[-1]] = value
+                value = json.loads(value)
+                object[key_item_list[-1]] = value
 
             with open(self.target_near_home_path('config.json'), 'w') as f:
                 json.dump(config, f, indent=2)

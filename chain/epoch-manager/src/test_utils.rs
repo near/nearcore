@@ -5,16 +5,16 @@ use near_primitives::types::ProtocolVersion;
 use near_store::Store;
 use num_rational::Ratio;
 
-use crate::proposals::find_threshold;
 use crate::RewardCalculator;
 use crate::RngSeed;
+use crate::proposals::find_threshold;
 use crate::{BlockInfo, EpochManager};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_block_info::BlockInfoV2;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochHeight, NumSeats, NumShards,
@@ -26,7 +26,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
 use near_primitives::shard_layout::ShardLayout;
-use {crate::reward_calculator::NUM_NS_IN_SECOND, crate::NUM_SECONDS_IN_A_YEAR};
+use {crate::NUM_SECONDS_IN_A_YEAR, crate::reward_calculator::NUM_NS_IN_SECOND};
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;

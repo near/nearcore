@@ -74,10 +74,10 @@ impl<T1: Packable<Packed = [u8; 32]>, T2: Packable<Packed = [u8; 32]>> Packable 
 }
 
 impl<
-        T1: Packable<Packed = [u8; 32]>,
-        T2: Packable<Packed = [u8; 32]>,
-        T3: Packable<Packed = [u8; 32]>,
-    > Packable for (T1, T2, T3)
+    T1: Packable<Packed = [u8; 32]>,
+    T2: Packable<Packed = [u8; 32]>,
+    T3: Packable<Packed = [u8; 32]>,
+> Packable for (T1, T2, T3)
 {
     type Packed = [u8; 96];
 

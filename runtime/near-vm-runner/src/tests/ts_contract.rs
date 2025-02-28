@@ -1,13 +1,13 @@
 use super::test_vm_config;
+use crate::ContractCode;
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::types::ReturnData;
 use crate::logic::{External, StorageGetMode};
 use crate::runner::VMKindExt;
 use crate::tests::{create_context, with_vm_variants};
-use crate::ContractCode;
-use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
 use std::sync::Arc;
 
 #[test]

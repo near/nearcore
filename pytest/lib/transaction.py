@@ -164,6 +164,25 @@ def create_deploy_contract_action(code):
     return action
 
 
+def create_deploy_global_contract_action(code, deployMode):
+    deployGlobalContract = DeployGlobalContract()
+    deployGlobalContract.code = code
+    deployGlobalContract.deployMode = deployMode
+    action = Action()
+    action.enum = 'deployGlobalContract'
+    action.deployGlobalContract = deployGlobalContract
+    return action
+
+
+def create_use_global_contract_action(identifier):
+    useGlobalContract = UseGlobalContract()
+    useGlobalContract.contractIdentifier = identifier
+    action = Action()
+    action.enum = 'useGlobalContract'
+    action.useGlobalContract = useGlobalContract
+    return action
+
+
 def create_function_call_action(methodName, args, gas, deposit):
     functionCall = FunctionCall()
     functionCall.methodName = methodName
@@ -282,8 +301,38 @@ def sign_deploy_contract_transaction(signer_key, code, nonce,
                             signer_key.decoded_sk())
 
 
+def sign_deploy_global_contract_transaction(signer_key, code, deployMode, nonce,
+                                            blockHash) -> SignedTransaction:
+    action = create_deploy_global_contract_action(code, deployMode)
+    return sign_transaction(signer_key.account_id, nonce, [action], blockHash,
+                            signer_key.account_id, signer_key.decoded_pk(),
+                            signer_key.decoded_sk())
+
+
+def sign_use_global_contract_transaction(signer_key, identifier, nonce,
+                                         blockHash) -> SignedTransaction:
+    action = create_use_global_contract_action(identifier)
+    return sign_transaction(signer_key.account_id, nonce, [action], blockHash,
+                            signer_key.account_id, signer_key.decoded_pk(),
+                            signer_key.decoded_sk())
+
+
 def sign_deploy_contract_tx(signer_key, code, nonce, blockHash) -> bytes:
     tx = sign_deploy_contract_transaction(signer_key, code, nonce, blockHash)
+    return serialize_transaction(tx)
+
+
+def sign_deploy_global_contract_tx(signer_key, code, deployMode, nonce,
+                                   blockHash) -> bytes:
+    tx = sign_deploy_global_contract_transaction(signer_key, code, deployMode,
+                                                 nonce, blockHash)
+    return serialize_transaction(tx)
+
+
+def sign_use_global_contract_tx(signer_key, identifier, nonce,
+                                blockHash) -> bytes:
+    tx = sign_use_global_contract_transaction(signer_key, identifier, nonce,
+                                              blockHash)
     return serialize_transaction(tx)
 
 

@@ -24,7 +24,7 @@ use crate::signature_verification::{
     verify_chunk_header_signature_with_epoch_manager,
 };
 use crate::types::RuntimeAdapter;
-use crate::{byzantine_assert, Chain};
+use crate::{Chain, byzantine_assert};
 use crate::{ChainStore, Error};
 
 /// Gas limit cannot be adjusted for more than 0.1% at a time.

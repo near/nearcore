@@ -32,31 +32,31 @@ use crate::types::{
     StorageDataSource,
 };
 pub use crate::update_shard::{
-    apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
-    ShardContext, StorageContext,
+    NewChunkData, NewChunkResult, OldChunkData, OldChunkResult, ShardContext, StorageContext,
+    apply_new_chunk, apply_old_chunk,
 };
-use crate::update_shard::{process_shard_update, ShardUpdateReason, ShardUpdateResult};
+use crate::update_shard::{ShardUpdateReason, ShardUpdateResult, process_shard_update};
 use crate::validate::{
     validate_challenge, validate_chunk_with_chunk_extra, validate_transactions_order,
 };
 use crate::{
-    byzantine_assert, create_light_client_block_view, BlockStatus, ChainGenesis, Doomslug,
-    Provenance,
+    BlockStatus, ChainGenesis, Doomslug, Provenance, byzantine_assert,
+    create_light_client_block_view,
 };
-use crate::{metrics, DoomslugThresholdMode};
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crate::{DoomslugThresholdMode, metrics};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
-use near_async::messaging::{noop, IntoMultiSender};
+use near_async::messaging::{IntoMultiSender, noop};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, MutableValidatorSigner};
 use near_chain_primitives::error::{BlockKnownError, Error};
+use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
-use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Chunks, MaybeNew, Tip};
+use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip, genesis_chunks};
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -66,7 +66,7 @@ use near_primitives::checked_feature;
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::{
@@ -93,17 +93,17 @@ use near_primitives::types::{
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature, ProtocolVersion};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeWithReceiptView, FinalExecutionStatus,
     LightClientBlockView, SignedTransactionView,
 };
-use near_store::adapter::chain_store::ChainStoreAdapter;
+use near_store::DBCol;
 use near_store::adapter::StoreUpdateAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::config::StateSnapshotType;
 use near_store::get_genesis_state_roots;
-use near_store::DBCol;
 use node_runtime::bootstrap_congestion_info;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cell::Cell;
@@ -111,9 +111,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use time::ext::InstantExt as _;
 use time::OffsetDateTime;
-use tracing::{debug, debug_span, error, info, warn, Span};
+use time::ext::InstantExt as _;
+use tracing::{Span, debug, debug_span, error, info, warn};
 
 pub const APPLY_CHUNK_RESULTS_CACHE_SIZE: usize = 100;
 
@@ -251,13 +251,24 @@ impl ApplyChunksResultCache {
         }
     }
 
-    pub fn peek(&self, key: &CachedShardUpdateKey) -> Option<&ShardUpdateResult> {
+    pub fn peek(
+        &self,
+        key: &CachedShardUpdateKey,
+        shard_id: ShardId,
+    ) -> Option<&ShardUpdateResult> {
+        let shard_id_label = shard_id.to_string();
         if let Some(result) = self.cache.peek(key) {
             self.hits.set(self.hits.get() + 1);
+            metrics::APPLY_CHUNK_RESULTS_CACHE_HITS
+                .with_label_values(&[shard_id_label.as_str()])
+                .inc();
             return Some(result);
         }
 
         self.misses.set(self.misses.get() + 1);
+        metrics::APPLY_CHUNK_RESULTS_CACHE_MISSES
+            .with_label_values(&[shard_id_label.as_str()])
+            .inc();
         None
     }
 
@@ -591,7 +602,7 @@ impl Chain {
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
-                shard_tracker.care_about_shard(
+                shard_tracker.cares_about_shard(
                     validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
@@ -1352,7 +1363,7 @@ impl Chain {
         parent_hash: CryptoHash,
         block: &Block,
     ) -> Result<(), Error> {
-        if !self.care_about_any_shard_or_part(me, parent_hash)? {
+        if !self.cares_about_any_shard_or_part(me, parent_hash)? {
             return Ok(());
         }
         let mut missing = vec![];
@@ -1385,7 +1396,7 @@ impl Chain {
 
                 if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
                     missing.push(chunk_header.clone());
-                } else if self.shard_tracker.care_about_shard(
+                } else if self.shard_tracker.cares_about_shard(
                     me.as_ref(),
                     &parent_hash,
                     shard_id,
@@ -1408,14 +1419,14 @@ impl Chain {
         Ok(())
     }
 
-    fn care_about_any_shard_or_part(
+    fn cares_about_any_shard_or_part(
         &self,
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-            if self.shard_tracker.care_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+            if self.shard_tracker.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
                     &parent_hash,
@@ -1449,7 +1460,7 @@ impl Chain {
         prev_block_hash: &CryptoHash,
         shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        if !self.care_about_any_shard_or_part(me, *prev_block_hash)? {
+        if !self.cares_about_any_shard_or_part(me, *prev_block_hash)? {
             return Ok(HashMap::new());
         }
         let mut receipt_proofs_by_shard_id = HashMap::new();
@@ -1548,10 +1559,19 @@ impl Chain {
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
+        let prev_prev_hash = prev_block.header().prev_hash();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
-
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+
+        let (is_caught_up, _) = self.get_catchup_and_state_sync_infos(
+            &epoch_id,
+            None,
+            &prev_block_hash,
+            prev_prev_hash,
+            me,
+        )?;
+
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let chunks = Chunks::from_chunk_headers(&chunk_headers, block_height);
         let incoming_receipts = self.collect_incoming_receipts_from_chunks(
@@ -1593,7 +1613,11 @@ impl Chain {
                 shard_index,
                 &prev_block,
                 prev_chunk_header,
-                ApplyChunksMode::IsCaughtUp,
+                if is_caught_up {
+                    ApplyChunksMode::IsCaughtUp
+                } else {
+                    ApplyChunksMode::NotCaughtUp
+                },
                 incoming_receipts,
                 storage_context,
             );
@@ -2112,7 +2136,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
-            let care_about_shard = self.shard_tracker.care_about_shard(
+            let cares_about_shard = self.shard_tracker.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
@@ -2124,20 +2148,20 @@ impl Chain {
                 shard_id,
                 true,
             );
-            let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
+            let cares_about_shard_this_or_next_epoch = cares_about_shard || will_care_about_shard;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-            if care_about_shard_this_or_next_epoch {
+            if cares_about_shard_this_or_next_epoch {
                 shards_cares_this_or_next_epoch.push(shard_uid);
             }
 
             let need_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
-                care_about_shard_this_or_next_epoch
+                cares_about_shard_this_or_next_epoch
             } else {
                 // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
                 // during catchup of this block.
-                care_about_shard
+                cares_about_shard
             };
             tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
 
@@ -2261,8 +2285,7 @@ impl Chain {
             if PROTOCOL_VERSION < next_epoch_protocol_version {
                 error!(
                     "The protocol version is about to be superseded, please upgrade nearcore as soon as possible. Client protocol version {}, new protocol version {}",
-                    PROTOCOL_VERSION,
-                    next_epoch_protocol_version,
+                    PROTOCOL_VERSION, next_epoch_protocol_version,
                 );
             }
         }
@@ -2493,7 +2516,10 @@ impl Chain {
         let epoch_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         if epoch_protocol_version > PROTOCOL_VERSION {
-            panic!("The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}", PROTOCOL_VERSION, epoch_protocol_version);
+            panic!(
+                "The client protocol version is older than the protocol version of the network. Please update nearcore. Client protocol version:{}, network protocol version {}",
+                PROTOCOL_VERSION, epoch_protocol_version
+            );
         }
 
         // First real I/O expense.
@@ -2511,7 +2537,7 @@ impl Chain {
 
         let (is_caught_up, state_sync_info) = self.get_catchup_and_state_sync_infos(
             header.epoch_id(),
-            header.hash(),
+            Some(header.hash()),
             &prev_hash,
             prev_prev_hash,
             me,
@@ -2613,10 +2639,13 @@ impl Chain {
         ))
     }
 
+    /// Finds whether the block with `prev_hash` is caught up.
+    /// Additionally, if `block_hash` is provided and state sync info exists,
+    /// returns it as well.
     fn get_catchup_and_state_sync_infos(
         &self,
         epoch_id: &EpochId,
-        block_hash: &CryptoHash,
+        block_hash: Option<&CryptoHash>,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
         me: &Option<AccountId>,
@@ -2634,10 +2663,14 @@ impl Chain {
         // For the first block of the epoch we check if we need to start download states for
         // shards that we will care about in the next epoch. If there is no state to be downloaded,
         // we consider that we are caught up, otherwise not
-        let state_sync_info =
-            self.shard_tracker.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?;
+        let state_sync_info = match block_hash {
+            Some(block_hash) => {
+                self.shard_tracker.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?
+            }
+            None => None,
+        };
         debug!(
-            target: "chain", %block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
+            target: "chain", ?block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
             "Checked for shards to sync for epoch T+1 upon processing first block of epoch T"
         );
         Ok((state_sync_info.is_none(), state_sync_info))
@@ -2957,7 +2990,7 @@ impl Chain {
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
             // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
-            if !self.shard_tracker.care_about_shard(
+            if !self.shard_tracker.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
@@ -3404,7 +3437,7 @@ impl Chain {
         mode: ApplyChunksMode,
     ) -> Result<ShardContext, Error> {
         let cares_about_shard_this_epoch =
-            self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+            self.shard_tracker.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cared_about_shard_prev_epoch = self.shard_tracker.cared_about_shard_in_prev_epoch(
@@ -3481,7 +3514,9 @@ impl Chain {
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
-        if let Some(result) = self.apply_chunk_results_cache.peek(&cached_shard_update_key) {
+        if let Some(result) =
+            self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
+        {
             debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
             let result = result.clone();
             return Ok(Some((

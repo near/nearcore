@@ -20,9 +20,9 @@ use crate::flat::{FlatStateChanges, FlatStateIterator};
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::trie_storage::TrieMemoryPartialStorage;
 use crate::trie::{ApplyStatePartResult, RawTrieNodeWithSize};
-use crate::{metrics, PartialStorage, StorageError, Trie, TrieChanges};
+use crate::{PartialStorage, StorageError, Trie, TrieChanges, metrics};
 use borsh::BorshDeserialize;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state::PartialState;
 use near_primitives::state_part::PartId;
@@ -32,9 +32,9 @@ use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use super::TrieRefcountDeltaMap;
 use super::ops::iter::TrieTraversalItem;
 use super::trie_storage_update::{TrieStorageNode, TrieStorageNodeWithSize};
-use super::TrieRefcountDeltaMap;
 
 /// Trie key in nibbles corresponding to the right boundary for the last state part.
 /// Guaranteed to be bigger than any existing trie key.
@@ -517,14 +517,14 @@ mod tests {
     use std::hash::Hash;
     use std::sync::Arc;
 
+    use rand::Rng;
     use rand::prelude::ThreadRng;
     use rand::seq::SliceRandom;
-    use rand::Rng;
 
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
 
     use crate::adapter::StoreUpdateAdapter;
-    use crate::test_utils::{gen_changes, test_populate_trie, TestTriesBuilder};
+    use crate::test_utils::{TestTriesBuilder, gen_changes, test_populate_trie};
     use crate::trie::ops::iter::CrumbStatus;
     use crate::trie::{
         TrieRefcountAddition, TrieRefcountDeltaMap, TrieRefcountSubtraction, ValueHandle,
@@ -688,7 +688,7 @@ mod tests {
                     }
                     TrieStorageNode::Branch { children, value } => match position {
                         CrumbStatus::Entering => {
-                            if let Some(ref value) = value {
+                            if let Some(value) = value {
                                 on_enter_value(value)?;
                             }
                             stack.push((hash, node, CrumbStatus::AtChild(0)));
@@ -755,7 +755,7 @@ mod tests {
         for i in 0..max_key_length {
             // ([255,255,..,255], big_value)
             let key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
-            let value = (0..big_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+            let value = (0..big_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
             trie_changes.push((key, Some(value)));
         }
         trie_changes
@@ -780,7 +780,7 @@ mod tests {
                         let mut key = (0..(i + 1)).map(|_| 255u8).collect::<Vec<_>>();
                         key.push(x * 16 + y);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                     {
@@ -788,7 +788,7 @@ mod tests {
                         key.push(16 * 15 + x);
                         key.push(y * 16);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                     {
@@ -796,7 +796,7 @@ mod tests {
                         key.push(16 * x + 15);
                         key.push(y);
                         let value =
-                            (0..small_value_length).map(|_| rng.gen::<u8>()).collect::<Vec<_>>();
+                            (0..small_value_length).map(|_| rng.r#gen::<u8>()).collect::<Vec<_>>();
                         trie_changes.push((key, Some(value)));
                     }
                 }

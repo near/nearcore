@@ -9,7 +9,7 @@ use crate::challenge::Challenges;
 use crate::checked_feature;
 use crate::congestion_info::{BlockCongestionInfo, ExtendedCongestionInfo};
 use crate::hash::CryptoHash;
-use crate::merkle::{merklize, verify_path, MerklePath};
+use crate::merkle::{MerklePath, merklize, verify_path};
 use crate::num_rational::Rational32;
 use crate::optimistic_block::OptimisticBlock;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader, ShardChunkHeaderV1};
@@ -582,11 +582,7 @@ impl Block {
         height: BlockHeight,
     ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height {
-                acc + chunk.prev_gas_used()
-            } else {
-                acc
-            }
+            if chunk.height_included() == height { acc + chunk.prev_gas_used() } else { acc }
         })
     }
 
@@ -595,11 +591,7 @@ impl Block {
         height: BlockHeight,
     ) -> Gas {
         chunks.into_iter().fold(0, |acc, chunk| {
-            if chunk.height_included() == height {
-                acc + chunk.gas_limit()
-            } else {
-                acc
-            }
+            if chunk.height_included() == height { acc + chunk.gas_limit() } else { acc }
         })
     }
 
@@ -751,11 +743,7 @@ fn annotate_chunk(
     chunk: &ShardChunkHeader,
     block_height: BlockHeight,
 ) -> MaybeNew<ShardChunkHeader> {
-    if chunk.is_new_chunk(block_height) {
-        MaybeNew::New(chunk)
-    } else {
-        MaybeNew::Old(chunk)
-    }
+    if chunk.is_new_chunk(block_height) { MaybeNew::New(chunk) } else { MaybeNew::Old(chunk) }
 }
 
 pub enum ChunksCollection<'a> {

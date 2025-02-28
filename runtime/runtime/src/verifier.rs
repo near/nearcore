@@ -1,11 +1,11 @@
-use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
-use crate::near_primitives::account::Account;
 use crate::VerificationResult;
+use crate::config::{TransactionCost, total_prepaid_gas, tx_cost};
+use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::action::DeployGlobalContractAction;
+use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
@@ -20,7 +20,7 @@ use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
+    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -222,7 +222,7 @@ pub fn verify_and_charge_transaction(
                 signer_id: signer_id.clone(),
                 amount,
             }
-            .into())
+            .into());
         }
         Err(StorageStakingError::StorageError(err)) => {
             return Err(StorageError::StorageInconsistentState(err).into());
@@ -236,7 +236,7 @@ pub fn verify_and_charge_transaction(
             )
             .into());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = transaction.actions().get(0) {
+        if let Some(Action::FunctionCall(function_call)) = transaction.actions().get(0) {
             if function_call.deposit > 0 {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
@@ -620,7 +620,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -803,9 +803,9 @@ mod tests {
         use crate::near_primitives::account::{
             AccessKey, AccessKeyPermission, Account, FunctionCallPermission,
         };
-        use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
-        use crate::verifier::{is_zero_balance_account, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT};
-        use near_store::{get_account, TrieUpdate};
+        use crate::verifier::tests::{TESTING_INIT_BALANCE, setup_accounts};
+        use crate::verifier::{ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, is_zero_balance_account};
+        use near_store::{TrieUpdate, get_account};
         use testlib::runtime_utils::{alice_account, bob_account};
 
         fn set_up_test_account(
@@ -1948,10 +1948,10 @@ mod tests {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
-                actions: vec![NonDelegateAction::try_from(Action::CreateAccount(
-                    CreateAccountAction {},
-                ))
-                .unwrap()],
+                actions: vec![
+                    NonDelegateAction::try_from(Action::CreateAccount(CreateAccountAction {}))
+                        .unwrap(),
+                ],
                 nonce: 19000001,
                 max_block_height: 57,
                 public_key: PublicKey::empty(KeyType::ED25519),

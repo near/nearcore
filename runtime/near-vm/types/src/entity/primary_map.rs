@@ -4,10 +4,10 @@
 //! Densely numbered entity references as mapping keys.
 use rkyv::Archive;
 
+use crate::entity::EntityRef;
 use crate::entity::boxed_slice::BoxedSlice;
 use crate::entity::iter::{IntoIter, Iter, IterMut};
 use crate::entity::keys::Keys;
-use crate::entity::EntityRef;
 use crate::lib::std::boxed::Box;
 use crate::lib::std::iter::FromIterator;
 use crate::lib::std::marker::PhantomData;

@@ -11,10 +11,10 @@ use near_chain_configs::Genesis;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::{AccessKey, Account, AccountContract};
-use near_primitives::block::{genesis_chunks, Tip};
+use near_primitives::block::{Tip, genesis_chunks};
 use near_primitives::congestion_info::CongestionInfo;
 use near_primitives::epoch_block_info::BlockInfo;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -25,11 +25,11 @@ use near_store::adapter::StoreUpdateAdapter;
 use near_store::genesis::{compute_storage_usage, initialize_genesis_state};
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    get_account, get_genesis_state_roots, set_access_key, set_account, Store, TrieUpdate,
+    Store, TrieUpdate, get_account, get_genesis_state_roots, set_access_key, set_account,
 };
 use near_time::Utc;
-use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::ContractCode;
+use near_vm_runner::logic::ProtocolVersion;
 use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 pub use node_runtime::bootstrap_congestion_info;
 use std::collections::HashMap;
