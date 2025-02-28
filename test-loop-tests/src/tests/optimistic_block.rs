@@ -2,19 +2,19 @@ use itertools::Itertools;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
+#[cfg(feature = "test_features")]
+use near_primitives::network::PeerId;
+#[cfg(feature = "test_features")]
+use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::builder::TestLoopBuilder;
+use crate::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 
-#[test]
-fn test_optimistic_block() {
-    if !ProtocolFeature::ProduceOptimisticBlock.enabled(PROTOCOL_VERSION) {
-        return;
-    }
-
+fn get_builder(num_shards: usize) -> TestLoopBuilder {
     init_test_logger();
     let builder = TestLoopBuilder::new();
 
@@ -26,8 +26,8 @@ fn test_optimistic_block() {
         &accounts.iter().map(|account_id| account_id.as_str()).collect_vec(),
         &[],
     );
-    let shard_layout = ShardLayout::multi_shard(3, 1);
-    let num_shards = shard_layout.num_shards() as usize;
+
+    let shard_layout = ShardLayout::multi_shard(num_shards as u64, 1);
     let genesis = TestLoopBuilder::new_genesis_builder()
         .epoch_length(epoch_length)
         .shard_layout(shard_layout)
@@ -35,9 +35,16 @@ fn test_optimistic_block() {
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients)
+}
 
+#[test]
+fn test_optimistic_block() {
+    if !ProtocolFeature::ProduceOptimisticBlock.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let num_shards = 3;
+    let mut env: TestLoopEnv = get_builder(num_shards).build();
     env.test_loop.run_for(Duration::seconds(10));
 
     {
@@ -57,6 +64,73 @@ fn test_optimistic_block() {
         let expected_hits = chain.head().map_or(0, |t| t.height - 2);
         assert!(chain.apply_chunk_results_cache.hits() >= (expected_hits as usize));
     }
+
+    env.shutdown_and_drain_remaining_events(Duration::seconds(20));
+}
+
+#[cfg(feature = "test_features")]
+/// Create an invalid optimistic block based on the adversarial type.
+fn make_invalid_ob(
+    env: &TestLoopEnv,
+    adv_type: OptimisticBlockAdvType,
+) -> (OptimisticBlock, PeerId) {
+    let client = &env.test_loop.data.get(&env.datas[0].client_sender.actor_handle()).client;
+
+    let epoch_manager = &client.epoch_manager;
+    let head = client.chain.head().unwrap();
+    let parent_hash = &head.last_block_hash;
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+    let height = head.height + 1;
+    let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
+
+    // Get producer client
+    let client_data = &env.datas.iter().find(|data| data.account_id == block_producer).unwrap();
+    let client = &env.test_loop.data.get(&client_data.client_sender.actor_handle()).client;
+    let chain = &client.chain;
+
+    let prev_header = chain.get_block_header(parent_hash).unwrap();
+
+    let validator_signer = client.validator_signer.get().unwrap();
+
+    (
+        OptimisticBlock::adv_produce(
+            &prev_header,
+            height,
+            &*validator_signer,
+            client.clock.clone(),
+            None,
+            adv_type,
+        ),
+        client_data.peer_id.clone(),
+    )
+}
+
+#[test]
+#[cfg(feature = "test_features")]
+/// Check if validation fails on malformed optimistic blocks.
+fn test_invalid_optimistic_block() {
+    if !ProtocolFeature::ProduceOptimisticBlock.enabled(PROTOCOL_VERSION) {
+        return;
+    }
+    let mut env = get_builder(3).build();
+    env.test_loop.run_for(Duration::seconds(10));
+    let chain = &env.test_loop.data.get(&env.datas[0].client_sender.actor_handle()).client.chain;
+    let adversarial_behaviour = [
+        OptimisticBlockAdvType::InvalidVrfValue,
+        OptimisticBlockAdvType::InvalidVrfProof,
+        OptimisticBlockAdvType::InvalidRandomValue,
+        OptimisticBlockAdvType::InvalidTimestamp(0),
+        OptimisticBlockAdvType::InvalidPrevBlockHash,
+        OptimisticBlockAdvType::InvalidHeight(99),
+        OptimisticBlockAdvType::InvalidSignature,
+    ];
+    for adv in adversarial_behaviour.into_iter() {
+        let (ob, peer_id) = make_invalid_ob(&env, adv);
+        assert!(&chain.check_optimistic_block(&ob, &peer_id).is_err());
+    }
+    let (ob, peer_id) = make_invalid_ob(&env, OptimisticBlockAdvType::Normal);
+    assert!(&chain.check_optimistic_block(&ob, &peer_id).is_ok());
+    assert!(&chain.check_optimistic_block(&ob, &PeerId::random()).is_err());
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

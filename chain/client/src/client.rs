@@ -1038,10 +1038,15 @@ impl Client {
     }
 
     /// Check optimistic block and start processing if is valid.
-    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, _peer_id: PeerId) {
+    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: PeerId) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
-        // TODO(#10584): Validate the optimistic block.
-        // TODO(#10584): Discard the block if it is not from the the block producer.
+        // Validate the optimistic block.
+        // Discard the block if it is old or not created by the right producer.
+        if let Err(e) = self.chain.check_optimistic_block(&block, &peer_id) {
+            debug!(target: "client", ?e, "Optimistic block is invalid");
+            return;
+        }
+
         self.chain.optimistic_block_chunks.add_block(block);
         self.maybe_process_optimistic_block();
     }

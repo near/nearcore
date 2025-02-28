@@ -68,6 +68,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
 };
@@ -110,6 +111,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use time::ext::InstantExt as _;
 use tracing::{Span, debug, debug_span, error, info, warn};
 
@@ -2382,6 +2384,66 @@ impl Chain {
 
         let final_block_height = self.chain_store.get_block_header(final_block)?.height();
         self.optimistic_block_chunks.update_minimal_base_height(final_block_height);
+        Ok(())
+    }
+
+    /// Check if optimistic block is valid and relevant to the current chain.
+    pub fn check_optimistic_block(
+        &self,
+        block: &OptimisticBlock,
+        peer_id: &PeerId,
+    ) -> Result<(), Error> {
+        // Refuse blocks from the too distant future.
+        let ob_timestamp =
+            OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
+                .map_err(|e| Error::Other(e.to_string()))?;
+        let future_threshold = self.clock.now_utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE);
+        if ob_timestamp > future_threshold {
+            return Err(Error::InvalidBlockFutureTime(ob_timestamp));
+        };
+
+        let head = self.head()?;
+        if head.height >= block.height() {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // Check source of the optimistic block.
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash())?;
+        let validator = self.epoch_manager.get_block_producer_info(&epoch_id, block.height())?;
+        if peer_id.public_key() != validator.public_key() {
+            return Err(Error::InvalidBlockProposer);
+        }
+
+        let prev = self.get_block_header(&block.prev_block_hash())?;
+        let prev_random_value = *prev.random_value();
+        let prev_height = prev.height();
+
+        if prev_height + 1 != block.height() {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // Prevent time warp attacks and some timestamp manipulations by forcing strict
+        // time progression.
+        if ob_timestamp <= prev.timestamp() {
+            return Err(Error::InvalidBlockPastTime(prev.timestamp(), ob_timestamp));
+        }
+
+        // Check the signature.
+        if !block.signature.verify(block.hash().as_bytes(), validator.public_key()) {
+            return Err(Error::InvalidSignature);
+        }
+
+        verify_block_vrf(
+            validator,
+            &prev_random_value,
+            &block.inner.vrf_value,
+            &block.inner.vrf_proof,
+        )?;
+
+        if &block.inner.random_value != &hash(&block.inner.vrf_value.0.as_ref()) {
+            return Err(Error::InvalidRandomnessBeaconOutput);
+        }
+
         Ok(())
     }
 
