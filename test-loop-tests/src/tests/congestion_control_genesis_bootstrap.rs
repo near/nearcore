@@ -41,7 +41,7 @@ fn test_congestion_control_genesis_bootstrap() {
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .minimum_validators_per_shard(1)
-        .build_store_for_single_version(genesis.config.protocol_version);
+        .build_store_for_genesis_protocol_version();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
         .genesis(genesis)
