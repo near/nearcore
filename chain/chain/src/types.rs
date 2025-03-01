@@ -428,16 +428,15 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
 
-    fn validate_tx_metadata(
+    fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        gas_price: Balance,
         transaction: &SignedTransaction,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<(), InvalidTxError>;
 
-    fn validate_tx_against_state(
+    fn can_verify_and_charge_tx(
         &self,
         shard_layout: &ShardLayout,
         gas_price: Balance,

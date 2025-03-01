@@ -27,6 +27,7 @@ use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
+use node_runtime::config::tx_cost;
 use node_runtime::{ApplyState, Runtime, SignedValidPeriodTransactions};
 use std::collections::HashMap;
 use std::iter;
@@ -450,18 +451,13 @@ impl Testbed<'_> {
         // but making it too small affects max_depth and thus pessimistic inflation
         let gas_price = 100_000_000;
         let block_height = None;
-        // do a full verification
-        let verify_signature = true;
 
         let clock = GasCost::measure(metric);
-        let cost = node_runtime::validate_transaction(
-            &self.apply_state.config,
-            gas_price,
-            tx,
-            verify_signature,
-            PROTOCOL_VERSION,
-        )
-        .expect("expected no validation error");
+        node_runtime::validate_transaction(&self.apply_state.config, tx, PROTOCOL_VERSION)
+            .expect("expected no validation error");
+        let cost = tx_cost(&self.apply_state.config, &tx.transaction, gas_price, PROTOCOL_VERSION)
+            .unwrap();
+
         node_runtime::verify_and_charge_transaction(
             &self.apply_state.config,
             &mut state_update,
