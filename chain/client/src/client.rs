@@ -2229,9 +2229,8 @@ impl Client {
             cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        if let Err(err) = self.runtime_adapter.validate_tx_metadata(
+        if let Err(err) = self.runtime_adapter.validate_tx(
             &shard_layout,
-            gas_price,
             tx,
             protocol_version,
             receiver_congestion_info,
@@ -2265,7 +2264,7 @@ impl Client {
                     }
                 }
             };
-            if let Err(err) = self.runtime_adapter.validate_tx_against_state(
+            if let Err(err) = self.runtime_adapter.can_verify_and_charge_tx(
                 &shard_layout,
                 gas_price,
                 state_root,
