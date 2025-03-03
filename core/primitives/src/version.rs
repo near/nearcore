@@ -85,12 +85,18 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: LazyLock<ProtocolUpgradeVotingSchedule> =
         let v1_protocol_version = 74;
         let v2_protocol_version = 75;
         let v3_protocol_version = 76;
+
+        // Voting starts Sunday 10:00 UTC. Upgrade on Monday morning UTC.
         let v1_datetime =
-            ProtocolUpgradeVotingSchedule::parse_datetime("2025-02-16 18:00:00").unwrap();
+            ProtocolUpgradeVotingSchedule::parse_datetime("2025-03-09 10:00:00").unwrap();
+
+        // Voting starts Tuesday 18:00 UTC. Upgrade Wednesday at afternoon UTC.
         let v2_datetime =
-            ProtocolUpgradeVotingSchedule::parse_datetime("2025-02-17 18:00:00").unwrap();
+            ProtocolUpgradeVotingSchedule::parse_datetime("2025-03-11 18:00:00").unwrap();
+
+        // Voting starts Sunday 18:00 UTC. Upgrade Monday at afternoon UTC.
         let v3_datetime =
-            ProtocolUpgradeVotingSchedule::parse_datetime("2025-02-18 18:00:00").unwrap();
+            ProtocolUpgradeVotingSchedule::parse_datetime("2025-03-16 18:00:00").unwrap();
 
         let schedule = vec![
             (v1_datetime, v1_protocol_version),
