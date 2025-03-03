@@ -56,8 +56,8 @@ benchmark_native_transfers:
         --transaction-statistics-service
 
 benchmark_mpc_sign:
-    ulimit -n {{num_file_descriptors}}
     RUST_LOG=info \
+    ulimit -n {{num_file_descriptors}} && \
     cargo run --release -- benchmark-mpc-sign \
         --rpc-url {{rpc_url}} \
         --user-data-dir user-data/ \
