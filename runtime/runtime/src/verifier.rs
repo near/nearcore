@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::ephemeral_data::EphemeralAccount;
 use crate::near_primitives::account::Account;
@@ -24,7 +22,6 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
-use near_store::trie::mem::memtries::FrozenMemTries;
 use near_store::{
     StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
@@ -108,38 +105,27 @@ pub fn validate_transaction(
     ValidatedTransaction::new(config, signed_tx)
 }
 
-/// Processes a group of transactions for the same (account, public_key) in ascending nonce order,
-/// using a frozen snapshot for read‑only access.
-/// Returns a Vec of (SignedTransaction, VerificationResult).
-pub fn verify_and_charge_transactions(
-    config: &RuntimeConfig,
-    state_update: &mut TrieUpdate,
+/// For a single group, ephemeral-check each transaction in ascending nonce.
+/// Returns ephemeral final state, and a list of (SignedTransaction, VerificationResult).
+pub fn verify_ephemeral_group(
+    mut ephemeral: EphemeralAccount,
     group: &[(SignedTransaction, TransactionCost)],
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
-    frozen_snapshot: &FrozenMemTries,
-) -> Result<Vec<(SignedTransaction, VerificationResult)>, InvalidTxError> {
-    if group.is_empty() {
-        return Ok(vec![]);
-    }
-    let first_tx = &group[0].0;
-    let signer_id = first_tx.transaction.signer_id();
-    let public_key = first_tx.transaction.public_key();
-
-    let mut ephemeral = EphemeralAccount::new_from_frozen(frozen_snapshot, signer_id, public_key)?;
+    config: &near_parameters::RuntimeConfig,
+) -> Result<(EphemeralAccount, Vec<(SignedTransaction, VerificationResult)>), InvalidTxError> {
     let mut results = Vec::with_capacity(group.len());
-    for (signed_tx, cost) in group.iter() {
+    for (st, cost) in group {
         let vr = ephemeral.apply_transaction_ephemeral(
             config,
-            signed_tx,
+            st,
             cost,
             block_height,
             current_protocol_version,
         )?;
-        results.push((signed_tx.clone(), vr));
+        results.push((st.clone(), vr));
     }
-    ephemeral.commit(state_update, signer_id, public_key);
-    Ok(results)
+    Ok((ephemeral, results))
 }
 pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
@@ -648,7 +634,8 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::hash::{CryptoHash, hash};
+    use near_primitives::errors::RuntimeError;
+    use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -671,6 +658,10 @@ mod tests {
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
         store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
+    }
+
+    fn dummy_full_access() -> AccessKey {
+        AccessKey::full_access()
     }
 
     fn setup_common(
@@ -820,6 +811,13 @@ mod tests {
         let transaction_cost = tx_cost(config, &validated_tx, gas_price, current_protocol_version)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
+            gas_price,
+            signed_transaction,
+            true,
+            current_protocol_version,
+        )?;
+
+        let mut ephemeral = EphemeralAccount::new(
             state_update,
             &validated_tx,
             &transaction_cost,
@@ -2037,5 +2035,147 @@ mod tests {
         check("hello", 10, "hello");
         // cspell:ignore привет
         check("привет", 3, "п");
+    }
+
+    #[test]
+    fn test_verify_ephemeral_group_success() {
+        let signer_id: AccountId = "test.near".parse().unwrap();
+        let pk =
+            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed").public_key();
+        let account = crate::ephemeral_data::EphemeralAccount::new_for_test(
+            near_primitives::account::Account::new(
+                1000,
+                0,
+                near_primitives::account::AccountContract::None,
+                0,
+            ),
+            dummy_full_access(),
+            signer_id.clone(),
+            pk.clone(),
+        );
+        // Build two transactions with ascending nonce.
+        let st0 = SignedTransaction::from_actions(
+            10,
+            signer_id.clone(),
+            "bob.near".parse().unwrap(),
+            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
+            vec![Action::Transfer(TransferAction { deposit: 1 })],
+            CryptoHash::default(),
+            0,
+        );
+        let st1 = SignedTransaction::from_actions(
+            11,
+            signer_id.clone(),
+            "bob.near".parse().unwrap(),
+            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
+            vec![Action::Transfer(TransferAction { deposit: 1 })],
+            CryptoHash::default(),
+            0,
+        );
+        let group = vec![
+            (
+                st0.clone(),
+                TransactionCost {
+                    gas_burnt: 1,
+                    gas_remaining: 10,
+                    receipt_gas_price: 100,
+                    total_cost: 50,
+                    burnt_amount: 50,
+                },
+            ),
+            (
+                st1.clone(),
+                TransactionCost {
+                    gas_burnt: 2,
+                    gas_remaining: 8,
+                    receipt_gas_price: 100,
+                    total_cost: 60,
+                    burnt_amount: 60,
+                },
+            ),
+        ];
+        let (ephemeral_after, results) = verify_ephemeral_group(
+            account,
+            &group,
+            Some(100),
+            PROTOCOL_VERSION,
+            &RuntimeConfig::test(),
+        )
+        .expect("Group should verify successfully");
+        assert_eq!(results.len(), 2);
+        // Final balance should be 1000 - (50 + 60)
+        assert_eq!(ephemeral_after.ephemeral_account.amount(), 1000 - (50 + 60));
+    }
+
+    #[test]
+    fn test_verify_ephemeral_group_fail_nonce() {
+        let signer_id: AccountId = "test2.near".parse().unwrap();
+        let pk =
+            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed").public_key();
+        let account = crate::ephemeral_data::EphemeralAccount::new_for_test(
+            near_primitives::account::Account::new(
+                1000,
+                0,
+                near_primitives::account::AccountContract::None,
+                0,
+            ),
+            dummy_full_access(),
+            signer_id.clone(),
+            pk.clone(),
+        );
+        // Build a group where the first transaction has nonce 11 and second has 10.
+        let st0 = SignedTransaction::from_actions(
+            11,
+            signer_id.clone(),
+            "alice.near".parse().unwrap(),
+            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
+            vec![],
+            CryptoHash::default(),
+            0,
+        );
+        let st1 = SignedTransaction::from_actions(
+            10,
+            signer_id.clone(),
+            "alice.near".parse().unwrap(),
+            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
+            vec![],
+            CryptoHash::default(),
+            0,
+        );
+        let group = vec![
+            (
+                st0,
+                TransactionCost {
+                    gas_burnt: 1,
+                    gas_remaining: 10,
+                    receipt_gas_price: 100,
+                    total_cost: 10,
+                    burnt_amount: 10,
+                },
+            ),
+            (
+                st1,
+                TransactionCost {
+                    gas_burnt: 1,
+                    gas_remaining: 10,
+                    receipt_gas_price: 100,
+                    total_cost: 10,
+                    burnt_amount: 10,
+                },
+            ),
+        ];
+        let res =
+            verify_ephemeral_group(account, &group, None, PROTOCOL_VERSION, &RuntimeConfig::test());
+        match res {
+            Err(err) => {
+                if let InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } = err {
+                    assert_eq!(tx_nonce, 10);
+                    assert_eq!(ak_nonce, 11);
+                } else {
+                    panic!("Unexpected error: {:?}", err);
+                }
+            }
+            Ok(_) => panic!("Expected nonce error"),
+        }
     }
 }
