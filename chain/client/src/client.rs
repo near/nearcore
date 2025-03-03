@@ -302,6 +302,7 @@ impl Client {
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
             config.max_block_wait_delay,
+            config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
         let chunk_endorsement_tracker =

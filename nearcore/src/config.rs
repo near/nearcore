@@ -85,6 +85,9 @@ pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 2_500;
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
+/// Multiplier for the wait time for all chunks to be received.
+pub const CHUNK_WAIT_DENOMINATOR: i32 = 3;
+
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -131,6 +134,8 @@ pub struct Consensus {
     /// Maximum duration before skipping given height.
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub max_block_wait_delay: Duration,
+    /// Multiplier for the wait time for all chunks to be received.
+    pub chunk_wait_mult: Rational32,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
@@ -200,6 +205,7 @@ impl Default for Consensus {
             min_block_production_delay: Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::milliseconds(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
+            chunk_wait_mult: Rational32::new(1, CHUNK_WAIT_DENOMINATOR),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
@@ -519,6 +525,7 @@ impl NearConfig {
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
+                chunk_wait_mult: config.consensus.chunk_wait_mult,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
