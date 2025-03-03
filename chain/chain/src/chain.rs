@@ -2032,7 +2032,7 @@ impl Chain {
             let res = do_apply_chunks(block.clone(), block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
-            metrics::APPLY_ALL_CHUNKS_DELAY.with_label_values(&[block.as_ref()]).observe(
+            metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
                 (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
             );
             sc.send((block, res)).unwrap();

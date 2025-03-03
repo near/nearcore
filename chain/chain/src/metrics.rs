@@ -200,10 +200,10 @@ pub(crate) static SHARD_LAYOUT_NUM_SHARDS: LazyLock<IntGauge> = LazyLock::new(||
     .unwrap()
 });
 
-pub(crate) static APPLY_ALL_CHUNKS_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
+pub(crate) static APPLY_ALL_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
-        "near_apply_all_chunks_delay",
-        "Delay of applying all chunks in a block",
+        "near_apply_all_chunks_time",
+        "Time taken to apply all chunks in a block",
         &["block_type"],
         Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
