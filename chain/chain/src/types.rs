@@ -436,6 +436,10 @@ pub trait RuntimeAdapter: Send + Sync {
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<(), InvalidTxError>;
 
+    /// It is assumed that this function is only called if `validate_tx` was
+    /// called successfully earlier. TODO: introduce some type safety to ensure
+    /// that this function can only be called if `validate_tx` was successfully
+    /// called.
     fn can_verify_and_charge_tx(
         &self,
         shard_layout: &ShardLayout,
