@@ -16,9 +16,7 @@ use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Proven
 use near_chain::{ChainStore, MerkleProofAccess};
 use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{DEFAULT_GC_NUM_EPOCHS_TO_KEEP, Genesis, GenesisConfig, NEAR_BASE};
-use near_client::test_utils::{
-    TestEnv, create_chunk_on_height, setup_mock, setup_mock_all_validators,
-};
+use near_client::test_utils::client::create_chunk_on_height;
 use near_client::{
     BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
     SetNetworkInfo,
@@ -71,10 +69,12 @@ use near_store::metadata::DB_VERSION;
 use near_store::metadata::DbKind;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, TrieChanges, get};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::setup::{setup_mock, setup_mock_all_validators};
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::{
     deploy_test_contract, prepare_env_with_congestion, set_block_protocol_version,
 };

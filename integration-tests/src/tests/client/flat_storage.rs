@@ -4,7 +4,6 @@ use itertools::Itertools;
 use near_async::time::Clock;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::errors::StorageError;
@@ -17,7 +16,9 @@ use near_primitives_core::types::BlockHeight;
 use near_store::adapter::StoreAdapter;
 use near_store::test_utils::create_test_store;
 use near_store::{KeyLookupMode, Store};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 const START_HEIGHT: BlockHeight = 7;
 

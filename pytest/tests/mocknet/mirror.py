@@ -75,7 +75,7 @@ def prompt_init_flags(args):
 
 def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
     prompt_init_flags(args)
-    if args.neard_upgrade_binary_url is None:
+    if args.neard_upgrade_binary_url is None or args.neard_upgrade_binary_url == '':
         configs = [{
             "is_traffic_generator": False,
             "binaries": [{

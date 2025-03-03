@@ -431,7 +431,7 @@ pub fn run_txs_parallel(
     let mut tx_runners = txs.into_iter().map(|tx| TransactionRunner::new(tx, true)).collect_vec();
 
     let client_sender = &node_datas[0].client_sender;
-    let future_spawner = test_loop.future_spawner();
+    let future_spawner = test_loop.future_spawner("TransactionRunner");
 
     test_loop.run_until(
         |tl_data| {
@@ -461,7 +461,7 @@ pub fn execute_tx(
     maximum_duration: Duration,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let client_sender = &get_node_data(node_datas, rpc_id).client_sender;
-    let future_spawner = test_loop.future_spawner();
+    let future_spawner = test_loop.future_spawner("TransactionRunner");
 
     let mut tx_runner = TransactionRunner::new(tx, true);
 

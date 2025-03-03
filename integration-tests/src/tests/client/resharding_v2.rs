@@ -3,7 +3,7 @@ use near_chain::Provenance;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::ProcessTxResponse;
-use near_client::test_utils::{TestEnv, run_catchup};
+use near_client::test_utils::client::run_catchup;
 use near_crypto::InMemorySigner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountId;
@@ -23,13 +23,14 @@ use near_primitives::views::{
 };
 use near_primitives_core::num_rational::Rational32;
 use near_store::test_utils::{gen_account, gen_shard_accounts, gen_unique_accounts};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tracing::debug;
 
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 use crate::utils::process_blocks::set_block_protocol_version;
 
 const P_CATCHUP: f64 = 0.2;
@@ -456,7 +457,7 @@ impl TestReshardingEnv {
             for (i, validator_account_id) in env.validators.iter().enumerate() {
                 let client = &env.clients[i];
 
-                let cares_about_shard = client.shard_tracker.care_about_shard(
+                let cares_about_shard = client.shard_tracker.cares_about_shard(
                     Some(validator_account_id),
                     block.header().prev_hash(),
                     shard_uid.shard_id(),
@@ -532,9 +533,9 @@ fn check_account(env: &TestEnv, account_id: &AccountId, block: &Block) {
     let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
     for (i, me) in env.validators.iter().enumerate() {
         let client = &env.clients[i];
-        let care_about_shard =
-            client.shard_tracker.care_about_shard(Some(me), prev_hash, shard_id, true);
-        if !care_about_shard {
+        let cares_about_shard =
+            client.shard_tracker.cares_about_shard(Some(me), prev_hash, shard_id, true);
+        if !cares_about_shard {
             continue;
         }
         let chunk_extra = &client.chain.get_chunk_extra(block.hash(), &shard_uid).unwrap();

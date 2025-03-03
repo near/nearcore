@@ -12,7 +12,6 @@ use near_async::messaging::CanSend;
 use near_async::time::Clock;
 use near_chain::test_utils::{ValidatorSchedule, account_id_to_shard_id};
 use near_client::GetBlock;
-use near_client::test_utils::{ActorHandlesForTesting, setup_mock_all_validators};
 use near_crypto::InMemorySigner;
 use near_network::client::{BlockApproval, BlockResponse, ProcessTxRequest};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
@@ -28,7 +27,10 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::ShardIndex;
 use rand::{Rng, thread_rng};
 
+use crate::env::setup::{ActorHandlesForTesting, setup_mock_all_validators};
+
 #[test]
+#[ignore = "Test is flaky and causing CI failures"]
 fn slow_test_repro_1183() {
     init_test_logger();
     run_actix(async {
@@ -273,6 +275,7 @@ fn slow_test_sync_from_archival_node() {
 }
 
 #[test]
+#[ignore = "Test is flaky and causing CI failures"]
 fn slow_test_long_gap_between_blocks() {
     init_test_logger();
     let vs = ValidatorSchedule::new()

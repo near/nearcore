@@ -1,6 +1,6 @@
+pub mod env;
 pub mod node;
-pub mod user;
-
 #[cfg(test)]
 mod tests;
+pub mod user;
 pub mod utils;

@@ -1,11 +1,12 @@
 ---
-source: chain/rosetta-rpc/src/adapters/mod.rs
-expression: nfvalidator1_receipt_processing_transaction
-
+source: chain/rosetta-rpc/src/test.rs
+assertion_line: 134
+expression: nfvalidator2_action_receipt_gas_reward_transaction
+snapshot_kind: text
 ---
 Transaction {
     transaction_identifier: TransactionIdentifier {
-        hash: "receipt:4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+        hash: "receipt:8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
     },
     operations: [
         Operation {
@@ -20,14 +21,14 @@ Transaction {
             ),
             account: AccountIdentifier {
                 address: AccountId(
-                    "nfvalidator1.near",
+                    "nfvalidator2.near",
                 ),
                 sub_account: None,
                 metadata: None,
             },
             amount: Some(
                 Amount {
-                    value: SignedDiff(-1000000000000000000),
+                    value: SignedDiff(1000000000000000000),
                     currency: Currency {
                         symbol: "NEAR",
                         decimals: 24,

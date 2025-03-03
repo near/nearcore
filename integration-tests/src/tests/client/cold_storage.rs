@@ -2,7 +2,6 @@ use borsh::BorshDeserialize;
 use near_chain::Provenance;
 use near_chain_configs::{Genesis, MutableConfigValue};
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_test_logger;
@@ -21,11 +20,13 @@ use near_store::metadata::DB_VERSION;
 use near_store::metadata::DbKind;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{COLD_HEAD_KEY, DBCol, HEAD_KEY, Store};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{NearConfig, cold_storage::spawn_cold_store_loop};
 use std::collections::HashSet;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) {
     let pretty_key = near_fmt::StorageKey(key);

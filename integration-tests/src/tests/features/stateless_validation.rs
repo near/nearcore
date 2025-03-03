@@ -3,7 +3,6 @@ use assert_matches::assert_matches;
 use near_chain::Provenance;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_o11y::testonly::init_integration_logger;
@@ -25,10 +24,12 @@ use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{AccountId, NumSeats};
 use near_store::test_utils::create_test_store;
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 

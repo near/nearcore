@@ -206,12 +206,6 @@ pub fn try_create_histogram_vec(
     Ok(histogram)
 }
 
-pub fn processing_time_buckets() -> Vec<f64> {
-    let mut buckets = vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5];
-    buckets.extend_from_slice(&exponential_buckets(1.0, 1.3, 12).unwrap());
-    buckets
-}
-
 static EXCEPTIONS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     HashSet::from([
         "flat_storage_cached_changes_num_items",

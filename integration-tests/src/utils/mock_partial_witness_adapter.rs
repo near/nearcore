@@ -2,8 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use near_async::messaging::CanSend;
-
-use crate::stateless_validation::partial_witness::partial_witness_actor::DistributeStateWitnessRequest;
+use near_client::DistributeStateWitnessRequest;
 
 #[derive(Clone, Default)]
 pub struct MockPartialWitnessAdapter {

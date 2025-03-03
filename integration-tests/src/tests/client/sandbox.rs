@@ -1,7 +1,6 @@
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::ProcessTxResponse;
-use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::account::Account;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -10,7 +9,9 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
-use nearcore::test_utils::TestEnvNightshadeSetupExt;
+
+use crate::env::nightshade_setup::TestEnvNightshadeSetupExt;
+use crate::env::test_env::TestEnv;
 
 fn test_setup() -> (TestEnv, Signer) {
     let epoch_length = 5;

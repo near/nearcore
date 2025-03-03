@@ -8,7 +8,6 @@ use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_client::Client;
 use near_client::client_actor::ClientActorInner;
 use near_client::sync_jobs_actor::SyncJobsActor;
-use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_o11y::testonly::init_test_logger;
@@ -26,6 +25,11 @@ use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
 use std::path::Path;
 use std::sync::Arc;
+
+/// min block production time in milliseconds
+pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
+/// max block production time in milliseconds
+pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 #[test]
 fn test_client_with_simple_test_loop() {
@@ -92,10 +96,10 @@ fn test_client_with_simple_test_loop() {
         true,
         [0; 32],
         None,
-        Arc::new(test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+        Arc::new(test_loop.async_computation_spawner("node0", |_| Duration::milliseconds(80))),
         noop().into_multi_sender(),
         noop().into_multi_sender(),
-        Arc::new(test_loop.future_spawner()),
+        Arc::new(test_loop.future_spawner("node0")),
         noop().into_multi_sender(),
         client_adapter.as_multi_sender(),
         PROTOCOL_UPGRADE_SCHEDULE.clone(),
@@ -129,9 +133,9 @@ fn test_client_with_simple_test_loop() {
     )
     .unwrap();
 
-    test_loop.register_actor(sync_jobs_actor, Some(sync_jobs_adapter));
-    test_loop.register_actor(shards_manager, Some(shards_manager_adapter));
-    test_loop.register_actor(client_actor, Some(client_adapter));
+    test_loop.data.register_actor("node0", sync_jobs_actor, Some(sync_jobs_adapter));
+    test_loop.data.register_actor("node0", shards_manager, Some(shards_manager_adapter));
+    test_loop.data.register_actor("node0", client_actor, Some(client_adapter));
 
     test_loop.run_for(Duration::seconds(10));
     test_loop.shutdown_and_drain_remaining_events(Duration::seconds(1));

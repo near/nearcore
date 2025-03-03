@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::messaging::{Actor, LateBoundSender};
 
-use super::PendingEventsSender;
+use super::pending_events_sender::RawPendingEventsSender;
 use super::sender::TestLoopSender;
 
 /// TestLoopData is the container for all data that is stored and accessed by the test loop.
@@ -14,12 +14,12 @@ use super::sender::TestLoopSender;
 /// the execution of the TestLoop.
 ///
 /// ```rust, ignore
-/// let mut data = TestLoopData::new(pending_events_sender, shutting_down);
+/// let mut data = TestLoopData::new(raw_pending_events_sender, shutting_down);
 ///
 /// let actor = TestActor::new();
 /// let adapter = LateBoundSender::new();
 ///
-/// let sender: TestLoopSender<TestActor> = data.register_actor(actor, Some(adapter));
+/// let sender: TestLoopSender<TestActor> = data.register_actor("client1", actor, Some(adapter));
 ///
 /// // We can now send messages to the actor using the sender and adapter.
 /// sender.send(TestMessage {});
@@ -30,7 +30,7 @@ use super::sender::TestLoopSender;
 /// useful if we would like to have some arbitrary callback event in testloop to access this data.
 ///
 /// ```rust, ignore
-/// let mut data = TestLoopData::new(pending_events_sender, shutting_down);
+/// let mut data = TestLoopData::new(raw_pending_events_sender, shutting_down);
 /// let handle: TestLoopDataHandle<usize> = data.register_data(42);
 /// assert_eq!(data.get(&handle), 42);
 /// ```
@@ -41,14 +41,17 @@ pub struct TestLoopData {
     // Container of the data. We store it as a vec of Any so that we can store any type of data.
     data: Vec<Box<dyn Any>>,
     // Sender to send events to the test loop. Used mainly for registering actors.
-    pending_events_sender: PendingEventsSender,
+    raw_pending_events_sender: RawPendingEventsSender,
     // Atomic bool to check if the test loop is shutting down. Used mainly for registering actors.
     shutting_down: Arc<AtomicBool>,
 }
 
 impl TestLoopData {
-    pub fn new(pending_events_sender: PendingEventsSender, shutting_down: Arc<AtomicBool>) -> Self {
-        Self { data: Vec::new(), pending_events_sender, shutting_down }
+    pub(crate) fn new(
+        raw_pending_events_sender: RawPendingEventsSender,
+        shutting_down: Arc<AtomicBool>,
+    ) -> Self {
+        Self { data: Vec::new(), raw_pending_events_sender, shutting_down }
     }
 
     /// Function to register data of any type in the TestLoopData.
@@ -60,11 +63,13 @@ impl TestLoopData {
     }
 
     /// Function to register an actor in the TestLoopData.
-    /// Additionally schedules the start event for the actor on testloop.
+    /// We provide an identifier which is used to group events from the same client.
+    /// Usually the identifier is the account_id of the client.
+    /// This function additionally schedules the start event for the actor on testloop.
     /// Returns a TestLoopSender<Actor> that can be used to send messages to the actor.
-    pub fn register_actor_for_index<A>(
+    pub fn register_actor<A>(
         &mut self,
-        index: usize,
+        identifier: &str,
         actor: A,
         adapter: Option<Arc<LateBoundSender<TestLoopSender<A>>>>,
     ) -> TestLoopSender<A>
@@ -74,10 +79,10 @@ impl TestLoopData {
         let actor_handle = self.register_data(actor);
         let sender = TestLoopSender::new(
             actor_handle,
-            self.pending_events_sender.clone().for_index(index),
+            self.raw_pending_events_sender.for_identifier(identifier),
             self.shutting_down.clone(),
         );
-        self.queue_start_actor_event(sender.clone());
+        self.queue_start_actor_event(identifier, sender.clone());
         if let Some(adapter) = adapter {
             adapter.bind(sender.clone());
         }
@@ -85,7 +90,7 @@ impl TestLoopData {
     }
 
     // Helper function to queue the start actor event on the test loop while registering an actor.
-    fn queue_start_actor_event<A>(&self, mut sender: TestLoopSender<A>)
+    fn queue_start_actor_event<A>(&self, identifier: &str, mut sender: TestLoopSender<A>)
     where
         A: Actor + 'static,
     {
@@ -93,7 +98,8 @@ impl TestLoopData {
             let actor = data.get_mut(&sender.actor_handle());
             actor.start_actor(&mut sender);
         };
-        self.pending_events_sender
+        self.raw_pending_events_sender
+            .for_identifier(identifier)
             .send(format!("StartActor({:?})", type_name::<A>()), Box::new(callback));
     }
 
@@ -146,8 +152,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
 
-    use crate::test_loop::PendingEventsSender;
     use crate::test_loop::data::TestLoopData;
+    use crate::test_loop::pending_events_sender::RawPendingEventsSender;
 
     #[derive(Debug, PartialEq)]
     struct TestData {
@@ -156,8 +162,10 @@ mod tests {
 
     #[test]
     fn test_register_data() {
-        let mut data =
-            TestLoopData::new(PendingEventsSender::new(|_| {}), Arc::new(AtomicBool::new(false)));
+        let mut data = TestLoopData::new(
+            RawPendingEventsSender::new(|_| {}),
+            Arc::new(AtomicBool::new(false)),
+        );
         let test_data = TestData { value: 42 };
         let handle = data.register_data(test_data);
         assert_eq!(data.get(&handle), &TestData { value: 42 });
