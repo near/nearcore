@@ -7,6 +7,7 @@ use near_o11y::metrics::{
 };
 use std::sync::LazyLock;
 
+/// Exponential buckets for both negative and positive values.
 fn two_sided_exponential_buckets(start: f64, factor: f64, count: usize) -> Vec<f64> {
     let positive_buckets = exponential_buckets(start, factor, count).unwrap();
     let negative_buckets = positive_buckets.clone().into_iter().map(|x| -x).rev().collect_vec();
