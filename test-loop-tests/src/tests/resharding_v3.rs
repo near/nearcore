@@ -624,12 +624,6 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
         // Return false if we have not resharded yet.
         if epoch_height_after_resharding.get().is_none() {
-            tracing::info!("QQP EPOCH HEIGHT: {}", epoch_height);
-            tracing::info!(
-                "QQP actual : {} | expected: {}",
-                current_num_shards,
-                expected_num_shards
-            );
             assert!(epoch_height < 5);
             if current_num_shards != expected_num_shards {
                 return false;
