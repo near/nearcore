@@ -613,6 +613,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
+    use near_primitives::errors::IntegerOverflowError;
     use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
@@ -749,7 +750,7 @@ mod tests {
             match tx_cost(config, &signed_transaction.transaction, gas_price, PROTOCOL_VERSION) {
                 Ok(c) => c,
                 Err(err) => {
-                    assert_eq!(err, expected_err);
+                    assert_eq!(InvalidTxError::from(err), expected_err);
                     return;
                 }
             };
