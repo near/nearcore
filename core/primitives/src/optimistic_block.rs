@@ -122,7 +122,7 @@ pub struct OptimisticBlockKeySource {
     pub random_seed: CryptoHash,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum::AsRefStr)]
 pub enum BlockToApply {
     Normal(CryptoHash),
     Optimistic(CryptoHash),

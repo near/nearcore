@@ -37,9 +37,8 @@ pub struct BlocksDelayTracker {
     // Theoretically, each block height should only have one block, if our block processing code
     // works correctly. We are storing a vector here just in case.
     blocks_height_map: BTreeMap<BlockHeight, Vec<CryptoHash>>,
-    // Maps block height to the timestamp when the optimistic block became
-    // ready for processing.
-    optimistic_blocks: LruCache<BlockHeight, Instant>,
+    // Maps block height to the optimistic block stats.
+    optimistic_blocks: LruCache<BlockHeight, OptimisticBlockStats>,
     // Chunks that belong to the blocks in the tracker
     chunks: HashMap<ChunkHash, ChunkTrackingStats>,
     // Chunks that we don't know which block it belongs to yet
@@ -69,6 +68,40 @@ pub struct BlockTrackingStats {
     /// Only contains new chunks that belong to this block, if the block doesn't produce a new chunk
     /// for a shard, the corresponding item will be None.
     pub chunks: Vec<Option<ChunkHash>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OptimisticBlockStats {
+    /// Timestamp when the optimistic block became ready for processing.
+    pub ready_timestamp: Option<Instant>,
+    /// Timestamp when the optimistic block was processed.
+    pub processed_timestamp: Option<Instant>,
+    /// Timestamp when the full block was received.
+    pub full_block_received_timestamp: Option<Instant>,
+}
+
+impl OptimisticBlockStats {
+    /// Observe metrics for the optimistic block.
+    /// Discard timestamps for already observed ones.
+    pub fn observe_metrics(&mut self) {
+        let Some(full_block_received_timestamp) = self.full_block_received_timestamp else {
+            return;
+        };
+
+        if let Some(ready_timestamp) = self.ready_timestamp {
+            let delay = (full_block_received_timestamp.signed_duration_since(ready_timestamp))
+                .as_seconds_f64();
+            metrics::OPTIMISTIC_BLOCK_READINESS_GAP.observe(delay);
+            self.ready_timestamp = None;
+        }
+
+        if let Some(processed_timestamp) = self.processed_timestamp {
+            let delay = (full_block_received_timestamp.signed_duration_since(processed_timestamp))
+                .as_seconds_f64();
+            metrics::OPTIMISTIC_BLOCK_PROCESSED_GAP.observe(delay);
+            self.processed_timestamp = None;
+        }
+    }
 }
 
 /// Records timestamps of requesting and receiving a chunk. Assumes that each chunk is requested
@@ -196,11 +229,11 @@ impl BlocksDelayTracker {
         });
         self.blocks_height_map.entry(height).or_insert(vec![]).push(*block_hash);
 
-        if let Some(optimistic_ready_time) = self.optimistic_blocks.get(&height) {
-            let delay =
-                (self.clock.now().signed_duration_since(*optimistic_ready_time)).as_seconds_f64();
-            metrics::BLOCK_OPTIMISTIC_DELAY.observe(delay);
-        }
+        // Process optimistic block metrics
+        let entry =
+            self.optimistic_blocks.get_or_insert_mut(height, || OptimisticBlockStats::default());
+        entry.full_block_received_timestamp = Some(self.clock.now());
+        entry.observe_metrics();
     }
 
     pub fn mark_block_dropped(&mut self, block_hash: &CryptoHash, reason: DroppedReason) {
@@ -252,7 +285,19 @@ impl BlocksDelayTracker {
     }
 
     pub fn record_optimistic_block_ready(&mut self, block_height: BlockHeight) {
-        self.optimistic_blocks.put(block_height, self.clock.now());
+        let entry = self
+            .optimistic_blocks
+            .get_or_insert_mut(block_height, || OptimisticBlockStats::default());
+        entry.ready_timestamp = Some(self.clock.now());
+        entry.observe_metrics();
+    }
+
+    pub fn record_optimistic_block_processed(&mut self, block_height: BlockHeight) {
+        let entry = self
+            .optimistic_blocks
+            .get_or_insert_mut(block_height, || OptimisticBlockStats::default());
+        entry.processed_timestamp = Some(self.clock.now());
+        entry.observe_metrics();
     }
 
     pub fn mark_chunk_completed(&mut self, chunk_header: &ShardChunkHeader) {

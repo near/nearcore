@@ -1,6 +1,6 @@
 use near_o11y::metrics::{
-    HistogramVec, IntGaugeVec, exponential_buckets, linear_buckets, processing_time_buckets,
-    try_create_histogram_vec, try_create_int_gauge_vec,
+    HistogramVec, IntGaugeVec, exponential_buckets, linear_buckets, try_create_histogram_vec,
+    try_create_int_gauge_vec,
 };
 
 use std::sync::LazyLock;
@@ -83,7 +83,7 @@ pub static APPLYING_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
         "near_applying_chunks_time",
         "Time taken to apply chunks per shard",
         &["apply_reason", "shard_id"],
-        Some(processing_time_buckets()),
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });
