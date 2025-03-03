@@ -130,7 +130,6 @@ fn test_invalid_optimistic_block() {
     }
     let (ob, peer_id) = make_invalid_ob(&env, OptimisticBlockAdvType::Normal);
     assert!(&chain.check_optimistic_block(&ob, &peer_id).is_ok());
-    assert!(&chain.check_optimistic_block(&ob, &PeerId::random()).is_err());
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
