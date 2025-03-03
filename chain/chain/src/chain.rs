@@ -68,7 +68,6 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
 };

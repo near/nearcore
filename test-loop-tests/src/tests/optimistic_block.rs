@@ -3,8 +3,6 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
-use near_primitives::network::PeerId;
-#[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
