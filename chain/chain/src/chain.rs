@@ -2388,11 +2388,7 @@ impl Chain {
     }
 
     /// Check if optimistic block is valid and relevant to the current chain.
-    pub fn check_optimistic_block(
-        &self,
-        block: &OptimisticBlock,
-        _peer_id: &PeerId,
-    ) -> Result<(), Error> {
+    pub fn check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         let ob_timestamp =
             OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
