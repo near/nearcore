@@ -1,8 +1,3 @@
-use std::cell::RefCell;
-use std::io;
-use std::num::NonZero;
-use std::sync::Arc;
-
 use super::event_type::{ReshardingEventType, ReshardingSplitShardParams};
 use super::types::ReshardingSender;
 use crate::ChainStoreUpdate;
@@ -26,6 +21,9 @@ use near_store::trie::mem::memtrie_update::TrackingMode;
 use near_store::trie::ops::resharding::RetainMode;
 use near_store::trie::outgoing_metadata::ReceiptGroupsQueue;
 use near_store::{DBCol, ShardTries, ShardUId, Store, TrieAccess};
+use std::io;
+use std::num::NonZero;
+use std::sync::Arc;
 
 pub struct ReshardingManager {
     store: Store,
@@ -252,10 +250,7 @@ impl ReshardingManager {
             let parent_trie = tries.get_trie_for_shard(parent_shard_uid, parent_state_root);
             let parent_congestion_info =
                 parent_chunk_extra.congestion_info().expect("The congestion info must exist!");
-
-            let trie_recorder = RefCell::new(trie_recorder);
-            let parent_trie = parent_trie.recording_reads_with_recorder(trie_recorder);
-
+            let parent_trie = parent_trie.recording_reads_with_recorder(trie_recorder.into());
             let child_epoch_id = self.epoch_manager.get_next_epoch_id(block.hash())?;
             let child_shard_layout = self.epoch_manager.get_shard_layout(&child_epoch_id)?;
             let child_congestion_info = Self::get_child_congestion_info(
@@ -268,7 +263,7 @@ impl ReshardingManager {
             )?;
 
             let trie_recorder = parent_trie.take_recorder().unwrap();
-            let partial_storage = trie_recorder.borrow_mut().recorded_storage();
+            let partial_storage = trie_recorder.write().expect("no poison").recorded_storage();
             let partial_state_len = match &partial_storage.nodes {
                 PartialState::TrieValues(values) => values.len(),
             };

@@ -5,7 +5,6 @@ use tempfile::TempDir;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
-use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_chain::ChainGenesis;
 use near_chain::runtime::NightshadeRuntime;
@@ -410,7 +409,6 @@ impl TestLoopBuilder {
     }
 
     /// Custom function to change the configs before constructing each client.
-    #[allow(dead_code)]
     pub fn config_modifier(
         mut self,
         modifier: impl Fn(&mut ClientConfig, usize) + 'static,
@@ -471,20 +469,15 @@ impl TestLoopBuilder {
 
     fn build_impl(mut self) -> TestLoopEnv {
         let mut datas = Vec::new();
-        let mut network_adapters = Vec::new();
-        let mut epoch_manager_adapters = Vec::new();
         let tempdir =
             self.test_loop_data_dir.take().unwrap_or_else(|| tempfile::tempdir().unwrap());
+        let network_shared_state = TestLoopNetworkSharedState::new();
         for idx in 0..self.clients.len() {
             let account = &self.clients[idx];
             let is_archival = self.archival_clients.contains(account);
-            let (data, network_adapter, epoch_manager_adapter) =
-                self.setup_client(idx, &tempdir, is_archival);
+            let data = self.setup_client(idx, &tempdir, is_archival, &network_shared_state);
             datas.push(data);
-            network_adapters.push(network_adapter);
-            epoch_manager_adapters.push(epoch_manager_adapter);
         }
-        self.setup_network(&datas, &network_adapters, &epoch_manager_adapters);
 
         let env = TestLoopEnv { test_loop: self.test_loop, datas, tempdir };
         if self.warmup { env.warmup() } else { env }
@@ -495,11 +488,10 @@ impl TestLoopBuilder {
         idx: usize,
         tempdir: &TempDir,
         is_archival: bool,
-    ) -> (
-        TestData,
-        Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>,
-        Arc<dyn EpochManagerAdapter>,
-    ) {
+        network_shared_state: &TestLoopNetworkSharedState,
+    ) -> TestData {
+        let account_id = self.clients[idx].as_str();
+
         let client_adapter = LateBoundSender::new();
         let network_adapter = LateBoundSender::new();
         let state_snapshot_adapter = LateBoundSender::new();
@@ -619,7 +611,7 @@ impl TestLoopBuilder {
             SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
         let validator_signer = MutableConfigValue::new(
-            Some(Arc::new(create_test_signer(self.clients[idx].as_str()))),
+            Some(Arc::new(create_test_signer(account_id))),
             "validator_signer",
         );
 
@@ -631,7 +623,7 @@ impl TestLoopBuilder {
 
         // Generate a PeerId. It doesn't matter what this is. We're just making it based on
         // the account ID, so that it is stable across multiple runs in the same test.
-        let peer_id = PeerId::new(create_test_signer(self.clients[idx].as_str()).public_key());
+        let peer_id = PeerId::new(create_test_signer(account_id).public_key());
 
         let client = Client::new(
             self.test_loop.clock(),
@@ -646,10 +638,13 @@ impl TestLoopBuilder {
             true,
             [0; 32],
             Some(snapshot_callbacks),
-            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(
+                self.test_loop
+                    .async_computation_spawner(account_id, |_| Duration::milliseconds(80)),
+            ),
             partial_witness_adapter.as_multi_sender(),
             resharding_sender.as_multi_sender(),
-            Arc::new(self.test_loop.future_spawner()),
+            Arc::new(self.test_loop.future_spawner(account_id)),
             client_adapter.as_multi_sender(),
             client_adapter.as_multi_sender(),
             self.upgrade_schedule.clone(),
@@ -732,8 +727,21 @@ impl TestLoopBuilder {
             validator_signer.clone(),
             epoch_manager.clone(),
             runtime_adapter.clone(),
-            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
-            Arc::new(self.test_loop.async_computation_spawner(|_| Duration::milliseconds(80))),
+            Arc::new(
+                self.test_loop
+                    .async_computation_spawner(account_id, |_| Duration::milliseconds(80)),
+            ),
+            Arc::new(
+                self.test_loop
+                    .async_computation_spawner(account_id, |_| Duration::milliseconds(80)),
+            ),
+        );
+
+        let mut peer_manager_actor = TestLoopPeerManagerActor::new(
+            self.test_loop.clock(),
+            &self.clients[idx],
+            network_shared_state,
+            Arc::new(self.test_loop.future_spawner(account_id)),
         );
 
         let gc_actor = GCActor::new(
@@ -747,7 +755,7 @@ impl TestLoopBuilder {
             client_config.archive,
         );
         // We don't send messages to `GCActor` so adapter is not needed.
-        self.test_loop.register_actor_for_index(idx, gc_actor, None);
+        self.test_loop.data.register_actor(account_id, gc_actor, None);
 
         let resharding_actor =
             ReshardingActor::new(runtime_adapter.store().clone(), &chain_genesis);
@@ -760,28 +768,32 @@ impl TestLoopBuilder {
             shard_tracker,
             runtime: runtime_adapter,
             validator: validator_signer,
-            future_spawner: Arc::new(self.test_loop.future_spawner()),
+            future_spawner: Arc::new(self.test_loop.future_spawner(account_id)),
             handle: None,
         };
         let state_sync_dumper_handle = self.test_loop.data.register_data(state_sync_dumper);
 
         let client_sender =
-            self.test_loop.register_actor_for_index(idx, client_actor, Some(client_adapter));
+            self.test_loop.data.register_actor(account_id, client_actor, Some(client_adapter));
         let view_client_sender =
-            self.test_loop.register_actor_for_index(idx, view_client_actor, None);
-        let shards_manager_sender = self.test_loop.register_actor_for_index(
-            idx,
+            self.test_loop.data.register_actor(account_id, view_client_actor, None);
+        let shards_manager_sender = self.test_loop.data.register_actor(
+            account_id,
             shards_manager,
             Some(shards_manager_adapter),
         );
-        let partial_witness_sender = self.test_loop.register_actor_for_index(
-            idx,
+        let partial_witness_sender = self.test_loop.data.register_actor(
+            account_id,
             partial_witness_actor,
             Some(partial_witness_adapter),
         );
-        self.test_loop.register_actor_for_index(idx, sync_jobs_actor, Some(sync_jobs_adapter));
-        self.test_loop.register_actor_for_index(idx, state_snapshot, Some(state_snapshot_adapter));
-        self.test_loop.register_actor_for_index(idx, resharding_actor, Some(resharding_sender));
+        self.test_loop.data.register_actor(account_id, sync_jobs_actor, Some(sync_jobs_adapter));
+        self.test_loop.data.register_actor(
+            account_id,
+            state_snapshot,
+            Some(state_snapshot_adapter),
+        );
+        self.test_loop.data.register_actor(account_id, resharding_actor, Some(resharding_sender));
 
         // State sync dumper is not an Actor, handle starting separately.
         let state_sync_dumper_handle_clone = state_sync_dumper_handle.clone();
@@ -792,6 +804,21 @@ impl TestLoopBuilder {
             },
         );
 
+        for condition in &self.drop_condition_kinds {
+            register_drop_condition(
+                &mut peer_manager_actor,
+                self.chunks_storage.clone(),
+                epoch_manager.clone(),
+                condition,
+            );
+        }
+
+        let peer_manager_sender = self.test_loop.data.register_actor(
+            account_id,
+            peer_manager_actor,
+            Some(network_adapter),
+        );
+
         let data = TestData {
             account_id: self.clients[idx].clone(),
             peer_id,
@@ -799,42 +826,12 @@ impl TestLoopBuilder {
             view_client_sender,
             shards_manager_sender,
             partial_witness_sender,
+            peer_manager_sender,
             state_sync_dumper_handle,
         };
-        (data, network_adapter, epoch_manager)
-    }
 
-    // TODO: we assume that all `Vec`s have the same length, consider
-    // joining them into one structure.
-    fn setup_network(
-        &mut self,
-        datas: &Vec<TestData>,
-        network_adapters: &Vec<Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>>,
-        epoch_manager_adapters: &Vec<Arc<dyn EpochManagerAdapter>>,
-    ) {
-        let shared_state = Arc::new(TestLoopNetworkSharedState::new(&datas));
-        for (idx, data) in datas.iter().enumerate() {
-            let mut peer_manager_actor = TestLoopPeerManagerActor::new(
-                self.test_loop.clock(),
-                &data.account_id,
-                shared_state.clone(),
-                Arc::new(self.test_loop.future_spawner()),
-            );
-
-            for condition in &self.drop_condition_kinds {
-                register_drop_condition(
-                    &mut peer_manager_actor,
-                    self.chunks_storage.clone(),
-                    epoch_manager_adapters[idx].clone(),
-                    condition,
-                );
-            }
-
-            self.test_loop.register_actor_for_index(
-                idx,
-                peer_manager_actor,
-                Some(network_adapters[idx].clone()),
-            );
-        }
+        // Add the client to the network shared state before returning data
+        network_shared_state.add_client(&data);
+        data
     }
 }

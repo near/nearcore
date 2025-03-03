@@ -433,7 +433,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .minimum_validators_per_shard(NUM_VALIDATORS_PER_SHARD as u64)
-        .build_store_for_single_version(genesis.config.protocol_version);
+        .build_store_for_genesis_protocol_version();
 
     let stores = (0..NUM_VALIDATORS).map(|_| create_test_store()).collect::<Vec<_>>();
     let mut env = TestEnv::builder(&genesis.config)

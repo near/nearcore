@@ -138,7 +138,7 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    // TODO: consolidate all these care_about_shard() functions. This could all be one
+    // TODO: consolidate all these cares_about_shard() functions. This could all be one
     // function with an enum arg that tells what epoch we want to check, and one that allows
     // passing an epoch ID or a prev hash, or current hash, or whatever.
     pub fn cared_about_shard_in_prev_epoch(
@@ -184,7 +184,7 @@ impl ShardTracker {
     /// * If `account_id` is not None, it is supposed to be a validator
     /// account and `is_me` indicates whether we check what shards
     /// the client tracks.
-    pub fn care_about_shard(
+    pub fn cares_about_shard(
         &self,
         account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
@@ -272,7 +272,7 @@ impl ShardTracker {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        self.care_about_shard(account_id, parent_hash, shard_id, is_me)
+        self.cares_about_shard(account_id, parent_hash, shard_id, is_me)
             || self.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
@@ -321,7 +321,7 @@ impl ShardTracker {
             return Ok(false);
         }
         // Currently tracking the shard, so no need to state sync it.
-        if self.care_about_shard(me.as_ref(), prev_hash, shard_id, true) {
+        if self.cares_about_shard(me.as_ref(), prev_hash, shard_id, true) {
             return Ok(false);
         }
 
@@ -476,7 +476,7 @@ mod tests {
     ) -> HashSet<ShardId> {
         shard_ids
             .into_iter()
-            .filter(|&&shard_id| tracker.care_about_shard(None, parent_hash, shard_id, true))
+            .filter(|&&shard_id| tracker.cares_about_shard(None, parent_hash, shard_id, true))
             .cloned()
             .collect()
     }

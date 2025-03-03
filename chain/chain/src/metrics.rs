@@ -1,10 +1,21 @@
+use itertools::Itertools;
 use near_o11y::metrics::{
     Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, exponential_buckets,
-    processing_time_buckets, try_create_histogram, try_create_histogram_vec,
-    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec,
+    try_create_histogram, try_create_histogram_vec, try_create_histogram_with_buckets,
+    try_create_int_counter, try_create_int_counter_vec, try_create_int_gauge,
+    try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
+
+/// Exponential buckets for both negative and positive values.
+fn two_sided_exponential_buckets(start: f64, factor: f64, count: usize) -> Vec<f64> {
+    let positive_buckets = exponential_buckets(start, factor, count).unwrap();
+    let negative_buckets = positive_buckets.clone().into_iter().map(|x| -x).rev().collect_vec();
+    let mut buckets = negative_buckets;
+    buckets.push(0.0);
+    buckets.extend(positive_buckets);
+    buckets
+}
 
 pub static BLOCK_PROCESSING_ATTEMPTS_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
@@ -21,7 +32,7 @@ pub static BLOCK_PROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "near_block_processing_time",
         "Time taken to process blocks successfully, from when a block is ready to be processed till when the processing is finished. Measures only the time taken by the successful attempts of block processing",
-        processing_time_buckets()
+        exponential_buckets(0.001, 1.6, 20).unwrap()
     ).unwrap()
 });
 pub static BLOCK_PREPROCESSING_TIME: LazyLock<Histogram> = LazyLock::new(|| {
@@ -87,6 +98,22 @@ pub static CHUNK_RECEIVED_DELAY: LazyLock<HistogramVec> = LazyLock::new(|| {
 pub static BLOCK_ORPHANED_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram("near_block_orphaned_delay", "How long blocks stay in the orphan pool")
         .unwrap()
+});
+pub static OPTIMISTIC_BLOCK_READINESS_GAP: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_optimistic_block_readiness_gap",
+        "Gap between the optimistic block readiness and receiving full block",
+        two_sided_exponential_buckets(0.001, 1.6, 20),
+    )
+    .unwrap()
+});
+pub static OPTIMISTIC_BLOCK_PROCESSED_GAP: LazyLock<Histogram> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "near_optimistic_block_processed_gap",
+        "Gap between the end of optimistic block processing and receiving full block",
+        two_sided_exponential_buckets(0.001, 1.6, 20),
+    )
+    .unwrap()
 });
 pub static BLOCK_MISSING_CHUNKS_DELAY: LazyLock<Histogram> = LazyLock::new(|| {
     try_create_histogram(
@@ -170,6 +197,16 @@ pub(crate) static SHARD_LAYOUT_NUM_SHARDS: LazyLock<IntGauge> = LazyLock::new(||
     try_create_int_gauge(
         "near_shard_layout_num_shards",
         "The number of shards in the shard layout of the current head.",
+    )
+    .unwrap()
+});
+
+pub(crate) static APPLY_ALL_CHUNKS_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "near_apply_all_chunks_time",
+        "Time taken to apply all chunks in a block",
+        &["block_type"],
+        Some(exponential_buckets(0.001, 1.6, 20).unwrap()),
     )
     .unwrap()
 });

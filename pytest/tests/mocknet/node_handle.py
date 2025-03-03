@@ -38,6 +38,9 @@ class NodeHandle:
     def run_cmd(self, cmd, raise_on_fail=False, return_on_fail=False):
         return self.node.run_cmd(cmd, raise_on_fail, return_on_fail)
 
+    def upload_file(self, src, dst):
+        return self.node.upload_file(src, dst)
+
     def init_neard_runner(self, config, remove_home_dir=False):
         self.node.stop_neard_runner()
         self.node.init()

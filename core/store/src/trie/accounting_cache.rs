@@ -7,17 +7,18 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic;
 
 /// Switch that controls whether the `TrieAccountingCache` is enabled.
-pub struct TrieAccountingCacheSwitch(Arc<std::sync::atomic::AtomicBool>);
+pub struct TrieAccountingCacheSwitch(Arc<thread_local::ThreadLocal<atomic::AtomicBool>>);
 
 impl TrieAccountingCacheSwitch {
     pub fn set(&self, enabled: bool) {
-        self.0.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.0.get_or(Default::default).store(enabled, atomic::Ordering::Relaxed);
     }
 
     pub fn enabled(&self) -> bool {
-        self.0.load(std::sync::atomic::Ordering::Relaxed)
+        self.0.get_or(Default::default).load(atomic::Ordering::Relaxed)
     }
 }
 
@@ -92,7 +93,13 @@ impl TrieAccountingCache {
             }
         });
         let switch = TrieAccountingCacheSwitch(Default::default());
-        Self { enable: switch, cache: HashMap::new(), db_read_nodes: 0, mem_read_nodes: 0, metrics }
+        Self {
+            enable: switch,
+            cache: Default::default(),
+            db_read_nodes: Default::default(),
+            mem_read_nodes: Default::default(),
+            metrics,
+        }
     }
 
     pub fn enable_switch(&self) -> TrieAccountingCacheSwitch {

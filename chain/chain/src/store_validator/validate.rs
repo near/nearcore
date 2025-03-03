@@ -388,7 +388,7 @@ pub(crate) fn block_chunks_exist(
     for chunk_header in block.chunks().iter_deprecated() {
         if chunk_header.height_included() == block.header().height() {
             if let Some(me) = &sv.me {
-                let cares_about_shard = sv.shard_tracker.care_about_shard(
+                let cares_about_shard = sv.shard_tracker.cares_about_shard(
                     Some(me),
                     block.header().prev_hash(),
                     chunk_header.shard_id(),
