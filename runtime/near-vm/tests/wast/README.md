@@ -1,3 +1,3 @@
 # WebAssembly testsuite
 
-Here is where all the `.wast` tests live.
+Here is where all the `.waste` tests live.
