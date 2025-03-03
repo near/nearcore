@@ -270,6 +270,7 @@ pub(crate) fn call_burn_gas_contract(
         move |node_datas: &[TestData],
               test_loop_data: &mut TestLoopData,
               client_account_id: AccountId| {
+            tracing::info!("Executing action at block height {}", latest_height.get());
             let client_actor =
                 retrieve_client_actor(node_datas, test_loop_data, &client_account_id);
             let tip = client_actor.client.chain.head().unwrap();
@@ -283,6 +284,7 @@ pub(crate) fn call_burn_gas_contract(
             // After resharding: wait some blocks and check that all txs have been executed correctly.
             if let Some(height) = resharding_height.get() {
                 if tip.height > height + tx_check_blocks_after_resharding {
+                    tracing::info!("Checking txs at block height {}", latest_height.get());
                     for (tx, tx_height) in txs.take() {
                         let tx_outcome =
                             client_actor.client.chain.get_partial_transaction_result(&tx);
@@ -959,7 +961,7 @@ pub(crate) fn promise_yield_repro_missing_trie_value(
             let indices_right_child_shard =
                 get_promise_yield_indices_for_shard(right_child_shard_uid);
 
-            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id, 
+            tracing::debug!(target: "test", height=tip.height, epoch=?tip.epoch_id,
                     ?indices_parent_shard, ?indices_left_child_shard, ?indices_right_child_shard, "promise yield indices");
 
             // At any height, if the shard exists and it is tracked, the promise yield indices trie node must exist.
