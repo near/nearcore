@@ -3519,16 +3519,18 @@ impl Chain {
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
-        if let Some(result) =
-            self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
-        {
-            debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
-            let result = result.clone();
-            return Ok(Some((
-                shard_id,
-                cached_shard_update_key,
-                Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
-            )));
+        if !cfg!(feature = "sandbox") {
+            if let Some(result) =
+                self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
+            {
+                debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+                let result = result.clone();
+                return Ok(Some((
+                    shard_id,
+                    cached_shard_update_key,
+                    Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
+                )));
+            }
         }
         debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 
