@@ -478,17 +478,17 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let mut test_setup_transactions = vec![];
     let mut nonce = 100;
     if !params.deploy_test_global_contract.is_empty() {
-        for (contract_id, deploy_mode) in &params.deploy_test_global_contract {
+        for (deployer_id, deploy_mode) in &params.deploy_test_global_contract {
             let deploy_contract_tx = deploy_global_contract(
                 &mut env.test_loop,
                 &env.datas,
                 &client_account_id,
-                contract_id.clone(),
+                deployer_id.clone(),
                 near_test_contracts::rs_contract().into(),
                 nonce,
                 deploy_mode.clone(),
             );
-            nonce += 11;
+            nonce += 1;
             test_setup_transactions.push(deploy_contract_tx);
         }
         // Make sure the global contract is deployed before the usage transactions.
@@ -504,7 +504,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
                 nonce,
                 identifier.clone(),
             );
-            nonce += 11;
+            nonce += 1;
             test_setup_transactions.push(use_contract_tx);
         }
     }
@@ -517,7 +517,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             near_test_contracts::rs_contract().into(),
             nonce,
         );
-        nonce += 11;
+        nonce += 1;
         test_setup_transactions.push(deploy_contract_tx);
     }
     if !params.disable_temporary_account_test {

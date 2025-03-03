@@ -304,27 +304,25 @@ pub fn deploy_contract(
     tx_hash
 }
 
-/// Deploy the test global contract by AccountId to the provided contract_id account.
-/// The contract account should already exist. The contract will be deployed from the
-/// contract account itself.
+/// Deploy a test global contract using the corresponding deploy_mode.
 ///
 /// This function does not wait until the transactions is executed.
 pub fn deploy_global_contract(
     test_loop: &mut TestLoopV2,
     node_datas: &[TestData],
     rpc_id: &AccountId,
-    contract_id: AccountId,
+    deployer_id: AccountId,
     code: Vec<u8>,
     nonce: u64,
     deploy_mode: GlobalContractDeployMode,
 ) -> CryptoHash {
     let block_hash = get_shared_block_hash(node_datas, &test_loop.data);
 
-    let signer = create_user_test_signer(&contract_id);
+    let signer = create_user_test_signer(&deployer_id);
 
     let tx = SignedTransaction::deploy_global_contract(
         nonce,
-        contract_id.clone(),
+        deployer_id.clone(),
         code,
         &signer,
         block_hash,
@@ -333,7 +331,7 @@ pub fn deploy_global_contract(
     let tx_hash = tx.get_hash();
     submit_tx(node_datas, rpc_id, tx);
 
-    tracing::debug!(target: "test", ?contract_id, ?tx_hash, ?deploy_mode, "deployed global contract");
+    tracing::debug!(target: "test", ?deployer_id, ?tx_hash, ?deploy_mode, "deployed global contract");
     tx_hash
 }
 
