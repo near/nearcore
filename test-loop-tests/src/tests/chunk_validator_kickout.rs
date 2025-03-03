@@ -85,7 +85,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         // Set up config to kick out only chunk validators for low performance.
         .kickouts_for_chunk_validators_only()
         .target_validator_mandates_per_shard(num_validator_mandates_per_shard)
-        .build_store_for_single_version(genesis.config.protocol_version);
+        .build_store_for_genesis_protocol_version();
 
     let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
         builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();

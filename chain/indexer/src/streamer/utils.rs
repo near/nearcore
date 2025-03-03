@@ -25,6 +25,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     let local_receipts: Vec<views::ReceiptView> =
         txs.into_iter()
             .map(|tx| {
+                assert_eq!(tx.transaction.signer_id, tx.transaction.receiver_id);
                 let cost = tx_cost(
                     &runtime_config,
                     &near_primitives::transaction::Transaction::V0(
@@ -46,7 +47,6 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                         },
                     ),
                     prev_block_gas_price,
-                    true,
                     protocol_version,
                 )
                 .expect("TransactionCost returned IntegerOverflowError");

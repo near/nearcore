@@ -5,7 +5,6 @@ use tempfile::TempDir;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
 use near_async::test_loop::TestLoopV2;
-use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::{Clock, Duration};
 use near_chain::ChainGenesis;
 use near_chain::runtime::NightshadeRuntime;
@@ -470,20 +469,15 @@ impl TestLoopBuilder {
 
     fn build_impl(mut self) -> TestLoopEnv {
         let mut datas = Vec::new();
-        let mut network_adapters = Vec::new();
-        let mut epoch_manager_adapters = Vec::new();
         let tempdir =
             self.test_loop_data_dir.take().unwrap_or_else(|| tempfile::tempdir().unwrap());
+        let network_shared_state = TestLoopNetworkSharedState::new();
         for idx in 0..self.clients.len() {
             let account = &self.clients[idx];
             let is_archival = self.archival_clients.contains(account);
-            let (data, network_adapter, epoch_manager_adapter) =
-                self.setup_client(idx, &tempdir, is_archival);
+            let data = self.setup_client(idx, &tempdir, is_archival, &network_shared_state);
             datas.push(data);
-            network_adapters.push(network_adapter);
-            epoch_manager_adapters.push(epoch_manager_adapter);
         }
-        self.setup_network(&datas, &network_adapters, &epoch_manager_adapters);
 
         let env = TestLoopEnv { test_loop: self.test_loop, datas, tempdir };
         if self.warmup { env.warmup() } else { env }
@@ -494,11 +488,8 @@ impl TestLoopBuilder {
         idx: usize,
         tempdir: &TempDir,
         is_archival: bool,
-    ) -> (
-        TestData,
-        Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>,
-        Arc<dyn EpochManagerAdapter>,
-    ) {
+        network_shared_state: &TestLoopNetworkSharedState,
+    ) -> TestData {
         let account_id = self.clients[idx].as_str();
 
         let client_adapter = LateBoundSender::new();
@@ -746,6 +737,13 @@ impl TestLoopBuilder {
             ),
         );
 
+        let mut peer_manager_actor = TestLoopPeerManagerActor::new(
+            self.test_loop.clock(),
+            &self.clients[idx],
+            network_shared_state,
+            Arc::new(self.test_loop.future_spawner(account_id)),
+        );
+
         let gc_actor = GCActor::new(
             runtime_adapter.store().clone(),
             &chain_genesis,
@@ -806,6 +804,21 @@ impl TestLoopBuilder {
             },
         );
 
+        for condition in &self.drop_condition_kinds {
+            register_drop_condition(
+                &mut peer_manager_actor,
+                self.chunks_storage.clone(),
+                epoch_manager.clone(),
+                condition,
+            );
+        }
+
+        let peer_manager_sender = self.test_loop.data.register_actor(
+            account_id,
+            peer_manager_actor,
+            Some(network_adapter),
+        );
+
         let data = TestData {
             account_id: self.clients[idx].clone(),
             peer_id,
@@ -813,42 +826,12 @@ impl TestLoopBuilder {
             view_client_sender,
             shards_manager_sender,
             partial_witness_sender,
+            peer_manager_sender,
             state_sync_dumper_handle,
         };
-        (data, network_adapter, epoch_manager)
-    }
 
-    // TODO: we assume that all `Vec`s have the same length, consider
-    // joining them into one structure.
-    fn setup_network(
-        &mut self,
-        datas: &Vec<TestData>,
-        network_adapters: &Vec<Arc<LateBoundSender<TestLoopSender<TestLoopPeerManagerActor>>>>,
-        epoch_manager_adapters: &Vec<Arc<dyn EpochManagerAdapter>>,
-    ) {
-        let shared_state = Arc::new(TestLoopNetworkSharedState::new(&datas));
-        for (idx, data) in datas.iter().enumerate() {
-            let mut peer_manager_actor = TestLoopPeerManagerActor::new(
-                self.test_loop.clock(),
-                &data.account_id,
-                shared_state.clone(),
-                Arc::new(self.test_loop.future_spawner(data.account_id.as_str())),
-            );
-
-            for condition in &self.drop_condition_kinds {
-                register_drop_condition(
-                    &mut peer_manager_actor,
-                    self.chunks_storage.clone(),
-                    epoch_manager_adapters[idx].clone(),
-                    condition,
-                );
-            }
-
-            self.test_loop.data.register_actor(
-                data.account_id.as_str(),
-                peer_manager_actor,
-                Some(network_adapters[idx].clone()),
-            );
-        }
+        // Add the client to the network shared state before returning data
+        network_shared_state.add_client(&data);
+        data
     }
 }

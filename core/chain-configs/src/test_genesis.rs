@@ -48,6 +48,7 @@ pub struct TestEpochConfigBuilder {
     // TODO (#11267): deprecate after StatelessValidationV0 is in place.
     // Use 300 for older protocol versions.
     num_chunk_only_producer_seats: NumSeats,
+    genesis_protocol_version: Option<ProtocolVersion>,
 }
 
 /// A builder for constructing a valid genesis for testing.
@@ -143,6 +144,7 @@ impl Default for TestEpochConfigBuilder {
             // consider them ineffective
             num_block_producer_seats_per_shard: vec![1],
             num_chunk_only_producer_seats: 300,
+            genesis_protocol_version: None,
         }
     }
 }
@@ -159,11 +161,12 @@ impl TestEpochConfigBuilder {
         builder.num_block_producer_seats = genesis.config.num_block_producer_seats;
         builder.num_chunk_producer_seats = genesis.config.num_chunk_producer_seats;
         builder.num_chunk_validator_seats = genesis.config.num_chunk_validator_seats;
+        builder.genesis_protocol_version = Some(genesis.config.protocol_version);
         builder
     }
 
     pub fn build_store_from_genesis(genesis: &Genesis) -> EpochConfigStore {
-        Self::from_genesis(genesis).build_store_for_single_version(genesis.config.protocol_version)
+        Self::from_genesis(genesis).build_store_for_genesis_protocol_version()
     }
 
     pub fn epoch_length(mut self, epoch_length: BlockHeightDelta) -> Self {
@@ -258,10 +261,11 @@ impl TestEpochConfigBuilder {
         epoch_config
     }
 
-    pub fn build_store_for_single_version(
-        self,
-        protocol_version: ProtocolVersion,
-    ) -> EpochConfigStore {
+    /// Creates `EpochConfigStore` instance with single protocol version from genesis.
+    /// This should be used only when the builder is created with `from_genesis` constructor.
+    pub fn build_store_for_genesis_protocol_version(self) -> EpochConfigStore {
+        let protocol_version =
+            self.genesis_protocol_version.expect("genesis protocol version is not specified");
         let epoch_config = self.build();
         EpochConfigStore::test_single_version(protocol_version, epoch_config)
     }
