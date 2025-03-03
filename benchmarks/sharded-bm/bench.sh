@@ -45,10 +45,6 @@ PYTEST_PATH="../../pytest/"
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
 if [ "${RUN_ON_FORKNET}" = true ]; then
-    if [[ -z "${VIRTUAL_ENV}" ]]; then
-        echo "Must provide VIRTUAL_ENV in environment" 1>&2
-        exit 1
-    fi
     FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
     FORKNET_RPC_ADDR=$(jq -r '.forknet.rpc_addr' ${BM_PARAMS})
     FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
@@ -78,7 +74,7 @@ RPC_URL="http://${RPC_ADDR}"
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $mirror start-nodes
+    $mirror --host-type nodes start-nodes
     cd -
 }
 
@@ -107,7 +103,7 @@ start_nodes() {
 
 stop_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $mirror stop-nodes || true
+    $mirror --host-type nodes stop-nodes || true
     cd -
 }
 
@@ -131,7 +127,7 @@ stop_nodes() {
 
 reset_forknet() {
     cd ${PYTEST_PATH}
-    $mirror --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete && rm -rf ${BENCHNET_DIR}"
+    $mirror --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete"
     cd -
 }
 
@@ -157,11 +153,12 @@ reset() {
 
 init_forknet() {
     epoch_length=$(jq -r '.epoch_length' ${BASE_GENESIS_PATCH})
+    protocol_version=$(jq -r '.protocol_version' ${GENESIS_PATCH})
     cd ${PYTEST_PATH}
     $mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL}
     $mirror --host-type nodes new-test \
         --epoch-length ${epoch_length} \
-        --genesis-protocol-version 76 \
+        --genesis-protocol-version ${protocol_version} \
         --num-validators ${NUM_CHUNK_PRODUCERS} \
         --num-seats ${NUM_CHUNK_PRODUCERS} \
         --stateless-setup \
@@ -174,6 +171,7 @@ init_forknet() {
 }
 
 init_local() {
+    reset
     if [ "${NUM_NODES}" -eq "1" ]; then
         rm -f ${CONFIG} ${GENESIS} 
         /${NEARD} --home ${NEAR_HOME} init --chain-id localnet
@@ -184,7 +182,6 @@ init_local() {
 
 init() {
     echo "=> Initializing ${NUM_NODES} node network"
-    reset
     if [ "${RUN_ON_FORKNET}" = true ]; then
         init_forknet
     else
@@ -196,6 +193,7 @@ init() {
 
 edit_genesis() {
     echo "editing ${1}"
+    jq 'del(.shard_layout.V1)' ${1} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
     jq -s 'reduce .[] as $item ({}; . * $item)' \
         ${1} ${BASE_GENESIS_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
     jq -s 'reduce .[] as $item ({}; . * $item)' \
@@ -224,8 +222,14 @@ tweak_config_forknet() {
     cd ${PYTEST_PATH}
     $mirror --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
     $mirror --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
-    # $mirror --host-type nodes run-cmd --cmd "./bench.sh tweak-config"
+    $mirror --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; CASE=${CASE} ./bench.sh tweak-config-forknet-node"
     cd -
+}
+
+tweak_config_forknet_node() {
+    edit_genesis ${GENESIS}
+    edit_config ${CONFIG}
+    edit_log_config ${LOG_CONFIG}    
 }
 
 tweak_config_local() {
@@ -397,6 +401,10 @@ case "$1" in
 
     stop-nodes)
         stop_nodes
+        ;;
+
+    tweak-config-forknet-node)
+        tweak_config_forknet_node
         ;;
 
     *)
