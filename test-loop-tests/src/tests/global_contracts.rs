@@ -1,17 +1,11 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
 use assert_matches::assert_matches;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{
-    TestEpochConfigBuilder, TestGenesisBuilder, ValidatorsSpec,
-};
+use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_client::Client;
 use near_client::test_utils::test_loop::ClientQueries;
 use near_o11y::testonly::init_test_logger;
 use near_parameters::{ActionCosts, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
-use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, MethodResolveError, TxExecutionError,
 };
@@ -33,19 +27,16 @@ use crate::utils::{ONE_NEAR, TGAS};
 
 const GAS_PRICE: Balance = 1;
 
-#[cfg_attr(not(feature = "nightly_protocol"), ignore)]
 #[test]
 fn test_global_contract_by_hash() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::CodeHash);
 }
 
-#[cfg_attr(not(feature = "nightly_protocol"), ignore)]
 #[test]
 fn test_global_contract_by_account_id() {
     test_deploy_and_call_global_contract(GlobalContractDeployMode::AccountId);
 }
 
-#[cfg_attr(not(feature = "nightly_protocol"), ignore)]
 #[test]
 fn test_global_contract_deploy_insufficient_balance_for_storage() {
     let mut env = GlobalContractsTestEnv::setup(ONE_NEAR);
@@ -63,7 +54,6 @@ fn test_global_contract_deploy_insufficient_balance_for_storage() {
     env.shutdown();
 }
 
-#[cfg_attr(not(feature = "nightly_protocol"), ignore)]
 #[test]
 fn test_use_non_existent_global_contract() {
     let mut env = GlobalContractsTestEnv::setup(ONE_NEAR);
@@ -82,7 +72,6 @@ fn test_use_non_existent_global_contract() {
     env.shutdown();
 }
 
-#[cfg_attr(not(feature = "nightly_protocol"), ignore)]
 #[test]
 fn test_global_contract_update() {
     let mut env = GlobalContractsTestEnv::setup(1000 * ONE_NEAR);
@@ -181,24 +170,16 @@ impl GlobalContractsTestEnv {
         let validators_spec =
             ValidatorsSpec::desired_roles(&block_and_chunk_producers, &chunk_validators_only);
 
-        let genesis = TestGenesisBuilder::new()
-            .genesis_time_from_clock(&near_async::time::FakeClock::default().clock())
-            .validators_spec(validators_spec.clone())
-            .shard_layout(shard_layout.clone())
+        let genesis = TestLoopBuilder::new_genesis_builder()
+            .validators_spec(validators_spec)
+            .shard_layout(shard_layout)
             .add_user_accounts_simple(
                 &[account_shard_0.clone(), account_shard_1.clone(), deploy_account.clone()],
                 initial_balance,
             )
             .gas_prices(GAS_PRICE, GAS_PRICE)
             .build();
-        let epoch_config = TestEpochConfigBuilder::new()
-            .shard_layout(shard_layout)
-            .validators_spec(validators_spec)
-            .build();
-        let epoch_config_store = EpochConfigStore::test(BTreeMap::from([(
-            genesis.config.protocol_version,
-            Arc::new(epoch_config),
-        )]));
+        let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
         let clients = block_and_chunk_producers
             .iter()

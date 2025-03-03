@@ -68,6 +68,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::network::PeerId;
 use near_primitives::optimistic_block::{
     BlockToApply, CachedShardUpdateKey, OptimisticBlock, OptimisticBlockKeySource,
 };
@@ -110,6 +111,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use time::ext::InstantExt as _;
 use tracing::{Span, debug, debug_span, error, info, warn};
 
@@ -600,7 +602,7 @@ impl Chain {
         let tracked_shards: Vec<_> = shard_uids
             .iter()
             .filter(|shard_uid| {
-                shard_tracker.care_about_shard(
+                shard_tracker.cares_about_shard(
                     validator.get().map(|v| v.validator_id().clone()).as_ref(),
                     &tip.prev_block_hash,
                     shard_uid.shard_id(),
@@ -1361,7 +1363,7 @@ impl Chain {
         parent_hash: CryptoHash,
         block: &Block,
     ) -> Result<(), Error> {
-        if !self.care_about_any_shard_or_part(me, parent_hash)? {
+        if !self.cares_about_any_shard_or_part(me, parent_hash)? {
             return Ok(());
         }
         let mut missing = vec![];
@@ -1394,7 +1396,7 @@ impl Chain {
 
                 if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
                     missing.push(chunk_header.clone());
-                } else if self.shard_tracker.care_about_shard(
+                } else if self.shard_tracker.cares_about_shard(
                     me.as_ref(),
                     &parent_hash,
                     shard_id,
@@ -1417,14 +1419,14 @@ impl Chain {
         Ok(())
     }
 
-    fn care_about_any_shard_or_part(
+    fn cares_about_any_shard_or_part(
         &self,
         me: &Option<AccountId>,
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
         for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
-            if self.shard_tracker.care_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+            if self.shard_tracker.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
                     &parent_hash,
@@ -1458,7 +1460,7 @@ impl Chain {
         prev_block_hash: &CryptoHash,
         shuffle_salt: &CryptoHash,
     ) -> Result<HashMap<ShardId, Vec<ReceiptProof>>, Error> {
-        if !self.care_about_any_shard_or_part(me, *prev_block_hash)? {
+        if !self.cares_about_any_shard_or_part(me, *prev_block_hash)? {
             return Ok(HashMap::new());
         }
         let mut receipt_proofs_by_shard_id = HashMap::new();
@@ -1557,10 +1559,19 @@ impl Chain {
         let block_height = block.height();
         let prev_block_hash = *block.prev_block_hash();
         let prev_block = self.get_block(&prev_block_hash)?;
+        let prev_prev_hash = prev_block.header().prev_hash();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
-
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
+
+        let (is_caught_up, _) = self.get_catchup_and_state_sync_infos(
+            &epoch_id,
+            None,
+            &prev_block_hash,
+            prev_prev_hash,
+            me,
+        )?;
+
         let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
         let chunks = Chunks::from_chunk_headers(&chunk_headers, block_height);
         let incoming_receipts = self.collect_incoming_receipts_from_chunks(
@@ -1602,7 +1613,11 @@ impl Chain {
                 shard_index,
                 &prev_block,
                 prev_chunk_header,
-                ApplyChunksMode::IsCaughtUp,
+                if is_caught_up {
+                    ApplyChunksMode::IsCaughtUp
+                } else {
+                    ApplyChunksMode::NotCaughtUp
+                },
                 incoming_receipts,
                 storage_context,
             );
@@ -2126,7 +2141,7 @@ impl Chain {
         let epoch_id = block.header().epoch_id();
         let mut shards_cares_this_or_next_epoch = vec![];
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
-            let care_about_shard = self.shard_tracker.care_about_shard(
+            let cares_about_shard = self.shard_tracker.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
@@ -2138,20 +2153,20 @@ impl Chain {
                 shard_id,
                 true,
             );
-            let care_about_shard_this_or_next_epoch = care_about_shard || will_care_about_shard;
+            let cares_about_shard_this_or_next_epoch = cares_about_shard || will_care_about_shard;
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, epoch_id)?;
-            if care_about_shard_this_or_next_epoch {
+            if cares_about_shard_this_or_next_epoch {
                 shards_cares_this_or_next_epoch.push(shard_uid);
             }
 
             let need_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
-                care_about_shard_this_or_next_epoch
+                cares_about_shard_this_or_next_epoch
             } else {
                 // If we didn't catch up, we can update only shards tracked right now. Remaining shards will be updated
                 // during catchup of this block.
-                care_about_shard
+                cares_about_shard
             };
             tracing::debug!(target: "chain", ?shard_id, need_storage_update, "Updating storage");
 
@@ -2378,6 +2393,66 @@ impl Chain {
         Ok(())
     }
 
+    /// Check if optimistic block is valid and relevant to the current chain.
+    pub fn check_optimistic_block(
+        &self,
+        block: &OptimisticBlock,
+        peer_id: &PeerId,
+    ) -> Result<(), Error> {
+        // Refuse blocks from the too distant future.
+        let ob_timestamp =
+            OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
+                .map_err(|e| Error::Other(e.to_string()))?;
+        let future_threshold = self.clock.now_utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE);
+        if ob_timestamp > future_threshold {
+            return Err(Error::InvalidBlockFutureTime(ob_timestamp));
+        };
+
+        let head = self.head()?;
+        if head.height >= block.height() {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // Check source of the optimistic block.
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash())?;
+        let validator = self.epoch_manager.get_block_producer_info(&epoch_id, block.height())?;
+        if peer_id.public_key() != validator.public_key() {
+            return Err(Error::InvalidBlockProposer);
+        }
+
+        let prev = self.get_block_header(&block.prev_block_hash())?;
+        let prev_random_value = *prev.random_value();
+        let prev_height = prev.height();
+
+        if prev_height + 1 != block.height() {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // Prevent time warp attacks and some timestamp manipulations by forcing strict
+        // time progression.
+        if ob_timestamp <= prev.timestamp() {
+            return Err(Error::InvalidBlockPastTime(prev.timestamp(), ob_timestamp));
+        }
+
+        // Check the signature.
+        if !block.signature.verify(block.hash().as_bytes(), validator.public_key()) {
+            return Err(Error::InvalidSignature);
+        }
+
+        verify_block_vrf(
+            validator,
+            &prev_random_value,
+            &block.inner.vrf_value,
+            &block.inner.vrf_proof,
+        )?;
+
+        if &block.inner.random_value != &hash(&block.inner.vrf_value.0.as_ref()) {
+            return Err(Error::InvalidRandomnessBeaconOutput);
+        }
+
+        Ok(())
+    }
+
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block and the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
@@ -2468,7 +2543,7 @@ impl Chain {
 
         let (is_caught_up, state_sync_info) = self.get_catchup_and_state_sync_infos(
             header.epoch_id(),
-            header.hash(),
+            Some(header.hash()),
             &prev_hash,
             prev_prev_hash,
             me,
@@ -2570,10 +2645,13 @@ impl Chain {
         ))
     }
 
+    /// Finds whether the block with `prev_hash` is caught up.
+    /// Additionally, if `block_hash` is provided and state sync info exists,
+    /// returns it as well.
     fn get_catchup_and_state_sync_infos(
         &self,
         epoch_id: &EpochId,
-        block_hash: &CryptoHash,
+        block_hash: Option<&CryptoHash>,
         prev_hash: &CryptoHash,
         prev_prev_hash: &CryptoHash,
         me: &Option<AccountId>,
@@ -2591,10 +2669,14 @@ impl Chain {
         // For the first block of the epoch we check if we need to start download states for
         // shards that we will care about in the next epoch. If there is no state to be downloaded,
         // we consider that we are caught up, otherwise not
-        let state_sync_info =
-            self.shard_tracker.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?;
+        let state_sync_info = match block_hash {
+            Some(block_hash) => {
+                self.shard_tracker.get_state_sync_info(me, epoch_id, block_hash, prev_hash)?
+            }
+            None => None,
+        };
         debug!(
-            target: "chain", %block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
+            target: "chain", ?block_hash, shards_to_sync=?state_sync_info.as_ref().map(|s| s.shards()),
             "Checked for shards to sync for epoch T+1 upon processing first block of epoch T"
         );
         Ok((state_sync_info.is_none(), state_sync_info))
@@ -2914,7 +2996,7 @@ impl Chain {
         for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
             // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
-            if !self.shard_tracker.care_about_shard(
+            if !self.shard_tracker.cares_about_shard(
                 me.as_ref(),
                 block.header().prev_hash(),
                 shard_id,
@@ -3361,7 +3443,7 @@ impl Chain {
         mode: ApplyChunksMode,
     ) -> Result<ShardContext, Error> {
         let cares_about_shard_this_epoch =
-            self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+            self.shard_tracker.cares_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cared_about_shard_prev_epoch = self.shard_tracker.cared_about_shard_in_prev_epoch(

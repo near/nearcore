@@ -124,7 +124,7 @@ impl ChunkTestFixture {
                 if v == &&mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = shard_tracker.care_about_shard(
+                    let tracks_shard = shard_tracker.cares_about_shard(
                         Some(*v),
                         &mock_ancestor_hash,
                         mock_shard_id,

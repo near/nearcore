@@ -108,7 +108,7 @@ impl TrieSanityCheck {
                 continue;
             }
 
-            let cares = client.shard_tracker.care_about_shard(
+            let cares = client.shard_tracker.cares_about_shard(
                 Some(account_id),
                 &tip.prev_block_hash,
                 shard_uid.shard_id(),
