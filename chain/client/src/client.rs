@@ -1863,6 +1863,8 @@ impl Client {
             return;
         };
 
+        self.chain.blocks_delay_tracker.record_optimistic_block_ready(block.height());
+
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
         let prev_block_hash = *block.prev_block_hash();

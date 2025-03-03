@@ -2040,11 +2040,16 @@ impl Chain {
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
+        let clock = self.clock.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
+            let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(block.clone(), block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
+            metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
+                (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
+            );
             sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
@@ -2253,6 +2258,7 @@ impl Chain {
                 optimistic_block_hash
             )
         });
+        self.blocks_delay_tracker.record_optimistic_block_processed(optimistic_block.height());
 
         let prev_block_hash = optimistic_block.prev_block_hash();
         let block_height = optimistic_block.height();
