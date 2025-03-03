@@ -2391,7 +2391,7 @@ impl Chain {
     pub fn check_optimistic_block(
         &self,
         block: &OptimisticBlock,
-        peer_id: &PeerId,
+        _peer_id: &PeerId,
     ) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         let ob_timestamp =
@@ -2410,8 +2410,10 @@ impl Chain {
         // Check source of the optimistic block.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash())?;
         let validator = self.epoch_manager.get_block_producer_info(&epoch_id, block.height())?;
-        if peer_id.public_key() != validator.public_key() {
-            return Err(Error::InvalidBlockProposer);
+
+        // Check the signature.
+        if !block.signature.verify(block.hash().as_bytes(), validator.public_key()) {
+            return Err(Error::InvalidSignature);
         }
 
         let prev = self.get_block_header(&block.prev_block_hash())?;
@@ -2426,11 +2428,6 @@ impl Chain {
         // time progression.
         if ob_timestamp <= prev.timestamp() {
             return Err(Error::InvalidBlockPastTime(prev.timestamp(), ob_timestamp));
-        }
-
-        // Check the signature.
-        if !block.signature.verify(block.hash().as_bytes(), validator.public_key()) {
-            return Err(Error::InvalidSignature);
         }
 
         verify_block_vrf(

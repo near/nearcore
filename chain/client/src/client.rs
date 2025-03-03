@@ -1043,6 +1043,7 @@ impl Client {
         // Validate the optimistic block.
         // Discard the block if it is old or not created by the right producer.
         if let Err(e) = self.chain.check_optimistic_block(&block, &peer_id) {
+            metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
             debug!(target: "client", ?e, "Optimistic block is invalid");
             return;
         }
