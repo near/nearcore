@@ -7,7 +7,7 @@ use crate::utils::ONE_NEAR;
 use crate::utils::transactions::get_anchor_hash;
 use near_async::messaging::CanSend as _;
 use near_async::time::Duration;
-use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
+use near_chain_configs::test_genesis::ValidatorsSpec;
 use near_client::ProcessTxRequest;
 use near_client::client_actor::{AdvProduceChunksMode, NetworkAdversarialMessage};
 use near_client::test_utils::test_loop::ClientQueries;

@@ -492,7 +492,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             test_setup_transactions.push(deploy_contract_tx);
         }
         // Make sure the global contract is deployed before the usage transactions.
-        env.test_loop.run_for(Duration::seconds(3));
+        env.test_loop.run_for(Duration::seconds(2));
         check_txs(&env.test_loop.data, &env.datas, &client_account_id, &test_setup_transactions);
         test_setup_transactions = vec![];
         for (user_id, identifier) in &params.use_test_global_contract {
@@ -529,11 +529,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             10 * ONE_NEAR,
             nonce,
         );
-        nonce += 11;
         test_setup_transactions.push(create_account_tx);
     }
     // Wait for the test setup transactions to settle and ensure they all succeeded.
-    env.test_loop.run_for(Duration::seconds(3));
+    env.test_loop.run_for(Duration::seconds(2));
     check_txs(&env.test_loop.data, &env.datas, &client_account_id, &test_setup_transactions);
 
     let client_handles =
@@ -1136,32 +1135,47 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
 }
 
 #[test]
-#[cfg_attr(not(all(feature = "test_features", feature = "nightly_protocol")), ignore)]
-fn slow_test_resharding_v3_global_contracts() {
-    let rpc: AccountId = "account6".parse().unwrap();
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn slow_test_resharding_v3_global_contract_by_hash() {
     let account: AccountId = "account4".parse().unwrap();
     let caller1: AccountId = "account1".parse().unwrap();
     let caller2: AccountId = "account2".parse().unwrap();
     let caller_accounts = vec![caller1, caller2];
     let user_by_code_hash: AccountId = "account5".parse().unwrap();
-    // let user_by_account_id: AccountId = "account6".parse().unwrap();
     let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
     let identifier1 = GlobalContractIdentifier::CodeHash(code_hash);
-    // let identifier2 = GlobalContractIdentifier::AccountId(account.clone());
     let params = TestReshardingParametersBuilder::default()
-        // .num_epochs_to_wait(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
-        // .epoch_length(INCREASED_TESTLOOP_NUM_EPOCHS_TO_WAIT)
-        .deploy_test_contract(account.clone())
-        // .deploy_test_global_contract(account.clone(), GlobalContractDeployMode::CodeHash)
-        // .use_test_global_contract(user_by_code_hash.clone(), identifier1)
-        // .deploy_test_global_contract(account.clone(), GlobalContractDeployMode::AccountId)
-        // .use_test_global_contract(user_by_account_id.clone(), identifier2)
+        .deploy_test_global_contract(account.clone(), GlobalContractDeployMode::CodeHash)
+        .use_test_global_contract(user_by_code_hash.clone(), identifier1)
         .add_loop_action(call_burn_gas_contract(
-            // caller_accounts.clone(),
-            // caller_accounts.clone(),
-            vec![account.clone()],
-            vec![account],
-            // vec![user_by_code_hash, user_by_account_id],
+            caller_accounts.clone(),
+            vec![user_by_code_hash],
+            275 * TGAS,
+            DEFAULT_EPOCH_LENGTH,
+        ))
+        // .add_loop_action(check_receipts_presence_at_resharding_block(
+        //     caller_accounts,
+        //     ReceiptKind::Delayed,
+        // ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn slow_test_resharding_v3_global_contract_by_account_id() {
+    let account: AccountId = "account4".parse().unwrap();
+    let caller1: AccountId = "account1".parse().unwrap();
+    let caller2: AccountId = "account2".parse().unwrap();
+    let caller_accounts = vec![caller1, caller2];
+    let user_by_account_id: AccountId = "account6".parse().unwrap();
+    let identifier2 = GlobalContractIdentifier::AccountId(account.clone());
+    let params = TestReshardingParametersBuilder::default()
+        .deploy_test_global_contract(account.clone(), GlobalContractDeployMode::AccountId)
+        .use_test_global_contract(user_by_account_id.clone(), identifier2)
+        .add_loop_action(call_burn_gas_contract(
+            caller_accounts.clone(),
+            vec![user_by_account_id],
             275 * TGAS,
             DEFAULT_EPOCH_LENGTH,
         ))
