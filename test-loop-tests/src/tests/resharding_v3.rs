@@ -1139,10 +1139,10 @@ fn slow_test_resharding_v3_global_contract_by_hash() {
     let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
     let identifier1 = GlobalContractIdentifier::CodeHash(code_hash);
     let params = TestReshardingParametersBuilder::default()
-        .deploy_test_global_contract(account.clone(), GlobalContractDeployMode::CodeHash)
+        .deploy_test_global_contract(account, GlobalContractDeployMode::CodeHash)
         .use_test_global_contract(user_by_code_hash.clone(), identifier1)
         .add_loop_action(call_burn_gas_contract(
-            caller_accounts.clone(),
+            caller_accounts,
             vec![user_by_code_hash],
             275 * TGAS,
             DEFAULT_EPOCH_LENGTH,
@@ -1165,10 +1165,10 @@ fn slow_test_resharding_v3_global_contract_by_account_id() {
     let user_by_account_id: AccountId = "account6".parse().unwrap();
     let identifier2 = GlobalContractIdentifier::AccountId(account.clone());
     let params = TestReshardingParametersBuilder::default()
-        .deploy_test_global_contract(account.clone(), GlobalContractDeployMode::AccountId)
+        .deploy_test_global_contract(account, GlobalContractDeployMode::AccountId)
         .use_test_global_contract(user_by_account_id.clone(), identifier2)
         .add_loop_action(call_burn_gas_contract(
-            caller_accounts.clone(),
+            caller_accounts,
             vec![user_by_account_id],
             275 * TGAS,
             DEFAULT_EPOCH_LENGTH,
