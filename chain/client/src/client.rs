@@ -1038,11 +1038,13 @@ impl Client {
     }
 
     /// Check optimistic block and start processing if is valid.
-    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: PeerId) {
+    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
+        debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
         // Validate the optimistic block.
         // Discard the block if it is old or not created by the right producer.
-        if let Err(e) = self.chain.check_optimistic_block(&block, &peer_id) {
+        if let Err(e) = self.chain.check_optimistic_block(&block) {
+            metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
             debug!(target: "client", ?e, "Optimistic block is invalid");
             return;
         }

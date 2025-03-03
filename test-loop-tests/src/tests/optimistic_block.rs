@@ -3,8 +3,6 @@ use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestEpochConfigBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
 #[cfg(feature = "test_features")]
-use near_primitives::network::PeerId;
-#[cfg(feature = "test_features")]
 use near_primitives::optimistic_block::{OptimisticBlock, OptimisticBlockAdvType};
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
@@ -70,10 +68,7 @@ fn test_optimistic_block() {
 
 #[cfg(feature = "test_features")]
 /// Create an invalid optimistic block based on the adversarial type.
-fn make_invalid_ob(
-    env: &TestLoopEnv,
-    adv_type: OptimisticBlockAdvType,
-) -> (OptimisticBlock, PeerId) {
+fn make_invalid_ob(env: &TestLoopEnv, adv_type: OptimisticBlockAdvType) -> OptimisticBlock {
     let client = &env.test_loop.data.get(&env.datas[0].client_sender.actor_handle()).client;
 
     let epoch_manager = &client.epoch_manager;
@@ -92,16 +87,13 @@ fn make_invalid_ob(
 
     let validator_signer = client.validator_signer.get().unwrap();
 
-    (
-        OptimisticBlock::adv_produce(
-            &prev_header,
-            height,
-            &*validator_signer,
-            client.clock.clone(),
-            None,
-            adv_type,
-        ),
-        client_data.peer_id.clone(),
+    OptimisticBlock::adv_produce(
+        &prev_header,
+        height,
+        &*validator_signer,
+        client.clock.clone(),
+        None,
+        adv_type,
     )
 }
 
@@ -125,12 +117,11 @@ fn test_invalid_optimistic_block() {
         OptimisticBlockAdvType::InvalidSignature,
     ];
     for adv in adversarial_behaviour.into_iter() {
-        let (ob, peer_id) = make_invalid_ob(&env, adv);
-        assert!(&chain.check_optimistic_block(&ob, &peer_id).is_err());
+        let ob = make_invalid_ob(&env, adv);
+        assert!(&chain.check_optimistic_block(&ob).is_err());
     }
-    let (ob, peer_id) = make_invalid_ob(&env, OptimisticBlockAdvType::Normal);
-    assert!(&chain.check_optimistic_block(&ob, &peer_id).is_ok());
-    assert!(&chain.check_optimistic_block(&ob, &PeerId::random()).is_err());
+    let ob = make_invalid_ob(&env, OptimisticBlockAdvType::Normal);
+    assert!(&chain.check_optimistic_block(&ob).is_ok());
 
     env.shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
