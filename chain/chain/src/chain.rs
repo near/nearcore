@@ -2397,13 +2397,20 @@ impl Chain {
         let ob_timestamp =
             OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
                 .map_err(|e| Error::Other(e.to_string()))?;
-        let future_threshold = self.clock.now_utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE);
+        let future_threshold: OffsetDateTime =
+            self.clock.now_utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE);
         if ob_timestamp > future_threshold {
             return Err(Error::InvalidBlockFutureTime(ob_timestamp));
         };
 
         let head = self.head()?;
         if head.height >= block.height() {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
+        // overflow-related problems
+        if block.height() > head.height + self.epoch_length * 20 {
             return Err(Error::InvalidBlockHeight(block.height()));
         }
 
