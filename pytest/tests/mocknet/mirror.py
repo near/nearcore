@@ -743,8 +743,11 @@ if __name__ == '__main__':
     run_cmd_parser.add_argument('--cmd', type=str)
     run_cmd_parser.set_defaults(func=run_remote_cmd)
 
-    upload_file_parser = subparsers.add_parser(
-        'upload-file', help='''Upload a file on the hosts.''')
+    upload_file_parser = subparsers.add_parser('upload-file',
+                                               help='''
+        Upload a file or a directory on the hosts.
+        Existing files are replaced.
+        ''')
     upload_file_parser.add_argument('--src', type=str)
     upload_file_parser.add_argument('--dst', type=str)
     upload_file_parser.set_defaults(func=run_remote_upload_file)
