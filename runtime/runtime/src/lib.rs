@@ -14,10 +14,10 @@ use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
 use config::{total_prepaid_send_fees, TransactionCost};
 pub use congestion_control::bootstrap_congestion_info;
 use congestion_control::ReceiptSink;
+use ephemeral_data::EphemeralAccount;
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
-use near_crypto::PublicKey;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::{Account, AccountContract};
@@ -76,7 +76,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::{debug, instrument};
-use verifier::{verify_and_charge_transactions, ValidateReceiptMode};
+use verifier::ValidateReceiptMode;
 
 mod actions;
 pub mod adapter;
@@ -339,6 +339,7 @@ impl Runtime {
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         if let Some(verification_result) = pre_verified {
+            // ephemeral is already committed above
             state_update.commit(StateChangeCause::TransactionProcessing {
                 tx_hash: signed_transaction.get_hash(),
             });
@@ -1695,9 +1696,6 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        // TODO(miloserdow): implement get_frozen_snapshot
-        let frozen_snapshot = get_frozen_snapshot(state_update);
-
         let validated_iter = Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
@@ -1705,17 +1703,18 @@ impl Runtime {
             apply_state.current_protocol_version,
         );
 
-        let mut groups_to_process = Vec::new(); // (SignedTransaction, TransactionCost)
+        // separate valid from invalid, preserve chunk order
         let mut original_list = Vec::new();
-        for (signed_tx, maybe_cost) in validated_iter {
-            original_list.push(signed_tx.clone());
-            let tx_hash = signed_tx.get_hash();
+        let mut to_group = Vec::new();
+        for (st, maybe_cost) in validated_iter {
+            original_list.push(st.clone());
+            let hash = st.get_hash();
             match maybe_cost {
-                Ok(cost) => groups_to_process.push((signed_tx, cost)),
+                Ok(c) => to_group.push((st, c)),
                 Err(e) => {
                     Self::handle_invalid_transaction(
                         e,
-                        &tx_hash,
+                        &hash,
                         processing_state.protocol_version,
                         "stateless validation error",
                     )?;
@@ -1723,48 +1722,79 @@ impl Runtime {
             }
         }
 
-        // Group by (account, public_key)
+        // group by (signer, public_key)
         #[derive(Debug, Clone, Hash, Eq, PartialEq)]
         struct AcctKey {
-            account_id: AccountId,
-            public_key: PublicKey,
+            signer_id: near_primitives::types::AccountId,
+            public_key: near_crypto::PublicKey,
         }
-        let mut grouped_map: HashMap<AcctKey, Vec<(SignedTransaction, TransactionCost)>> =
+        let mut grouped: HashMap<AcctKey, Vec<(SignedTransaction, TransactionCost)>> =
             HashMap::new();
-        for (tx, cost) in groups_to_process {
+        for (st, cost) in to_group {
             let key = AcctKey {
-                account_id: tx.transaction.signer_id().clone(),
-                public_key: tx.transaction.public_key().clone(),
+                signer_id: st.transaction.signer_id().clone(),
+                public_key: st.transaction.public_key().clone(),
             };
-            grouped_map.entry(key).or_default().push((tx.clone(), cost));
+            grouped.entry(key).or_default().push((st.clone(), cost));
         }
-        for items in grouped_map.values_mut() {
-            items.sort_by_key(|(tx, _)| tx.transaction.nonce());
+        for group_list in grouped.values_mut() {
+            group_list.sort_by_key(|(st, _)| st.transaction.nonce());
         }
 
-        // Process each group in parallel using the frozen snapshot.
-        let group_results: Vec<
-            Result<Vec<(SignedTransaction, VerificationResult)>, InvalidTxError>,
-        > = grouped_map
+        #[derive(Debug)]
+        struct GroupTask {
+            ephemeral: EphemeralAccount,
+            group: Vec<(SignedTransaction, TransactionCost)>,
+        }
+
+        // build tasks
+        let mut tasks = Vec::new();
+        for (key, group_list) in grouped {
+            let ephemeral = match EphemeralAccount::new(
+                state_update,
+                key.signer_id.clone(),
+                key.public_key.clone(),
+            ) {
+                Ok(e) => e,
+                Err(err) => {
+                    return Err(err);
+                }
+            };
+            tasks.push(GroupTask { ephemeral, group: group_list });
+        }
+
+        // ephemeral checks in parallel
+        #[derive(Debug)]
+        struct GroupResult {
+            ephemeral: EphemeralAccount,
+            verified: Vec<(SignedTransaction, VerificationResult)>,
+        }
+
+        let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = tasks
             .into_par_iter()
-            .map(|(_key, group_list)| {
-                verify_and_charge_transactions(
-                    &apply_state.config,
-                    state_update,
-                    &group_list,
+            .map(|task| {
+                match verifier::verify_ephemeral_group(
+                    task.ephemeral,
+                    &task.group,
                     Some(apply_state.block_height),
                     apply_state.current_protocol_version,
-                    &frozen_snapshot,
-                )
+                    &apply_state.config,
+                ) {
+                    Ok((ephemeral, verified)) => Ok(GroupResult { ephemeral, verified }),
+                    Err(e) => Err(e),
+                }
             })
             .collect();
 
+        let mut ephemeral_accounts = Vec::new();
         let mut final_map = HashMap::new();
-        for result in group_results {
-            match result {
-                Ok(list) => {
-                    for (tx, vr) in list {
-                        final_map.insert(tx.get_hash(), vr);
+
+        for outcome in group_outcomes {
+            match outcome {
+                Ok(o) => {
+                    ephemeral_accounts.push(o.ephemeral);
+                    for (st, vr) in o.verified {
+                        final_map.insert(st.get_hash(), vr);
                     }
                 }
                 Err(e) => {
@@ -1772,28 +1802,31 @@ impl Runtime {
                         e,
                         &near_primitives::hash::CryptoHash::default(),
                         processing_state.protocol_version,
-                        "ephemeral group verify error",
+                        "ephemeral group checks error",
                     )?;
                 }
             }
         }
 
-        // Sequential pass in original order: produce receipts.
-        for tx in &original_list {
-            let tx_hash = tx.get_hash();
-            if let Some(vr) = final_map.get(&tx_hash) {
+        for ephemeral in ephemeral_accounts {
+            ephemeral.commit(state_update);
+        }
+
+        for st in &original_list {
+            let hash = st.get_hash();
+            if let Some(vr) = final_map.get(&hash) {
                 let cost = Self::convert_verification_to_cost(vr);
                 let outcome = self.process_transaction(
                     state_update,
                     apply_state,
-                    tx,
+                    st,
                     &cost,
                     &mut processing_state.stats,
                     Some(vr.clone()),
                 );
                 match outcome {
                     Ok((receipt, outcome_with_id)) => {
-                        if receipt.receiver_id() == tx.transaction.signer_id() {
+                        if receipt.receiver_id() == st.transaction.signer_id() {
                             processing_state.local_receipts.push_back(receipt);
                         } else {
                             receipt_sink.forward_or_buffer_receipt(
@@ -1803,14 +1836,14 @@ impl Runtime {
                                 processing_state.epoch_info_provider,
                             )?;
                         }
-                        let compute = outcome_with_id.outcome.compute_usage.unwrap_or_default();
+                        let compute = outcome_with_id.outcome.compute_usage.unwrap_or(0);
                         total.add(outcome_with_id.outcome.gas_burnt, compute)?;
                         processing_state.outcomes.push(outcome_with_id);
                     }
                     Err(e) => {
                         Self::handle_invalid_transaction(
                             e,
-                            &tx_hash,
+                            &hash,
                             processing_state.protocol_version,
                             "final process_transaction error",
                         )?;
@@ -1818,7 +1851,6 @@ impl Runtime {
                 }
             }
         }
-
         processing_state.metrics.tx_processing_done(total.gas, total.compute);
         Ok(())
     }
