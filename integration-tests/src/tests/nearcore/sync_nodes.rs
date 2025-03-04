@@ -1,5 +1,5 @@
-use crate::tests::genesis_helpers::genesis_block;
-use crate::tests::test_helpers::heavy_test;
+use crate::utils::genesis_helpers::genesis_block;
+use crate::utils::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{FutureExt, future};
 use near_actix_test_utils::run_actix;

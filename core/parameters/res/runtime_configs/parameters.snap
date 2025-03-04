@@ -224,19 +224,19 @@ max_single_grant                                   4_194_304
 max_allowance                                      4_500_000
 max_base_bandwidth                                   100_000
 action_deploy_global_contract           
-- send_sir:      999_999_999_999_999
-- send_not_sir:  999_999_999_999_999
-- execution:     999_999_999_999_999
+- send_sir:          184_765_750_000
+- send_not_sir:      184_765_750_000
+- execution:         184_765_750_000
 action_deploy_global_contract_per_byte  
-- send_sir:      999_999_999_999_999
-- send_not_sir:  999_999_999_999_999
-- execution:     999_999_999_999_999
-global_contract_storage_amount_per_byte 999999999999999999999999999
+- send_sir:                6_812_999
+- send_not_sir:           47_683_715
+- execution:              70_000_000
+global_contract_storage_amount_per_byte 100000000000000000000
 action_use_global_contract              
-- send_sir:      999_999_999_999_999
-- send_not_sir:  999_999_999_999_999
-- execution:     999_999_999_999_999
+- send_sir:          184_765_750_000
+- send_not_sir:      184_765_750_000
+- execution:         184_765_750_000
 action_use_global_contract_per_identifier_byte
-- send_sir:      999_999_999_999_999
-- send_not_sir:  999_999_999_999_999
-- execution:     999_999_999_999_999
+- send_sir:                6_812_999
+- send_not_sir:           47_683_715
+- execution:              64_572_944

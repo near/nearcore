@@ -98,9 +98,7 @@ class LocalTestNeardRunner:
         )
 
     def upload_file(self, src, dst):
-        logger.error(
-            "Does not make sense to upload a file on local host."
-        )
+        logger.error("Does not make sense to upload a file on local host.")
 
     def init_python(self):
         return

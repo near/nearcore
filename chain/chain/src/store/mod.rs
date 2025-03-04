@@ -1533,22 +1533,6 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
-    /// Save header head in Epoch Sync
-    /// Checking validity of header head is delegated to Epoch Sync methods
-    pub fn force_save_header_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.try_save_latest_known(t.height)?;
-
-        // TODO #3488
-        // Bowen: It seems that height_to_hashes is used to update DBCol::BlockHeight, which stores blocks,
-        // not block headers, by height. Therefore I wonder whether this line here breaks some invariant
-        // since now we potentially don't have the corresponding block in storage.
-
-        //self.chain_tore_cache_update.height_to_hashes.insert(t.height, Some(t.last_block_hash));
-        //self.chain_store_cache_update.next_block_hashes.insert(t.prev_block_hash, t.last_block_hash);
-        self.header_head = Some(t.clone());
-        Ok(())
-    }
-
     /// Update header head and height to hash index for this branch.
     pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
         if t.height > self.chain_store.get_genesis_height() {
@@ -1669,13 +1653,6 @@ impl<'a> ChainStoreUpdate<'a> {
             new_merkle_tree.insert(*prev_hash);
             self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         }
-        Ok(())
-    }
-
-    /// Used only in Epoch Sync finalization
-    /// Validity of Header is checked by Epoch Sync methods
-    pub fn save_block_header_no_update_tree(&mut self, header: BlockHeader) -> Result<(), Error> {
-        self.chain_store_cache_update.headers.insert(*header.hash(), header);
         Ok(())
     }
 

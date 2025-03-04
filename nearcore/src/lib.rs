@@ -60,7 +60,6 @@ mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
 pub mod state_sync;
-pub mod test_utils;
 #[cfg(feature = "tx_generator")]
 use near_transactions_generator::actix_actor::TxGeneratorActor;
 
