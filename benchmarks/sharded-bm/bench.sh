@@ -44,21 +44,6 @@ PYTEST_PATH="../../pytest/"
 
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
-if [ "${RUN_ON_FORKNET}" = true ]; then
-    GEN_NODES_DIR="${GEN_NODES_DIR:-/home/ubuntu/bench}"
-    FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
-    FORKNET_RPC_ADDR=$(jq -r '.forknet.rpc_addr' ${BM_PARAMS})
-    FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
-    FORKNET_BOOT_NODES=$(jq -r '.forknet.boot_nodes' ${BM_PARAMS})
-    RPC_ADDR=${FORKNET_RPC_ADDR}
-    NODE_BINARY_URL="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard"
-    mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} --unique-id ${FORKNET_NAME}"
-    echo "Forknet name: ${FORKNET_NAME}"
-    echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
-else
-    NEARD="${NEARD:-/home/ubuntu/neard}"
-    echo "neard path: ${NEARD}"
-fi
 
 if [ "${NUM_NODES}" -eq "1" ]; then
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true 
@@ -69,6 +54,25 @@ else
     done
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${NEAR_HOMES[0]}/genesis.json 2>/dev/null) || true
     VALIDATOR_KEY=${NEAR_HOMES[0]}/validator_key.json
+fi
+
+if [ "${RUN_ON_FORKNET}" = true ]; then
+    GEN_NODES_DIR="${GEN_NODES_DIR:-/home/ubuntu/bench}"
+    FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
+    FORKNET_RPC_ADDR=$(jq -r '.forknet.rpc_addr' ${BM_PARAMS})
+    FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
+    FORKNET_BOOT_NODES=$(jq -r '.forknet.boot_nodes' ${BM_PARAMS})
+    FORKNET_RPC_NODE_ID=$(jq -r ".forknet.rpc" ${BM_PARAMS})
+    RPC_ADDR=${FORKNET_RPC_ADDR}
+    VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
+    NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true 
+    NODE_BINARY_URL="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard"
+    mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} --unique-id ${FORKNET_NAME}"
+    echo "Forknet name: ${FORKNET_NAME}"
+    echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
+else
+    NEARD="${NEARD:-/home/ubuntu/neard}"
+    echo "neard path: ${NEARD}"
 fi
 
 RPC_URL="http://${RPC_ADDR}"
@@ -82,7 +86,7 @@ start_nodes_forknet() {
 }
 
 start_neard0() {
-    nohup ${NEAR_HOME}/neard-runner/binaries/neard0 --home ${NEAR_HOME} run 2> /home/ubuntu/neard-logs/logs.txt &
+    nohup ${NEAR_HOME}/neard-runner/binaries/neard0 --home ${NEAR_HOME} run &> /home/ubuntu/neard-logs/logs.txt &
 }
 
 start_nodes_local() {
@@ -93,7 +97,7 @@ start_nodes_local() {
         for node in "${NEAR_HOMES[@]}"; do
             log="${LOG_DIR}/$(basename ${node})"
             echo "Starting node: ${node}, log: ${log}"
-            nohup ${NEARD} --home ${node} run 2> ${log} &
+            nohup ${NEARD} --home ${node} run &> ${log} &
         done
     fi
 }
@@ -164,7 +168,7 @@ init_forknet() {
     # epoch_length=$(jq -r '.epoch_length' ${BASE_GENESIS_PATCH})
     # protocol_version=$(jq -r '.protocol_version' ${GENESIS_PATCH})
     cd ${PYTEST_PATH}
-    $mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL}
+    $mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url none
     # $mirror --host-type nodes new-test \
     #     --epoch-length ${epoch_length} \
     #     --genesis-protocol-version ${protocol_version} \
@@ -240,9 +244,8 @@ tweak_config_forknet() {
         cd -
     done
 
-    rpc=$(jq -r ".forknet.rpc" ${BM_PARAMS})
     cd ${PYTEST_PATH}
-    $mirror --host-filter ".*${rpc}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE} rpc"
+    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE} rpc"
     cd -
 }
 
@@ -289,26 +292,31 @@ tweak_config() {
     echo "===> Done"
 }
 
-create_accounts() {
+create_accounts_forknet() {
+    cd ${PYTEST_PATH}
+    # $mirror --host-type nodes start-nodes
+    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-local ${CASE}"
+    cd -
+}
+
+create_accounts_local() {
     if [ "${RUN_ON_FORKNET}" = true ]; then
-        echo "Not supported on forknet"
-        exit 1
+        cmd="./near-synth-bm"
+    else
+        cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
 
-    echo "=> Creating accounts"
-    echo "Number of shards: ${NUM_SHARDS}"
-
     mkdir -p ${USERS_DATA_DIR}
-
     num_accounts=$(jq '.num_accounts' ${BM_PARAMS})
-
+    echo "Number of shards: ${NUM_SHARDS}"
+    echo "Accounts per shard: ${num_accounts}"
     for i in $(seq 0 $((NUM_SHARDS-1))); do
         prefix=$(printf "a%02d" ${i})
         data_dir="${USERS_DATA_DIR}/shard${i}"
         nonce=$((1+i*num_accounts))
         echo "Creating ${num_accounts} accounts for shard: ${i}, account prefix: ${prefix}, use data dir: ${data_dir}, nonce: ${nonce}"
         RUST_LOG=info \
-        cargo run --manifest-path ${SYNTH_BM_PATH} --release -- create-sub-accounts \
+        ${cmd} create-sub-accounts \
             --rpc-url ${RPC_URL} \
             --signer-key-path ${VALIDATOR_KEY} \
             --nonce ${nonce} \
@@ -316,9 +324,18 @@ create_accounts() {
             --num-sub-accounts ${num_accounts} \
             --deposit 953060601875000000010000 \
             --channel-buffer-size 1200 \
-            --requests-per-second 500 \
+            --requests-per-second 250 \
             --user-data-dir ${data_dir}
     done
+}
+
+create_accounts() {
+    echo "=> Creating accounts"
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        create_accounts_forknet
+    else
+        create_accounts_local
+    fi
 
     echo "=> Done"
 }
@@ -328,6 +345,9 @@ native_transfers_forknet() {
 }
 
 native_transfers_local() {
+    num_transfers=$0 
+    buffer_size=$1
+    rps=$2
     mkdir -p ${LOG_DIR}
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     for i in $(seq 0 $((NUM_SHARDS-1))); do
@@ -359,7 +379,7 @@ native_transfers() {
     if [ "${RUN_ON_FORKNET}" = true ]; then
         native_transfers_forknet
     else
-        native_transfers_local
+        native_transfers_local ${num_transfers} ${buffer_size} ${rps}
     fi
 
     echo "=> Done"
@@ -436,6 +456,10 @@ case "$1" in
 
     start-neard0)
         start_neard0
+        ;;
+
+    create-accounts-local)
+    create_accounts_local
         ;;
 
     *)

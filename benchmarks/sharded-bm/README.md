@@ -106,7 +106,7 @@ export SYNTH_BM_BIN=<absolute path to near-synth-bm>
 
 # either run this command or export an env variable (GEN_NODES_DIR) with the path to its output, 
 # which is a directory containing config for node0, node1, etc 
-./bench.sh init cases/local/5_cp_1_rpc_5_shard/ 
+./bench.sh init cases/forknet/5_cp_1_rpc_5_shard/local
 
 ./bench.sh init
 ./bench.sh start-nodes
@@ -117,4 +117,4 @@ export SYNTH_BM_BIN=<absolute path to near-synth-bm>
 ### Known issues
 
 - updating `param.json` is tedious
-- sometimes the start-node command hangs (just interrupt)
+- the start-node command hangs (must interrupt it)
