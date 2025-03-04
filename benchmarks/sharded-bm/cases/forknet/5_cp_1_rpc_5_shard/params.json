@@ -5,7 +5,7 @@
     "base_genesis_patch": "../../5_shards_genesis_patch.json",
     "num_accounts": 200,
     "channel_buffer_size": 30000,
-    "requests_per_second": 3900,
+    "requests_per_second": 1000,
     "num_transfers": 70000,
     "forknet": {
         "name": "tps5shards",

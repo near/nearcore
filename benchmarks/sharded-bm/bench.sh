@@ -139,7 +139,7 @@ stop_nodes() {
 
 reset_forknet() {
     cd ${PYTEST_PATH}
-    $mirror --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete"
+    $mirror --host-type nodes run-cmd --cmd "find ${NEAR_HOME}/data -mindepth 1 -delete ; rm -rf ${BENCHNET_DIR}"
     cd -
 }
 
@@ -164,7 +164,6 @@ reset() {
 }
 
 init_forknet() {
-    # reset
     # epoch_length=$(jq -r '.epoch_length' ${BASE_GENESIS_PATCH})
     # protocol_version=$(jq -r '.protocol_version' ${GENESIS_PATCH})
     cd ${PYTEST_PATH}
@@ -294,7 +293,6 @@ tweak_config() {
 
 create_accounts_forknet() {
     cd ${PYTEST_PATH}
-    # $mirror --host-type nodes start-nodes
     $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-local ${CASE}"
     cd -
 }
@@ -336,18 +334,28 @@ create_accounts() {
     else
         create_accounts_local
     fi
-
     echo "=> Done"
 }
 
 native_transfers_forknet() {
-    echo "todo"
+    cd ${PYTEST_PATH}
+    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh native-transfers-local ${CASE}"
+    cd -
 }
 
 native_transfers_local() {
-    num_transfers=$0 
-    buffer_size=$1
-    rps=$2
+    if [ "${RUN_ON_FORKNET}" = true ]; then
+        cmd="./near-synth-bm"
+    else
+        cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
+    fi
+
+    echo "Number of shards: ${NUM_SHARDS}"
+    num_transfers=$(jq '.num_transfers' ${BM_PARAMS})
+    buffer_size=$(jq '.channel_buffer_size' ${BM_PARAMS})
+    rps=$(jq '.requests_per_second' ${BM_PARAMS})
+    rps=$(bc <<< "scale=0;${rps}/${NUM_SHARDS}")
+    echo "Config: num_transfers: ${num_transfers}, buffer_size: ${buffer_size}, RPS: ${rps}"
     mkdir -p ${LOG_DIR}
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     for i in $(seq 0 $((NUM_SHARDS-1))); do
@@ -355,7 +363,7 @@ native_transfers_local() {
         data_dir="${USERS_DATA_DIR}/shard${i}"
         echo "Running benchmark for shard: ${i}, log file: ${log}, data dir: ${data_dir}"
         RUST_LOG=info \
-        cargo run --manifest-path ${SYNTH_BM_PATH} --release -- benchmark-native-transfers \
+        ${cmd} benchmark-native-transfers \
             --rpc-url ${RPC_URL} \
             --user-data-dir ${data_dir}/ \
             --num-transfers ${num_transfers} \
@@ -368,20 +376,11 @@ native_transfers_local() {
 
 native_transfers() {
     echo "=> Running native token transfer benchmark"
-    echo "Number of shards: ${NUM_SHARDS}"
-
-    num_transfers=$(jq '.num_transfers' ${BM_PARAMS})
-    buffer_size=$(jq '.channel_buffer_size' ${BM_PARAMS})
-    rps=$(jq '.requests_per_second' ${BM_PARAMS})
-    rps=$(bc <<< "scale=0;${rps}/${NUM_SHARDS}")
-    echo "Config: num_transfers: ${num_transfers}, buffer_size: ${buffer_size}, RPS: ${rps}"
-
     if [ "${RUN_ON_FORKNET}" = true ]; then
         native_transfers_forknet
     else
-        native_transfers_local ${num_transfers} ${buffer_size} ${rps}
+        native_transfers_local
     fi
-
     echo "=> Done"
 }
 
@@ -450,6 +449,7 @@ case "$1" in
         stop_nodes
         ;;
 
+    # Forknet specific methods, not part of user API.
     tweak-config-forknet-node)
         tweak_config_forknet_node $3
         ;;
@@ -459,7 +459,11 @@ case "$1" in
         ;;
 
     create-accounts-local)
-    create_accounts_local
+        create_accounts_local
+        ;;
+
+    native-transfers-local)
+        native_transfers_local
         ;;
 
     *)
