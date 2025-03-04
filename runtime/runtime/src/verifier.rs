@@ -14,7 +14,7 @@ use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum}
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
 };
-use near_primitives::transaction::{DeleteAccountAction, Transaction};
+use near_primitives::transaction::{DeleteAccountAction, Transaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
@@ -88,38 +88,39 @@ fn is_zero_balance_account(account: &Account) -> bool {
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 pub fn validate_transaction(
     config: &RuntimeConfig,
-    signed_transaction: &SignedTransaction,
+    signed_transaction: SignedTransaction,
     current_protocol_version: ProtocolVersion,
-) -> Result<(), InvalidTxError> {
+) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
     // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
     if matches!(signed_transaction.transaction, near_primitives::transaction::Transaction::V1(_)) {
-        return Err(InvalidTxError::InvalidTransactionVersion);
+        return Err((InvalidTxError::InvalidTransactionVersion, signed_transaction));
     }
     let transaction = &signed_transaction.transaction;
-
-    if !signed_transaction
-        .signature
-        .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
-    {
-        return Err(InvalidTxError::InvalidSignature);
-    }
 
     let transaction_size = signed_transaction.get_size();
     let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
     if transaction_size > max_transaction_size {
-        return Err(InvalidTxError::TransactionSizeExceeded {
-            size: transaction_size,
-            limit: max_transaction_size,
-        }
-        .into());
+        return Err((
+            InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size,
+            },
+            signed_transaction,
+        ));
     }
 
-    validate_actions(
+    if let Err(err) = validate_actions(
         &config.wasm_config.limit_config,
         transaction.actions(),
         current_protocol_version,
-    )
-    .map_err(InvalidTxError::ActionsValidation)
+    ) {
+        return Err((InvalidTxError::ActionsValidation(err), signed_transaction));
+    }
+
+    match ValidatedTransaction::new(signed_transaction) {
+        Ok(v) => Ok(v),
+        Err(signed_tx) => Err((InvalidTxError::InvalidSignature, signed_tx)),
+    }
 }
 
 pub fn commit_charging_for_tx(
@@ -140,7 +141,7 @@ pub fn commit_charging_for_tx(
 pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
     state_update: &TrieUpdate,
-    signed_transaction: &SignedTransaction,
+    tx: &ValidatedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
@@ -150,7 +151,7 @@ pub fn verify_and_charge_tx_ephemeral(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
 
-    let transaction = &signed_transaction.transaction;
+    let transaction = &tx.get().transaction;
     let signer_id = transaction.signer_id();
 
     let mut signer = match get_account(state_update, signer_id)? {
@@ -755,15 +756,19 @@ mod tests {
         config: &RuntimeConfig,
         state_update: &TrieUpdate,
         gas_price: Balance,
-        signed_transaction: &SignedTransaction,
+        signed_transaction: SignedTransaction,
         expected_err: InvalidTxError,
     ) {
-        if let Err(err) = validate_transaction(config, signed_transaction, PROTOCOL_VERSION) {
-            assert_eq!(err, expected_err);
-            return;
-        }
+        let validated_tx = match validate_transaction(config, signed_transaction, PROTOCOL_VERSION)
+        {
+            Ok(v) => v,
+            Err((err, _tx)) => {
+                assert_eq!(err, expected_err);
+                return;
+            }
+        };
         let cost =
-            match tx_cost(config, &signed_transaction.transaction, gas_price, PROTOCOL_VERSION) {
+            match tx_cost(config, &validated_tx.get().transaction, gas_price, PROTOCOL_VERSION) {
                 Ok(c) => c,
                 Err(err) => {
                     assert_eq!(InvalidTxError::from(err), expected_err);
@@ -775,7 +780,7 @@ mod tests {
         let err = verify_and_charge_tx_ephemeral(
             config,
             state_update,
-            signed_transaction,
+            &validated_tx,
             &cost,
             None,
             PROTOCOL_VERSION,
@@ -787,28 +792,26 @@ mod tests {
     pub fn validate_verify_and_charge_transaction(
         config: &RuntimeConfig,
         state_update: &mut TrieUpdate,
-        signed_transaction: &SignedTransaction,
+        tx: SignedTransaction,
         gas_price: Balance,
         block_height: Option<BlockHeight>,
         current_protocol_version: ProtocolVersion,
     ) -> Result<VerificationResult, InvalidTxError> {
-        validate_transaction(config, signed_transaction, current_protocol_version)?;
+        let tx = match validate_transaction(config, tx, current_protocol_version) {
+            Ok(tx) => tx,
+            Err((err, _tx)) => return Err(err),
+        };
         let transaction_cost =
-            tx_cost(config, &signed_transaction.transaction, gas_price, current_protocol_version)?;
+            tx_cost(config, &tx.get().transaction, gas_price, current_protocol_version)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
-            signed_transaction,
+            &tx,
             &transaction_cost,
             block_height,
             current_protocol_version,
         )?;
-        commit_charging_for_tx(
-            state_update,
-            &signed_transaction.transaction,
-            &vr.signer,
-            &vr.access_key,
-        );
+        commit_charging_for_tx(state_update, &tx.get().transaction, &vr.signer, &vr.access_key);
         Ok(vr)
     }
 
@@ -930,7 +933,7 @@ mod tests {
         let verification_result = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -980,7 +983,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &tx,
+            tx,
             InvalidTxError::InvalidSignature,
         );
     }
@@ -1002,7 +1005,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1030,7 +1033,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::from_actions(
+            SignedTransaction::from_actions(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1069,7 +1072,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1099,7 +1102,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1118,7 +1121,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::send_money(
+            SignedTransaction::send_money(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1140,7 +1143,7 @@ mod tests {
             &config,
             &mut state_update,
             gas_price,
-            &SignedTransaction::from_actions_v1(
+            SignedTransaction::from_actions_v1(
                 1,
                 alice_account(),
                 bob_account(),
@@ -1171,7 +1174,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1220,7 +1223,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1264,7 +1267,7 @@ mod tests {
         let verification_result = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1305,7 +1308,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1360,7 +1363,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1380,7 +1383,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1400,7 +1403,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1442,7 +1445,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1491,7 +1494,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1539,7 +1542,7 @@ mod tests {
         let err = validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,
@@ -1574,7 +1577,7 @@ mod tests {
             wasm_config.limit_config.max_transaction_size = transaction_size - 1;
         }
 
-        let err = validate_transaction(&config, &transaction, PROTOCOL_VERSION)
+        let (err, _tx) = validate_transaction(&config, transaction.clone(), PROTOCOL_VERSION)
             .expect_err("expected validation error - size exceeded");
         assert_eq!(
             err,
@@ -1592,7 +1595,7 @@ mod tests {
         validate_verify_and_charge_transaction(
             &config,
             &mut state_update,
-            &transaction,
+            transaction,
             gas_price,
             None,
             PROTOCOL_VERSION,

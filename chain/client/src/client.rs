@@ -2230,15 +2230,18 @@ impl Client {
             cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        if let Err(err) = self.runtime_adapter.validate_tx(
+        let validated_tx = match self.runtime_adapter.validate_tx(
             &shard_layout,
-            tx,
+            tx.clone(),
             protocol_version,
             receiver_congestion_info,
         ) {
-            debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
-            return Ok(ProcessTxResponse::InvalidTx(err));
-        }
+            Ok(tx) => tx,
+            Err((err, _tx)) => {
+                debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
+                return Ok(ProcessTxResponse::InvalidTx(err));
+            }
+        };
 
         let shard_id = account_id_to_shard_id(
             self.epoch_manager.as_ref(),
@@ -2269,7 +2272,7 @@ impl Client {
                 &shard_layout,
                 gas_price,
                 state_root,
-                tx,
+                &validated_tx,
                 protocol_version,
             ) {
                 debug!(target: "client", ?err, "Invalid tx");
@@ -2280,7 +2283,10 @@ impl Client {
             }
             // Transactions only need to be recorded if the node is a validator.
             if me.is_some() {
-                match self.chunk_producer.sharded_tx_pool.insert_transaction(shard_uid, tx.clone())
+                match self
+                    .chunk_producer
+                    .sharded_tx_pool
+                    .insert_transaction(shard_uid, validated_tx.take())
                 {
                     InsertTransactionResult::Success => {
                         trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");

@@ -25,7 +25,7 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::state_part::PartId;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
@@ -527,10 +527,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        transaction: &SignedTransaction,
+        transaction: SignedTransaction,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
-    ) -> Result<(), InvalidTxError> {
+    ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         if let Some(congestion_info) = receiver_congestion_info {
@@ -555,7 +555,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         InvalidTxError::ShardStuck { shard_id, missed_chunks }
                     }
                 };
-                return Err(err);
+                return Err((err, transaction));
             }
         }
 
@@ -567,20 +567,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_layout: &ShardLayout,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: &SignedTransaction,
+        tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
         let cost =
-            tx_cost(runtime_config, &transaction.transaction, gas_price, current_protocol_version)?;
-        let shard_uid = shard_layout.account_id_to_shard_uid(transaction.transaction.signer_id());
+            tx_cost(runtime_config, &tx.get().transaction, gas_price, current_protocol_version)?;
+        let shard_uid = shard_layout.account_id_to_shard_uid(tx.get().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
 
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &state_update,
-            transaction,
+            tx,
             &cost,
             // here we do not know which block the transaction will be included
             // and therefore skip the check on the nonce upper bound.
@@ -763,35 +763,37 @@ impl RuntimeAdapter for NightshadeRuntime {
                     continue;
                 }
 
-                let verify_result = validate_transaction(runtime_config, &tx, protocol_version)
-                    .and_then(|()| {
-                        tx_cost(
+                let (verify_result, tx) =
+                    match validate_transaction(runtime_config, tx, protocol_version) {
+                        Err((err, tx)) => (Err(err), tx),
+                        Ok(validated_tx) => match tx_cost(
                             runtime_config,
-                            &tx.transaction,
+                            &validated_tx.get().transaction,
                             prev_block.next_gas_price,
                             protocol_version,
-                        )
-                        .map_err(InvalidTxError::from)
-                    })
-                    .and_then(|cost| {
-                        verify_and_charge_tx_ephemeral(
-                            runtime_config,
-                            &state_update,
-                            &tx,
-                            &cost,
-                            Some(next_block_height),
-                            protocol_version,
-                        )
-                    })
-                    .map(|vr| {
-                        commit_charging_for_tx(
-                            &mut state_update,
-                            &tx.transaction,
-                            &vr.signer,
-                            &vr.access_key,
-                        );
-                        vr
-                    });
+                        ) {
+                            Err(err) => (Err(InvalidTxError::from(err)), validated_tx.take()),
+                            Ok(cost) => match verify_and_charge_tx_ephemeral(
+                                runtime_config,
+                                &state_update,
+                                &validated_tx,
+                                &cost,
+                                Some(next_block_height),
+                                protocol_version,
+                            ) {
+                                Err(err) => (Err(err), validated_tx.take()),
+                                Ok(res) => {
+                                    commit_charging_for_tx(
+                                        &mut state_update,
+                                        &validated_tx.get().transaction,
+                                        &res.signer,
+                                        &res.access_key,
+                                    );
+                                    (Ok(res), validated_tx.take())
+                                }
+                            },
+                        },
+                    };
 
                 match verify_result {
                     Ok(cost) => {
