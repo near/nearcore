@@ -132,12 +132,9 @@ struct TestReshardingParameters {
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     #[builder(setter(custom))]
     deploy_test_contract: Vec<AccountId>,
-    /// Optionally deploy the test contract
-    /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
+    /// Optionally deploy and use test global contracts
     #[builder(setter(custom))]
     deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
-    /// Optionally deploy the test contract
-    /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     #[builder(setter(custom))]
     use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
