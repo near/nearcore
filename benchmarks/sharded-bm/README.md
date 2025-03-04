@@ -133,5 +133,5 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
 ### Known issues
 
 - updating `param.json` is tedious
-- the `start-node` command hangs (it works, but it must be manually interrupted)
+- the `start-node` command hangs sometimes (it works, but it must be manually interrupted)
 - generating nodes config and keys beforehand with another `init` is suboptimal

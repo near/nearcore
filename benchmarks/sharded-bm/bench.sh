@@ -251,11 +251,10 @@ tweak_config_forknet() {
 tweak_config_forknet_node() {
     jq --arg val "0.0.0.0:24567" \
         '.network.addr |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
-    node_type=$1
-    if [ "${node_type}" = "rpc" ]; then
-        jq --arg val "0.0.0.0:3030" \
+    jq --arg val "0.0.0.0:3030" \
         '.rpc.addr |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
-    else 
+    node_type=$1
+    if [ "${node_type}" = "cp" ]; then
         jq --arg val "${FORKNET_BOOT_NODES}" \
         '.network.boot_nodes |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     fi
