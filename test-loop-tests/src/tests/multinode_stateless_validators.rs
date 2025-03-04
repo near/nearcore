@@ -10,8 +10,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, EpochId, EpochReference};
 use near_primitives::views::{CurrentEpochValidatorInfo, EpochValidatorInfo};
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 

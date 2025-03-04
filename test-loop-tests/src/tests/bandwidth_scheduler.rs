@@ -56,8 +56,8 @@ use testlib::bandwidth_scheduler::{
     TestScenario, TestScenarioBuilder, TestSummary,
 };
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::{TestData, TestLoopEnv};
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
 use crate::utils::{ONE_NEAR, TGAS};
 

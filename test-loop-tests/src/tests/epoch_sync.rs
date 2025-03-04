@@ -10,8 +10,8 @@ use near_primitives::types::{AccountId, BlockHeightDelta};
 use near_store::{DBCol, Store};
 use tempfile::TempDir;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{BalanceMismatchError, execute_money_transfers};
 use near_async::messaging::CanSend;

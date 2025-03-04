@@ -25,8 +25,8 @@ use near_primitives::views::{
     StateChangeCauseView, StateChangeKindView, StateChangeValueView, StateChangesRequestView,
 };
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::{TestData, TestLoopEnv};
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::execute_money_transfers;
 

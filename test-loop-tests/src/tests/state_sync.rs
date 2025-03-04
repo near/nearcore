@@ -17,8 +17,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::{TestData, TestLoopEnv};
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 

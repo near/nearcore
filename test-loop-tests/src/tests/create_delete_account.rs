@@ -6,8 +6,8 @@ use near_client::client_actor::ClientActorInner;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::types::AccountId;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{
     call_contract, check_txs, do_create_account, do_delete_account, do_deploy_contract,

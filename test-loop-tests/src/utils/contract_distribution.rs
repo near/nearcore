@@ -1,4 +1,4 @@
-use crate::env::TestLoopEnv;
+use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
 use near_async::{test_loop::data::TestLoopData, time::Duration};
 use near_chain::ChainStoreAccess;

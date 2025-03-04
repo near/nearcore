@@ -41,10 +41,11 @@ use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
-use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
-use super::utils::network::{
+use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
 };
+
+use super::env::{ClientToShardsManagerSender, TestData, TestLoopChunksStorage, TestLoopEnv};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
 enum DropConditionKind {
@@ -450,11 +451,16 @@ impl TestLoopBuilder {
 
     /// Build the test loop environment.
     pub(crate) fn build(self) -> TestLoopEnv {
-        self.ensure_genesis().ensure_clients().build_impl()
+        self.ensure_genesis().ensure_epoch_config_store().ensure_clients().build_impl()
     }
 
     fn ensure_genesis(self) -> Self {
         assert!(self.genesis.is_some(), "Genesis must be provided to the test loop");
+        self
+    }
+
+    fn ensure_epoch_config_store(self) -> Self {
+        assert!(self.epoch_config_store.is_some(), "EpochConfigStore must be provided");
         self
     }
 

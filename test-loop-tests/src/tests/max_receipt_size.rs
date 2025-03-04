@@ -15,7 +15,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::FinalExecutionStatus;
 
-use crate::env::TestLoopEnv;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::TGAS;
 use crate::utils::setups::standard_setup_1;
 use crate::utils::transactions::{execute_tx, get_shared_block_hash, run_tx};

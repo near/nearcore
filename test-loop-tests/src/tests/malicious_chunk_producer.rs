@@ -1,8 +1,8 @@
 #![cfg(feature = "test_features")] // required for adversarial behaviors
 //! Test behaviors of the network when the chunk producer is malicious or misbehaving.
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::get_anchor_hash;
 use near_async::messaging::CanSend as _;

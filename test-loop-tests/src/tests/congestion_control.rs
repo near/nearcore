@@ -10,8 +10,8 @@ use near_o11y::testonly::init_test_logger;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::{AccountId, BlockHeight};
 
-use crate::builder::TestLoopBuilder;
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::{TestData, TestLoopEnv};
 use crate::utils::transactions::{call_contract, check_txs, deploy_contract, make_accounts};
 use crate::utils::{ONE_NEAR, TGAS};
 

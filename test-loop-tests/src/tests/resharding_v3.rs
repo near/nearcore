@@ -12,7 +12,7 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use crate::builder::TestLoopBuilder;
+use crate::setup::builder::TestLoopBuilder;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,

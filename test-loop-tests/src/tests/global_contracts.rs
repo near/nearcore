@@ -20,8 +20,8 @@ use near_primitives::views::{
 };
 use near_vm_runner::ContractCode;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::transactions::{self};
 use crate::utils::{ONE_NEAR, TGAS};
 
