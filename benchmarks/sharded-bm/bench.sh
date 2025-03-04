@@ -66,7 +66,7 @@ if [ "${RUN_ON_FORKNET}" = true ]; then
     RPC_ADDR=${FORKNET_RPC_ADDR}
     VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true 
-    NODE_BINARY_URL="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard"
+    NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
     mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} --unique-id ${FORKNET_NAME}"
     echo "Forknet name: ${FORKNET_NAME}"
     echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"

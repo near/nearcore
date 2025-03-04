@@ -83,7 +83,7 @@ export CASE=cases/local/1_node_5_shard
 ./bench.sh native-transfers
 ```
 
-### Monitoring
+### Localnet - Monitoring
 
 `neard` logs are inside `logs` for a localnet or in `journalctl` for a single node.
 
@@ -97,7 +97,19 @@ Debug UI works, just use the machine public IP.
 
 You should be able to use any valid forknet image with [forknet terraform recipes](https://docs.nearone.org/doc/mocknet-guide-7VnYUXjs2A).
 
-First, set correct values inside the `forknet` object in `params.json`.
+First, set correct values inside the `forknet` object in `params.json`. Helpful commands:
+
+- Get a list of all forknet nodes suffixes
+
+  ```sh
+  gcloud compute instances list --project=nearone-mocknet --filter <forknet unique name> --format="json" | jq -r '.[].name' | sed 's/.*-//' | jq -R -s -c 'split("\n")[:-1]'
+  ```
+
+- Print internal and external IP of nodes
+
+  ```sh
+  gcloud compute instances list --project=nearone-mocknet --filter <forknet unique name>
+  ```
 
 ```sh
 export CASE=cases/forknet/5_cp_1_rpc_5_shard/
@@ -113,6 +125,10 @@ export SYNTH_BM_BIN=<absolute path to near-synth-bm>
 ./bench.sh create-accounts
 ./bench.sh native-transfers
 ```
+
+### Forknet - Monitoring
+
+Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/goto/hfimt-pHg?orgId=1).
 
 ### Known issues
 
