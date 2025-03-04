@@ -64,6 +64,10 @@ impl TestLoopEnv {
         Self { test_loop, datas, tempdir }
     }
 
+    pub fn kill_node(&mut self, identifier: &str) {
+        self.test_loop.remove_events_with_identifier(identifier);
+    }
+
     /// Used to finish off remaining events that are still in the loop. This can be necessary if the
     /// destructor of some components wait for certain condition to become true. Otherwise, the
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing

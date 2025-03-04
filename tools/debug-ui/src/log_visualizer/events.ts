@@ -24,6 +24,8 @@ export class EventItem {
     // The parent event whose handler spawned this event. See the parsing logic
     // for how this is derived.
     public readonly parentId: number | null = null;
+    // Whether this event was executed or ignored. Emitted from the Rust side.
+    public readonly ignored: boolean;
 
     // The row and column of the event in the log visualizer. This is set during layout.
     public rowNumber = 0;
@@ -33,12 +35,13 @@ export class EventItem {
     // The log lines emitted by the Rust program while handling this event.
     public readonly logRows: string[] = [];
 
-    constructor(id: number, identifier: string, parentId: number | null, time: number, eventDump: string) {
+    constructor(id: number, identifier: string, parentId: number | null, time: number, eventDump: string, eventIgnored: boolean) {
         this.id = id;
         this.time = time;
         this.parentId = parentId;
         this.identifier = identifier;
         this.data = eventDump;
+        this.ignored = eventIgnored;
 
         // Parse the title and subtitle; for example, if the event dump is
         // "OutboundNetwork(NetworkRequests(...))""
@@ -197,6 +200,7 @@ export class EventItemCollection {
                     identifier: string;
                     current_event: string;
                     current_time_ms: number;
+                    event_ignored: boolean;
                 };
                 const startData = JSON.parse(
                     line.substring(startIndex + startMarker.length)
@@ -207,7 +211,8 @@ export class EventItemCollection {
                     startData.identifier,
                     parentIds[startData.current_index] ?? null,
                     startData.current_time_ms,
-                    startData.current_event
+                    startData.current_event,
+                    startData.event_ignored
                 );
                 items.add(event);
             } else if (endIndex != -1) {

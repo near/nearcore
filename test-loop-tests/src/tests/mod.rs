@@ -20,6 +20,7 @@ mod optimistic_block;
 mod protocol_upgrade;
 mod reject_outdated_blocks;
 mod resharding_v3;
+mod restart_node;
 mod simple_test_loop_example;
 mod state_sync;
 mod syncing;
