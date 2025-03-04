@@ -56,6 +56,27 @@ struct RunnerState {
 }
 
 #[derive(Debug, Clone)]
+struct WelfordMean {
+    mean: i64,
+    count: i64,
+}
+
+impl WelfordMean {
+    fn new() -> Self {
+        Self { mean: 0, count: 0 }
+    }
+
+    fn add_measurement(&mut self, x: i64) {
+        self.count += 1;
+        self.mean += (x - self.mean) / self.count;
+    }
+
+    fn mean(&self) -> i64 {
+        self.mean
+    }
+}
+
+#[derive(Debug, Clone)]
 struct Stats {
     pool_accepted: u64,
     pool_rejected: u64,
@@ -255,6 +276,7 @@ impl TxGenerator {
         let mut report_interval = tokio::time::interval(Duration::from_secs(1));
         tokio::spawn(async move {
             let mut stats_prev = runner_state.stats.lock().unwrap().clone();
+            let mut mean_diff = WelfordMean::new();
             loop {
                 report_interval.tick().await;
                 let stats = {
@@ -266,10 +288,13 @@ impl TxGenerator {
                     stats.failed = failed;
                     stats.clone()
                 };
+                tracing::info!(target: "transaction-generator", total=format!("{stats:?}"),);
+                let diff = stats.clone() - stats_prev;
+                mean_diff.add_measurement(diff.processed as i64);
                 tracing::info!(target: "transaction-generator",
-                    total=format!("{stats:?}"),);
-                tracing::info!(target: "transaction-generator",
-                    diff=format!("{:?}", stats.clone() - stats_prev),);
+                    diff=format!("{:?}", diff),
+                    rate_processed=mean_diff.mean(),
+                );
                 stats_prev = stats.clone();
             }
         })
