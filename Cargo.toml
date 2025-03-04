@@ -21,6 +21,7 @@ exclude = ["neard"]
 resolver = "2"
 members = [
     "benchmarks/transactions-generator",
+    "benchmarks/synth-bm",
     "chain/chain",
     "chain/chunks",
     "chain/client",
