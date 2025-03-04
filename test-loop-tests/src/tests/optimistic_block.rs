@@ -42,7 +42,7 @@ fn test_optimistic_block() {
         return;
     }
     let num_shards = 3;
-    let mut env: TestLoopEnv = get_builder(num_shards).build();
+    let mut env: TestLoopEnv = get_builder(num_shards).build().warmup();
     env.test_loop.run_for(Duration::seconds(10));
 
     {

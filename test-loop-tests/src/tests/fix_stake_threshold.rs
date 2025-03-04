@@ -66,12 +66,13 @@ fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let TestLoopEnv { mut test_loop, datas: node_data, tempdir } = test_loop_builder
+    let TestLoopEnv { mut test_loop, datas: node_data, shared_state } = test_loop_builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store.clone())
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .clients(clients)
-        .build();
+        .build()
+        .warmup();
 
     let sender = node_data[0].client_sender.clone();
     let handle = sender.actor_handle();
@@ -139,6 +140,6 @@ fn slow_test_fix_validator_stake_threshold_protocol_upgrade() {
         Duration::seconds(4 * epoch_length as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_data, tempdir }
+    TestLoopEnv { test_loop, datas: node_data, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

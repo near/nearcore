@@ -62,11 +62,12 @@ fn setup_initial_blockchain(
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let TestLoopEnv { mut test_loop, datas: node_datas, mut shared_state } = builder
         .genesis(genesis.clone())
         .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
-        .build();
+        .build()
+        .warmup();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
@@ -117,10 +118,12 @@ fn setup_initial_blockchain(
         );
     }
 
+    let tempdir = shared_state.move_tempdir();
+
     // Properly shut down the previous TestLoopEnv.
     // We must preserve the tempdir, since state dumps are stored there,
     // and are necessary for state sync to work on the new node.
-    let tempdir = TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, datas: node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(5));
 
     TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }
@@ -133,7 +136,7 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
     let clients = accounts.iter().take(num_existing_clients + 1).cloned().collect_vec();
     stores.push(create_test_store()); // new node starts empty.
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = TestLoopBuilder::new()
+    let TestLoopEnv { mut test_loop, datas: node_datas, mut shared_state } = TestLoopBuilder::new()
         .genesis(genesis.clone())
         .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
@@ -265,7 +268,8 @@ fn bootstrap_node_via_epoch_sync(setup: TestNetworkSetup, source_node: usize) ->
         );
     }
 
-    let tempdir = TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    let tempdir = shared_state.move_tempdir();
+    TestLoopEnv { test_loop, datas: node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(5));
 
     TestNetworkSetup { tempdir, genesis, epoch_config_store, accounts, stores }

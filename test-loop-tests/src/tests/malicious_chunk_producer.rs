@@ -37,7 +37,8 @@ fn test_producer_with_expired_transactions() {
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(accounts.clone())
-        .build();
+        .build()
+        .warmup();
     let TestLoopEnv { test_loop, datas: node_datas, .. } = &mut test_loop_env;
 
     // First we're gonna ask the chunk producer to keep producing empty chunks and send some

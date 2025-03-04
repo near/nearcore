@@ -18,7 +18,8 @@ use near_primitives::types::{
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::setup::builder::TestLoopBuilder;
-use crate::setup::env::{TestData, TestLoopEnv};
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::TestData;
 use crate::utils::ONE_NEAR;
 use crate::utils::transactions::{get_anchor_hash, get_smallest_height_head};
 
@@ -184,7 +185,8 @@ fn setup_initial_blockchain(
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .drop_chunks_by_height(chunks_produced)
-        .build();
+        .build()
+        .warmup();
 
     TestState { env, accounts, skip_block_height }
 }

@@ -46,11 +46,12 @@ fn test_load_memtrie_after_empty_chunks() {
         .transaction_validity_period(1000)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(client_accounts)
-        .build();
+        .build()
+        .warmup();
 
     execute_money_transfers(&mut test_loop, &node_datas, &accounts).unwrap();
 
@@ -91,6 +92,6 @@ fn test_load_memtrie_after_empty_chunks() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, datas: node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

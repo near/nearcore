@@ -441,7 +441,8 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             params.chunk_ranges_to_drop.clone(),
         )
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
-        .build();
+        .build()
+        .warmup();
 
     let mut test_setup_transactions = vec![];
     for contract_id in &params.deploy_test_contract {

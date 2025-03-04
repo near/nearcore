@@ -238,7 +238,10 @@ fn setup(accounts: &Vec<AccountId>) -> TestLoopEnv {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
-    env
+    builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup()
 }

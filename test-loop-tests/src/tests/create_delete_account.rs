@@ -79,8 +79,12 @@ fn test_create_delete_account() {
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let mut env = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup();
 
     // Launch a task to check that all chunks are produced.
     // Needed to make sure that chunks are valid. Currently, if chunk

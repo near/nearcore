@@ -2,7 +2,8 @@ use near_async::test_loop::data::TestLoopData;
 use near_client::client_actor::ClientActorInner;
 use near_primitives::types::AccountId;
 
-use crate::setup::env::{TestData, TestLoopEnv};
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::TestData;
 
 pub(crate) mod contract_distribution;
 pub(crate) mod loop_action;

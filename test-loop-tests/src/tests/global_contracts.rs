@@ -193,7 +193,8 @@ impl GlobalContractsTestEnv {
             .clients(clients)
             .epoch_config_store(epoch_config_store)
             .runtime_config_store(runtime_config_store.clone())
-            .build();
+            .build()
+            .warmup();
         let contract = ContractCode::new(near_test_contracts::rs_contract().to_vec(), None);
 
         Self {

@@ -53,6 +53,7 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build()
+        .warmup()
 }
 
 pub fn derive_new_epoch_config_from_boundary(

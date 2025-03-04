@@ -1,4 +1,5 @@
-use crate::setup::env::{TestData, TestLoopEnv};
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::TestData;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
