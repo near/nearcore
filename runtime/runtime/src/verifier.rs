@@ -132,9 +132,12 @@ pub fn commit_charging_for_tx(
     set_account(state_update, tx.signer_id().clone(), &signer);
 }
 
-/// Verifies the signed transaction on top of given state, charges transaction fees
-/// and balances, and updates the state for the used account and access keys.
-pub fn verify_and_charge_transaction(
+/// Verifies the signed transaction on top of the given state; looks up the
+/// signer account and access_key from the transaction; updates them to charge
+/// for the transaction processing; returns the updated signer and access_key to
+/// the caller.  The caller can use `commit_charging_for_tx()` to commit the
+/// actual charging.
+pub fn verify_and_charge_tx_ephemeral(
     config: &RuntimeConfig,
     state_update: &TrieUpdate,
     signed_transaction: &SignedTransaction,
@@ -769,7 +772,7 @@ mod tests {
             };
 
         // Validation passed, now verification should fail with expected_err
-        let err = verify_and_charge_transaction(
+        let err = verify_and_charge_tx_ephemeral(
             config,
             state_update,
             signed_transaction,
@@ -792,7 +795,7 @@ mod tests {
         validate_transaction(config, signed_transaction, current_protocol_version)?;
         let transaction_cost =
             tx_cost(config, &signed_transaction.transaction, gas_price, current_protocol_version)?;
-        let vr = verify_and_charge_transaction(
+        let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
             signed_transaction,

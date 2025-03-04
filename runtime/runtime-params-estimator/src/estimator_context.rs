@@ -30,7 +30,7 @@ use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
     ApplyState, Runtime, SignedValidPeriodTransactions, commit_charging_for_tx,
-    verify_and_charge_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::iter;
@@ -461,7 +461,7 @@ impl Testbed<'_> {
         let cost = tx_cost(&self.apply_state.config, &tx.transaction, gas_price, PROTOCOL_VERSION)
             .unwrap();
 
-        let vr = verify_and_charge_transaction(
+        let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
             &state_update,
             tx,

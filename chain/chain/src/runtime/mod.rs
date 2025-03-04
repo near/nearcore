@@ -50,7 +50,7 @@ use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
     ApplyState, Runtime, ValidatorAccountsUpdate, commit_charging_for_tx, validate_transaction,
-    verify_and_charge_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -577,7 +577,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = shard_layout.account_id_to_shard_uid(transaction.transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
 
-        verify_and_charge_transaction(
+        verify_and_charge_tx_ephemeral(
             runtime_config,
             &state_update,
             transaction,
@@ -774,7 +774,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         .map_err(InvalidTxError::from)
                     })
                     .and_then(|cost| {
-                        verify_and_charge_transaction(
+                        verify_and_charge_tx_ephemeral(
                             runtime_config,
                             &state_update,
                             &tx,
