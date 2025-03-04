@@ -1,5 +1,5 @@
 use crate::VerificationResult;
-use crate::config::{TransactionCost, total_prepaid_gas, tx_cost};
+use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
@@ -88,21 +88,18 @@ fn is_zero_balance_account(account: &Account) -> bool {
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 pub fn validate_transaction(
     config: &RuntimeConfig,
-    gas_price: Balance,
     signed_transaction: &SignedTransaction,
-    verify_signature: bool,
     current_protocol_version: ProtocolVersion,
-) -> Result<TransactionCost, InvalidTxError> {
+) -> Result<(), InvalidTxError> {
     // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
     if matches!(signed_transaction.transaction, near_primitives::transaction::Transaction::V1(_)) {
         return Err(InvalidTxError::InvalidTransactionVersion);
     }
     let transaction = &signed_transaction.transaction;
 
-    if verify_signature
-        && !signed_transaction
-            .signature
-            .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
+    if !signed_transaction
+        .signature
+        .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
     {
         return Err(InvalidTxError::InvalidSignature);
     }
@@ -122,10 +119,7 @@ pub fn validate_transaction(
         transaction.actions(),
         current_protocol_version,
     )
-    .map_err(InvalidTxError::ActionsValidation)?;
-
-    tx_cost(&config, transaction, gas_price, current_protocol_version)
-        .map_err(|_| InvalidTxError::CostOverflow.into())
+    .map_err(InvalidTxError::ActionsValidation)
 }
 
 /// Verifies the signed transaction on top of given state, charges transaction fees
@@ -612,8 +606,10 @@ fn check_global_contracts_enabled(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use super::*;
+    use crate::config::tx_cost;
+    use crate::near_primitives::shard_layout::ShardUId;
+    use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
@@ -625,15 +621,11 @@ mod tests {
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::TestTriesBuilder;
-    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
-
-    use crate::near_primitives::shard_layout::ShardUId;
-
-    use super::*;
-    use crate::near_primitives::trie_key::TrieKey;
     use near_store::set;
+    use near_store::test_utils::TestTriesBuilder;
     use near_vm_runner::ContractCode;
+    use std::sync::Arc;
+    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -749,25 +741,30 @@ mod tests {
         signed_transaction: &SignedTransaction,
         expected_err: InvalidTxError,
     ) {
-        match validate_transaction(config, gas_price, signed_transaction, true, PROTOCOL_VERSION) {
-            Ok(cost) => {
-                // Validation passed, now verification should fail with expected_err
-                let err = verify_and_charge_transaction(
-                    config,
-                    state_update,
-                    signed_transaction,
-                    &cost,
-                    None,
-                    PROTOCOL_VERSION,
-                )
-                .expect_err("expected an error");
-                assert_eq!(err, expected_err);
-            }
-            Err(err) => {
-                // Validation itself returned an error
-                assert_eq!(err, expected_err);
-            }
+        if let Err(err) = validate_transaction(config, signed_transaction, PROTOCOL_VERSION) {
+            assert_eq!(err, expected_err);
+            return;
         }
+        let cost =
+            match tx_cost(config, &signed_transaction.transaction, gas_price, PROTOCOL_VERSION) {
+                Ok(c) => c,
+                Err(err) => {
+                    assert_eq!(InvalidTxError::from(err), expected_err);
+                    return;
+                }
+            };
+
+        // Validation passed, now verification should fail with expected_err
+        let err = verify_and_charge_transaction(
+            config,
+            state_update,
+            signed_transaction,
+            &cost,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(err, expected_err);
     }
 
     pub fn validate_verify_and_charge_transaction(
@@ -778,13 +775,9 @@ mod tests {
         block_height: Option<BlockHeight>,
         current_protocol_version: ProtocolVersion,
     ) -> Result<VerificationResult, InvalidTxError> {
-        let transaction_cost = validate_transaction(
-            config,
-            gas_price,
-            signed_transaction,
-            true,
-            current_protocol_version,
-        )?;
+        validate_transaction(config, signed_transaction, current_protocol_version)?;
+        let transaction_cost =
+            tx_cost(config, &signed_transaction.transaction, gas_price, current_protocol_version)?;
         verify_and_charge_transaction(
             config,
             state_update,
@@ -1557,7 +1550,7 @@ mod tests {
             wasm_config.limit_config.max_transaction_size = transaction_size - 1;
         }
 
-        let err = validate_transaction(&config, gas_price, &transaction, false, PROTOCOL_VERSION)
+        let err = validate_transaction(&config, &transaction, PROTOCOL_VERSION)
             .expect_err("expected validation error - size exceeded");
         assert_eq!(
             err,

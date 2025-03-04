@@ -171,6 +171,8 @@ struct EventStartLogOutput {
     current_index: usize,
     /// See `EventEndLogOutput::total_events`.
     total_events: usize,
+    /// The identifier of the event, usually the node_id.
+    identifier: String,
     /// The Debug representation of the event payload.
     current_event: String,
     /// The current virtual time.
@@ -333,11 +335,11 @@ impl TestLoopV2 {
 
     /// Processes the given event, by logging a line first and then finding a handler to run it.
     fn process_event(&mut self, event: EventInHeap) {
-        let description = format!("({},{})", event.event.identifier, event.event.description);
         let start_json = serde_json::to_string(&EventStartLogOutput {
             current_index: event.id,
             total_events: self.next_event_index,
-            current_event: description,
+            identifier: event.event.identifier,
+            current_event: event.event.description,
             current_time_ms: event.due.whole_milliseconds() as u64,
         })
         .unwrap();

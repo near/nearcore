@@ -11,7 +11,7 @@ pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, validate_transaction, verify_and_charge_transaction,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
-use config::{TransactionCost, total_prepaid_send_fees};
+use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
 use itertools::Itertools;
@@ -289,8 +289,11 @@ impl Runtime {
         transactions
             .par_iter()
             .map(move |tx| {
-                let cost_result =
-                    validate_transaction(config, gas_price, tx, true, current_protocol_version);
+                let cost_result = validate_transaction(config, tx, current_protocol_version)
+                    .and_then(|()| {
+                        tx_cost(config, &tx.transaction, gas_price, current_protocol_version)
+                            .map_err(InvalidTxError::from)
+                    });
                 (tx, cost_result)
             })
             .collect()
