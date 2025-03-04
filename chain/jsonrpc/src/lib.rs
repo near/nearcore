@@ -233,9 +233,7 @@ pub struct ClientSenderForRpc(
     AsyncSender<DebugStatus, ActixResult<DebugStatus>>,
     AsyncSender<GetClientConfig, ActixResult<GetClientConfig>>,
     AsyncSender<GetNetworkInfo, ActixResult<GetNetworkInfo>>,
-    // AsyncSender<ProcessTxRequest, ActixResult<ProcessTxRequest>>,
     AsyncSender<Status, ActixResult<Status>>,
-    // Sender<ProcessTxRequest>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
     #[cfg(feature = "test_features")]
     AsyncSender<

@@ -2279,8 +2279,7 @@ impl Client {
             // Transactions only need to be recorded if the node is a validator.
             if me.is_some() {
                 let mut pool = self.chunk_producer.sharded_tx_pool.lock().unwrap();
-                match pool.insert_transaction(shard_uid, tx.clone())
-                {
+                match pool.insert_transaction(shard_uid, tx.clone()) {
                     InsertTransactionResult::Success => {
                         trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
                     }

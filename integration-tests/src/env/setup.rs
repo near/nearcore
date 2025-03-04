@@ -22,7 +22,7 @@ use near_chain_configs::{
     ChunkDistributionNetworkConfig, ClientConfig, MutableConfigValue, ReshardingConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
-use near_chunks::client::{ShardedTransactionPool, ShardsManagerResponse};
+use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::{ShardsManagerActor, start_shards_manager};
 use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_client::adversarial::Controls;
@@ -158,20 +158,7 @@ pub fn setup(
 
     let mut rng_seed: RngSeed = [0; 32];
     rand::thread_rng().fill(&mut rng_seed);
-    let dummy_tx_pool =
-        Arc::new(std::sync::Mutex::new(ShardedTransactionPool::new(rng_seed, Some(60000))));
 
-    let tx_processor_addr = spawn_tx_request_handler_actor(
-        clock.clone(),
-        config.clone(),
-        dummy_tx_pool.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        signer.clone(),
-        runtime.clone(),
-        chain_genesis.clone(),
-        network_adapter.clone(),
-    );
     let client_adapter_for_partial_witness_actor = LateBoundSender::new();
     let (partial_witness_addr, _) = spawn_actix_actor(PartialWitnessActor::new(
         clock.clone(),
@@ -190,28 +177,42 @@ pub fn setup(
     let resharding_sender = resharding_sender_addr.with_auto_span_context();
 
     let shards_manager_adapter_for_client = LateBoundSender::new();
-    let StartClientResult { client_actor, .. } = start_client(
-        clock,
+    let StartClientResult { client_actor, client_arbiter_handle: _, resharding_handle: _, tx_pool } =
+        start_client(
+            clock.clone(),
+            config.clone(),
+            chain_genesis.clone(),
+            epoch_manager.clone(),
+            shard_tracker.clone(),
+            runtime.clone(),
+            PeerId::new(PublicKey::empty(KeyType::ED25519)),
+            Arc::new(ActixFutureSpawner),
+            network_adapter.clone(),
+            shards_manager_adapter_for_client.as_sender(),
+            signer.clone(),
+            telemetry.with_auto_span_context().into_sender(),
+            None,
+            None,
+            adv,
+            None,
+            partial_witness_adapter.clone().into_multi_sender(),
+            enable_doomslug,
+            Some(TEST_SEED),
+            resharding_sender.into_multi_sender(),
+        );
+
+    let tx_processor_addr = spawn_tx_request_handler_actor(
+        clock.clone(),
         config.clone(),
-        chain_genesis,
+        tx_pool.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
-        runtime,
-        PeerId::new(PublicKey::empty(KeyType::ED25519)),
-        Arc::new(ActixFutureSpawner),
+        signer.clone(),
+        runtime.clone(),
+        chain_genesis.clone(),
         network_adapter.clone(),
-        shards_manager_adapter_for_client.as_sender(),
-        signer,
-        telemetry.with_auto_span_context().into_sender(),
-        None,
-        None,
-        adv,
-        None,
-        partial_witness_adapter.clone().into_multi_sender(),
-        enable_doomslug,
-        Some(TEST_SEED),
-        resharding_sender.into_multi_sender(),
     );
+
     let validator_signer = Some(Arc::new(EmptyValidatorSigner::new(account_id)));
     let (shards_manager_addr, _) = start_shards_manager(
         epoch_manager.clone(),

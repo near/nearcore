@@ -178,12 +178,9 @@ impl TxRequestHandler {
             cur_block.block_congestion_info().get(&receiver_shard).copied();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        if let Err(err) = self.runtime.validate_tx(
-            &shard_layout,
-            tx,
-            protocol_version,
-            receiver_congestion_info,
-        ) {
+        if let Err(err) =
+            self.runtime.validate_tx(&shard_layout, tx, protocol_version, receiver_congestion_info)
+        {
             tracing::debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
             return Ok(ProcessTxResponse::InvalidTx(err));
         }
@@ -206,7 +203,9 @@ impl TxRequestHandler {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
                     if is_forwarded {
-                        return Err(near_client_primitives::types::Error::Other("Node has not caught up yet".to_string()));
+                        return Err(near_client_primitives::types::Error::Other(
+                            "Node has not caught up yet".to_string(),
+                        ));
                     } else {
                         self.forward_tx(&epoch_id, tx, signer)?;
                         return Ok(ProcessTxResponse::RequestRouted);
@@ -229,8 +228,7 @@ impl TxRequestHandler {
             // Transactions only need to be recorded if the node is a validator.
             if me.is_some() {
                 let mut pool = self.tx_pool.lock().unwrap();
-                match pool.insert_transaction(shard_uid, tx.clone())
-                {
+                match pool.insert_transaction(shard_uid, tx.clone()) {
                     InsertTransactionResult::Success => {
                         tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
                     }
