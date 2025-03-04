@@ -3,6 +3,14 @@
 ## [unreleased]
 
 ### Protocol Changes
+**No Changes**
+
+### Non-protocol Changes
+**No Changes**
+
+## [2.6.0]
+
+### Protocol Changes
 
 * Implemented support for global contracts: [NEP-591](https://github.com/near/NEPs/pull/591)
 * Implemented Optimistic Block to remove doubled chunk execution latency from block & chunk production flow [#10584](https://github.com/near/nearcore/issues/10584)
