@@ -179,11 +179,8 @@ impl TxRequestHandler {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         if let Err(err) = self.runtime.validate_tx(
-            gas_price,
-            None,
             &shard_layout,
             tx,
-            true,
             protocol_version,
             receiver_congestion_info,
         ) {
@@ -196,11 +193,12 @@ impl TxRequestHandler {
             tx.transaction.signer_id(),
             &epoch_id,
         )?;
-        let care_about_shard =
-            self.shard_tracker.care_about_shard(me, &head.last_block_hash, shard_id, true);
+        let cares_about_shard =
+            self.shard_tracker.cares_about_shard(me, &head.last_block_hash, shard_id, true);
         let will_care_about_shard =
             self.shard_tracker.will_care_about_shard(me, &head.last_block_hash, shard_id, true);
-        if care_about_shard || will_care_about_shard {
+
+        if cares_about_shard || will_care_about_shard {
             let shard_uid = shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, &epoch_id)?;
             let state_root = match self.chain.get_chunk_extra(&head.last_block_hash, &shard_uid) {
                 Ok(chunk_extra) => *chunk_extra.state_root(),
@@ -208,85 +206,83 @@ impl TxRequestHandler {
                     // Not being able to fetch a state root most likely implies that we haven't
                     //     caught up with the next epoch yet.
                     if is_forwarded {
-                        return Err(near_client_primitives::types::Error::Other(
-                            "Node has not caught up yet".to_string(),
-                        ));
+                        return Err(near_client_primitives::types::Error::Other("Node has not caught up yet".to_string()));
                     } else {
                         self.forward_tx(&epoch_id, tx, signer)?;
                         return Ok(ProcessTxResponse::RequestRouted);
                     }
                 }
             };
-            if let Err(err) = self.runtime.validate_tx(
-                gas_price,
-                Some(state_root),
+            if let Err(err) = self.runtime.can_verify_and_charge_tx(
                 &shard_layout,
+                gas_price,
+                state_root,
                 tx,
-                false,
                 protocol_version,
-                receiver_congestion_info,
             ) {
                 tracing::debug!(target: "client", ?err, "Invalid tx");
-                Ok(ProcessTxResponse::InvalidTx(err))
-            } else if check_only {
-                Ok(ProcessTxResponse::ValidTx)
-            } else {
-                // Transactions only need to be recorded if the node is a validator.
-                if me.is_some() {
-                    let mut pool_guarded = self.tx_pool.lock().unwrap();
-                    match pool_guarded.insert_transaction(shard_uid, tx.clone()) {
-                        InsertTransactionResult::Success => {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
-                        }
-                        InsertTransactionResult::Duplicate => {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Duplicate transaction, not forwarding it.");
-                            return Ok(ProcessTxResponse::ValidTx);
-                        }
-                        InsertTransactionResult::NoSpaceLeft => {
-                            if is_forwarded {
-                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
-                            } else {
-                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
-                            }
+                return Ok(ProcessTxResponse::InvalidTx(err));
+            }
+            if check_only {
+                return Ok(ProcessTxResponse::ValidTx);
+            }
+            // Transactions only need to be recorded if the node is a validator.
+            if me.is_some() {
+                let mut pool = self.tx_pool.lock().unwrap();
+                match pool.insert_transaction(shard_uid, tx.clone())
+                {
+                    InsertTransactionResult::Success => {
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
+                    }
+                    InsertTransactionResult::Duplicate => {
+                        tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Duplicate transaction, not forwarding it.");
+                        return Ok(ProcessTxResponse::ValidTx);
+                    }
+                    InsertTransactionResult::NoSpaceLeft => {
+                        if is_forwarded {
+                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
+                        } else {
+                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
                         }
                     }
-                }
-
-                // Active validator:
-                //   possibly forward to next epoch validators
-                // Not active validator:
-                //   forward to current epoch validators,
-                //   possibly forward to next epoch validators
-                if self.active_validator(shard_id, signer)? {
-                    tracing::trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
-                    metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
-
-                    if !is_forwarded {
-                        self.possibly_forward_tx_to_next_epoch(tx, signer)?;
-                    }
-                    Ok(ProcessTxResponse::ValidTx)
-                } else if !is_forwarded {
-                    tracing::trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
-                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
-                    self.forward_tx(&epoch_id, tx, signer)?;
-                    Ok(ProcessTxResponse::RequestRouted)
-                } else {
-                    tracing::trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
-                    metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
-                    Ok(ProcessTxResponse::NoResponse)
                 }
             }
-        } else if check_only {
-            Ok(ProcessTxResponse::DoesNotTrackShard)
-        } else if is_forwarded {
+
+            // Active validator:
+            //   possibly forward to next epoch validators
+            // Not active validator:
+            //   forward to current epoch validators,
+            //   possibly forward to next epoch validators
+            if self.active_validator(shard_id, signer)? {
+                tracing::trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
+                metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
+
+                if !is_forwarded {
+                    self.possibly_forward_tx_to_next_epoch(tx, signer)?;
+                }
+                return Ok(ProcessTxResponse::ValidTx);
+            }
+            if !is_forwarded {
+                tracing::trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
+                metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
+                self.forward_tx(&epoch_id, tx, signer)?;
+                return Ok(ProcessTxResponse::RequestRouted);
+            }
+            tracing::trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
+            metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
+            return Ok(ProcessTxResponse::NoResponse);
+        }
+
+        if check_only {
+            return Ok(ProcessTxResponse::DoesNotTrackShard);
+        }
+        if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
             tracing::debug!(target: "client", ?me, ?shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
-            Ok(ProcessTxResponse::NoResponse)
-        } else {
-            // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
-            self.forward_tx(&epoch_id, tx, signer)?;
-            Ok(ProcessTxResponse::RequestRouted)
+            return Ok(ProcessTxResponse::NoResponse);
         }
+        // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
+        self.forward_tx(&epoch_id, tx, signer).map(|()| ProcessTxResponse::RequestRouted)
     }
 
     /// Forwards given transaction to upcoming validators.
