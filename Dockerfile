@@ -13,14 +13,12 @@ RUN apt-get update -qq && apt-get install -y \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
-COPY ./rust-toolchain.toml /tmp/rust-toolchain.toml
-
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
 RUN curl https://sh.rustup.rs -sSf | \
-    sh -s -- -y --no-modify-path --default-toolchain none
+    sh -s -- -y --no-modify-path
 
 VOLUME [ /near ]
 WORKDIR /near
