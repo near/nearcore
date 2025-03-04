@@ -476,8 +476,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .build();
 
     let mut test_setup_transactions = vec![];
-    let mut nonce = 100;
+    let mut nonce = 1;
     if !params.deploy_test_global_contract.is_empty() {
+        nonce = 100;
         for (deployer_id, deploy_mode) in &params.deploy_test_global_contract {
             let deploy_contract_tx = deploy_global_contract(
                 &mut env.test_loop,
