@@ -117,4 +117,5 @@ export SYNTH_BM_BIN=<absolute path to near-synth-bm>
 ### Known issues
 
 - updating `param.json` is tedious
-- the start-node command hangs (must interrupt it)
+- the `start-node` command hangs (it works, but it must be manually interrupted)
+- generating nodes config and keys beforehand with another `init` is suboptimal
