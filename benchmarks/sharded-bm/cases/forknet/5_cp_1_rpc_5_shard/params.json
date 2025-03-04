@@ -9,7 +9,10 @@
     "num_transfers": 70000,
     "forknet": {
         "name": "tps5shards",
-        "start_height": "138038232",
-        "rpc_addr": "34.90.99.163:4040"
+        "start_height": "138038233",
+        "chunk_producers": ["2467", "cd2b", "0d6a", "7953", "19cb"],
+        "rpc": "60b4",
+        "rpc_addr": "10.132.0.59:3030",
+        "boot_nodes": "ed25519:HJHeHmTGs9aj9oNtXbuZhgGq2aTCcr8it13DLRVp4eZw@10.132.0.59:24567"
     }
 }

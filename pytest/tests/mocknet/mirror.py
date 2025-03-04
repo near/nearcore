@@ -483,14 +483,18 @@ def run_remote_cmd(args, traffic_generator, nodes):
          targeted,
          on_exception="")
 
+
 def run_remote_upload_file(args, traffic_generator, nodes):
     targeted = nodes + to_list(traffic_generator)
-    logger.info(f'Uploading {args.src} in {args.dst} on {"".join([h.name() for h in targeted ])}')
+    logger.info(
+        f'Uploading {args.src} in {args.dst} on {"".join([h.name() for h in targeted ])}'
+    )
     pmap(lambda node: logger.info(
         '{0}:\nstdout:\n{1.stdout}\nstderr:\n{1.stderr}'.format(
             node.name(), node.upload_file(args.src, args.dst))),
          targeted,
          on_exception="")
+
 
 def run_env_cmd(args, traffic_generator, nodes):
     if args.clear_all:
@@ -740,7 +744,10 @@ if __name__ == '__main__':
     run_cmd_parser.set_defaults(func=run_remote_cmd)
 
     upload_file_parser = subparsers.add_parser('upload-file',
-                                           help='''Upload a file on the hosts.''')
+                                               help='''
+        Upload a file or a directory on the hosts.
+        Existing files are replaced.
+        ''')
     upload_file_parser.add_argument('--src', type=str)
     upload_file_parser.add_argument('--dst', type=str)
     upload_file_parser.set_defaults(func=run_remote_upload_file)

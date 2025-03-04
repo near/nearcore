@@ -97,20 +97,24 @@ Debug UI works, just use the machine public IP.
 
 You should be able to use any valid forknet image with [forknet terraform recipes](https://docs.nearone.org/doc/mocknet-guide-7VnYUXjs2A).
 
-Set correct `forknet.name` and `forknet.start_height` in `params.json`
+First, set correct values inside the `forknet` object in `params.json`.
 
 ```sh
 export CASE=cases/forknet/5_cp_1_rpc_5_shard/
 export VIRTUAL_ENV=<absolute path to virtual env bin directory>
 export SYNTH_BM_BIN=<absolute path to near-synth-bm>
 
+# either run this command or export an env variable (GEN_NODES_DIR) with the path to its output, 
+# which is a directory containing config for node0, node1, etc 
+./bench.sh init cases/local/5_cp_1_rpc_5_shard/ 
+
 ./bench.sh init
 ./bench.sh start-nodes
-```
-
-Set correct `forknet.rpc_addr` in `params.json`
-
-```sh
 ./bench.sh create-accounts
 ./bench.sh native-transfers
 ```
+
+### Known issues
+
+- updating `param.json` is tedious
+- sometimes the start-node command hangs (just interrupt)

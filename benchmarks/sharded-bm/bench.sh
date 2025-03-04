@@ -45,9 +45,11 @@ PYTEST_PATH="../../pytest/"
 echo "Test case: ${CASE}"
 echo "Num nodes: ${NUM_NODES}"
 if [ "${RUN_ON_FORKNET}" = true ]; then
+    GEN_NODES_DIR="${GEN_NODES_DIR:-/home/ubuntu/bench}"
     FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
     FORKNET_RPC_ADDR=$(jq -r '.forknet.rpc_addr' ${BM_PARAMS})
     FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
+    FORKNET_BOOT_NODES=$(jq -r '.forknet.boot_nodes' ${BM_PARAMS})
     RPC_ADDR=${FORKNET_RPC_ADDR}
     NODE_BINARY_URL="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard"
     mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} --unique-id ${FORKNET_NAME}"
@@ -74,8 +76,13 @@ RPC_URL="http://${RPC_ADDR}"
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $mirror --host-type nodes start-nodes
+    # $mirror --host-type nodes start-nodes
+    $mirror --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh start-neard0 ${CASE}"
     cd -
+}
+
+start_neard0() {
+    nohup ${NEAR_HOME}/neard-runner/binaries/neard0 --home ${NEAR_HOME} run 2> /home/ubuntu/neard-logs/logs.txt &
 }
 
 start_nodes_local() {
@@ -103,7 +110,8 @@ start_nodes() {
 
 stop_nodes_forknet() {
     cd ${PYTEST_PATH}
-    $mirror --host-type nodes stop-nodes || true
+    # $mirror --host-type nodes stop-nodes || true
+    $mirror --host-type nodes run-cmd --cmd "killall --wait neard0 || true"
     cd -
 }
 
@@ -152,18 +160,19 @@ reset() {
 }
 
 init_forknet() {
-    epoch_length=$(jq -r '.epoch_length' ${BASE_GENESIS_PATCH})
-    protocol_version=$(jq -r '.protocol_version' ${GENESIS_PATCH})
+    # reset
+    # epoch_length=$(jq -r '.epoch_length' ${BASE_GENESIS_PATCH})
+    # protocol_version=$(jq -r '.protocol_version' ${GENESIS_PATCH})
     cd ${PYTEST_PATH}
     $mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL}
-    $mirror --host-type nodes new-test \
-        --epoch-length ${epoch_length} \
-        --genesis-protocol-version ${protocol_version} \
-        --num-validators ${NUM_CHUNK_PRODUCERS} \
-        --num-seats ${NUM_CHUNK_PRODUCERS} \
-        --stateless-setup \
-        --new-chain-id ${FORKNET_NAME} \
-        --yes
+    # $mirror --host-type nodes new-test \
+    #     --epoch-length ${epoch_length} \
+    #     --genesis-protocol-version ${protocol_version} \
+    #     --num-validators ${NUM_CHUNK_PRODUCERS} \
+    #     --num-seats ${NUM_CHUNK_PRODUCERS} \
+    #     --stateless-setup \
+    #     --new-chain-id ${FORKNET_NAME} \
+    #     --yes
     $mirror --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"    
     $mirror --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
     $mirror --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/near-synth-bm"
@@ -222,14 +231,32 @@ tweak_config_forknet() {
     cd ${PYTEST_PATH}
     $mirror --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
     $mirror --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
-    $mirror --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; CASE=${CASE} ./bench.sh tweak-config-forknet-node"
+    $mirror --host-type nodes upload-file --src ${GEN_NODES_DIR} --dst ${BENCHNET_DIR}/nodes
+    cd -
+    for i in $(seq 0 $((NUM_CHUNK_PRODUCERS-1))); do
+        node=$(jq -r ".forknet.chunk_producers[${i}]" ${BM_PARAMS})
+        cd ${PYTEST_PATH}
+        $mirror --host-filter ".*${node}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${i}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE} cp"
+        cd -
+    done
+
+    rpc=$(jq -r ".forknet.rpc" ${BM_PARAMS})
+    cd ${PYTEST_PATH}
+    $mirror --host-filter ".*${rpc}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE} rpc"
     cd -
 }
 
 tweak_config_forknet_node() {
-    edit_genesis ${GENESIS}
-    edit_config ${CONFIG}
-    edit_log_config ${LOG_CONFIG}    
+    jq --arg val "0.0.0.0:24567" \
+        '.network.addr |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    node_type=$1
+    if [ "${node_type}" = "rpc" ]; then
+        jq --arg val "0.0.0.0:3030" \
+        '.rpc.addr |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    else 
+        jq --arg val "${FORKNET_BOOT_NODES}" \
+        '.network.boot_nodes |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    fi
 }
 
 tweak_config_local() {
@@ -404,7 +431,11 @@ case "$1" in
         ;;
 
     tweak-config-forknet-node)
-        tweak_config_forknet_node
+        tweak_config_forknet_node $3
+        ;;
+
+    start-neard0)
+        start_neard0
         ;;
 
     *)
