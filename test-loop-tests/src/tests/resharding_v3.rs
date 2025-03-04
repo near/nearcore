@@ -1151,16 +1151,16 @@ fn test_resharding_v3_global_contract_base(
     identifier: GlobalContractIdentifier,
     deploy_mode: GlobalContractDeployMode,
 ) {
-    let account: AccountId = "account4".parse().unwrap();
+    let global_contract_deployer: AccountId = "account4".parse().unwrap();
     let caller_accounts = vec!["account1".parse().unwrap(), "account2".parse().unwrap()];
-    let user_by_account_id: AccountId = "account6".parse().unwrap();
+    let global_contract_user: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
         .base_protocol_version(PROTOCOL_VERSION - 1)
-        .deploy_test_global_contract(account, deploy_mode)
-        .use_test_global_contract(user_by_account_id.clone(), identifier)
+        .deploy_test_global_contract(global_contract_deployer, deploy_mode)
+        .use_test_global_contract(global_contract_user.clone(), identifier)
         .add_loop_action(call_burn_gas_contract(
             caller_accounts,
-            vec![user_by_account_id],
+            vec![global_contract_user],
             275 * TGAS,
             DEFAULT_EPOCH_LENGTH,
         ))
