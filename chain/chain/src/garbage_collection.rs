@@ -39,6 +39,8 @@ impl fmt::Debug for GCMode {
     }
 }
 
+// TODO add plumbing to clear ChainStoreCache automatically from within gc_col
+
 /// Both functions here are only used for testing as they create convenient
 /// wrappers that allow us to do correctness integration testing without having
 /// to fully spin up GCActor
@@ -672,6 +674,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 3. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
+        self.chain_store.delete_block(&block_hash);
         self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
@@ -773,6 +776,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // 2. Delete block_hash-indexed data
         self.gc_col(DBCol::Block, block_hash.as_bytes());
+        self.chain_store.delete_block(&block_hash);
         self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
         self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
         self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
