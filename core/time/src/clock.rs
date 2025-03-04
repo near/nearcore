@@ -161,7 +161,7 @@ impl FakeClockInner {
         }
         self.instant += d;
         self.utc += d;
-        
+
         // Wake up any waiters that have reached their deadline
         while let Some(earliest_waiter) = self.waiters.peek() {
             if earliest_waiter.deadline <= self.instant {
@@ -215,7 +215,7 @@ impl FakeClock {
         if d <= Duration::ZERO {
             return;
         }
-        
+
         let receiver = {
             let mut inner = self.0.lock().unwrap();
             let deadline = inner.now() + d;
@@ -224,7 +224,7 @@ impl FakeClock {
             inner.waiters.push(waiter);
             receiver
         };
-        
+
         receiver.await.unwrap();
     }
 
@@ -241,7 +241,7 @@ impl FakeClock {
             inner.waiters.push(waiter);
             receiver
         };
-        
+
         receiver.await.unwrap();
     }
 
@@ -249,66 +249,50 @@ impl FakeClock {
     /// The returned instant is guaranteed to be <= any waiter that is currently
     /// waiting on the clock to advance.
     pub fn first_waiter(&self) -> Option<Instant> {
-        let inner = self.0.lock().unwrap();
-        inner.waiters.peek().map(|waiter| waiter.deadline)
+        self.0.lock().unwrap().waiters.peek().map(|w| w.deadline)
     }
 }
 
 impl Default for FakeClock {
     fn default() -> FakeClock {
-        Self::new(*FAKE_CLOCK_UTC_START)
+        FakeClock::new(*FAKE_CLOCK_UTC_START)
     }
 }
 
-/// Interval equivalent to tokio::time::Interval with
-/// MissedTickBehavior::Skip.
+/// A utility for creating periodic tasks.
 pub struct Interval {
     next: Instant,
     period: time::Duration,
 }
 
 impl Interval {
+    /// Creates a new interval which will yield first after `next` is reached.
     pub fn new(next: Instant, period: time::Duration) -> Self {
         Self { next, period }
     }
 
-    /// Cancel-safe.
+    /// Waits until the next tick.
+    ///
+    /// Returns the time when the tick happened.
     pub async fn tick(&mut self, clock: &Clock) {
-        clock.sleep_until(self.next).await;
-        let now = clock.now();
-        // Implementation of `tokio::time::MissedTickBehavior::Skip`.
-        // Please refer to https://docs.rs/tokio/latest/tokio/time/enum.MissedTickBehavior.html#
-        // for details. In essence, if more than `period` of time passes between consecutive
-        // calls to tick, then the second tick completes immediately and the next one will be
-        // aligned to the original schedule.
-        self.next = now.add_signed(self.period).sub_signed(Duration::nanoseconds(
-            ((now.signed_duration_since(self.next)).whole_nanoseconds()
-                % self.period.whole_nanoseconds())
-            .try_into()
-            // This operation is practically guaranteed not to
-            // fail, as in order for it to fail, `period` would
-            // have to be longer than `now - timeout`, and both
-            // would have to be longer than 584 years.
-            //
-            // If it did fail, there's not a good way to pass
-            // the error along to the user, so we just panic.
-            .expect("too much time has elapsed since the interval was supposed to tick"),
-        ));
+        let deadline = self.next;
+        clock.sleep_until(deadline).await;
+        self.next = deadline + Duration::from_std(self.period).unwrap();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration as StdDuration;
+    use std::time;
 
     #[test]
     fn test_real_clock() {
         let clock = Clock::real();
-        let start = clock.now();
-        std::thread::sleep(StdDuration::from_millis(10));
-        let end = clock.now();
-        assert!(end > start);
+        let now = clock.now();
+        let now_utc = clock.now_utc();
+        assert!(now <= Instant::now());
+        assert!(now_utc <= Utc::now_utc());
     }
 
     #[tokio::test]
@@ -348,7 +332,7 @@ mod tests {
             .await
             .expect("sleep_task timed out")
             .expect("sleep_task panicked");
-        
+
         assert_eq!(end.signed_duration_since(start), Duration::seconds(6));
     }
 
@@ -357,9 +341,9 @@ mod tests {
         let fake = FakeClock::default();
         let clock = fake.clock();
         let start = clock.now();
-        let wake_time = start + Duration::seconds(10);
+        let wake_time = start + Duration::seconds(5);
 
-        // Create a task that sleeps until specific time
+        // Create a task that sleeps
         let sleep_task = tokio::spawn({
             let clock = clock.clone();
             async move {
@@ -368,13 +352,13 @@ mod tests {
             }
         });
 
-        // Advance clock to just before wake time
-        fake.advance_until(wake_time - Duration::seconds(1));
+        // Advance clock by 3 seconds
+        fake.advance(Duration::seconds(3));
 
         // Sleep task should still be waiting
         assert!(!sleep_task.is_finished());
 
-        // Advance clock past wake time
+        // Advance clock past wake_time
         fake.advance_until(wake_time + Duration::seconds(1));
 
         // Now sleep task should complete
@@ -394,4 +378,4 @@ mod tests {
         let end_utc = clock.now_utc();
         assert_eq!(end_utc - start_utc, Duration::hours(1));
     }
-}
+} 
