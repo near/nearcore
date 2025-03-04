@@ -163,7 +163,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = TestLoopBuilder::new()
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
@@ -221,7 +221,7 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
     let bandwidth_stats =
         analyze_workload_blocks(first_height.unwrap(), last_height.unwrap(), client);
 
-    TestLoopEnv { test_loop, datas: node_datas, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 
     let summary = bandwidth_stats.summarize(&active_links);

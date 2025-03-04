@@ -36,7 +36,7 @@ fn slow_test_congestion_control_simple() {
     accounts.push(contract_id.clone());
 
     let (env, rpc_id) = setup(&accounts);
-    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = env;
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env;
 
     // Test
 
@@ -55,7 +55,7 @@ fn slow_test_congestion_control_simple() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, datas: node_datas, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

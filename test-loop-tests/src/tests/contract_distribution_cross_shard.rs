@@ -126,7 +126,7 @@ fn deploy_contracts(
             ContractCode::new(near_test_contracts::sized_contract((i + 1) * 100).to_vec(), None);
         let tx = deploy_contract(
             &mut env.test_loop,
-            &env.datas,
+            &env.node_datas,
             rpc_id,
             contract_id,
             contract.code().to_vec(),
@@ -137,7 +137,7 @@ fn deploy_contracts(
         contracts.push(contract);
     }
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &txs);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &txs);
     contracts
 }
 
@@ -156,7 +156,7 @@ fn call_contracts(
             tracing::info!(target: "test", ?rpc_id, ?sender_id, ?contract_id, "Calling contract.");
             let tx = call_contract(
                 &mut env.test_loop,
-                &env.datas,
+                &env.node_datas,
                 rpc_id,
                 sender_id,
                 contract_id,
@@ -169,5 +169,5 @@ fn call_contracts(
         }
     }
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, &rpc_id, &txs);
+    check_txs(&env.test_loop.data, &env.node_datas, &rpc_id, &txs);
 }

@@ -72,7 +72,7 @@ fn slow_test_view_requests_to_archival_node() {
         .genesis_height(GENESIS_HEIGHT)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(all_clients)
@@ -98,7 +98,7 @@ fn slow_test_view_requests_to_archival_node() {
     let mut view_client_tester = ViewClientTester::new(&mut test_loop, &node_datas);
     view_client_tester.run_tests(&shard_layout);
 
-    TestLoopEnv { test_loop, datas: node_datas, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

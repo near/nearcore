@@ -37,7 +37,7 @@ fn slow_test_client_with_multi_test_loop() {
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
-    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
@@ -74,6 +74,6 @@ fn slow_test_client_with_multi_test_loop() {
 
     // Give the test a chance to finish off remaining events in the event loop, which can
     // be important for properly shutting down the nodes.
-    TestLoopEnv { test_loop, datas: node_datas, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

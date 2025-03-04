@@ -15,7 +15,7 @@ use super::state::{SharedState, TestData};
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
-    pub datas: Vec<TestData>,
+    pub node_datas: Vec<TestData>,
     pub shared_state: SharedState,
 }
 
@@ -26,7 +26,7 @@ impl TestLoopEnv {
     /// Needed because for smaller heights blocks may not get all chunks and/or
     /// approvals.
     pub fn warmup(self) -> Self {
-        let Self { mut test_loop, datas, shared_state } = self;
+        let Self { mut test_loop, node_datas: datas, shared_state } = self;
 
         // This may happen if you're calling warmup twice or have set skip_warmup in builder.
         assert!(shared_state.warmup_pending.load(Ordering::Relaxed), "warmup already done");
@@ -53,7 +53,7 @@ impl TestLoopEnv {
             test_loop.send_adhoc_event("assertions".to_owned(), Box::new(event));
         }
         test_loop.run_instant();
-        Self { test_loop, datas, shared_state }
+        Self { test_loop, node_datas: datas, shared_state }
     }
 
     /// Used to finish off remaining events that are still in the loop. This can be necessary if the
@@ -64,7 +64,7 @@ impl TestLoopEnv {
     /// Returns the test loop data dir, if the caller wishes to reuse it for another test loop.
     pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
         // State sync dumper is not an Actor, handle stopping separately.
-        for node_data in self.datas {
+        for node_data in self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 

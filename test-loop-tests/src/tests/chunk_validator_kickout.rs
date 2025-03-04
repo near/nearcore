@@ -87,7 +87,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         .target_validator_mandates_per_shard(num_validator_mandates_per_shard)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
@@ -140,7 +140,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         Duration::seconds((5 * epoch_length) as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_datas, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

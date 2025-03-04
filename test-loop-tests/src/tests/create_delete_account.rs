@@ -17,10 +17,10 @@ use crate::utils::transactions::{
 /// Write block height to contract storage.
 fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &AccountId) {
     tracing::info!(target: "test", "Calling contract.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
-        &env.datas,
+        &env.node_datas,
         rpc_id,
         contract_id,
         contract_id,
@@ -29,7 +29,7 @@ fn do_call_contract(env: &mut TestLoopEnv, rpc_id: &AccountId, contract_id: &Acc
         nonce,
     );
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 /// Tracks latest block heights and checks that all chunks are produced.
@@ -92,7 +92,7 @@ fn test_create_delete_account() {
     // last chunk containing problematic tx or receipt is still executed on the
     // rpc nodes, and result will be considered final based on block
     // endorsements.
-    let mut client_sender = env.datas[0].client_sender.clone();
+    let mut client_sender = env.node_datas[0].client_sender.clone();
     client_sender.run_later("check_chunks", Duration::seconds(0), move |actor, runner| {
         check_chunks(actor, runner, std::cell::Cell::new(0));
     });

@@ -328,7 +328,7 @@ impl GlobalContractsTestEnv {
         self.env.test_loop.run_for(Duration::seconds(2));
         let clients: Vec<&Client> = self
             .env
-            .datas
+            .node_datas
             .iter()
             .map(|data| &self.env.test_loop.data.get(&data.client_sender.actor_handle()).client)
             .collect();
@@ -345,7 +345,7 @@ impl GlobalContractsTestEnv {
     }
 
     fn get_tx_block_hash(&self) -> CryptoHash {
-        transactions::get_shared_block_hash(&self.env.datas, &self.env.test_loop.data)
+        transactions::get_shared_block_hash(&self.env.node_datas, &self.env.test_loop.data)
     }
 
     fn execute_tx(&mut self, tx: SignedTransaction) -> FinalExecutionOutcomeView {
@@ -353,7 +353,7 @@ impl GlobalContractsTestEnv {
             &mut self.env.test_loop,
             &self.rpc,
             tx,
-            &self.env.datas,
+            &self.env.node_datas,
             Duration::seconds(5),
         )
         .unwrap()
@@ -364,7 +364,7 @@ impl GlobalContractsTestEnv {
             &mut self.env.test_loop,
             &self.rpc,
             tx,
-            &self.env.datas,
+            &self.env.node_datas,
             Duration::seconds(5),
         );
     }

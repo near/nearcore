@@ -85,7 +85,7 @@ fn slow_test_fix_min_stake_ratio() {
         .add_user_accounts_simple(&accounts, initial_balance)
         .build();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
@@ -157,6 +157,6 @@ fn slow_test_fix_min_stake_ratio() {
         Duration::seconds((5 * epoch_length) as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_datas, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }

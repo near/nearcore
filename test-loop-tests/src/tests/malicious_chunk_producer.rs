@@ -39,7 +39,7 @@ fn test_producer_with_expired_transactions() {
         .clients(accounts.clone())
         .build()
         .warmup();
-    let TestLoopEnv { test_loop, datas: node_datas, .. } = &mut test_loop_env;
+    let TestLoopEnv { test_loop, node_datas, .. } = &mut test_loop_env;
 
     // First we're gonna ask the chunk producer to keep producing empty chunks and send some
     // transactions as well. This will keep transactions in the transaction pool for more blocks

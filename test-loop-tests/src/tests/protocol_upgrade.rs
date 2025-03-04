@@ -107,7 +107,7 @@ pub(crate) fn test_protocol_upgrade(
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, shared_state } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
@@ -192,7 +192,7 @@ pub(crate) fn test_protocol_upgrade(
     }
     assert_eq!(&*observed_missing_chunks.borrow(), &expected_missing_chunks);
 
-    TestLoopEnv { test_loop, datas: node_datas, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

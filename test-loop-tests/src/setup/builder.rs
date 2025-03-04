@@ -502,7 +502,7 @@ impl TestLoopBuilder {
             })
             .collect_vec();
 
-        TestLoopEnv { test_loop, datas, shared_state }
+        TestLoopEnv { test_loop, node_datas: datas, shared_state }
     }
 
     fn setup_shared_state(self) -> (TestLoopV2, SharedState) {

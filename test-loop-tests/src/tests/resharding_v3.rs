@@ -448,7 +448,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     for contract_id in &params.deploy_test_contract {
         let deploy_contract_tx = deploy_contract(
             &mut env.test_loop,
-            &env.datas,
+            &env.node_datas,
             &client_account_id,
             contract_id,
             near_test_contracts::rs_contract().into(),
@@ -469,10 +469,10 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     }
     // Wait for the test setup transactions to settle and ensure they all succeeded.
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, &client_account_id, &test_setup_transactions);
+    check_txs(&env.test_loop.data, &env.node_datas, &client_account_id, &test_setup_transactions);
 
     let client_handles =
-        env.datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
+        env.node_datas.iter().map(|data| data.client_sender.actor_handle()).collect_vec();
 
     #[cfg(feature = "test_features")]
     {
@@ -496,10 +496,9 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
     let resharding_block_hash = Cell::new(None);
     let epoch_height_after_resharding = Cell::new(None);
     let success_condition = |test_loop_data: &mut TestLoopData| -> bool {
-        params
-            .loop_actions
-            .iter()
-            .for_each(|action| action.call(&env.datas, test_loop_data, client_account_id.clone()));
+        params.loop_actions.iter().for_each(|action| {
+            action.call(&env.node_datas, test_loop_data, client_account_id.clone())
+        });
         let clients =
             client_handles.iter().map(|handle| &test_loop_data.get(handle).client).collect_vec();
 

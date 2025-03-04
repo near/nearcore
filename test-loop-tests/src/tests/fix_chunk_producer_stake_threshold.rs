@@ -58,14 +58,14 @@ fn slow_test_fix_cp_stake_threshold() {
         .add_user_accounts_simple(&accounts, 1_000_000 * ONE_NEAR)
         .build();
     let epoch_config_store = TestEpochConfigBuilder::build_store_from_genesis(&genesis);
-    let TestLoopEnv { mut test_loop, datas: node_data, shared_state } = TestLoopBuilder::new()
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
         .build()
         .warmup();
 
-    let sender = node_data[0].client_sender.clone();
+    let sender = node_datas[0].client_sender.clone();
     let handle = sender.actor_handle();
     let client = &test_loop.data.get(&handle).client;
 
@@ -135,6 +135,6 @@ fn slow_test_fix_cp_stake_threshold() {
         Duration::seconds(3 * epoch_length as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_data, shared_state }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
