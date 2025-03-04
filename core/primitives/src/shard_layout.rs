@@ -40,6 +40,7 @@ pub type ShardVersion = u32;
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
     Clone,
     Debug,
     PartialEq,
@@ -62,6 +63,7 @@ pub enum ShardLayout {
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
     Clone,
     Debug,
     PartialEq,
@@ -116,6 +118,7 @@ fn new_shards_split_map_v2(shards_split_map: BTreeMap<u64, Vec<u64>>) -> ShardsS
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
     Clone,
     Debug,
     PartialEq,
@@ -195,7 +198,7 @@ pub struct ShardLayoutV2 {
 
 /// Counterpart to `ShardLayoutV2` composed of maps with string keys to aid
 /// serde serialization.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 struct SerdeShardLayoutV2 {
     boundary_accounts: Vec<AccountId>,
     shard_ids: Vec<ShardId>,
@@ -301,6 +304,16 @@ impl<'de> serde::Deserialize<'de> for ShardLayoutV2 {
     {
         let serde_layout = SerdeShardLayoutV2::deserialize(deserializer)?;
         ShardLayoutV2::try_from(serde_layout).map_err(serde::de::Error::custom)
+    }
+}
+
+impl schemars::JsonSchema for ShardLayoutV2 {
+    fn schema_name() -> String {
+        "ShardLayoutV2".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        SerdeShardLayoutV2::json_schema(gen)
     }
 }
 

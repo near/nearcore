@@ -219,6 +219,7 @@ near-account-id = { version = "1.0.0-alpha.4", features = [
     "internal_unstable",
     "serde",
     "borsh",
+    "schemars",
 ] }
 near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
@@ -353,6 +354,7 @@ serde_json = "1.0.68"
 serde_repr = "0.1.8"
 serde_with = { version = "3.0", features = ["base64"] }
 serde_yaml = "0.9"
+schemars = { version = "0.8", features = ["chrono"] }
 sha2 = "0.10"
 sha3 = "0.10"
 smallvec = "1.6"

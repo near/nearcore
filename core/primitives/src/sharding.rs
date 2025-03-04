@@ -31,6 +31,7 @@ use tracing::debug_span;
     Default,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
     ProtocolSchema,
 )]
 pub struct ChunkHash(pub CryptoHash);

@@ -41,6 +41,16 @@ impl<T: Serialize> Serialize for MutableConfigValue<T> {
     }
 }
 
+impl<T: schemars::JsonSchema> schemars::JsonSchema for MutableConfigValue<T> {
+    fn schema_name() -> String {
+        "MutableConfigValue".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        String::json_schema(gen)
+    }
+}
+
 impl<T: Clone + PartialEq + Debug> MutableConfigValue<T> {
     /// Initializes a value.
     /// `field_name` is needed to export the config value as a prometheus metric.

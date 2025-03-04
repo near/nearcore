@@ -9,6 +9,7 @@ use near_crypto::Signature;
 use near_primitives_core::types::BlockHeight;
 use near_schema_checker_lib::ProtocolSchema;
 use std::fmt::Debug;
+use schemars::JsonSchema;
 
 /// Double signed block.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, ProtocolSchema)]
@@ -110,6 +111,7 @@ pub type Challenges = Vec<Challenge>;
     serde::Serialize,
     serde::Deserialize,
     ProtocolSchema,
+    JsonSchema
 )]
 pub struct SlashedValidator {
     pub account_id: AccountId,

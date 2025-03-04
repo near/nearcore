@@ -1,4 +1,4 @@
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug)]
 pub struct RpcQueryRequest {
     #[serde(flatten)]
     pub block_reference: near_primitives::types::BlockReference,
@@ -6,7 +6,7 @@ pub struct RpcQueryRequest {
     pub request: near_primitives::views::QueryRequest,
 }
 
-#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcQueryError {
     #[error("There are no fully synchronized blocks on the node yet")]
@@ -66,7 +66,7 @@ pub enum RpcQueryError {
     InternalError { error_message: String },
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug)]
 pub struct RpcQueryResponse {
     #[serde(flatten)]
     pub kind: QueryResponseKind,
@@ -74,7 +74,7 @@ pub struct RpcQueryResponse {
     pub block_hash: near_primitives::hash::CryptoHash,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug)]
 #[serde(untagged)]
 pub enum QueryResponseKind {
     ViewAccount(near_primitives::views::AccountView),

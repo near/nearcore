@@ -2,15 +2,16 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use serde_json::Value;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct RpcSendTransactionRequest {
     #[serde(rename = "signed_tx_base64")]
+    #[schemars(with = "String")]
     pub signed_transaction: near_primitives::transaction::SignedTransaction,
     #[serde(default)]
     pub wait_until: near_primitives::views::TxExecutionStatus,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct RpcTransactionStatusRequest {
     #[serde(flatten)]
     pub transaction_info: TransactionInfo,
@@ -18,7 +19,7 @@ pub struct RpcTransactionStatusRequest {
     pub wait_until: near_primitives::views::TxExecutionStatus,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransactionInfo {
@@ -26,13 +27,14 @@ pub enum TransactionInfo {
     TransactionId { tx_hash: CryptoHash, sender_account_id: AccountId },
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub enum SignedTransaction {
     #[serde(rename = "signed_tx_base64")]
+    #[schemars(with = "String")]
     SignedTransaction(near_primitives::transaction::SignedTransaction),
 }
 
-#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcTransactionError {
     #[error("An error happened during transaction execution: {context:?}")]
@@ -52,14 +54,14 @@ pub enum RpcTransactionError {
     TimeoutError,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, schemars::JsonSchema)]
 pub struct RpcTransactionResponse {
     #[serde(flatten)]
     pub final_execution_outcome: Option<near_primitives::views::FinalExecutionOutcomeViewEnum>,
     pub final_execution_status: near_primitives::views::TxExecutionStatus,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug)]
 pub struct RpcBroadcastTxSyncResponse {
     pub transaction_hash: near_primitives::hash::CryptoHash,
 }

@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub struct RpcClientConfigResponse {
     #[serde(flatten)]
     pub client_config: near_chain_configs::ClientConfig,
 }
 
-#[derive(thiserror::Error, Debug, Clone, Serialize, Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcClientConfigError {
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

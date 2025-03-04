@@ -20,6 +20,7 @@ use std::sync::Arc;
     Hash,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
     ProtocolSchema,
 )]
 pub struct PeerId(Arc<PublicKey>);

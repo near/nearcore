@@ -3,7 +3,7 @@ use serde_json::Value;
 pub type RpcValidatorsOrderedResponse =
     Vec<near_primitives::views::validator_stake_view::ValidatorStakeView>;
 
-#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(thiserror::Error, Debug, Clone, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(tag = "name", content = "info", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RpcValidatorError {
     #[error("Epoch not found")]
@@ -14,18 +14,18 @@ pub enum RpcValidatorError {
     InternalError { error_message: String },
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug, arbitrary::Arbitrary, PartialEq, Eq)]
 pub struct RpcValidatorRequest {
     #[serde(flatten)]
     pub epoch_reference: near_primitives::types::EpochReference,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug)]
 pub struct RpcValidatorsOrderedRequest {
     pub block_id: near_primitives::types::MaybeBlockId,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema, Debug)]
 pub struct RpcValidatorResponse {
     #[serde(flatten)]
     pub validator_info: near_primitives::views::EpochValidatorInfo,

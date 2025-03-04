@@ -286,6 +286,7 @@ pub struct BlockHeaderInnerRestV5 {
     BorshSerialize,
     BorshDeserialize,
     serde::Serialize,
+    schemars::JsonSchema,
     Debug,
     Clone,
     PartialEq,

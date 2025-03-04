@@ -5,6 +5,7 @@ use sha2::Digest;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
+use schemars::JsonSchema;
 
 #[derive(
     Copy,
@@ -18,7 +19,7 @@ use std::io::Write;
     arbitrary::Arbitrary,
     borsh::BorshDeserialize,
     borsh::BorshSerialize,
-    ProtocolSchema,
+    ProtocolSchema
 )]
 #[as_ref(forward)]
 #[as_mut(forward)]
@@ -102,6 +103,16 @@ impl CryptoHash {
             Ok(_) | Err(bs58::decode::Error::BufferTooSmall) => Decode58Result::BadLength,
             Err(err) => Decode58Result::Err(err),
         }
+    }
+}
+
+impl JsonSchema for CryptoHash {
+    fn schema_name() -> String {
+        "CryptoHash".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        String::json_schema(gen)
     }
 }
 
