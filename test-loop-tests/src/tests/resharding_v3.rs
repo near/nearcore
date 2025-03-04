@@ -1159,9 +1159,13 @@ fn test_resharding_v3_global_contract_base(
         .use_test_global_contract(global_contract_user.clone(), identifier)
         .add_loop_action(call_burn_gas_contract(
             caller_accounts,
-            vec![global_contract_user],
+            vec![global_contract_user.clone()],
             275 * TGAS,
             DEFAULT_EPOCH_LENGTH,
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            vec![global_contract_user],
+            ReceiptKind::Delayed,
         ))
         .build();
     test_resharding_v3_base(params);
