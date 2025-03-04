@@ -4,7 +4,9 @@ use near_async::test_loop::data::TestLoopData;
 use near_async::time::Duration;
 use near_chain_configs::test_genesis::{TestGenesisBuilder, ValidatorsSpec};
 use near_o11y::testonly::init_test_logger;
+use near_primitives::action::{GlobalContractDeployMode, GlobalContractIdentifier};
 use near_primitives::epoch_manager::EpochConfigStore;
+use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{ShardLayout, shard_uids_to_ids};
 use near_primitives::types::{AccountId, BlockHeightDelta, ShardId, ShardIndex};
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
@@ -31,7 +33,8 @@ use crate::utils::sharding::{
     get_shards_will_care_about, get_tracked_shards, print_and_assert_shard_accounts,
 };
 use crate::utils::transactions::{
-    check_txs, create_account, deploy_contract, get_smallest_height_head,
+    check_txs, create_account, deploy_contract, deploy_global_contract, get_smallest_height_head,
+    use_global_contract,
 };
 use crate::utils::trie_sanity::{TrieSanityCheck, check_state_shard_uid_mapping_after_resharding};
 use crate::utils::{ONE_NEAR, TGAS};
@@ -76,6 +79,7 @@ const NEW_BOUNDARY_ACCOUNT: &str = "account6";
 #[allow(unused)]
 struct TestReshardingParameters {
     base_shard_layout_version: u64,
+    base_protocol_version: u32,
     /// Number of accounts.
     num_accounts: u64,
     /// Number of clients.
@@ -128,6 +132,11 @@ struct TestReshardingParameters {
     /// (see nearcore/runtime/near-test-contracts/test-contract-rs/src/lib.rs) on the provided accounts.
     #[builder(setter(custom))]
     deploy_test_contract: Vec<AccountId>,
+    /// Optionally deploy and use test global contracts
+    #[builder(setter(custom))]
+    deploy_test_global_contract: Vec<(AccountId, GlobalContractDeployMode)>,
+    #[builder(setter(custom))]
+    use_test_global_contract: Vec<(AccountId, GlobalContractIdentifier)>,
     /// Enable a stricter limit on outgoing gas to easily trigger congestion control.
     limit_outgoing_gas: bool,
     /// If non zero, split parent shard for flat state resharding will be delayed by an additional
@@ -246,6 +255,9 @@ impl TestReshardingParametersBuilder {
         }
 
         TestReshardingParameters {
+            base_protocol_version: self
+                .base_protocol_version
+                .unwrap_or(ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1),
             base_shard_layout_version: self
                 .base_shard_layout_version
                 .unwrap_or(DEFAULT_SHARD_LAYOUT_VERSION),
@@ -275,6 +287,8 @@ impl TestReshardingParametersBuilder {
             loop_actions,
             all_chunks_expected: self.all_chunks_expected.unwrap_or(false),
             deploy_test_contract: self.deploy_test_contract.unwrap_or_default(),
+            deploy_test_global_contract: self.deploy_test_global_contract.unwrap_or_default(),
+            use_test_global_contract: self.use_test_global_contract.unwrap_or_default(),
             limit_outgoing_gas: self.limit_outgoing_gas.unwrap_or(false),
             delay_flat_state_resharding: self.delay_flat_state_resharding.unwrap_or(0),
             short_yield_timeout: self.short_yield_timeout.unwrap_or(false),
@@ -294,6 +308,24 @@ impl TestReshardingParametersBuilder {
 
     fn deploy_test_contract(mut self, account_id: AccountId) -> Self {
         self.deploy_test_contract.get_or_insert_default().push(account_id);
+        self
+    }
+
+    fn deploy_test_global_contract(
+        mut self,
+        account_id: AccountId,
+        deploy_mode: GlobalContractDeployMode,
+    ) -> Self {
+        self.deploy_test_global_contract.get_or_insert_default().push((account_id, deploy_mode));
+        self
+    }
+
+    fn use_test_global_contract(
+        mut self,
+        account_id: AccountId,
+        identifier: GlobalContractIdentifier,
+    ) -> Self {
+        self.use_test_global_contract.get_or_insert_default().push((account_id, identifier));
         self
     }
 
@@ -348,7 +380,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     // Prepare shard split configuration.
     let base_epoch_config_store = EpochConfigStore::for_chain_id("mainnet", None).unwrap();
-    let base_protocol_version = ProtocolFeature::SimpleNightshadeV4.protocol_version() - 1;
+    let base_protocol_version = params.base_protocol_version;
     let mut base_epoch_config =
         base_epoch_config_store.get_config(base_protocol_version).as_ref().clone();
     base_epoch_config.num_block_producer_seats = params.num_producers;
@@ -444,6 +476,38 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .build();
 
     let mut test_setup_transactions = vec![];
+    if !params.deploy_test_global_contract.is_empty() {
+        let mut nonce = 100;
+        for (deployer_id, deploy_mode) in &params.deploy_test_global_contract {
+            let deploy_contract_tx = deploy_global_contract(
+                &mut env.test_loop,
+                &env.datas,
+                &client_account_id,
+                deployer_id.clone(),
+                near_test_contracts::rs_contract().into(),
+                nonce,
+                deploy_mode.clone(),
+            );
+            nonce += 1;
+            test_setup_transactions.push(deploy_contract_tx);
+        }
+        // Make sure the global contract is deployed before the usage transactions.
+        env.test_loop.run_for(Duration::seconds(2));
+        check_txs(&env.test_loop.data, &env.datas, &client_account_id, &test_setup_transactions);
+        test_setup_transactions = vec![];
+        for (user_id, identifier) in &params.use_test_global_contract {
+            let use_contract_tx = use_global_contract(
+                &mut env.test_loop,
+                &env.datas,
+                &client_account_id,
+                user_id.clone(),
+                nonce,
+                identifier.clone(),
+            );
+            nonce += 1;
+            test_setup_transactions.push(use_contract_tx);
+        }
+    }
     for contract_id in &params.deploy_test_contract {
         let deploy_contract_tx = deploy_contract(
             &mut env.test_loop,
@@ -1057,6 +1121,50 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
         ))
         .add_loop_action(check_receipts_presence_at_resharding_block(
             vec![account],
+            ReceiptKind::Delayed,
+        ))
+        .build();
+    test_resharding_v3_base(params);
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn slow_test_resharding_v3_global_contract_by_hash() {
+    let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
+    test_resharding_v3_global_contract_base(
+        GlobalContractIdentifier::CodeHash(code_hash),
+        GlobalContractDeployMode::CodeHash,
+    );
+}
+
+#[test]
+#[cfg_attr(not(feature = "test_features"), ignore)]
+fn slow_test_resharding_v3_global_contract_by_account_id() {
+    test_resharding_v3_global_contract_base(
+        GlobalContractIdentifier::AccountId("account4".parse().unwrap()),
+        GlobalContractDeployMode::AccountId,
+    );
+}
+
+fn test_resharding_v3_global_contract_base(
+    identifier: GlobalContractIdentifier,
+    deploy_mode: GlobalContractDeployMode,
+) {
+    let global_contract_deployer: AccountId = "account4".parse().unwrap();
+    let caller_accounts = vec!["account1".parse().unwrap(), "account2".parse().unwrap()];
+    let global_contract_user: AccountId = "account6".parse().unwrap();
+    let params = TestReshardingParametersBuilder::default()
+        .base_protocol_version(PROTOCOL_VERSION - 1)
+        .deploy_test_global_contract(global_contract_deployer, deploy_mode)
+        .use_test_global_contract(global_contract_user.clone(), identifier)
+        .add_loop_action(call_burn_gas_contract(
+            caller_accounts,
+            vec![global_contract_user.clone()],
+            275 * TGAS,
+            DEFAULT_EPOCH_LENGTH,
+        ))
+        .add_loop_action(check_receipts_presence_at_resharding_block(
+            vec![global_contract_user],
             ReceiptKind::Delayed,
         ))
         .build();
