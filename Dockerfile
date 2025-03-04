@@ -11,18 +11,25 @@ RUN apt-get update -qq && apt-get install -y \
     curl \
     llvm \
     clang \
+    python3-pip \
+    jq \
     && rm -rf /var/lib/apt/lists/*
+
+VOLUME [ /near ]
+WORKDIR /near
+COPY . .
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
 
-RUN curl https://sh.rustup.rs -sSf | \
-    sh -s -- -y --no-modify-path
+RUN pip3 install yq
 
-VOLUME [ /near ]
-WORKDIR /near
-COPY . .
+RUN channel=$(tomlq -r '.workspace.package."rust-version"' Cargo.toml) && \
+    echo "Installing Rust toolchain: $channel" && \
+    curl https://sh.rustup.rs -sSf | \
+    sh -s -- -y --no-modify-path --default-toolchain $channel
+
 
 ENV PORTABLE=ON
 ARG make_target=
