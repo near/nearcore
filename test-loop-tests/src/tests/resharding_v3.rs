@@ -526,7 +526,7 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
             &new_boundary_account,
             &params.temporary_account_id,
             10 * ONE_NEAR,
-            2, 
+            2,
         );
         test_setup_transactions.push(create_account_tx);
     }
@@ -1442,9 +1442,6 @@ fn slow_test_resharding_v3_yield_timeout() {
         .build();
     test_resharding_v3_base(params);
 }
-
-// h
-// 
 
 /// Check that adding a new promise yield after resharding in one child doesn't
 /// leave the other child's promise yield indices with a dangling trie value.
