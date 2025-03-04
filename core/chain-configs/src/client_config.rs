@@ -606,7 +606,7 @@ impl ClientConfig {
             min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
             max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
             max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
-            chunk_wait_mult: Rational32::new(1, 3),
+            chunk_wait_mult: Rational32::new(1, 6),
             skip_sync_wait,
             sync_check_period: Duration::milliseconds(100),
             sync_step_period: Duration::milliseconds(10),
