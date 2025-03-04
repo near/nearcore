@@ -8,7 +8,8 @@ use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, validate_transaction, verify_and_charge_transaction,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
@@ -19,7 +20,7 @@ use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{Account, AccountContract};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
@@ -172,6 +173,10 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
+    /// The signer that was updated to charge for the transaction.
+    pub signer: Account,
+    /// The access key that was updated to charge for the transaction.
+    pub access_key: AccessKey,
 }
 
 #[derive(Debug)]
@@ -328,7 +333,7 @@ impl Runtime {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
-        match verify_and_charge_transaction(
+        match verify_and_charge_tx_ephemeral(
             &apply_state.config,
             state_update,
             signed_transaction,
@@ -338,6 +343,12 @@ impl Runtime {
         ) {
             Ok(verification_result) => {
                 metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+                commit_charging_for_tx(
+                    state_update,
+                    &signed_transaction.transaction,
+                    &verification_result.signer,
+                    &verification_result.access_key,
+                );
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: signed_transaction.get_hash(),
                 });

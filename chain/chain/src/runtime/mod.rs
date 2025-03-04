@@ -18,7 +18,7 @@ use near_primitives::apply::ApplyChunkReason;
 use near_primitives::congestion_info::{
     CongestionControl, ExtendedCongestionInfo, RejectTransactionReason, ShardAcceptsTransactions,
 };
-use near_primitives::errors::{IntegerOverflowError, InvalidTxError, RuntimeError, StorageError};
+use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
@@ -49,8 +49,8 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, ValidatorAccountsUpdate, validate_transaction,
-    verify_and_charge_transaction,
+    ApplyState, Runtime, ValidatorAccountsUpdate, commit_charging_for_tx, validate_transaction,
+    verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -575,11 +575,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let cost =
             tx_cost(runtime_config, &transaction.transaction, gas_price, current_protocol_version)?;
         let shard_uid = shard_layout.account_id_to_shard_uid(transaction.transaction.signer_id());
-        let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
+        let state_update = self.tries.new_trie_update(shard_uid, state_root);
 
-        verify_and_charge_transaction(
+        verify_and_charge_tx_ephemeral(
             runtime_config,
-            &mut state_update,
+            &state_update,
             transaction,
             &cost,
             // here we do not know which block the transaction will be included
@@ -771,17 +771,26 @@ impl RuntimeAdapter for NightshadeRuntime {
                             prev_block.next_gas_price,
                             protocol_version,
                         )
-                        .map_err(|e: IntegerOverflowError| e.into())
-                        .and_then(|cost| {
-                            verify_and_charge_transaction(
-                                runtime_config,
-                                &mut state_update,
-                                &tx,
-                                &cost,
-                                Some(next_block_height),
-                                protocol_version,
-                            )
-                        })
+                        .map_err(InvalidTxError::from)
+                    })
+                    .and_then(|cost| {
+                        verify_and_charge_tx_ephemeral(
+                            runtime_config,
+                            &state_update,
+                            &tx,
+                            &cost,
+                            Some(next_block_height),
+                            protocol_version,
+                        )
+                    })
+                    .map(|vr| {
+                        commit_charging_for_tx(
+                            &mut state_update,
+                            &tx.transaction,
+                            &vr.signer,
+                            &vr.access_key,
+                        );
+                        vr
                     });
 
                 match verify_result {
