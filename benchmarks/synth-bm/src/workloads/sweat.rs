@@ -4,7 +4,6 @@ use crate::account::{
 use crate::block_service::{BlockService, read_rpc_urls};
 use crate::rpc::{check_response, check_tx_response, ResponseCheckSeverity, RpcResponseHandler};
 use clap::{Args, Subcommand};
-use log::info;
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
