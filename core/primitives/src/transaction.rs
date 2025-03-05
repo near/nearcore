@@ -223,11 +223,11 @@ impl ValidatedTransaction {
         }
     }
 
-    pub fn get(&self) -> &SignedTransaction {
+    pub fn to_signed_transaction(&self) -> &SignedTransaction {
         &self.0
     }
 
-    pub fn take(self) -> SignedTransaction {
+    pub fn into_signed_transaction(self) -> SignedTransaction {
         self.0
     }
 }

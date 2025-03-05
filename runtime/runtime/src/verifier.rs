@@ -151,7 +151,7 @@ pub fn verify_and_charge_tx_ephemeral(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
 
-    let transaction = &tx.get().transaction;
+    let transaction = &tx.to_signed_transaction().transaction;
     let signer_id = transaction.signer_id();
 
     let mut signer = match get_account(state_update, signer_id)? {
@@ -767,14 +767,18 @@ mod tests {
                 return;
             }
         };
-        let cost =
-            match tx_cost(config, &validated_tx.get().transaction, gas_price, PROTOCOL_VERSION) {
-                Ok(c) => c,
-                Err(err) => {
-                    assert_eq!(InvalidTxError::from(err), expected_err);
-                    return;
-                }
-            };
+        let cost = match tx_cost(
+            config,
+            &validated_tx.to_signed_transaction().transaction,
+            gas_price,
+            PROTOCOL_VERSION,
+        ) {
+            Ok(c) => c,
+            Err(err) => {
+                assert_eq!(InvalidTxError::from(err), expected_err);
+                return;
+            }
+        };
 
         // Validation passed, now verification should fail with expected_err
         let err = verify_and_charge_tx_ephemeral(
@@ -801,8 +805,12 @@ mod tests {
             Ok(tx) => tx,
             Err((err, _tx)) => return Err(err),
         };
-        let transaction_cost =
-            tx_cost(config, &tx.get().transaction, gas_price, current_protocol_version)?;
+        let transaction_cost = tx_cost(
+            config,
+            &tx.to_signed_transaction().transaction,
+            gas_price,
+            current_protocol_version,
+        )?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
@@ -811,7 +819,12 @@ mod tests {
             block_height,
             current_protocol_version,
         )?;
-        commit_charging_for_tx(state_update, &tx.get().transaction, &vr.signer, &vr.access_key);
+        commit_charging_for_tx(
+            state_update,
+            &tx.to_signed_transaction().transaction,
+            &vr.signer,
+            &vr.access_key,
+        );
         Ok(vr)
     }
 

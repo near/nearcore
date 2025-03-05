@@ -461,7 +461,7 @@ impl Testbed<'_> {
                 .expect("expected no validation error");
         let cost = tx_cost(
             &self.apply_state.config,
-            &validated_tx.get().transaction,
+            &validated_tx.to_signed_transaction().transaction,
             gas_price,
             PROTOCOL_VERSION,
         )
@@ -478,7 +478,7 @@ impl Testbed<'_> {
         .expect("tx verification should not fail in estimator");
         commit_charging_for_tx(
             &mut state_update,
-            &validated_tx.get().transaction,
+            &validated_tx.to_signed_transaction().transaction,
             &vr.signer,
             &vr.access_key,
         );

@@ -572,9 +572,14 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost =
-            tx_cost(runtime_config, &tx.get().transaction, gas_price, current_protocol_version)?;
-        let shard_uid = shard_layout.account_id_to_shard_uid(tx.get().transaction.signer_id());
+        let cost = tx_cost(
+            runtime_config,
+            &tx.to_signed_transaction().transaction,
+            gas_price,
+            current_protocol_version,
+        )?;
+        let shard_uid = shard_layout
+            .account_id_to_shard_uid(tx.to_signed_transaction().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
 
         verify_and_charge_tx_ephemeral(
@@ -768,11 +773,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                         Err((err, tx)) => (Err(err), tx),
                         Ok(validated_tx) => match tx_cost(
                             runtime_config,
-                            &validated_tx.get().transaction,
+                            &validated_tx.to_signed_transaction().transaction,
                             prev_block.next_gas_price,
                             protocol_version,
                         ) {
-                            Err(err) => (Err(InvalidTxError::from(err)), validated_tx.take()),
+                            Err(err) => (
+                                Err(InvalidTxError::from(err)),
+                                validated_tx.into_signed_transaction(),
+                            ),
                             Ok(cost) => match verify_and_charge_tx_ephemeral(
                                 runtime_config,
                                 &state_update,
@@ -781,15 +789,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 Some(next_block_height),
                                 protocol_version,
                             ) {
-                                Err(err) => (Err(err), validated_tx.take()),
+                                Err(err) => (Err(err), validated_tx.into_signed_transaction()),
                                 Ok(res) => {
                                     commit_charging_for_tx(
                                         &mut state_update,
-                                        &validated_tx.get().transaction,
+                                        &validated_tx.to_signed_transaction().transaction,
                                         &res.signer,
                                         &res.access_key,
                                     );
-                                    (Ok(res), validated_tx.take())
+                                    (Ok(res), validated_tx.into_signed_transaction())
                                 }
                             },
                         },
