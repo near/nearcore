@@ -44,11 +44,12 @@ fn slow_test_sync_from_genesis() {
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
-    let TestLoopEnv { mut test_loop, node_datas, mut shared_state } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis.clone())
         .epoch_config_store(epoch_config_store.clone())
         .clients(clients)
-        .build();
+        .build()
+        .warmup();
 
     let first_epoch_tracked_shards = {
         let clients = node_datas
@@ -87,12 +88,10 @@ fn slow_test_sync_from_genesis() {
     }
     stores.push((create_test_store(), None)); // new node starts empty.
 
-    let tempdir = shared_state.move_tempdir();
-
     // Properly shut down the previous TestLoopEnv.
     // We must preserve the tempdir, since state dumps are stored there,
     // and are necessary for state sync to work on the new node.
-    TestLoopEnv { test_loop, node_datas, shared_state }
+    let tempdir = TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 
     tracing::info!("Starting new TestLoopEnv with new node");

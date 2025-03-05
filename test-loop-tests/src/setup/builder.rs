@@ -588,11 +588,9 @@ impl TestLoopBuilder {
         let account_id = &self.clients[idx];
         let is_archival = self.archival_clients.contains(account_id);
 
-        if let Some(stores_override) = &self.stores_override {
-            return stores_override[idx].clone();
-        }
-
-        let (store, split_store) = if is_archival {
+        let (store, split_store) = if let Some(stores_override) = &self.stores_override {
+            stores_override[idx].clone()
+        } else if is_archival {
             let (hot_store, split_store) = create_test_split_store();
             (hot_store, Some(split_store))
         } else {

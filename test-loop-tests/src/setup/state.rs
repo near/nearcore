@@ -1,4 +1,3 @@
-use std::mem;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
@@ -43,15 +42,6 @@ pub struct SharedState {
     pub drop_condition_kinds: Vec<DropConditionKind>,
     pub load_memtries_for_tracked_shards: bool,
     pub warmup_pending: Arc<AtomicBool>,
-}
-
-impl SharedState {
-    /// Function to move the tempdir out of the shared state.
-    /// We can probably get rid of this once epoch_sync tests move to not building a new TestLoop env.
-    pub fn move_tempdir(&mut self) -> TempDir {
-        let temp_dir = mem::replace(&mut self.tempdir, tempfile::tempdir().unwrap());
-        temp_dir
-    }
 }
 
 pub struct NodeState {

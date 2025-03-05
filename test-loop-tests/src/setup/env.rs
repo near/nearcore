@@ -10,6 +10,7 @@ use near_primitives_core::types::BlockHeight;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+use tempfile::TempDir;
 
 use super::state::{SharedState, TestData};
 
@@ -62,13 +63,14 @@ impl TestLoopEnv {
     /// TestLoop itself, as it asserts that all events have been handled.
     ///
     /// Returns the test loop data dir, if the caller wishes to reuse it for another test loop.
-    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) {
+    pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) -> TempDir {
         // State sync dumper is not an Actor, handle stopping separately.
         for node_data in self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
+        self.shared_state.tempdir
     }
 }
 

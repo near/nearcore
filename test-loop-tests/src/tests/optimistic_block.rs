@@ -105,7 +105,7 @@ fn test_invalid_optimistic_block() {
     if !ProtocolFeature::ProduceOptimisticBlock.enabled(PROTOCOL_VERSION) {
         return;
     }
-    let mut env = get_builder(3).build();
+    let mut env = get_builder(3).build().warmup();
     env.test_loop.run_for(Duration::seconds(10));
     let chain =
         &env.test_loop.data.get(&env.node_datas[0].client_sender.actor_handle()).client.chain;
