@@ -97,7 +97,7 @@ fn total_accounts_balance(
     })
 }
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 enum PostponedReceiptType {
     Action,
     PromiseYield,
