@@ -284,11 +284,11 @@ impl Runtime {
     fn parallel_validate_transactions(
         config: &RuntimeConfig,
         gas_price: Balance,
-        transactions: &[SignedTransaction],
+        transactions: impl IntoParallelIterator<Item = SignedTransaction>,
         current_protocol_version: ProtocolVersion,
     ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
         transactions
-            .par_iter()
+            .into_par_iter()
             .map(|tx| {
                 (
                     tx.get_hash(),
@@ -1713,10 +1713,12 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
+        let transactions =
+            processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
-            &processing_state.transactions.transactions,
+            transactions,
             apply_state.current_protocol_version,
         ) {
             match result {
@@ -1739,7 +1741,9 @@ impl Runtime {
                             continue;
                         }
                     };
-                    if receipt.receiver_id() == validated_tx.to_signed_transaction().transaction.signer_id() {
+                    if receipt.receiver_id()
+                        == validated_tx.to_signed_transaction().transaction.signer_id()
+                    {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
                         receipt_sink.forward_or_buffer_receipt(
