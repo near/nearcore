@@ -89,14 +89,14 @@ pub struct TxRequestHandler {
 impl TxRequestHandler {
     pub fn new(
         clock: Clock,
-        config: ClientConfig,
-        tx_pool: Arc<Mutex<ShardedTransactionPool>>,
-        epoch_manager: Arc<dyn EpochManagerAdapter>,
-        shard_tracker: ShardTracker,
-        validator_signer: MutableValidatorSigner,
-        runtime: Arc<dyn RuntimeAdapter>,
+        config: ClientConfig, //
+        tx_pool: Arc<Mutex<ShardedTransactionPool>>, //
+        epoch_manager: Arc<dyn EpochManagerAdapter>, //
+        shard_tracker: ShardTracker, //
+        validator_signer: MutableValidatorSigner, //
+        runtime: Arc<dyn RuntimeAdapter>, //
         chain_genesis: ChainGenesis,
-        network_adapter: PeerManagerAdapter,
+        network_adapter: PeerManagerAdapter, //
     ) -> Result<Self, near_client_primitives::types::Error> {
         let my_config = TxRequestHandlerConfig {
             tx_routing_height_horizon: config.tx_routing_height_horizon,
@@ -138,7 +138,7 @@ impl TxRequestHandler {
         let signer = self.validator_signer.get();
         unwrap_or_return!(self.process_tx_internal(&tx, is_forwarded, check_only, &signer), {
             let me = signer.as_ref().map(|signer| signer.validator_id());
-            tracing::warn!(target: "client", ?me, ?tx, "Dropping tx");
+            tracing::debug!(target: "client", ?me, ?tx, "Dropping tx");
             ProcessTxResponse::NoResponse
         })
     }
