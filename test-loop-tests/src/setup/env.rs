@@ -12,6 +12,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
+use super::drop_condition::DropCondition;
 use super::state::{SharedState, TestData};
 
 pub struct TestLoopEnv {
@@ -21,6 +22,25 @@ pub struct TestLoopEnv {
 }
 
 impl TestLoopEnv {
+    /// The function is used to add a new network drop condition to the test loop environment.
+    /// While adding a new drop_condition, we iterate through all the nodes and register the
+    /// drop_condition with the node's peer_manager_actor.
+    ///
+    /// Additionally, we store the drop_condition in the shared_state.
+    /// While adding a new node to the environment, we can iterate through all the drop_conditions
+    /// and register them with the new node's peer_manager_actor.
+    pub fn drop(mut self, drop_condition: DropCondition) -> Self {
+        for data in self.node_datas.iter_mut() {
+            data.register_drop_condition(
+                &mut self.test_loop.data,
+                self.shared_state.chunks_storage.clone(),
+                &drop_condition,
+            );
+        }
+        self.shared_state.drop_conditions.push(drop_condition);
+        self
+    }
+
     /// Reach block with height `genesis_height + 3`. Check that it can be done
     /// within 5 seconds. Ensure that all clients have block
     /// `genesis_height + 2` and it has all chunks.

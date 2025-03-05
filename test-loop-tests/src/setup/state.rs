@@ -39,7 +39,7 @@ pub struct SharedState {
     pub network_shared_state: TestLoopNetworkSharedState,
     pub upgrade_schedule: ProtocolUpgradeVotingSchedule,
     pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    pub drop_condition_kinds: Vec<DropCondition>,
+    pub drop_conditions: Vec<DropCondition>,
     pub load_memtries_for_tracked_shards: bool,
     pub warmup_pending: Arc<AtomicBool>,
 }

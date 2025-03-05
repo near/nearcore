@@ -260,7 +260,7 @@ impl TestLoopBuilder {
             network_shared_state: TestLoopNetworkSharedState::new(),
             upgrade_schedule: self.upgrade_schedule,
             chunks_storage: Default::default(),
-            drop_condition_kinds: Default::default(),
+            drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending: self.warmup_pending,
         };
@@ -364,7 +364,7 @@ pub fn setup_client(
         network_shared_state,
         upgrade_schedule,
         chunks_storage,
-        drop_condition_kinds,
+        drop_conditions,
         load_memtries_for_tracked_shards,
         ..
     } = shared_state;
@@ -612,7 +612,7 @@ pub fn setup_client(
     network_shared_state.add_client(&data);
 
     // Register all accumulated drop conditions
-    for condition in drop_condition_kinds {
+    for condition in drop_conditions {
         data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
     }
 

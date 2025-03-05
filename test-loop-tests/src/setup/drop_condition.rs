@@ -12,7 +12,7 @@ use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
 };
 
-use super::env::{TestLoopChunksStorage, TestLoopEnv};
+use super::env::TestLoopChunksStorage;
 use super::state::TestData;
 
 pub enum DropCondition {
@@ -32,19 +32,6 @@ pub enum DropCondition {
     ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
     // Drops Block broadcast messages with height in `self.0`
     BlocksByHeight(HashSet<BlockHeight>),
-}
-
-impl TestLoopEnv {
-    pub fn drop(mut self, drop_condition: DropCondition) -> Self {
-        for data in self.node_datas.iter_mut() {
-            data.register_drop_condition(
-                &mut self.test_loop.data,
-                self.shared_state.chunks_storage.clone(),
-                &drop_condition,
-            );
-        }
-        self
-    }
 }
 
 impl TestData {
