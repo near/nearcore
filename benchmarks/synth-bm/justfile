@@ -70,3 +70,32 @@ benchmark_mpc_sign:
         --gas 300000000000000 \
         --deposit 100000000000000000000000
 
+create_sweat_oracles:
+    RUST_LOG=info \
+    cargo run --release -- benchmark-sweat create-contracts \
+        --rpc-url {{rpc_url}} \
+        --num-oracles 4 \
+        --oracle-deposit 10000000000000000000000000 \
+        --user-data-dir oracles/ \
+        --signer-key-path {{near_localnet_home}}/validator_key.json \
+        --wasm-file res/sweat.wasm
+
+create_sweat_users:
+    RUST_LOG=info \
+    cargo run --release -- benchmark-sweat create-users \
+        --rpc-url {{rpc_url}} \
+        --oracle-data-dir oracles/ \
+        --users-per-oracle 1000 \
+        --user-data-dir users/ \
+        --deposit 100000000000000000000000
+
+run_sweat_benchmark:
+    RUST_LOG=info \
+    cargo run --release -- benchmark-sweat run-benchmark \
+        --rpc-url {{rpc_url}} \
+        --oracle-data-dir oracles/ \
+        --user-data-dir users/ \
+        --batch-size 750 \
+        --requests-per-second 10 \
+        --total-batches 1000
+
