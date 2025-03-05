@@ -157,7 +157,7 @@ fn buffered_receipts(
         let after = final_buffer.indices();
         // Conservative math check to avoid future problems with merged shards,
         // in which case the final index can be 0 and the initial index larger.
-        tracing::debug!(target: "trie", "before", ?before, "after", ?after);
+        tracing::debug!(target: "trie", ?before, ?after);
         if let Some(num_forwarded) = after.first_index.checked_sub(before.first_index) {
             // The first n receipts were forwarded.
             for receipt in initial_buffer.iter(initial_state, true).take(num_forwarded as usize) {
