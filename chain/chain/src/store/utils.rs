@@ -41,25 +41,6 @@ pub fn get_chunk_clone_from_header(
     }
 }
 
-/// Returns block header from the current chain defined by `sync_hash` for given height if present.
-pub fn get_block_header_on_chain_by_height(
-    chain_store: &ChainStoreAdapter,
-    sync_hash: &CryptoHash,
-    height: BlockHeight,
-) -> Result<BlockHeader, Error> {
-    let mut header = chain_store.get_block_header(sync_hash)?;
-    let mut hash = *sync_hash;
-    while header.height() > height {
-        hash = *header.prev_hash();
-        header = chain_store.get_block_header(&hash)?;
-    }
-    let header_height = header.height();
-    if header_height < height {
-        return Err(Error::InvalidBlockHeight(header_height));
-    }
-    chain_store.get_block_header(&hash)
-}
-
 /// Collect incoming receipts for shard `shard_id` from
 /// the block at height `last_chunk_height_included` (non-inclusive) to the
 /// block `block_hash` (inclusive), leaving only receipts based on the

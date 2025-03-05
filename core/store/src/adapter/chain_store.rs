@@ -5,6 +5,7 @@ use std::sync::Arc;
 use near_chain_primitives::Error;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::chunk_apply_stats::ChunkApplyStats;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::receipt::Receipt;
@@ -15,7 +16,9 @@ use near_primitives::sharding::{
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey};
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId};
+use near_primitives::types::{
+    BlockExtra, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId,
+};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash, index_to_bytes};
 use near_primitives::views::LightClientBlockView;
 
@@ -408,6 +411,86 @@ impl ChainStoreAdapter {
     /// Get height of genesis
     pub fn get_genesis_height(&self) -> BlockHeight {
         self.genesis_height
+    }
+
+    /// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
+    /// ahead of the block that has `base_block_hash`.
+    pub fn check_transaction_validity_period(
+        &self,
+        prev_block_header: &BlockHeader,
+        base_block_hash: &CryptoHash,
+        transaction_validity_period: BlockHeightDelta,
+    ) -> Result<(), InvalidTxError> {
+        // if both are on the canonical chain, comparing height is sufficient
+        // we special case this because it is expected that this scenario will happen in most cases.
+        let base_height =
+            self.get_block_header(base_block_hash).map_err(|_| InvalidTxError::Expired)?.height();
+        let prev_height = prev_block_header.height();
+        if let Ok(base_block_hash_by_height) = self.get_block_hash_by_height(base_height) {
+            if &base_block_hash_by_height == base_block_hash {
+                if let Ok(prev_hash) = self.get_block_hash_by_height(prev_height) {
+                    if &prev_hash == prev_block_header.hash() {
+                        if prev_height <= base_height + transaction_validity_period {
+                            return Ok(());
+                        } else {
+                            return Err(InvalidTxError::Expired);
+                        }
+                    }
+                }
+            }
+        }
+
+        // if the base block height is smaller than `last_final_height` we only need to check
+        // whether the base block is the same as the one with that height on the canonical fork.
+        // Otherwise we walk back the chain to check whether base block is on the same chain.
+        let last_final_height = self
+            .get_block_height(prev_block_header.last_final_block())
+            .map_err(|_| InvalidTxError::InvalidChain)?;
+
+        if prev_height > base_height + transaction_validity_period {
+            Err(InvalidTxError::Expired)
+        } else if last_final_height >= base_height {
+            let base_block_hash_by_height = self
+                .get_block_hash_by_height(base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
+            if &base_block_hash_by_height == base_block_hash {
+                if prev_height <= base_height + transaction_validity_period {
+                    Ok(())
+                } else {
+                    Err(InvalidTxError::Expired)
+                }
+            } else {
+                Err(InvalidTxError::InvalidChain)
+            }
+        } else {
+            let header = self
+                .get_block_header_on_chain_by_height(prev_block_header.hash(), base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
+            if header.hash() == base_block_hash {
+                Ok(())
+            } else {
+                Err(InvalidTxError::InvalidChain)
+            }
+        }
+    }
+
+    /// Returns block header from the current chain defined by `sync_hash` for given height if present.
+    pub fn get_block_header_on_chain_by_height(
+        &self,
+        sync_hash: &CryptoHash,
+        height: BlockHeight,
+    ) -> Result<BlockHeader, Error> {
+        let mut header = self.get_block_header(sync_hash)?;
+        let mut hash = *sync_hash;
+        while header.height() > height {
+            hash = *header.prev_hash();
+            header = self.get_block_header(&hash)?;
+        }
+        let header_height = header.height();
+        if header_height < height {
+            return Err(Error::InvalidBlockHeight(header_height));
+        }
+        self.get_block_header(&hash)
     }
 }
 
