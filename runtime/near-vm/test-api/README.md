@@ -60,9 +60,9 @@ Wasmer is not only fast, but also designed to be *highly customizable*:
   ideal for constrained environments.
 
 * **Cross-compilation** — Most compilers support cross-compilation. It
-  means it possible to pre-compile a WebAssembly module targetting a
+  means it possible to pre-compile a WebAssembly module targeting a
   different architecture or platform and serialize it, to then run it
-  on the targetted architecture and platform later.
+  on the targeted architecture and platform later.
 
 * **Run Wasmer in a JavaScript environment** — With the `js` Cargo
   feature, it is possible to compile a Rust program using Wasmer to
