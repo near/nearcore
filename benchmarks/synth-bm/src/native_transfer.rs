@@ -9,8 +9,8 @@ use crate::block_service::BlockService;
 use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
+use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Distribution, Uniform};
@@ -90,7 +90,12 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let rpc_clients = if let Some(ref rpc_urls_file) = args.rpc_urls_file {
         match read_rpc_urls(rpc_urls_file) {
             Ok(urls) => {
-                info!("Loaded {} additional RPC URLs from {}", urls.len(), rpc_urls_file.display());
+                info!(
+                    "Loaded {} additional RPC URLs from {}: {:?}",
+                    urls.len(),
+                    rpc_urls_file.display(),
+                    urls
+                );
                 urls.into_iter().map(|url| JsonRpcClient::connect(&url)).collect::<Vec<_>>()
             }
             Err(e) => {
