@@ -1665,6 +1665,7 @@ impl Trie {
             }
             None => {
                 let mut trie_update = TrieStorageUpdate::new(&self);
+                tracing::debug!(target: "trie", ?self.root, "Moving node to mutable");
                 let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
                 for (key, value) in changes {
                     match value {
@@ -1675,6 +1676,7 @@ impl Trie {
                         )?,
                         None => trie_update.generic_delete(0, &key)?,
                     };
+                    tracing::debug!(target: "trie", ?key, "key processed");
                 }
 
                 #[cfg(test)]
@@ -1685,7 +1687,9 @@ impl Trie {
                     );
                 }
 
-                trie_update.flatten_nodes(&self.root, root_node.0)
+                let result = trie_update.flatten_nodes(&self.root, root_node.0)?;
+                tracing::debug!(target: "trie", "all good");
+                Ok(result)
             }
         }
     }

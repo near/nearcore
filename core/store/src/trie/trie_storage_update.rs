@@ -166,12 +166,14 @@ impl TrieStorageUpdate<'_> {
         old_root: &CryptoHash,
         node: usize,
     ) -> Result<TrieChanges, StorageError> {
+        tracing::debug!(target: "trie", ?old_root, "flatten_nodes");
         let mut stack: Vec<(usize, FlattenNodesCrumb)> = Vec::new();
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
         let mut buffer: Vec<u8> = Vec::new();
         'outer: while let Some((node, position)) = stack.pop() {
             let node_with_size = self.get_node_ref(node);
+            tracing::trace!(target: "trie", ?node_with_size.node, "node_with_size");
             let memory_usage = node_with_size.memory_usage;
             let raw_node = match &node_with_size.node {
                 GenericUpdatedTrieNode::Empty => {
