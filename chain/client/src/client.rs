@@ -1042,16 +1042,28 @@ impl Client {
     pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
         debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
-        // Validate the optimistic block.
-        // Discard the block if it is old or not created by the right producer.
-        if let Err(e) = self.chain.check_optimistic_block(&block) {
-            metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
+
+        // Pre-validate the optimistic block.
+        if let Err(e) = self.chain.pre_check_optimistic_block(&block) {
+            near_chain::metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
             debug!(target: "client", ?e, "Optimistic block is invalid");
             return;
         }
 
-        self.chain.optimistic_block_chunks.add_block(block);
-        self.maybe_process_optimistic_block();
+        if let Err(_) = self.chain.get_block_header(&block.prev_block_hash()) {
+            // If the previous block is not found, add the block to the orphan
+            // pool for now.
+            self.chain.save_optimistic_orphan(block);
+            return;
+        }
+
+        let signer = self.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+        self.chain.preprocess_optimistic_block(
+            block,
+            &me,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
     }
 
     /// To protect ourselves from spamming, we do some pre-check on block height before we do any
@@ -1338,7 +1350,12 @@ impl Client {
         self.chain.optimistic_block_chunks.add_chunk(&shard_layout, chunk_header);
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_sender, &signer);
-        self.maybe_process_optimistic_block();
+
+        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+        self.chain.maybe_process_optimistic_block(
+            &me,
+            Some(self.myself_sender.apply_chunks_done.clone()),
+        );
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
@@ -1858,44 +1875,6 @@ impl Client {
             apply_chunks_done_sender,
         );
         self.process_block_processing_artifact(blocks_processing_artifacts, signer);
-    }
-
-    pub fn maybe_process_optimistic_block(&mut self) {
-        let Some((block, chunks)) = self.chain.optimistic_block_chunks.take_latest_ready_block()
-        else {
-            return;
-        };
-
-        self.chain.blocks_delay_tracker.record_optimistic_block_ready(block.height());
-
-        let signer = self.validator_signer.get();
-        let me = signer.as_ref().map(|signer| signer.validator_id());
-        let prev_block_hash = *block.prev_block_hash();
-        let block_hash = *block.hash();
-        let block_height = block.height();
-        let apply_chunks_done_sender = self.myself_sender.apply_chunks_done.clone();
-        match self.chain.process_optimistic_block(
-            &me.map(|x| x.clone()),
-            block,
-            chunks,
-            apply_chunks_done_sender,
-        ) {
-            Ok(()) => {
-                info!(
-                    target: "chain", prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash, height = block_height,
-                    "Processed optimistic block"
-                );
-            }
-            Err(err) => {
-                warn!(
-                    target: "chain", err = ?err,
-                    prev_block_hash = ?prev_block_hash,
-                    hash = ?block_hash, height = block_height,
-                    "Failed to process optimistic block"
-                );
-            }
-        }
     }
 
     pub fn is_validator(&self, epoch_id: &EpochId, signer: &Option<Arc<ValidatorSigner>>) -> bool {

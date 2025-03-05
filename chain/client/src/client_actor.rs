@@ -1406,7 +1406,13 @@ impl ClientActorInner {
         // We’ve produced the optimistic block, mark it as done so we don't produce it again.
         self.client.save_optimistic_block(&optimistic_block);
         self.client.chain.optimistic_block_chunks.add_block(optimistic_block);
-        self.client.maybe_process_optimistic_block();
+
+        let signer = self.client.validator_signer.get();
+        let me = signer.as_ref().map(|signer| signer.validator_id().clone());
+        self.client.chain.maybe_process_optimistic_block(
+            &me,
+            Some(self.client.myself_sender.apply_chunks_done.clone()),
+        );
 
         Ok(())
     }

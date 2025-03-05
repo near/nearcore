@@ -1,14 +1,17 @@
 use crate::chain::ApplyChunksDoneMessage;
+use lru::LruCache;
 use near_async::messaging::Sender;
 use near_async::time::{Duration, Instant};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
+use near_primitives::optimistic_block::OptimisticBlock;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::utils::MaybeValidated;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
+use std::num::NonZeroUsize;
 use tracing::{debug, debug_span};
 
 use crate::missing_chunks::BlockLike;
@@ -19,6 +22,9 @@ const MAX_ORPHAN_SIZE: usize = 1024;
 
 /// Maximum age of orphan to store in the chain.
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
+
+/// Maximum number of optimistic blocks to store in the cache.
+const MAX_OPTIMISTIC_ORPHANS: usize = 10;
 
 // Number of orphan ancestors should be checked to request chunks
 // Orphans for which we will request for missing chunks must satisfy,
@@ -68,6 +74,9 @@ impl Orphan {
 pub struct OrphanBlockPool {
     /// A map from block hash to an orphan block
     orphans: HashMap<CryptoHash, Orphan>,
+    /// LRU cache mapping previous blocks to the orphaned optimistic blocks
+    /// based on them.
+    optimistic_orphans: LruCache<CryptoHash, OptimisticBlock>,
     /// A set that contains all orphans for which we have requested missing chunks for them
     /// An orphan can be added to this set when it was first added to the pool, or later
     /// when certain requirements are satisfied (see check_orphans)
@@ -87,6 +96,7 @@ impl OrphanBlockPool {
     pub fn new() -> OrphanBlockPool {
         OrphanBlockPool {
             orphans: HashMap::default(),
+            optimistic_orphans: LruCache::new(NonZeroUsize::new(MAX_OPTIMISTIC_ORPHANS).unwrap()),
             orphans_requested_missing_chunks: HashSet::default(),
             height_idx: HashMap::default(),
             prev_hash_idx: HashMap::default(),
@@ -158,6 +168,11 @@ impl OrphanBlockPool {
         self.orphans.get(hash)
     }
 
+    pub fn add_optimistic(&mut self, block: OptimisticBlock) {
+        self.optimistic_orphans.push(*block.prev_block_hash(), block);
+        metrics::NUM_OPTIMISTIC_ORPHANS.set(self.optimistic_orphans.len() as i64);
+    }
+
     // // Iterates over existing orphans.
     // pub fn map(&self, orphan_fn: &mut dyn FnMut(&CryptoHash, &Block, &Instant)) {
     //     self.orphans
@@ -186,6 +201,12 @@ impl OrphanBlockPool {
 
         metrics::NUM_ORPHANS.set(self.orphans.len() as i64);
         ret
+    }
+
+    pub fn remove_optimistic(&mut self, prev_hash: &CryptoHash) -> Option<OptimisticBlock> {
+        let block = self.optimistic_orphans.pop(prev_hash);
+        metrics::NUM_OPTIMISTIC_ORPHANS.set(self.optimistic_orphans.len() as i64);
+        block
     }
 
     /// Return a list of orphans that are among the `target_depth` immediate descendants of
@@ -282,6 +303,10 @@ impl Chain {
                 String::new()
             },
         );
+    }
+
+    pub fn save_optimistic_orphan(&mut self, block: OptimisticBlock) {
+        self.orphans.add_optimistic(block);
     }
 
     /// Check if we can request chunks for this orphan. Conditions are
@@ -406,6 +431,10 @@ impl Chain {
                 remaining_orphans=self.orphans.len(),
                 "Check orphans",
             );
+        }
+        if let Some(optimistic_block) = self.orphans.remove_optimistic(&prev_hash) {
+            debug!(target: "chain", ?optimistic_block, "Check optimistic orphan");
+            self.preprocess_optimistic_block(optimistic_block, me, apply_chunks_done_sender);
         }
     }
 
