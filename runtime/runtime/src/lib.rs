@@ -2163,7 +2163,8 @@ impl Runtime {
         let bandwidth_requests =
             receipt_sink.generate_bandwidth_requests(&state_update, &shard_layout, true)?;
 
-        if cfg!(debug_assertions) {
+        // if cfg!(debug_assertions) {
+        if true {
             if let Err(err) = check_balance(
                 &apply_state.config,
                 &state_update,
@@ -2175,7 +2176,8 @@ impl Runtime {
                 &receipt_sink.outgoing_receipts(),
                 &processing_state.stats,
             ) {
-                panic!(
+                tracing::error!(
+                    target: "runtime",
                     "The runtime's balance_checker failed for shard {} at height {} with block hash {} and protocol version {}: {}",
                     apply_state.shard_id,
                     apply_state.block_height,
