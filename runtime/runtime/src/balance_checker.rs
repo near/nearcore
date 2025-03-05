@@ -150,7 +150,7 @@ fn buffered_receipts(
     shards.extend(initial_buffers.shards().iter());
     shards.extend(final_buffers.shards().iter());
     for shard_id in shards {
-        tracing::debug!(target: "trie", shard_id, "shard");
+        tracing::debug!(target: "trie", ?shard_id);
         let initial_buffer = initial_buffers.to_shard(shard_id);
         let final_buffer = final_buffers.to_shard(shard_id);
         let before = initial_buffer.indices();
