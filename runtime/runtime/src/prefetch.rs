@@ -54,7 +54,7 @@ use sha2::Digest;
 use std::str::FromStr;
 use tracing::{debug, warn};
 
-use crate::{SignedValidPeriodTransactions, metrics};
+use crate::{SignedValidPeriodTransaction, metrics};
 /// Transaction runtime view of the prefetching subsystem.
 pub(crate) struct TriePrefetcher {
     prefetch_api: PrefetchApi,
@@ -197,17 +197,20 @@ impl TriePrefetcher {
     /// for some transactions may have been initiated.
     pub(crate) fn prefetch_transactions_data(
         &mut self,
-        transactions: SignedValidPeriodTransactions<'_>,
+        transactions: &[SignedValidPeriodTransaction],
     ) -> Result<(), PrefetchError> {
         if self.prefetch_api.enable_receipt_prefetching {
-            for t in transactions.iter_nonexpired_transactions() {
-                let account_id = t.transaction.signer_id().clone();
+            for signed_tx in transactions
+                .into_iter()
+                .filter_map(|tx| tx.transaction_validity_check_passed.then_some(&tx.tx))
+            {
+                let account_id = signed_tx.transaction.signer_id().clone();
                 let trie_key = TrieKey::Account { account_id };
                 self.prefetch_trie_key(trie_key)?;
 
                 let trie_key = TrieKey::AccessKey {
-                    account_id: t.transaction.signer_id().clone(),
-                    public_key: t.transaction.public_key().clone(),
+                    account_id: signed_tx.transaction.signer_id().clone(),
+                    public_key: signed_tx.transaction.public_key().clone(),
                 };
                 self.prefetch_trie_key(trie_key)?;
             }

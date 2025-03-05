@@ -22,7 +22,7 @@ use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
 use near_store::DBCol;
 use near_store::Store;
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::SignedValidPeriodTransaction;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -189,6 +189,11 @@ pub fn apply_chunk(
         .compute_transaction_validity(protocol_version, prev_block.header(), &chunk)
         .context("compute transaction validity")?;
 
+    let transactions = transactions
+        .into_iter()
+        .zip(valid_txs)
+        .map(|(tx, v)| SignedValidPeriodTransaction::new(tx, v))
+        .collect::<Vec<_>>();
     Ok((
         runtime.apply_chunk(
             storage.create_runtime_storage(prev_state_root),
@@ -215,7 +220,7 @@ pub fn apply_chunk(
                 bandwidth_requests: block_bandwidth_requests,
             },
             &receipts,
-            SignedValidPeriodTransactions::new(transactions, &valid_txs),
+            &transactions,
         )?,
         chunk_header.gas_limit(),
     ))

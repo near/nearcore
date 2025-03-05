@@ -51,7 +51,7 @@ use near_store::{
     set_genesis_height, set_genesis_state_roots,
 };
 use near_vm_runner::{ContractCode, ContractRuntimeCache, NoContractRuntimeCache};
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::SignedValidPeriodTransaction;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
@@ -1044,8 +1044,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: SignedValidPeriodTransactions<'_>,
-    ) -> Result<ApplyChunkResult, Error> {
+        transactions: Vec<SignedValidPeriodTransaction>,
+    ) -> (Vec<SignedValidPeriodTransaction>, Result<ApplyChunkResult, Error>) {
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
 
@@ -1081,39 +1081,41 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        for transaction in transactions.iter_nonexpired_transactions() {
+        for signed_tx in transactions
+            .into_iter()
+            .filter_map(|tx| tx.transaction_validity_check_passed.then_some(tx.tx))
+        {
             assert_eq!(
-                account_id_to_shard_id(transaction.transaction.signer_id(), self.num_shards),
+                account_id_to_shard_id(signed_tx.transaction.signer_id(), self.num_shards),
                 shard_id
             );
-            if transaction.transaction.actions().is_empty() {
+            if signed_tx.transaction.actions().is_empty() {
                 continue;
             }
-            if let Action::Transfer(TransferAction { deposit }) =
-                transaction.transaction.actions()[0]
+            if let Action::Transfer(TransferAction { deposit }) = signed_tx.transaction.actions()[0]
             {
                 if !state.tx_nonces.contains(&AccountNonce(
-                    transaction.transaction.receiver_id().clone(),
-                    transaction.transaction.nonce(),
+                    signed_tx.transaction.receiver_id().clone(),
+                    signed_tx.transaction.nonce(),
                 )) {
                     state.tx_nonces.insert(AccountNonce(
-                        transaction.transaction.receiver_id().clone(),
-                        transaction.transaction.nonce(),
+                        signed_tx.transaction.receiver_id().clone(),
+                        signed_tx.transaction.nonce(),
                     ));
                     balance_transfers.push((
-                        transaction.get_hash(),
-                        transaction.transaction.signer_id().clone(),
-                        transaction.transaction.receiver_id().clone(),
+                        signed_tx.get_hash(),
+                        signed_tx.transaction.signer_id().clone(),
+                        signed_tx.transaction.receiver_id().clone(),
                         deposit,
-                        transaction.transaction.nonce(),
+                        signed_tx.transaction.nonce(),
                     ));
                 } else {
                     balance_transfers.push((
-                        transaction.get_hash(),
-                        transaction.transaction.signer_id().clone(),
-                        transaction.transaction.receiver_id().clone(),
+                        signed_tx.get_hash(),
+                        signed_tx.transaction.signer_id().clone(),
+                        signed_tx.transaction.receiver_id().clone(),
                         0,
-                        transaction.transaction.nonce(),
+                        signed_tx.transaction.nonce(),
                     ));
                 }
             } else {
@@ -1178,36 +1180,41 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
-        let data = borsh::to_vec(&state)?;
+        let data = borsh::to_vec(&state).unwrap();
         let state_size = data.len() as u64;
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
         let storage_proof = Some(Default::default());
-        Ok(ApplyChunkResult {
-            trie_changes: WrappedTrieChanges::new(
-                self.get_tries(),
-                ShardUId::new(0, shard_id),
-                TrieChanges::empty(state_root),
-                Default::default(),
-                block.height,
-            ),
-            new_root: state_root,
-            outcomes: tx_results,
-            outgoing_receipts,
-            validator_proposals: vec![],
-            total_gas_burnt: 0,
-            total_balance_burnt: 0,
-            proof: storage_proof,
-            processed_delayed_receipts: vec![],
-            processed_yield_timeouts: vec![],
-            applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
-            congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
-            bandwidth_requests: BandwidthRequests::default_for_protocol_version(PROTOCOL_VERSION),
-            bandwidth_scheduler_state_hash: CryptoHash::default(),
-            contract_updates: Default::default(),
-            stats: ChunkApplyStatsV0::dummy(),
-        })
+        (
+            vec![],
+            Ok(ApplyChunkResult {
+                trie_changes: WrappedTrieChanges::new(
+                    self.get_tries(),
+                    ShardUId::new(0, shard_id),
+                    TrieChanges::empty(state_root),
+                    Default::default(),
+                    block.height,
+                ),
+                new_root: state_root,
+                outcomes: tx_results,
+                outgoing_receipts,
+                validator_proposals: vec![],
+                total_gas_burnt: 0,
+                total_balance_burnt: 0,
+                proof: storage_proof,
+                processed_delayed_receipts: vec![],
+                processed_yield_timeouts: vec![],
+                applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+                congestion_info: Self::get_congestion_info(PROTOCOL_VERSION),
+                bandwidth_requests: BandwidthRequests::default_for_protocol_version(
+                    PROTOCOL_VERSION,
+                ),
+                bandwidth_scheduler_state_hash: CryptoHash::default(),
+                contract_updates: Default::default(),
+                stats: ChunkApplyStatsV0::dummy(),
+            }),
+        )
     }
 
     fn query(

@@ -25,7 +25,7 @@ use near_primitives::views::{
 };
 use near_store::adapter::StoreUpdateAdapter;
 use near_store::{ShardTries, TrieUpdate};
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::SignedValidPeriodTransaction;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, state_viewer::ViewApplyState};
 
@@ -108,6 +108,11 @@ impl RuntimeUser {
                 trie.set_charge_gas_for_trie_node_access(true);
                 trie
             };
+            let transactions = txs
+                .iter()
+                .zip(std::iter::repeat(true))
+                .map(|(t, v)| SignedValidPeriodTransaction::new(t, v))
+                .collect::<Vec<_>>();
             let apply_result = client
                 .runtime
                 .apply(
@@ -115,7 +120,7 @@ impl RuntimeUser {
                     &None,
                     &apply_state,
                     &receipts,
-                    SignedValidPeriodTransactions::new(&txs, &vec![true; txs.len()]),
+                    &transactions,
                     &self.epoch_info_provider,
                     Default::default(),
                 )

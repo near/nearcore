@@ -1064,6 +1064,13 @@ impl ShardChunk {
         }
     }
 
+    pub fn swap_transactions(&mut self, txs: &mut Vec<SignedTransaction>) {
+        match self {
+            Self::V1(chunk) => std::mem::swap(txs, &mut chunk.transactions),
+            Self::V2(chunk) => std::mem::swap(txs, &mut chunk.transactions),
+        }
+    }
+
     #[inline]
     pub fn header_hash(&self) -> ChunkHash {
         match self {

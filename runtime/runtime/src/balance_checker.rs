@@ -3,7 +3,7 @@ use crate::config::{
     total_prepaid_gas, total_prepaid_send_fees,
 };
 use crate::{DelayedReceiptIndices, ValidatorAccountsUpdate};
-use crate::{SignedValidPeriodTransactions, safe_add_balance_apply};
+use crate::{SignedValidPeriodTransaction, safe_add_balance_apply};
 use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::chunk_apply_stats::BalanceStats;
 use near_primitives::errors::{
@@ -182,11 +182,12 @@ fn all_touched_accounts(
     incoming_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
-    transactions: SignedValidPeriodTransactions<'_>,
+    transactions: &[SignedValidPeriodTransaction],
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
 ) -> Result<HashSet<AccountId>, RuntimeError> {
     let mut all_accounts_ids: HashSet<AccountId> = transactions
-        .iter_nonexpired_transactions()
+        .into_iter()
+        .filter_map(|tx| tx.transaction_validity_check_passed.then_some(&tx.tx))
         .map(|tx| tx.transaction.signer_id().clone())
         .chain(incoming_receipts.iter().map(|r| r.receiver_id().clone()))
         .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id().clone()))
@@ -280,7 +281,7 @@ pub(crate) fn check_balance(
     incoming_receipts: &[Receipt],
     processed_delayed_receipts: &[Receipt],
     yield_timeout_receipts: &[Receipt],
-    transactions: SignedValidPeriodTransactions<'_>,
+    transactions: &[SignedValidPeriodTransaction],
     outgoing_receipts: &[Receipt],
     stats: &BalanceStats,
 ) -> Result<(), RuntimeError> {
@@ -425,7 +426,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            &[],
             &[],
             &BalanceStats::default(),
         )
@@ -444,7 +445,7 @@ mod tests {
             &[Receipt::new_balance_refund(&alice_account(), 1000, ReceiptPriority::NoPriority)],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            &[],
             &[],
             &BalanceStats::default(),
         )
@@ -509,7 +510,7 @@ mod tests {
             )],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            &[],
             &[],
             &BalanceStats::default(),
         )
@@ -558,7 +559,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            &[SignedValidPeriodTransaction::new(&tx, true)],
             &[receipt],
             &BalanceStats {
                 tx_burnt_amount: total_validator_reward,
@@ -631,7 +632,7 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                SignedValidPeriodTransactions::new(&[tx], &[true]),
+                &[SignedValidPeriodTransaction::new(&tx, true)],
                 &[],
                 &BalanceStats::default(),
             ),
@@ -673,7 +674,7 @@ mod tests {
                 &[receipt],
                 &[],
                 &[],
-                SignedValidPeriodTransactions::new(&[tx], &[true]),
+                &[SignedValidPeriodTransaction::new(&tx, true)],
                 &[],
                 &BalanceStats::default(),
             ),
@@ -753,7 +754,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::new(&[tx], &[true]),
+            &[SignedValidPeriodTransaction::new(&tx, true)],
             &[],
             &BalanceStats {
                 // send gas was burnt on this shard, exec gas is part of the receipt value
@@ -825,7 +826,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            &[],
             &outgoing_receipts,
             &BalanceStats::default(),
         )
@@ -889,7 +890,7 @@ mod tests {
             &[],
             &[],
             &[],
-            SignedValidPeriodTransactions::empty(),
+            &[],
             &outgoing_receipts,
             &BalanceStats::default(),
         );

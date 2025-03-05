@@ -49,8 +49,8 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::config::tx_cost;
 use node_runtime::state_viewer::{TrieViewer, ViewApplyState};
 use node_runtime::{
-    ApplyState, Runtime, ValidatorAccountsUpdate, commit_charging_for_tx, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    ApplyState, Runtime, SignedValidPeriodTransaction, ValidatorAccountsUpdate,
+    commit_charging_for_tx, validate_transaction, verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -162,9 +162,9 @@ impl NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
+        transactions: Vec<SignedValidPeriodTransaction>,
         state_patch: SandboxStatePatch,
-    ) -> Result<ApplyChunkResult, Error> {
+    ) -> (Vec<SignedValidPeriodTransaction>, Result<ApplyChunkResult, Error>) {
         let ApplyChunkBlockContext {
             height: block_height,
             block_hash,
@@ -183,10 +183,10 @@ impl NightshadeRuntime {
             is_new_chunk,
             is_first_block_with_chunk_of_version,
         } = chunk;
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
-            let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+            let shard_layout = epoch_manager.get_shard_layout(&epoch_id).unwrap();
             debug!(target: "runtime",
                    next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
@@ -204,9 +204,9 @@ impl NightshadeRuntime {
                 })
                 .collect();
 
-            if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+            if epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap() {
                 let (stake_info, validator_reward, double_sign_slashing_info) =
-                    epoch_manager.compute_stake_return_info(prev_block_hash)?;
+                    epoch_manager.compute_stake_return_info(prev_block_hash).unwrap();
                 let stake_info = stake_info
                     .into_iter()
                     .filter(|(account_id, _)| {
@@ -259,11 +259,13 @@ impl NightshadeRuntime {
             }
         };
 
-        let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(prev_block_hash)?;
-        let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash)?;
-        let current_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let epoch_height =
+            self.epoch_manager.get_epoch_height_from_prev_block(prev_block_hash).unwrap();
+        let prev_block_epoch_id = self.epoch_manager.get_epoch_id(prev_block_hash).unwrap();
+        let current_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
         let prev_block_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
+            self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id).unwrap();
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
         debug!(
@@ -300,17 +302,17 @@ impl NightshadeRuntime {
         };
 
         let instant = Instant::now();
-        let apply_result = self
-            .runtime
-            .apply(
-                trie,
-                &validator_accounts_update,
-                &apply_state,
-                receipts,
-                transactions,
-                self.epoch_manager.as_ref(),
-                state_patch,
-            )
+        let (transactions, ret) = self.runtime.apply(
+            trie,
+            &validator_accounts_update,
+            &apply_state,
+            receipts,
+            transactions,
+            self.epoch_manager.as_ref(),
+            state_patch,
+        );
+
+        let apply_result = ret
             .map_err(|e| match e {
                 RuntimeError::InvalidTxError(err) => {
                     tracing::warn!("Invalid tx {:?}", err);
@@ -326,7 +328,8 @@ impl NightshadeRuntime {
                 // TODO(#2152): process gracefully
                 RuntimeError::ReceiptValidationError(e) => panic!("{}", e),
                 RuntimeError::ValidatorError(e) => e.into(),
-            })?;
+            })
+            .unwrap();
         let elapsed = instant.elapsed();
 
         let total_gas_burnt =
@@ -350,9 +353,10 @@ impl NightshadeRuntime {
             .and_then(|result| result.checked_add(apply_result.stats.balance.slashed_burnt_amount))
             .ok_or_else(|| {
                 Error::Other("Integer overflow during burnt balance summation".to_string())
-            })?;
+            })
+            .unwrap();
 
-        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
+        let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash).unwrap();
 
         let result = ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
@@ -379,7 +383,7 @@ impl NightshadeRuntime {
             stats: apply_result.stats,
         };
 
-        Ok(result)
+        (transactions, Ok(result))
     }
 
     fn get_gc_stop_height_impl(&self, block_hash: &CryptoHash) -> Result<BlockHeight, Error> {
@@ -850,30 +854,34 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk: ApplyChunkShardContext,
         block: ApplyChunkBlockContext,
         receipts: &[Receipt],
-        transactions: node_runtime::SignedValidPeriodTransactions<'_>,
-    ) -> Result<ApplyChunkResult, Error> {
+        transactions: Vec<SignedValidPeriodTransaction>,
+    ) -> (Vec<SignedValidPeriodTransaction>, Result<ApplyChunkResult, Error>) {
         let shard_id = chunk.shard_id;
         let _timer = metrics::APPLYING_CHUNKS_TIME
             .with_label_values(&[&apply_reason.to_string(), &shard_id.to_string()])
             .start_timer();
 
         let mut trie = match storage_config.source {
-            StorageDataSource::Db => self.get_trie_for_shard(
-                shard_id,
-                &block.prev_block_hash,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            )?,
+            StorageDataSource::Db => self
+                .get_trie_for_shard(
+                    shard_id,
+                    &block.prev_block_hash,
+                    storage_config.state_root,
+                    storage_config.use_flat_storage,
+                )
+                .unwrap(),
             StorageDataSource::DbTrieOnly => {
                 // If there is no flat storage on disk, use trie but simulate costs with enabled
                 // flat storage by not charging gas for trie nodes.
                 // WARNING: should never be used in production! Consider this option only for debugging or replaying blocks.
-                let mut trie = self.get_trie_for_shard(
-                    shard_id,
-                    &block.prev_block_hash,
-                    storage_config.state_root,
-                    false,
-                )?;
+                let mut trie = self
+                    .get_trie_for_shard(
+                        shard_id,
+                        &block.prev_block_hash,
+                        storage_config.state_root,
+                        false,
+                    )
+                    .unwrap();
                 trie.set_charge_gas_for_trie_node_access(false);
                 trie
             }
@@ -884,9 +892,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             ),
         };
         let next_epoch_id =
-            self.epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
+            self.epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash).unwrap();
         let next_protocol_version =
-            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
+            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id).unwrap();
 
         // StateWitnessSizeLimit: We need to start recording reads if the stateless validation is
         // enabled in the next epoch. We need to save the state transition data in the current epoch
@@ -895,14 +903,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             || cfg!(feature = "shadow_chunk_validation")
         {
             let epoch_id =
-                self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+                self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash).unwrap();
+            let protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(&epoch_id).unwrap();
             let config = self.runtime_config_store.get_config(protocol_version);
             let proof_limit = config.witness_config.main_storage_proof_size_soft_limit;
             trie = trie.recording_reads_with_proof_size_limit(proof_limit);
         }
 
-        match self.process_state_update(
+        self.process_state_update(
             trie,
             apply_reason,
             chunk,
@@ -910,17 +919,27 @@ impl RuntimeAdapter for NightshadeRuntime {
             receipts,
             transactions,
             storage_config.state_patch,
-        ) {
-            Ok(result) => Ok(result),
-            Err(e) => match e {
-                Error::StorageError(err) => match &err {
-                    StorageError::FlatStorageBlockNotSupported(_)
-                    | StorageError::MissingTrieValue(..) => Err(err.into()),
-                    _ => panic!("{err}"),
-                },
-                _ => Err(e),
-            },
-        }
+        )
+
+        // match self.process_state_update(
+        //     trie,
+        //     apply_reason,
+        //     chunk,
+        //     block,
+        //     receipts,
+        //     transactions,
+        //     storage_config.state_patch,
+        // ) {
+        //     Ok(result) => Ok(result),
+        //     Err(e) => match e {
+        //         Error::StorageError(err) => match &err {
+        //             StorageError::FlatStorageBlockNotSupported(_)
+        //             | StorageError::MissingTrieValue(..) => Err(err.into()),
+        //             _ => panic!("{err}"),
+        //         },
+        //         _ => Err(e),
+        //     },
+        // }
     }
 
     fn query(

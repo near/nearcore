@@ -25,7 +25,7 @@ use near_primitives::state_sync::{ReceiptProofResponse, ShardStateSyncResponseHe
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockExtra, BlockHeight, ShardId};
 use near_primitives::views::LightClientBlockView;
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::SignedValidPeriodTransaction;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -486,7 +486,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<ShardUId, Error> {
         let _span =
             tracing::debug_span!(target: "sync", "chain_update_set_state_finalize", ?shard_id, ?sync_hash).entered();
-        let (chunk, incoming_receipts_proofs) = match shard_state_header {
+        let (mut chunk, incoming_receipts_proofs) = match shard_state_header {
             ShardStateSyncResponseHeader::V1(shard_state_header) => (
                 ShardChunk::V1(shard_state_header.chunk),
                 shard_state_header.incoming_receipts_proofs,
@@ -537,7 +537,8 @@ impl<'a> ChainUpdate<'a> {
         let block = self.chain_store_update.get_block(block_header.hash())?;
         let epoch_id = self.epoch_manager.get_epoch_id(block_header.hash())?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-        let transactions = chunk.transactions();
+        let mut transactions = vec![];
+        chunk.swap_transactions(&mut transactions);
         let transaction_validity = if let Some(prev_block_header) = prev_block_header {
             self.chain_store_update.chain_store().compute_transaction_validity(
                 protocol_version,
@@ -547,8 +548,12 @@ impl<'a> ChainUpdate<'a> {
         } else {
             vec![true; transactions.len()]
         };
-        let transactions = SignedValidPeriodTransactions::new(transactions, &transaction_validity);
-        let apply_result = self.runtime_adapter.apply_chunk(
+        let transactions = transactions
+            .into_iter()
+            .zip(transaction_validity)
+            .map(|(tx, v)| SignedValidPeriodTransaction::new(tx, v))
+            .collect::<Vec<_>>();
+        let (transactions, apply_result) = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
@@ -571,10 +576,13 @@ impl<'a> ChainUpdate<'a> {
             },
             &receipts,
             transactions,
-        )?;
+        );
+        let apply_result = apply_result.unwrap();
 
         let (outcome_root, outcome_proofs) =
             ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
+        let mut transactions = transactions.into_iter().map(|s| s.tx).collect();
+        chunk.swap_transactions(&mut transactions);
 
         self.chain_store_update.save_chunk(chunk);
 
@@ -665,7 +673,7 @@ impl<'a> ChainUpdate<'a> {
             shard_id_to_uid(self.epoch_manager.as_ref(), shard_id, block_header.epoch_id())?;
         let chunk_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
-        let apply_result = self.runtime_adapter.apply_chunk(
+        let (txs, apply_result) = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
             ApplyChunkReason::UpdateTrackedShard,
             ApplyChunkShardContext {
@@ -682,8 +690,9 @@ impl<'a> ChainUpdate<'a> {
                 block.block_bandwidth_requests(),
             ),
             &[],
-            SignedValidPeriodTransactions::new(&[], &[]),
-        )?;
+            vec![],
+        );
+        let apply_result = apply_result.unwrap();
         let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
         let store_update = flat_storage_manager.save_flat_state_changes(
             *block_header.hash(),

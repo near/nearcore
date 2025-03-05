@@ -29,7 +29,7 @@ use near_vm_runner::FilesystemContractRuntimeCache;
 use near_vm_runner::logic::LimitConfig;
 use node_runtime::config::tx_cost;
 use node_runtime::{
-    ApplyState, Runtime, SignedValidPeriodTransactions, commit_charging_for_tx,
+    ApplyState, Runtime, SignedValidPeriodTransaction, commit_charging_for_tx,
     verify_and_charge_tx_ephemeral,
 };
 use std::collections::HashMap;
@@ -353,6 +353,12 @@ impl Testbed<'_> {
         allow_failures: bool,
     ) -> Gas {
         let trie = self.trie();
+        let transactions = transactions
+            .into_iter()
+            .zip(std::iter::repeat(true))
+            .map(|(t, v)| SignedValidPeriodTransaction::new(tx, v))
+            .collect::<Vec<_>>();
+
         let apply_result = self
             .runtime
             .apply(
@@ -360,7 +366,7 @@ impl Testbed<'_> {
                 &None,
                 &self.apply_state,
                 &self.prev_receipts,
-                SignedValidPeriodTransactions::new(transactions, &vec![true; transactions.len()]),
+                &transactions,
                 &self.epoch_info_provider,
                 Default::default(),
             )

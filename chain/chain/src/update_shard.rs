@@ -13,7 +13,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::Gas;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use node_runtime::SignedValidPeriodTransactions;
+use node_runtime::SignedValidPeriodTransaction;
 
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
@@ -144,6 +144,11 @@ pub fn apply_new_chunk(
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
     };
+    let transactions = transactions
+        .into_iter()
+        .zip(transaction_validity_check_results)
+        .map(|(tx, v)| SignedValidPeriodTransaction::new(tx, v))
+        .collect::<Vec<_>>();
     match runtime.apply_chunk(
         storage_config,
         apply_reason,
@@ -156,7 +161,7 @@ pub fn apply_new_chunk(
         },
         block,
         &receipts,
-        SignedValidPeriodTransactions::new(&transactions, &transaction_validity_check_results),
+        &transactions,
     ) {
         Ok(apply_result) => {
             Ok(NewChunkResult { gas_limit, shard_uid: shard_context.shard_uid, apply_result })
@@ -203,7 +208,7 @@ pub fn apply_old_chunk(
         },
         block,
         &[],
-        SignedValidPeriodTransactions::new(&[], &[]),
+        &[],
     ) {
         Ok(apply_result) => Ok(OldChunkResult { shard_uid: shard_context.shard_uid, apply_result }),
         Err(err) => Err(err),
