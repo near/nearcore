@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
@@ -436,12 +437,12 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
         .clients(params.clients)
         .archival_clients(params.archivals.iter().cloned().collect())
         .load_memtries_for_tracked_shards(params.load_memtries_for_tracked_shards)
-        .drop_protocol_upgrade_chunks(
-            base_protocol_version + 1,
-            params.chunk_ranges_to_drop.clone(),
-        )
         .gc_num_epochs_to_keep(GC_NUM_EPOCHS_TO_KEEP)
         .build()
+        .drop(DropCondition::ProtocolUpgradeChunkRange(
+            base_protocol_version + 1,
+            params.chunk_ranges_to_drop.clone(),
+        ))
         .warmup();
 
     let mut test_setup_transactions = vec![];
