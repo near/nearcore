@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::account::{accounts_from_dir, update_account_nonces};
-use crate::block_service::BlockService;
+use crate::block_service::{BlockService, read_rpc_urls};
 use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
@@ -49,37 +49,6 @@ pub struct BenchmarkArgs {
     /// File containing a list of RPC URLs to use for sending transactions
     #[arg(long)]
     pub rpc_urls_file: Option<PathBuf>,
-}
-
-/// Read RPC URLs from a file, one URL per line
-fn read_rpc_urls(file_path: &PathBuf) -> io::Result<Vec<String>> {
-    let file = File::open(file_path)?;
-    let reader = io::BufReader::new(file);
-    let mut urls = Vec::new();
-
-    for line in reader.lines() {
-        let url = line?;
-        let trimmed = url.trim();
-        if !trimmed.is_empty() && !trimmed.starts_with('#') {
-            // Check if the line is just an IP address without protocol and port
-            if trimmed.chars().all(|c| c.is_digit(10) || c == '.') {
-                urls.push(format!("http://{}:3030", trimmed));
-            } else if trimmed.contains('|') {
-                // Handle complex format like "mocknet-mainnet-138038233-hoptnet-573c|us-central1-a|35.238.229.51"
-                // Extract the IP address which is the last part after the last pipe
-                let parts: Vec<&str> = trimmed.split('|').collect();
-                if let Some(ip) = parts.last() {
-                    if !ip.is_empty() {
-                        urls.push(format!("http://{}:3030", ip.trim()));
-                    }
-                }
-            } else {
-                urls.push(trimmed.to_string());
-            }
-        }
-    }
-
-    Ok(urls)
 }
 
 pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
