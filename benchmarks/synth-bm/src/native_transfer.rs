@@ -64,6 +64,15 @@ fn read_rpc_urls(file_path: &PathBuf) -> io::Result<Vec<String>> {
             // Check if the line is just an IP address without protocol and port
             if trimmed.chars().all(|c| c.is_digit(10) || c == '.') {
                 urls.push(format!("http://{}:3030", trimmed));
+            } else if trimmed.contains('|') {
+                // Handle complex format like "mocknet-mainnet-138038233-hoptnet-573c|us-central1-a|35.238.229.51"
+                // Extract the IP address which is the last part after the last pipe
+                let parts: Vec<&str> = trimmed.split('|').collect();
+                if let Some(ip) = parts.last() {
+                    if !ip.is_empty() {
+                        urls.push(format!("http://{}:3030", ip.trim()));
+                    }
+                }
             } else {
                 urls.push(trimmed.to_string());
             }
