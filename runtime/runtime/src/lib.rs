@@ -2222,30 +2222,7 @@ impl Runtime {
             &mut stats,
         )?;
 
-        if ProtocolFeature::RemoveCheckBalance.enabled(protocol_version) {
-            if cfg!(debug_assertions) {
-                if let Err(err) = check_balance(
-                    &apply_state.config,
-                    &state_update,
-                    validator_accounts_update,
-                    processing_state.incoming_receipts,
-                    &processed_delayed_receipts,
-                    &promise_yield_result.timeout_receipts,
-                    processing_state.transactions,
-                    &receipt_sink.outgoing_receipts(),
-                    &stats.balance,
-                ) {
-                    panic!(
-                        "The runtime's balance_checker failed for shard {} at height {} with block hash {} and protocol version {}: {}",
-                        apply_state.shard_id,
-                        apply_state.block_height,
-                        apply_state.block_hash,
-                        apply_state.current_protocol_version,
-                        err
-                    );
-                }
-            }
-        } else {
+        if !ProtocolFeature::RemoveCheckBalance.enabled(protocol_version) {
             check_balance(
                 &apply_state.config,
                 &state_update,
