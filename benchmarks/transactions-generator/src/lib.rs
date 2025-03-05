@@ -46,13 +46,34 @@ pub struct TxGenerator {
     pub params: TxGeneratorConfig,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-    runner: Option<(task::JoinHandle<()>, task::JoinHandle<()>, task::JoinHandle<()>)>,
+    runner: Vec<task::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
 struct RunnerState {
     block_hash: Arc<std::sync::Mutex<CryptoHash>>,
     stats: Arc<std::sync::Mutex<Stats>>,
+}
+
+#[derive(Debug, Clone)]
+struct WelfordMean {
+    mean: i64,
+    count: i64,
+}
+
+impl WelfordMean {
+    fn new() -> Self {
+        Self { mean: 0, count: 0 }
+    }
+
+    fn add_measurement(&mut self, x: i64) {
+        self.count += 1;
+        self.mean += (x - self.mean) / self.count;
+    }
+
+    fn mean(&self) -> i64 {
+        self.mean
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -82,11 +103,11 @@ impl TxGenerator {
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
     ) -> anyhow::Result<Self> {
-        Ok(Self { params, client_sender, view_client_sender, runner: None })
+        Ok(Self { params, client_sender, view_client_sender, runner: Vec::new() })
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
-        if self.runner.is_some() {
+        if !self.runner.is_empty() {
             anyhow::bail!("attempt to (re)start the running transaction generator");
         }
         let client_sender = self.client_sender.clone();
@@ -106,18 +127,18 @@ impl TxGenerator {
             })),
         };
 
-        let transactions = Self::start_transactions_loop(
-            &self.params,
-            client_sender,
-            view_client_sender.clone(),
-            runner_state.clone(),
-        )?;
+        for _ in 0..2 {
+            self.runner.push(Self::start_transactions_loop(
+                &self.params,
+                client_sender.clone(),
+                view_client_sender.clone(),
+                runner_state.clone(),
+            )?);
+        }
 
-        let block_updates = Self::start_block_updates(view_client_sender, runner_state.clone());
+        self.runner.push(Self::start_block_updates(view_client_sender, runner_state.clone()));
+        self.runner.push(Self::start_report_updates(runner_state));
 
-        let report_updates = Self::start_report_updates(runner_state);
-
-        self.runner = Some((transactions, block_updates, report_updates));
         Ok(())
     }
 
@@ -255,6 +276,7 @@ impl TxGenerator {
         let mut report_interval = tokio::time::interval(Duration::from_secs(1));
         tokio::spawn(async move {
             let mut stats_prev = runner_state.stats.lock().unwrap().clone();
+            let mut mean_diff = WelfordMean::new();
             loop {
                 report_interval.tick().await;
                 let stats = {
@@ -266,10 +288,13 @@ impl TxGenerator {
                     stats.failed = failed;
                     stats.clone()
                 };
+                tracing::info!(target: "transaction-generator", total=format!("{stats:?}"),);
+                let diff = stats.clone() - stats_prev;
+                mean_diff.add_measurement(diff.processed as i64);
                 tracing::info!(target: "transaction-generator",
-                    total=format!("{stats:?}"),);
-                tracing::info!(target: "transaction-generator",
-                    diff=format!("{:?}", stats.clone() - stats_prev),);
+                    diff=format!("{:?}", diff),
+                    rate_processed=mean_diff.mean(),
+                );
                 stats_prev = stats.clone();
             }
         })
