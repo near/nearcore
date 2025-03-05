@@ -275,8 +275,9 @@ impl Interval {
     ///
     /// Returns the time when the tick happened.
     pub async fn tick(&mut self, clock: &Clock) {
-        clock.sleep_until(self.next).await;
-        self.next = self.next + Duration::from_std(self.period).unwrap();
+        let deadline = self.next;
+        clock.sleep_until(deadline).await;
+        self.next = deadline + Duration::from_std(self.period).unwrap();
     }
 }
 
