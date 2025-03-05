@@ -1,5 +1,6 @@
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::{hash::CryptoHash, views::BlockView};
+use rand::distributions::{Distribution, Uniform};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
