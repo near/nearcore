@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -7,7 +9,6 @@ use crate::block_service::BlockService;
 use crate::metrics::TransactionStatisticsService;
 use crate::rpc::{ResponseCheckSeverity, RpcResponseHandler};
 use clap::Args;
-use log::{error, info};
 use near_jsonrpc_client::methods::send_tx::RpcSendTransactionRequest;
 use near_jsonrpc_client::JsonRpcClient;
 use near_primitives::transaction::SignedTransaction;
@@ -15,6 +16,7 @@ use near_primitives::views::TxExecutionStatus;
 use rand::distributions::{Distribution, Uniform};
 use tokio::sync::mpsc;
 use tokio::time;
+use tracing::{error, info};
 
 #[derive(Args, Debug)]
 pub struct BenchmarkArgs {
@@ -43,6 +45,32 @@ pub struct BenchmarkArgs {
     /// Enable measuring and reports of transaction statistics.
     #[arg(default_value_t = false, long)]
     pub transaction_statistics_service: bool,
+
+    /// File containing a list of RPC URLs to use for sending transactions
+    #[arg(long)]
+    pub rpc_urls_file: Option<PathBuf>,
+}
+
+/// Read RPC URLs from a file, one URL per line
+fn read_rpc_urls(file_path: &PathBuf) -> io::Result<Vec<String>> {
+    let file = File::open(file_path)?;
+    let reader = io::BufReader::new(file);
+    let mut urls = Vec::new();
+
+    for line in reader.lines() {
+        let url = line?;
+        let trimmed = url.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            // Check if the line is just an IP address without protocol and port
+            if trimmed.chars().all(|c| c.is_digit(10) || c == '.') {
+                urls.push(format!("http://{}:3030", trimmed));
+            } else {
+                urls.push(trimmed.to_string());
+            }
+        }
+    }
+
+    Ok(urls)
 }
 
 pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
@@ -55,7 +83,32 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
     let between = Uniform::from(0..accounts.len());
     let mut rng = rand::thread_rng();
 
+    // Create the primary RPC client
     let client = JsonRpcClient::connect(&args.rpc_url);
+
+    // Read additional RPC URLs if provided
+    let rpc_clients = if let Some(ref rpc_urls_file) = args.rpc_urls_file {
+        match read_rpc_urls(rpc_urls_file) {
+            Ok(urls) => {
+                info!("Loaded {} additional RPC URLs from {}", urls.len(), rpc_urls_file.display());
+                urls.into_iter().map(|url| JsonRpcClient::connect(&url)).collect::<Vec<_>>()
+            }
+            Err(e) => {
+                error!("Failed to read RPC URLs from {}: {}", rpc_urls_file.display(), e);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    // If we have additional RPC clients, use them
+    let use_random_validators = !rpc_clients.is_empty();
+    if use_random_validators {
+        info!("Using {} validators for random transaction distribution", rpc_clients.len());
+    } else {
+        info!("Using single RPC endpoint: {}", args.rpc_url);
+    }
 
     let block_service = Arc::new(BlockService::new(client.clone()).await);
 
@@ -97,6 +150,10 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
         None
     };
 
+    // Create a uniform distribution for selecting random validators
+    let validator_between =
+        if use_random_validators { Some(Uniform::from(0..rpc_clients.len())) } else { None };
+
     for i in 0..args.num_transfers {
         let idx_sender = usize::try_from(i % u64::try_from(accounts.len()).unwrap()).unwrap();
         let idx_receiver = {
@@ -129,12 +186,20 @@ pub async fn benchmark(args: &BenchmarkArgs) -> anyhow::Result<()> {
         };
 
         interval.tick().await;
-        let client = client.clone();
+
+        // Select a random validator client if available
+        let selected_client = if use_random_validators && validator_between.is_some() {
+            let idx = validator_between.as_ref().unwrap().sample(&mut rng);
+            rpc_clients[idx].clone()
+        } else {
+            client.clone()
+        };
+
         // Await permit before sending the request to make channel buffer size a limit for the
         // number of outstanding requests.
         let permit = channel_tx.clone().reserve_owned().await.unwrap();
         tokio::spawn(async move {
-            let res = client.call(request).await;
+            let res = selected_client.call(request).await;
             permit.send(res);
         });
         if i > 0 && i % 10000 == 0 {
