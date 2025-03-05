@@ -459,13 +459,8 @@ impl Testbed<'_> {
         let validated_tx =
             node_runtime::validate_transaction(&self.apply_state.config, tx, PROTOCOL_VERSION)
                 .expect("expected no validation error");
-        let cost = tx_cost(
-            &self.apply_state.config,
-            &validated_tx.to_signed_transaction().transaction,
-            gas_price,
-            PROTOCOL_VERSION,
-        )
-        .unwrap();
+        let cost =
+            tx_cost(&self.apply_state.config, &validated_tx, gas_price, PROTOCOL_VERSION).unwrap();
 
         let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,

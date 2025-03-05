@@ -567,25 +567,20 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_layout: &ShardLayout,
         gas_price: Balance,
         state_root: StateRoot,
-        tx: &ValidatedTransaction,
+        validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
 
-        let cost = tx_cost(
-            runtime_config,
-            &tx.to_signed_transaction().transaction,
-            gas_price,
-            current_protocol_version,
-        )?;
+        let cost = tx_cost(runtime_config, &validated_tx, gas_price, current_protocol_version)?;
         let shard_uid = shard_layout
-            .account_id_to_shard_uid(tx.to_signed_transaction().transaction.signer_id());
+            .account_id_to_shard_uid(validated_tx.to_signed_transaction().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
 
         verify_and_charge_tx_ephemeral(
             runtime_config,
             &state_update,
-            tx,
+            validated_tx,
             &cost,
             // here we do not know which block the transaction will be included
             // and therefore skip the check on the nonce upper bound.
@@ -773,7 +768,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         Err((err, tx)) => (Err(err), tx),
                         Ok(validated_tx) => match tx_cost(
                             runtime_config,
-                            &validated_tx.to_signed_transaction().transaction,
+                            &validated_tx,
                             prev_block.next_gas_price,
                             protocol_version,
                         ) {

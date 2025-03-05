@@ -11,7 +11,7 @@ use num_traits::pow::Pow;
 // Just re-exporting RuntimeConfig for backwards compatibility.
 use near_parameters::{ActionCosts, RuntimeConfig, transfer_exec_fee, transfer_send_fee};
 pub use near_primitives::num_rational::Rational32;
-use near_primitives::transaction::{Action, DeployContractAction, Transaction};
+use near_primitives::transaction::{Action, DeployContractAction, ValidatedTransaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 
 /// Describes the cost of converting this transaction into a receipt.
@@ -249,10 +249,11 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
 /// Returns transaction costs for a given transaction.
 pub fn tx_cost(
     config: &RuntimeConfig,
-    transaction: &Transaction,
+    validated_tx: &ValidatedTransaction,
     gas_price: Balance,
     protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
+    let transaction = &validated_tx.to_signed_transaction().transaction;
     let sender_is_receiver = transaction.receiver_id() == transaction.signer_id();
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);

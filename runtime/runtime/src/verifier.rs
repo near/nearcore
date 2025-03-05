@@ -767,12 +767,7 @@ mod tests {
                 return;
             }
         };
-        let cost = match tx_cost(
-            config,
-            &validated_tx.to_signed_transaction().transaction,
-            gas_price,
-            PROTOCOL_VERSION,
-        ) {
+        let cost = match tx_cost(config, &validated_tx, gas_price, PROTOCOL_VERSION) {
             Ok(c) => c,
             Err(err) => {
                 assert_eq!(InvalidTxError::from(err), expected_err);
@@ -805,12 +800,7 @@ mod tests {
             Ok(tx) => tx,
             Err((err, _tx)) => return Err(err),
         };
-        let transaction_cost = tx_cost(
-            config,
-            &tx.to_signed_transaction().transaction,
-            gas_price,
-            current_protocol_version,
-        )?;
+        let transaction_cost = tx_cost(config, &tx, gas_price, current_protocol_version)?;
         let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,

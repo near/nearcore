@@ -296,7 +296,7 @@ impl Runtime {
                         Ok(validated_tx) => {
                             match tx_cost(
                                 config,
-                                &tx.transaction,
+                                &validated_tx,
                                 gas_price,
                                 current_protocol_version,
                             ) {
