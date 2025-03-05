@@ -130,7 +130,7 @@ impl TxRequestHandler {
     /// If accepted, it will be added to the transaction pool and possibly forwarded to another validator.
     #[must_use]
     pub fn process_tx(
-        &mut self,
+        &self,
         tx: SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
@@ -145,7 +145,7 @@ impl TxRequestHandler {
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
     fn process_tx_internal(
-        &mut self,
+        &self,
         tx: &SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
@@ -382,7 +382,7 @@ impl TxRequestHandler {
     /// If we're a validator in one of the next few chunks, but epoch switch could happen soon,
     /// we forward to a validator from next epoch.
     fn possibly_forward_tx_to_next_epoch(
-        &mut self,
+        &self,
         tx: &SignedTransaction,
         signer: &Option<Arc<ValidatorSigner>>,
     ) -> Result<(), near_client_primitives::types::Error> {
