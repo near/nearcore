@@ -6,7 +6,6 @@ edition = "2024"
 rust-version = "1.85.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
-publish = false
 
 [lib]
 name = "near_synth_bm"
@@ -29,6 +28,3 @@ tracing-subscriber = { version = "0.3.19", features = ["std"] }
 
 [dev-dependencies]
 indoc = "2"
-
-[lints]
-workspace = true
