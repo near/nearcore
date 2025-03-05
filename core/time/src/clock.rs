@@ -277,7 +277,25 @@ impl Interval {
     pub async fn tick(&mut self, clock: &Clock) {
         let deadline = self.next;
         clock.sleep_until(deadline).await;
-        self.next = deadline + Duration::from_std(self.period).unwrap();
+        let now = clock.now();
+        // Implementation of `tokio::time::MissedTickBehavior::Skip`.
+        // Please refer to https://docs.rs/tokio/latest/tokio/time/enum.MissedTickBehavior.html#
+        // for details. In essence, if more than `period` of time passes between consecutive
+        // calls to tick, then the second tick completes immediately and the next one will be
+        // aligned to the original schedule.
+        self.next = now.add_signed(self.period).sub_signed(Duration::nanoseconds(
+            ((now.signed_duration_since(self.next)).whole_nanoseconds()
+                % self.period.whole_nanoseconds())
+            .try_into()
+            // This operation is practically guaranteed not to
+            // fail, as in order for it to fail, `period` would
+            // have to be longer than `now - timeout`, and both
+            // would have to be longer than 584 years.
+            //
+            // If it did fail, there's not a good way to pass
+            // the error along to the user, so we just panic.
+            .expect("too much time has elapsed since the interval was supposed to tick"),
+        ));
     }
 }
 
