@@ -2176,7 +2176,8 @@ impl Runtime {
                 &receipt_sink.outgoing_receipts(),
                 &processing_state.stats,
             ) {
-                panic!(
+                tracing::error!(
+                    target: "runtime",
                     "The runtime's balance_checker failed for shard {} at height {} with block hash {} and protocol version {}: {}",
                     apply_state.shard_id,
                     apply_state.block_height,
