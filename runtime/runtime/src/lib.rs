@@ -2072,6 +2072,8 @@ impl Runtime {
             &processing_state.stats,
         )?;
 
+        tracing::debug!(target: "trie", "check_balance done");
+
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
         let chunk_recorded_size_upper_bound =

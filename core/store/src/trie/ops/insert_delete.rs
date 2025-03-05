@@ -42,6 +42,7 @@ where
         key: &[u8],
         value: GenericTrieValue,
     ) -> Result<(), StorageError> {
+        tracing::debug!(target: "trie", ?key, "generic_insert");
         let mut partial = NibbleSlice::new(key);
         // Path to the key being inserted.
         // Needed to recompute memory usages in the end.
@@ -307,6 +308,7 @@ where
         mut node_id: GenericUpdatedNodeId,
         key: &[u8],
     ) -> Result<(), StorageError> {
+        tracing::debug!(target: "trie", ?key, "generic_delete");
         let mut partial = NibbleSlice::new(key);
         // Path to find the key to delete.
         // Needed to squash nodes and recompute memory usages in the end.
@@ -316,6 +318,7 @@ where
         loop {
             path.push(node_id);
             let GenericUpdatedTrieNodeWithSize { node, memory_usage } = self.take_node(node_id);
+            tracing::trace!(target: "trie", ?node, "node");
             let children_memory_usage = memory_usage.saturating_sub(node.memory_usage_direct());
 
             match node {
@@ -425,12 +428,15 @@ where
             }
         }
 
+        tracing::debug!(target: "trie", "interim");
+
         // Now we recompute memory usage and possibly squash nodes to keep the
         // trie structure unique.
         let mut child_memory_usage = 0;
         for node_id in path.into_iter().rev() {
             // First, recompute memory usage, emulating the recursive descent.
             let GenericUpdatedTrieNodeWithSize { node, mut memory_usage } = self.take_node(node_id);
+            tracing::trace!(target: "trie", ?node, "node");
             memory_usage += child_memory_usage;
             self.place_node_at(node_id, GenericUpdatedTrieNodeWithSize { node, memory_usage });
 
@@ -442,6 +448,7 @@ where
             }
 
             child_memory_usage = self.get_node_ref(node_id).memory_usage;
+            tracing::trace!(target: "trie", "fin");
         }
 
         Ok(())
