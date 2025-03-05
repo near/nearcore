@@ -24,7 +24,6 @@ use tokio::time;
 use std::fs::File;
 use std::io::{self, BufRead};
 use tracing::{debug, error, info, warn};
-use rand::distributions::Uniform;
 
 #[derive(Subcommand, Debug)]
 pub enum SweatCommand {
