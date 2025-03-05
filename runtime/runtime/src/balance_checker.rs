@@ -27,6 +27,8 @@ fn get_delayed_receipts(
 ) -> Result<Vec<Receipt>, StorageError> {
     indexes
         .map(|index| {
+            tracing::debug!(target: "trie", index, "get delayed receipt");
+
             let receipt: Result<ReceiptOrStateStoredReceipt, StorageError> =
                 get(state, &TrieKey::DelayedReceipt { index })?.ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
@@ -136,8 +138,11 @@ fn buffered_receipts(
     initial_state: &Trie,
     final_state: &TrieUpdate,
 ) -> Result<(Vec<Receipt>, Vec<Receipt>), RuntimeError> {
+    tracing::debug!(target: "trie", "before 1");
     let mut initial_buffers = ShardsOutgoingReceiptBuffer::load(initial_state)?;
+    tracing::debug!(target: "trie", "before 2");
     let mut final_buffers = ShardsOutgoingReceiptBuffer::load(final_state)?;
+    tracing::debug!(target: "trie", "before 3");
     let mut forwarded_receipts: Vec<Receipt> = vec![];
     let mut new_buffered_receipts: Vec<Receipt> = vec![];
 
@@ -145,12 +150,14 @@ fn buffered_receipts(
     shards.extend(initial_buffers.shards().iter());
     shards.extend(final_buffers.shards().iter());
     for shard_id in shards {
+        tracing::debug!(target: "trie", shard_id, "shard");
         let initial_buffer = initial_buffers.to_shard(shard_id);
         let final_buffer = final_buffers.to_shard(shard_id);
         let before = initial_buffer.indices();
         let after = final_buffer.indices();
         // Conservative math check to avoid future problems with merged shards,
         // in which case the final index can be 0 and the initial index larger.
+        tracing::debug!(target: "trie", "before", ?before, "after", ?after);
         if let Some(num_forwarded) = after.first_index.checked_sub(before.first_index) {
             // The first n receipts were forwarded.
             for receipt in initial_buffer.iter(initial_state, true).take(num_forwarded as usize) {
@@ -159,6 +166,7 @@ fn buffered_receipts(
                 forwarded_receipts.push(receipt)
             }
         }
+        tracing::debug!(target: "trie", "after 1");
         if let Some(num_buffered) =
             after.next_available_index.checked_sub(before.next_available_index)
         {
@@ -283,11 +291,13 @@ pub(crate) fn check_balance(
     let initial_state = final_state.trie();
 
     // Delayed receipts
+    tracing::debug!(target: "trie", "get 1");
     let initial_delayed_receipt_indices: DelayedReceiptIndices =
         get(initial_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
+    tracing::debug!(target: "trie", "get 2");
     let final_delayed_receipt_indices: DelayedReceiptIndices =
         get(final_state, &TrieKey::DelayedReceiptIndices)?.unwrap_or_default();
-
+    tracing::debug!(target: "trie", "get 3");
     // Previously delayed receipts that were processed this time.
     let processed_delayed_receipts = get_delayed_receipts(
         initial_state,
@@ -340,10 +350,14 @@ pub(crate) fn check_balance(
         initial_state,
     )?;
 
+    tracing::debug!(target: "trie", "get 4");
     let initial_postponed_receipts_balance =
         total_postponed_receipts_cost(initial_state, config, &all_potential_postponed_receipt_ids)?;
+    tracing::debug!(target: "trie", "get 5");
     let final_postponed_receipts_balance =
         total_postponed_receipts_cost(final_state, config, &all_potential_postponed_receipt_ids)?;
+    tracing::debug!(target: "trie", "get 6");
+
     // Sum it up
 
     let initial_balance = safe_add_balance_apply!(
