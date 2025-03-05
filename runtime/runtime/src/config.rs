@@ -251,9 +251,9 @@ pub fn tx_cost(
     config: &RuntimeConfig,
     transaction: &Transaction,
     gas_price: Balance,
-    sender_is_receiver: bool,
     protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
+    let sender_is_receiver = transaction.receiver_id() == transaction.signer_id();
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
     gas_burnt = safe_add_gas(

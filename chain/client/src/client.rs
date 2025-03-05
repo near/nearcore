@@ -303,6 +303,7 @@ impl Client {
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
             config.max_block_wait_delay,
+            config.chunk_wait_mult,
             doomslug_threshold_mode,
         );
         let chunk_endorsement_tracker =
@@ -1039,10 +1040,17 @@ impl Client {
     }
 
     /// Check optimistic block and start processing if is valid.
-    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, _peer_id: PeerId) {
+    pub fn receive_optimistic_block(&mut self, block: OptimisticBlock, peer_id: &PeerId) {
         let _span = debug_span!(target: "client", "receive_optimistic_block").entered();
-        // TODO(#10584): Validate the optimistic block.
-        // TODO(#10584): Discard the block if it is not from the the block producer.
+        debug!(target: "client", ?block, ?peer_id, "Received optimistic block");
+        // Validate the optimistic block.
+        // Discard the block if it is old or not created by the right producer.
+        if let Err(e) = self.chain.check_optimistic_block(&block) {
+            metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
+            debug!(target: "client", ?e, "Optimistic block is invalid");
+            return;
+        }
+
         self.chain.optimistic_block_chunks.add_block(block);
         self.maybe_process_optimistic_block();
     }
@@ -1859,6 +1867,8 @@ impl Client {
             return;
         };
 
+        self.chain.blocks_delay_tracker.record_optimistic_block_ready(block.height());
+
         let signer = self.validator_signer.get();
         let me = signer.as_ref().map(|signer| signer.validator_id());
         let prev_block_hash = *block.prev_block_hash();
@@ -2118,8 +2128,8 @@ impl Client {
         if let Some(account_id) = signer.as_ref().map(|bp| bp.validator_id()) {
             validators.remove(account_id);
         }
+        let tx_hash = tx.get_hash();
         for validator in validators {
-            let tx_hash = tx.get_hash();
             trace!(target: "client", me = ?signer.as_ref().map(|bp| bp.validator_id()), ?tx_hash, ?validator, ?shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
@@ -2218,11 +2228,8 @@ impl Client {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         if let Err(err) = self.runtime_adapter.validate_tx(
-            gas_price,
-            None,
             &shard_layout,
             tx,
-            true,
             protocol_version,
             receiver_congestion_info,
         ) {
@@ -2251,14 +2258,12 @@ impl Client {
                     }
                 }
             };
-            if let Err(err) = self.runtime_adapter.validate_tx(
-                gas_price,
-                Some(state_root),
+            if let Err(err) = self.runtime_adapter.can_verify_and_charge_tx(
                 &shard_layout,
+                gas_price,
+                state_root,
                 tx,
-                false,
                 protocol_version,
-                receiver_congestion_info,
             ) {
                 debug!(target: "client", ?err, "Invalid tx");
                 return Ok(ProcessTxResponse::InvalidTx(err));

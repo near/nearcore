@@ -47,7 +47,7 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .build();
     let epoch_config_store = TestEpochConfigBuilder::from_genesis(&genesis)
         .shuffle_shard_assignment_for_chunk_producers(true)
-        .build_store_for_single_version(genesis.config.protocol_version);
+        .build_store_for_genesis_protocol_version();
     TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)

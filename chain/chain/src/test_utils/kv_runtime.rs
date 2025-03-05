@@ -999,16 +999,23 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_shard_layout(&self, _epoch_id: &EpochId) -> Result<ShardLayout, Error> {
         Ok(ShardLayout::multi_shard(self.num_shards, 0))
     }
-
     fn validate_tx(
         &self,
-        _gas_price: Balance,
-        _state_update: Option<StateRoot>,
         _shard_layout: &ShardLayout,
         _transaction: &SignedTransaction,
-        _verify_signature: bool,
         _current_protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
+    ) -> Result<(), InvalidTxError> {
+        Ok(())
+    }
+
+    fn can_verify_and_charge_tx(
+        &self,
+        _shard_layout: &ShardLayout,
+        _gas_price: Balance,
+        _state_root: StateRoot,
+        _transaction: &SignedTransaction,
+        _current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         Ok(())
     }

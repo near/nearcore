@@ -10,7 +10,9 @@ use near_client::{PartialWitnessActor, ViewClientActorInner};
 use near_jsonrpc::ViewClientSenderForRpc;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::test_loop::{ClientSenderForTestLoopNetwork, ViewClientSenderForTestLoopNetwork};
+use near_network::test_loop::{
+    ClientSenderForTestLoopNetwork, TestLoopPeerManagerActor, ViewClientSenderForTestLoopNetwork,
+};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::AccountId;
@@ -145,6 +147,7 @@ pub struct TestData {
     pub view_client_sender: TestLoopSender<ViewClientActorInner>,
     pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
     pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
+    pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
     pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
 }
 
