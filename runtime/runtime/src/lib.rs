@@ -2163,7 +2163,8 @@ impl Runtime {
         let bandwidth_requests =
             receipt_sink.generate_bandwidth_requests(&state_update, &shard_layout, true)?;
 
-        if cfg!(debug_assertions) {
+        // if cfg!(debug_assertions) {
+        if true {
             if let Err(err) = check_balance(
                 &apply_state.config,
                 &state_update,
