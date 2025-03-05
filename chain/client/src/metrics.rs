@@ -1,10 +1,18 @@
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
+    Counter, CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, exponential_buckets, linear_buckets, try_create_counter, try_create_counter_vec,
     try_create_gauge, try_create_histogram, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter,
-    CounterVec, Gauge, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
+
+pub(crate) static NUM_INVALID_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(|| {
+    try_create_int_counter(
+        "near_num_invalid_optimistic_blocks",
+        "Number of invalid optimistic blocks",
+    )
+    .unwrap()
+});
 
 pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(

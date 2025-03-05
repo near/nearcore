@@ -20,6 +20,7 @@ awc.workspace = true
 derive_more = { workspace = true, features = ["as_ref", "from", "from_str"] }
 futures.workspace = true
 hex.workspace = true
+insta.workspace = true
 paperclip.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -38,14 +39,8 @@ near-parameters.workspace = true
 near-primitives.workspace = true
 node-runtime.workspace = true
 
-[dev-dependencies]
-insta.workspace = true
-near-actix-test-utils.workspace = true
-near-time.workspace = true
-
 [features]
 nightly_protocol = [
-  "near-actix-test-utils/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-client-primitives/nightly_protocol",
   "near-client/nightly_protocol",
@@ -56,7 +51,6 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
 ]
 nightly = [
-  "near-actix-test-utils/nightly",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-client/nightly",

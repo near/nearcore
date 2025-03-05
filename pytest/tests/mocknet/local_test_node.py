@@ -97,6 +97,9 @@ class LocalTestNeardRunner:
             "Does not make sense to run command on local host. The behavior may not be the desired one."
         )
 
+    def upload_file(self, src, dst):
+        logger.error("Does not make sense to upload a file on local host.")
+
     def init_python(self):
         return
 
@@ -322,11 +325,18 @@ def make_binaries_dir(local_mocknet_path, neard_binary_path):
     return binaries_path
 
 
+class HTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+    # follow symlinks
+    def translate_path(self, path):
+        path = super().translate_path(path)
+        return os.path.realpath(path)
+
+
 class Server(http.server.HTTPServer):
 
     def __init__(self, addr, directory):
         self.directory = directory
-        super().__init__(addr, http.server.SimpleHTTPRequestHandler)
+        super().__init__(addr, HTTPRequestHandler)
 
     def finish_request(self, request, client_address):
         self.RequestHandlerClass(request,

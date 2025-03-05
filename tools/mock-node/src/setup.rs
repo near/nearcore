@@ -10,8 +10,8 @@ use near_network::tcp;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolVersion;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use near_time::Clock;
 

@@ -5,7 +5,7 @@ use near_primitives::epoch_block_info::BlockInfo;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::receipt::Receipt;
-use near_primitives::shard_layout::{get_block_shard_uid_rev, ShardUId};
+use near_primitives::shard_layout::{ShardUId, get_block_shard_uid_rev};
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, StateSyncInfo};
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_sync::{

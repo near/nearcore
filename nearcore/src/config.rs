@@ -1,33 +1,34 @@
-use crate::download_file::{run_download_file, FileDownloadError};
+use crate::download_file::{FileDownloadError, run_download_file};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use bytesize::ByteSize;
 use near_async::time::{Clock, Duration};
 use near_chain::runtime::NightshadeRuntime;
 use near_chain_configs::test_utils::{
-    add_account_with_key, add_protocol_account, random_chain_id, TESTING_INIT_BALANCE,
-    TESTING_INIT_STAKE,
+    TESTING_INIT_BALANCE, TESTING_INIT_STAKE, add_account_with_key, add_protocol_account,
+    random_chain_id,
 };
 use near_chain_configs::{
-    default_enable_multiline_logging, default_epoch_sync,
-    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
-    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_max_size,
-    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync_enabled, default_state_sync_external_backoff,
-    default_state_sync_external_timeout, default_state_sync_p2p_timeout,
-    default_state_sync_retry_backoff, default_sync_check_period, default_sync_height_threshold,
-    default_sync_max_block_requests, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
-    ChunkDistributionNetworkConfig, ClientConfig, EpochSyncConfig, GCConfig, Genesis,
-    GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue,
-    MutableValidatorSigner, ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-    CHUNK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD,
-    EXPECTED_EPOCH_LENGTH, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE,
-    GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY,
-    MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE,
-    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_VALIDATOR_ONLY_KICKOUT_THRESHOLD, ChunkDistributionNetworkConfig, ClientConfig,
+    EXPECTED_EPOCH_LENGTH, EpochSyncConfig, FAST_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GCConfig, GENESIS_CONFIG_FILENAME, Genesis, GenesisConfig,
+    GenesisValidationMode, INITIAL_GAS_LIMIT, LogSummaryStyle, MAX_INFLATION_RATE,
+    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, MutableConfigValue, MutableValidatorSigner,
+    NEAR_BASE, NUM_BLOCK_PRODUCER_SEATS, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, ReshardingConfig, StateSyncConfig,
+    TRANSACTION_VALIDITY_PERIOD, default_chunk_wait_mult, default_enable_multiline_logging,
+    default_epoch_sync, default_header_sync_expected_height_per_second,
+    default_header_sync_initial_timeout, default_header_sync_progress_timeout,
+    default_header_sync_stall_ban_timeout, default_log_summary_period,
+    default_orphan_state_witness_max_size, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_sync_enabled,
+    default_state_sync_external_backoff, default_state_sync_external_timeout,
+    default_state_sync_p2p_timeout, default_state_sync_retry_backoff, default_sync_check_period,
+    default_sync_height_threshold, default_sync_max_block_requests, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads,
+    default_view_client_throttle_period, get_initial_supply,
 };
 use near_config_utils::{DownloadConfigType, ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -85,6 +86,9 @@ pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 2_500;
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
+/// Multiplier for the wait time for all chunks to be received.
+pub const CHUNK_WAIT_DENOMINATOR: i32 = 3;
+
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 
@@ -131,6 +135,9 @@ pub struct Consensus {
     /// Maximum duration before skipping given height.
     #[serde(with = "near_async::time::serde_duration_as_std")]
     pub max_block_wait_delay: Duration,
+    /// Multiplier for the wait time for all chunks to be received.
+    #[serde(default = "default_chunk_wait_mult")]
+    pub chunk_wait_mult: Rational32,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
     /// Horizon at which instead of fetching block, fetch full state.
@@ -200,6 +207,7 @@ impl Default for Consensus {
             min_block_production_delay: Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::milliseconds(MAX_BLOCK_PRODUCTION_DELAY),
             max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
+            chunk_wait_mult: Rational32::new(1, CHUNK_WAIT_DENOMINATOR),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
@@ -519,6 +527,7 @@ impl NearConfig {
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
                 max_block_wait_delay: config.consensus.max_block_wait_delay,
+                chunk_wait_mult: config.consensus.chunk_wait_mult,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: config.consensus.sync_check_period,
                 sync_step_period: config.consensus.sync_step_period,
@@ -908,7 +917,9 @@ pub fn init_configs(
                 genesis_path_str = match genesis {
                     Some(g) => g,
                     None => {
-                        bail!("Genesis file is required for {chain_id}.\nUse <--genesis|--download-genesis>");
+                        bail!(
+                            "Genesis file is required for {chain_id}.\nUse <--genesis|--download-genesis>"
+                        );
                     }
                 };
             }
@@ -1302,7 +1313,8 @@ pub fn get_records_url(chain_id: &str) -> String {
 pub fn get_config_url(chain_id: &str, config_type: DownloadConfigType) -> String {
     format!(
         "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/{}/{}/config.json",
-        chain_id, config_type.to_string()
+        chain_id,
+        config_type.to_string()
     )
 }
 
@@ -1495,7 +1507,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::config::{
-        create_localnet_configs, generate_or_load_key, init_configs, Config, CONFIG_FILENAME,
+        CONFIG_FILENAME, Config, create_localnet_configs, generate_or_load_key, init_configs,
     };
 
     #[test]
@@ -1833,7 +1845,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let home_dir = tmp.path();
 
-        let gen = move |filename: &str, account: &str, seed: &str| {
+        let r#gen = move |filename: &str, account: &str, seed: &str| {
             generate_or_load_key(
                 home_dir,
                 filename,
@@ -1843,7 +1855,7 @@ mod tests {
         };
 
         let test_ok = |filename: &str, account: &str, seed: &str| {
-            let result = gen(filename, account, seed);
+            let result = r#gen(filename, account, seed);
             let key = result.unwrap().unwrap();
             assert!(home_dir.join("key").exists());
             if !account.is_empty() {
@@ -1853,7 +1865,7 @@ mod tests {
         };
 
         let test_err = |filename: &str, account: &str, seed: &str| {
-            let result = gen(filename, account, seed);
+            let result = r#gen(filename, account, seed);
             assert!(result.is_err());
         };
 

@@ -7,6 +7,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use num_rational::Rational32;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -55,6 +56,7 @@ struct DoomslugTimer {
     min_delay: Duration,
     delay_step: Duration,
     max_delay: Duration,
+    chunk_wait_mult: Rational32,
 }
 
 struct DoomslugTip {
@@ -354,6 +356,7 @@ impl Doomslug {
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
+        chunk_wait_mult: Rational32,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         Doomslug {
@@ -382,6 +385,7 @@ impl Doomslug {
                 min_delay,
                 delay_step,
                 max_delay,
+                chunk_wait_mult,
             },
             threshold_mode,
             history: VecDeque::new(),
@@ -705,75 +709,76 @@ impl Doomslug {
         let now = self.clock.now();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
-        if let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height) {
-            if let Some(approval_tracker) =
-                approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
-            {
-                match approval_tracker.get_block_production_readiness() {
-                    DoomslugBlockProductionReadiness::NotReady => false,
-                    DoomslugBlockProductionReadiness::ReadySince(when) => {
-                        let enough_approvals_for = now - when;
-                        span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
-                        span.record("ready_to_produce_block", true);
-                        if has_enough_chunks {
-                            if log_block_production_info {
-                                info!(
-                                    target: "doomslug",
-                                    target_height,
-                                    ?enough_approvals_for,
-                                    "ready to produce block, has enough approvals, has enough chunks");
-                            }
-                            true
-                        } else {
-                            let delay = self.timer.get_delay(
-                                self.timer.height.saturating_sub(self.largest_final_height.get()),
-                            ) / 6;
-
-                            let ready = now > when + delay;
-                            span.record("need_to_wait", !ready);
-                            if log_block_production_info {
-                                if ready {
-                                    info!(
-                                        target: "doomslug",
-                                        target_height,
-                                        ?enough_approvals_for,
-                                        "ready to produce block, but does not have enough chunks");
-                                } else {
-                                    info!(
-                                        target: "doomslug",
-                                        target_height,
-                                        need_to_wait_for = ?(when + delay - now),
-                                        ?enough_approvals_for,
-                                        "not ready to produce block, need to wait");
-                                }
-                            }
-                            ready
-                        }
-                    }
-                }
-            } else {
-                debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
-                false
-            }
-        } else {
+        let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height)
+        else {
             debug!(target: "doomslug", target_height, "No approval trackers at height");
-            false
+            return false;
+        };
+        let Some(approval_tracker) =
+            approval_trackers_at_height.approval_trackers.get_mut(&hash_or_height)
+        else {
+            debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
+            return false;
+        };
+
+        let when = match approval_tracker.get_block_production_readiness() {
+            DoomslugBlockProductionReadiness::NotReady => {
+                debug!(target: "doomslug", target_height, ?hash_or_height, "Not ready to produce block");
+                return false;
+            }
+            DoomslugBlockProductionReadiness::ReadySince(when) => when,
+        };
+
+        let enough_approvals_for = now - when;
+        span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
+        span.record("ready_to_produce_block", true);
+        if has_enough_chunks {
+            if log_block_production_info {
+                info!(
+                    target: "doomslug", target_height, ?enough_approvals_for,
+                    "ready to produce block, has enough approvals, has enough chunks"
+                );
+            }
+            return true;
         }
+
+        let delay =
+            self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()))
+                * *self.timer.chunk_wait_mult.numer()
+                / *self.timer.chunk_wait_mult.denom();
+
+        let ready = now > when + delay;
+        span.record("need_to_wait", !ready);
+        if log_block_production_info {
+            if ready {
+                info!(
+                    target: "doomslug", target_height, ?enough_approvals_for,
+                    "ready to produce block, but does not have enough chunks"
+                );
+            } else {
+                info!(
+                    target: "doomslug", target_height, need_to_wait_for = ?(when + delay - now),
+                    ?enough_approvals_for, "not ready to produce block, need to wait"
+                );
+            }
+        }
+        ready
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::Doomslug;
     use crate::doomslug::{
         DoomslugApprovalsTrackersAtHeight, DoomslugBlockProductionReadiness, DoomslugThresholdMode,
     };
-    use crate::Doomslug;
     use near_async::time::{Duration, FakeClock, Utc};
     use near_crypto::{KeyType, SecretKey};
     use near_primitives::block::{Approval, ApprovalInner};
     use near_primitives::hash::hash;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::ApprovalStake;
+    use num_rational::Rational32;
     use std::sync::Arc;
 
     #[test]
@@ -787,6 +792,7 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
+            Rational32::new(1, 3),
             DoomslugThresholdMode::TwoThirds,
         );
 
@@ -941,6 +947,7 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
+            Rational32::new(1, 3),
             DoomslugThresholdMode::TwoThirds,
         );
 

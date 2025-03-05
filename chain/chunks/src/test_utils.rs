@@ -1,9 +1,9 @@
 use near_async::messaging::CanSend;
 use near_chain::types::{EpochManagerAdapter, Tip};
 use near_chain::{Chain, ChainStore};
+use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
-use near_epoch_manager::EpochManagerHandle;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
@@ -19,9 +19,9 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::MerkleHash;
 use near_primitives::types::{AccountId, EpochId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
-use near_store::adapter::chunk_store::ChunkStoreAdapter;
+use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chunk_store::ChunkStoreAdapter;
 use near_store::set_genesis_height;
 use near_store::test_utils::create_test_store;
 use reed_solomon_erasure::galois_8::ReedSolomon;
@@ -124,7 +124,7 @@ impl ChunkTestFixture {
                 if v == &&mock_chunk_producer {
                     false
                 } else {
-                    let tracks_shard = shard_tracker.care_about_shard(
+                    let tracks_shard = shard_tracker.cares_about_shard(
                         Some(*v),
                         &mock_ancestor_hash,
                         mock_shard_id,

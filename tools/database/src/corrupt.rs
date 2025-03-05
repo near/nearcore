@@ -2,9 +2,9 @@ use crate::utils::open_state_snapshot;
 use anyhow::anyhow;
 use clap::Parser;
 use near_primitives::shard_layout::{ShardLayout, ShardVersion};
-use near_store::adapter::flat_store::FlatStoreUpdateAdapter;
 use near_store::adapter::StoreAdapter;
-use near_store::{flat::FlatStorageManager, ShardUId};
+use near_store::adapter::flat_store::FlatStoreUpdateAdapter;
+use near_store::{ShardUId, flat::FlatStorageManager};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -29,7 +29,7 @@ impl CorruptStateSnapshotCommand {
                 return Err(anyhow!(
                     "Unsupported shard layout version! {}",
                     self.shard_layout_version
-                ))
+                ));
             }
         };
         for shard_uid in shard_layout.shard_uids() {

@@ -114,7 +114,7 @@ mod tests {
     use std::sync::Arc;
 
     use near_primitives::block_header::{BlockHeader, BlockHeaderInnerLite, BlockHeaderV4};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::stateless_validation::stored_chunk_state_transition_data::{
         StoredChunkStateTransitionData, StoredChunkStateTransitionDataV1,
     };
@@ -122,9 +122,9 @@ mod tests {
     use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev, index_to_bytes};
     use near_store::db::STATE_TRANSITION_START_HEIGHTS;
     use near_store::test_utils::create_test_store;
-    use near_store::{set_genesis_height, DBCol, Store};
+    use near_store::{DBCol, Store, set_genesis_height};
 
-    use super::{clear_before_last_final_block, StateTransitionStartHeights};
+    use super::{StateTransitionStartHeights, clear_before_last_final_block};
     use crate::ChainStore;
 
     #[test]

@@ -6,20 +6,21 @@ use crate::config::{
 };
 use crate::congestion_control::DelayedReceiptQueueWrapper;
 use crate::prefetch::TriePrefetcher;
-use crate::verifier::{check_storage_stake, validate_receipt, StorageStakingError};
+use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
-    validate_transaction, verify_and_charge_transaction, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT,
+    ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
+    verify_and_charge_tx_ephemeral,
 };
-use bandwidth_scheduler::{run_bandwidth_scheduler, BandwidthSchedulerOutput};
-use config::{total_prepaid_send_fees, TransactionCost};
-pub use congestion_control::bootstrap_congestion_info;
+use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
+use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
+pub use congestion_control::bootstrap_congestion_info;
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
-use near_primitives::account::{Account, AccountContract};
+use near_primitives::account::{AccessKey, Account, AccountContract};
 use near_primitives::action::GlobalContractIdentifier;
 use near_primitives::bandwidth_scheduler::{BandwidthRequests, BlockBandwidthRequests};
 use near_primitives::checked_feature;
@@ -44,9 +45,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::{GlobalContractCodeIdentifier, TrieKey};
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
-    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, ShardId, StateChangeCause,
-    StateRoot,
+    AccountId, Balance, BlockHeight, Compute, EpochHeight, EpochId, EpochInfoProvider, Gas,
+    RawStateChangesWithTrieKey, ShardId, StateChangeCause, StateRoot,
+    validator_stake::ValidatorStake,
 };
 use near_primitives::utils::{
     create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
@@ -57,18 +58,18 @@ use near_primitives_core::apply::ApplyChunkReason;
 use near_store::trie::receipts_column_helper::DelayedReceiptQueue;
 use near_store::trie::update::TrieUpdateResult;
 use near_store::{
-    get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure,
-    get_received_data, has_received_data, remove_account, remove_postponed_receipt,
-    remove_promise_yield_receipt, set, set_access_key, set_account, set_postponed_receipt,
-    set_promise_yield_receipt, set_received_data, KeyLookupMode, PartialStorage, StorageError,
-    Trie, TrieAccess, TrieChanges, TrieUpdate,
+    KeyLookupMode, PartialStorage, StorageError, Trie, TrieAccess, TrieChanges, TrieUpdate, get,
+    get_account, get_postponed_receipt, get_promise_yield_receipt, get_pure, get_received_data,
+    has_received_data, remove_account, remove_postponed_receipt, remove_promise_yield_receipt, set,
+    set_access_key, set_account, set_postponed_receipt, set_promise_yield_receipt,
+    set_received_data,
 };
-use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::ReturnData;
-pub use near_vm_runner::with_ext_cost_counter;
-use near_vm_runner::ContractCode;
 use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
+use near_vm_runner::logic::ReturnData;
+use near_vm_runner::logic::types::PromiseResult;
+pub use near_vm_runner::with_ext_cost_counter;
+use near_vm_runner::{ContractCode, precompile_contract};
 use pipelining::ReceiptPreparationPipeline;
 use rayon::prelude::*;
 use std::cmp::max;
@@ -172,6 +173,10 @@ pub struct VerificationResult {
     pub receipt_gas_price: Balance,
     /// The balance that was burnt to convert the transaction into a receipt and send it.
     pub burnt_amount: Balance,
+    /// The signer that was updated to charge for the transaction.
+    pub signer: Account,
+    /// The access key that was updated to charge for the transaction.
+    pub access_key: AccessKey,
 }
 
 #[derive(Debug)]
@@ -271,11 +276,7 @@ impl Runtime {
             return;
         }
         let log_str = log.iter().fold(String::new(), |acc, s| {
-            if acc.is_empty() {
-                s.to_string()
-            } else {
-                acc + "\n" + s
-            }
+            if acc.is_empty() { s.to_string() } else { acc + "\n" + s }
         });
         debug!(target: "runtime", "{}", log_str);
     }
@@ -293,8 +294,11 @@ impl Runtime {
         transactions
             .par_iter()
             .map(move |tx| {
-                let cost_result =
-                    validate_transaction(config, gas_price, tx, true, current_protocol_version);
+                let cost_result = validate_transaction(config, tx, current_protocol_version)
+                    .and_then(|()| {
+                        tx_cost(config, &tx.transaction, gas_price, current_protocol_version)
+                            .map_err(InvalidTxError::from)
+                    });
                 (tx, cost_result)
             })
             .collect()
@@ -329,7 +333,7 @@ impl Runtime {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
-        match verify_and_charge_transaction(
+        match verify_and_charge_tx_ephemeral(
             &apply_state.config,
             state_update,
             signed_transaction,
@@ -339,6 +343,12 @@ impl Runtime {
         ) {
             Ok(verification_result) => {
                 metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
+                commit_charging_for_tx(
+                    state_update,
+                    &signed_transaction.transaction,
+                    &verification_result.signer,
+                    &verification_result.access_key,
+                );
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: signed_transaction.get_hash(),
                 });
@@ -746,7 +756,7 @@ impl Runtime {
                     Err(StorageStakingError::StorageError(err)) => {
                         return Err(RuntimeError::StorageError(
                             StorageError::StorageInconsistentState(err),
-                        ))
+                        ));
                     }
                 }
             }
@@ -852,8 +862,8 @@ impl Runtime {
                     .expect("the receipt for the given receipt index should exist")
                     .receipt_mut()
                 {
-                    ReceiptEnum::Action(ref mut new_action_receipt)
-                    | ReceiptEnum::PromiseYield(ref mut new_action_receipt) => new_action_receipt
+                    ReceiptEnum::Action(new_action_receipt)
+                    | ReceiptEnum::PromiseYield(new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers),
                     _ => unreachable!("the receipt should be an action receipt"),
@@ -955,6 +965,8 @@ impl Runtime {
     fn apply_global_contract_distribution_receipt(
         &self,
         receipt: &Receipt,
+        config: Arc<near_parameters::vm::Config>,
+        cache: Option<&dyn ContractRuntimeCache>,
         state_update: &mut TrieUpdate,
     ) {
         let _span = tracing::debug_span!(
@@ -981,6 +993,15 @@ impl Runtime {
         state_update.set(trie_key, global_contract_data.code.to_vec());
         state_update
             .commit(StateChangeCause::ReceiptProcessing { receipt_hash: receipt.get_hash() });
+        let code_hash = match global_contract_data.id {
+            GlobalContractIdentifier::CodeHash(hash) => Some(hash),
+            GlobalContractIdentifier::AccountId(_) => None,
+        };
+        let _ = precompile_contract(
+            &ContractCode::new(global_contract_data.code.to_vec(), code_hash),
+            config,
+            cache,
+        );
     }
 
     fn generate_refund_receipts(
@@ -1073,7 +1094,7 @@ impl Runtime {
         } = *processing_state;
         let account_id = receipt.receiver_id();
         match receipt.receipt() {
-            ReceiptEnum::Data(ref data_receipt) => {
+            ReceiptEnum::Data(data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -1160,7 +1181,7 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(ref action_receipt) => {
+            ReceiptEnum::Action(action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
@@ -1216,7 +1237,7 @@ impl Runtime {
                 // the corresponding PromiseResume receipt.
                 set_promise_yield_receipt(state_update, receipt);
             }
-            ReceiptEnum::PromiseResume(ref data_receipt) => {
+            ReceiptEnum::PromiseResume(data_receipt) => {
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
@@ -1256,7 +1277,12 @@ impl Runtime {
                 }
             }
             ReceiptEnum::GlobalContractDistribution(_) => {
-                self.apply_global_contract_distribution_receipt(receipt, state_update);
+                self.apply_global_contract_distribution_receipt(
+                    receipt,
+                    processing_state.apply_state.config.wasm_config.clone(),
+                    processing_state.apply_state.cache.as_deref(),
+                    state_update,
+                );
                 return Ok(None);
             }
         };
@@ -1619,7 +1645,10 @@ impl Runtime {
                     set_account(state_update, account_id, &account);
                 }
                 StateRecord::Data { account_id, data_key, value } => {
-                    state_update.set(TrieKey::ContractData { key: data_key.into(), account_id }, value.into());
+                    state_update.set(
+                        TrieKey::ContractData { key: data_key.into(), account_id },
+                        value.into(),
+                    );
                 }
                 StateRecord::Contract { account_id, code } => {
                     let acc = get_account(state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
@@ -1631,7 +1660,9 @@ impl Runtime {
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(state_update, account_id, public_key, &access_key);
                 }
-                _ => unimplemented!("patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord")
+                _ => unimplemented!(
+                    "patch_state can only patch Account, AccessKey, Contract and Data kind of StateRecord"
+                ),
             }
         }
         state_update.commit(StateChangeCause::Migration);
@@ -2782,16 +2813,16 @@ fn schedule_contract_preparation<'b, R: MaybeRefReceipt>(
 /// Interface provided for gas cost estimations.
 pub mod estimator {
     use super::{ReceiptSink, Runtime};
+    use crate::ApplyState;
     use crate::congestion_control::ReceiptSinkV2;
     use crate::pipelining::ReceiptPreparationPipeline;
-    use crate::ApplyState;
     use near_primitives::chunk_apply_stats::{ChunkApplyStatsV0, ReceiptSinkStats};
     use near_primitives::congestion_info::CongestionInfo;
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::ExecutionOutcomeWithId;
-    use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
+    use near_primitives::types::validator_stake::ValidatorStake;
     use near_store::trie::outgoing_metadata::{OutgoingMetadatas, ReceiptGroupsConfig};
     use near_store::trie::receipts_column_helper::ShardsOutgoingReceiptBuffer;
     use near_store::{ShardUId, TrieUpdate};

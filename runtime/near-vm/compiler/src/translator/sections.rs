@@ -15,8 +15,8 @@ use super::state::ModuleTranslationState;
 use crate::wasm_unsupported;
 use crate::{WasmError, WasmResult};
 use core::convert::TryFrom;
-use near_vm_types::entity::packed_option::ReservedValue;
 use near_vm_types::entity::EntityRef;
+use near_vm_types::entity::packed_option::ReservedValue;
 use near_vm_types::{
     DataIndex, ElemIndex, FunctionIndex, FunctionType, GlobalIndex, GlobalInit, GlobalType,
     MemoryIndex, MemoryType, Mutability, Pages, SignatureIndex, TableIndex, TableType, Type, V128,
@@ -370,7 +370,7 @@ pub fn parse_data_section<'data>(
                         return Err(wasm_unsupported!(
                             "unsupported init expr in data section: {:?}",
                             s
-                        ))
+                        ));
                     }
                 };
                 environ.declare_data_initialization(

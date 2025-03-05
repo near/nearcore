@@ -15,8 +15,8 @@ use crate::block_header::BlockHeaderInnerLite;
 use crate::challenge::{Challenge, ChallengesResult};
 use crate::congestion_info::{CongestionInfo, CongestionInfoV1};
 use crate::errors::TxExecutionError;
-use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, MerklePath};
+use crate::hash::{CryptoHash, hash};
+use crate::merkle::{MerklePath, combine_hash};
 use crate::network::PeerId;
 use crate::receipt::{
     ActionReceipt, DataReceipt, DataReceiver, GlobalContractData, Receipt, ReceiptEnum, ReceiptV1,
@@ -955,6 +955,12 @@ pub struct ChunkHeaderView {
     pub congestion_info: Option<CongestionInfoView>,
     pub bandwidth_requests: Option<BandwidthRequests>,
     pub signature: Signature,
+}
+
+impl ChunkHeaderView {
+    pub fn is_new_chunk(&self, block_height: BlockHeight) -> bool {
+        self.height_included == block_height
+    }
 }
 
 impl From<ShardChunkHeader> for ChunkHeaderView {

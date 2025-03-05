@@ -15,8 +15,8 @@ use near_mirror::MirrorCommand;
 use near_network::tcp;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
-    default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder,
+    BuildEnvFilterError, EnvFilterBuilder, default_subscriber,
+    default_subscriber_with_opentelemetry,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -26,8 +26,8 @@ use near_replay_archive_tool::ReplayArchiveCommand;
 use near_state_parts::cli::StatePartsCommand;
 use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
-use near_store::db::RocksDB;
 use near_store::Mode;
+use near_store::db::RocksDB;
 use near_undo_block::cli::UndoBlockCommand;
 use serde_json::Value;
 use std::fs::File;
@@ -610,7 +610,7 @@ async fn wait_for_interrupt_signal(_home_dir: &Path, mut _rx_crash: &Receiver<()
 
 #[cfg(unix)]
 async fn wait_for_interrupt_signal(_home_dir: &Path, rx_crash: &mut Receiver<()>) -> &'static str {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sighup = signal(SignalKind::hangup()).unwrap();
@@ -892,16 +892,18 @@ mod tests {
 
     #[test]
     fn equal_no_value_syntax() {
-        assert!(NeardCmd::try_parse_from(&[
-            "test",
-            "init",
-            // * This line currently fails to be parsed (= without a value)
-            "--chain-id=",
-            "--test-seed=alice.near",
-            "--account-id=test.near",
-            "--fast"
-        ])
-        .is_err());
+        assert!(
+            NeardCmd::try_parse_from(&[
+                "test",
+                "init",
+                // * This line currently fails to be parsed (= without a value)
+                "--chain-id=",
+                "--test-seed=alice.near",
+                "--account-id=test.near",
+                "--fast"
+            ])
+            .is_err()
+        );
     }
 
     #[test]

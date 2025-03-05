@@ -96,6 +96,16 @@ expression: view
       "gas_used": "1006"
     },
     {
+      "cost_category": "ACTION_COST",
+      "cost": "USE_GLOBAL_CONTRACT_BASE",
+      "gas_used": "1018"
+    },
+    {
+      "cost_category": "ACTION_COST",
+      "cost": "USE_GLOBAL_CONTRACT_BYTE",
+      "gas_used": "1019"
+    },
+    {
       "cost_category": "WASM_HOST_COST",
       "cost": "ALT_BN128_G1_MULTIEXP_BASE",
       "gas_used": "53"

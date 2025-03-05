@@ -391,17 +391,18 @@ impl Display for ReceiptValidationError {
                 "The length of the returned data {} exceeded the limit {} in a DataReceipt",
                 length, limit
             ),
-            ReceiptValidationError::NumberInputDataDependenciesExceeded { number_of_input_data_dependencies, limit } => write!(
+            ReceiptValidationError::NumberInputDataDependenciesExceeded {
+                number_of_input_data_dependencies,
+                limit,
+            } => write!(
                 f,
                 "The number of input data dependencies {} exceeded the limit {} in an ActionReceipt",
                 number_of_input_data_dependencies, limit
             ),
             ReceiptValidationError::ActionsValidation(e) => write!(f, "{}", e),
-            ReceiptValidationError::ReceiptSizeExceeded { size, limit } => write!(
-                f,
-                "The size of the receipt exceeded the limit: {} > {}",
-                size, limit
-            ),
+            ReceiptValidationError::ReceiptSizeExceeded { size, limit } => {
+                write!(f, "The size of the receipt exceeded the limit: {} > {}", size, limit)
+            }
         }
     }
 }
@@ -417,14 +418,20 @@ impl Display for ActionsValidationError {
             ActionsValidationError::TotalPrepaidGasExceeded { total_prepaid_gas, limit } => {
                 write!(f, "The total prepaid gas {} exceeds the limit {}", total_prepaid_gas, limit)
             }
-            ActionsValidationError::TotalNumberOfActionsExceeded {total_number_of_actions, limit } => {
+            ActionsValidationError::TotalNumberOfActionsExceeded {
+                total_number_of_actions,
+                limit,
+            } => {
                 write!(
                     f,
                     "The total number of actions {} exceeds the limit {}",
                     total_number_of_actions, limit
                 )
             }
-            ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded { total_number_of_bytes, limit } => write!(
+            ActionsValidationError::AddKeyMethodNamesNumberOfBytesExceeded {
+                total_number_of_bytes,
+                limit,
+            } => write!(
                 f,
                 "The total number of bytes in allowed method names {} exceeds the maximum allowed number {} in a AddKey action",
                 total_number_of_bytes, limit
@@ -434,30 +441,31 @@ impl Display for ActionsValidationError {
                 "The length of some method name {} exceeds the maximum allowed length {} in a AddKey action",
                 length, limit
             ),
-            ActionsValidationError::IntegerOverflow => write!(
-                f,
-                "Integer overflow during a compute",
-            ),
-            ActionsValidationError::InvalidAccountId { account_id } => write!(
-                f,
-                "Invalid account ID `{}`",
-                account_id
-            ),
+            ActionsValidationError::IntegerOverflow => {
+                write!(f, "Integer overflow during a compute",)
+            }
+            ActionsValidationError::InvalidAccountId { account_id } => {
+                write!(f, "Invalid account ID `{}`", account_id)
+            }
             ActionsValidationError::ContractSizeExceeded { size, limit } => write!(
                 f,
                 "The length of the contract size {} exceeds the maximum allowed size {} in a DeployContract action",
                 size, limit
             ),
-            ActionsValidationError::FunctionCallMethodNameLengthExceeded { length, limit } => write!(
-                f,
-                "The length of the method name {} exceeds the maximum allowed length {} in a FunctionCall action",
-                length, limit
-            ),
-            ActionsValidationError::FunctionCallArgumentsLengthExceeded { length, limit } => write!(
-                f,
-                "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
-                length, limit
-            ),
+            ActionsValidationError::FunctionCallMethodNameLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "The length of the method name {} exceeds the maximum allowed length {} in a FunctionCall action",
+                    length, limit
+                )
+            }
+            ActionsValidationError::FunctionCallArgumentsLengthExceeded { length, limit } => {
+                write!(
+                    f,
+                    "The length of the arguments {} exceeds the maximum allowed length {} in a FunctionCall action",
+                    length, limit
+                )
+            }
             ActionsValidationError::UnsuitableStakingKey { public_key } => write!(
                 f,
                 "The staking key must be ristretto compatible ED25519 key. {} is provided instead.",
@@ -467,16 +475,16 @@ impl Display for ActionsValidationError {
                 f,
                 "The attached amount of gas in a FunctionCall action has to be a positive number",
             ),
-            ActionsValidationError::DelegateActionMustBeOnlyOne => write!(
-                f,
-                "The actions can contain the ony one DelegateAction"
-            ),
-            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => write!(
+            ActionsValidationError::DelegateActionMustBeOnlyOne => {
+                write!(f, "The actions can contain the ony one DelegateAction")
+            }
+            ActionsValidationError::UnsupportedProtocolFeature { protocol_feature, version } => {
+                write!(
                     f,
                     "Transaction requires protocol feature {} / version {} which is not supported by the current protocol version",
-                    protocol_feature,
-                    version,
-            ),
+                    protocol_feature, version,
+                )
+            }
         }
     }
 }
@@ -665,7 +673,11 @@ impl Display for InvalidTxError {
                 signer_id, balance, cost
             ),
             InvalidTxError::LackBalanceForState { signer_id, amount } => {
-                write!(f, "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more", signer_id, amount)
+                write!(
+                    f,
+                    "Failed to execute, because the account {:?} wouldn't have enough balance to cover storage, required to have {} yoctoNEAR more",
+                    signer_id, amount
+                )
             }
             InvalidTxError::CostOverflow => {
                 write!(f, "Transaction gas or balance cost is too high")
@@ -696,7 +708,10 @@ impl Display for InvalidTxError {
                 write!(f, "Storage error: {}", error)
             }
             InvalidTxError::ShardCongested { shard_id, congestion_level } => {
-                write!(f, "Shard {shard_id} is currently at congestion level {congestion_level:.3} and rejects new transactions.")
+                write!(
+                    f,
+                    "Shard {shard_id} is currently at congestion level {congestion_level:.3} and rejects new transactions."
+                )
             }
             InvalidTxError::ShardStuck { shard_id, missed_chunks } => {
                 write!(
@@ -733,7 +748,10 @@ impl Display for InvalidAccessKeyError {
                 method_name
             ),
             InvalidAccessKeyError::RequiresFullAccess => {
-                write!(f, "Invalid access key type. Full-access keys are required for transactions that have multiple or non-function-call actions")
+                write!(
+                    f,
+                    "Invalid access key type. Full-access keys are required for transactions that have multiple or non-function-call actions"
+                )
             }
             InvalidAccessKeyError::NotEnoughAllowance {
                 account_id,
@@ -746,7 +764,10 @@ impl Display for InvalidAccessKeyError {
                 account_id, public_key, allowance, cost
             ),
             InvalidAccessKeyError::DepositWithFunctionCall => {
-                write!(f, "Having a deposit with a function call action is not allowed with a function call access key.")
+                write!(
+                    f,
+                    "Having a deposit with a function call action is not allowed with a function call access key."
+                )
             }
         }
     }
@@ -932,7 +953,11 @@ impl Display for ActionErrorKind {
                 "Account {:?} tries to stake {}, but has staked {} and only has {}",
                 account_id, stake, locked, balance
             ),
-            ActionErrorKind::CreateAccountOnlyByRegistrar { account_id, registrar_account_id, predecessor_id } => write!(
+            ActionErrorKind::CreateAccountOnlyByRegistrar {
+                account_id,
+                registrar_account_id,
+                predecessor_id,
+            } => write!(
                 f,
                 "A top-level account ID {:?} can't be created by {:?}, short top-level account IDs can only be created by {:?}",
                 account_id, predecessor_id, registrar_account_id,
@@ -959,16 +984,49 @@ impl Display for ActionErrorKind {
             ActionErrorKind::NewReceiptValidationError(e) => {
                 write!(f, "An new action receipt created during a FunctionCall is not valid: {}", e)
             }
-            ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(f, "Account {} tries to stake {} but minimum required stake is {}", account_id, stake, minimum_stake),
-            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(f, "CreateAccount action is called on hex-characters account of length 64 {}", account_id),
-            ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(f, "The state of account {} is too large and therefore cannot be deleted", account_id),
-            ActionErrorKind::DelegateActionInvalidSignature => write!(f, "DelegateAction is not signed with the given public key"),
-            ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver { sender_id, receiver_id } => write!(f, "Transaction receiver {} doesn't match DelegateAction sender {}", receiver_id, sender_id),
+            ActionErrorKind::InsufficientStake { account_id, stake, minimum_stake } => write!(
+                f,
+                "Account {} tries to stake {} but minimum required stake is {}",
+                account_id, stake, minimum_stake
+            ),
+            ActionErrorKind::OnlyImplicitAccountCreationAllowed { account_id } => write!(
+                f,
+                "CreateAccount action is called on hex-characters account of length 64 {}",
+                account_id
+            ),
+            ActionErrorKind::DeleteAccountWithLargeState { account_id } => write!(
+                f,
+                "The state of account {} is too large and therefore cannot be deleted",
+                account_id
+            ),
+            ActionErrorKind::DelegateActionInvalidSignature => {
+                write!(f, "DelegateAction is not signed with the given public key")
+            }
+            ActionErrorKind::DelegateActionSenderDoesNotMatchTxReceiver {
+                sender_id,
+                receiver_id,
+            } => write!(
+                f,
+                "Transaction receiver {} doesn't match DelegateAction sender {}",
+                receiver_id, sender_id
+            ),
             ActionErrorKind::DelegateActionExpired => write!(f, "DelegateAction has expired"),
-            ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => Display::fmt(&access_key_error, f),
-            ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(f, "DelegateAction nonce {} must be larger than nonce of the used access key {}", delegate_nonce, ak_nonce),
-            ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(f, "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}", delegate_nonce, upper_bound),
-            ActionErrorKind::GlobalContractDoesNotExist { identifier } => write!(f, "Global contract identifier {:?} not found", identifier),
+            ActionErrorKind::DelegateActionAccessKeyError(access_key_error) => {
+                Display::fmt(&access_key_error, f)
+            }
+            ActionErrorKind::DelegateActionInvalidNonce { delegate_nonce, ak_nonce } => write!(
+                f,
+                "DelegateAction nonce {} must be larger than nonce of the used access key {}",
+                delegate_nonce, ak_nonce
+            ),
+            ActionErrorKind::DelegateActionNonceTooLarge { delegate_nonce, upper_bound } => write!(
+                f,
+                "DelegateAction nonce {} must be smaller than the access key nonce upper bound {}",
+                delegate_nonce, upper_bound
+            ),
+            ActionErrorKind::GlobalContractDoesNotExist { identifier } => {
+                write!(f, "Global contract identifier {:?} not found", identifier)
+            }
         }
     }
 }
@@ -1021,7 +1079,11 @@ impl Display for EpochError {
             }
             EpochError::ShardingError(err) => write!(f, "Sharding Error: {}", err),
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
-                write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
+                write!(
+                    f,
+                    "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}",
+                    num_validators, num_shards
+                )
             }
             EpochError::ChunkValidatorSelectionError(err) => {
                 write!(f, "Error selecting validators for a chunk: {}", err)

@@ -1,4 +1,4 @@
-use hyper::{body::HttpBody, StatusCode};
+use hyper::{StatusCode, body::HttpBody};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;

@@ -437,10 +437,22 @@ export async function fetchTrackedShards(addr: string): Promise<TrackedShardsRes
 
 export async function fetchBlockStatus(
     addr: string,
-    height: number | null
+    height: number | null,
+    mode: string | null,
+    numBlocks: number | null
 ): Promise<BlockStatusResponse> {
-    const trailing = height ? `/${height}` : '';
-    const response = await fetch(`http://${addr}/debug/api/block_status${trailing}`);
+    const params = new URLSearchParams();
+    if (height !== null) {
+        params.append('starting_height', height.toString());
+    }
+    if (mode !== null) {
+        params.append('mode', mode);
+    }
+    if (numBlocks !== null) {
+        params.append('num_blocks', numBlocks.toString());
+    }
+    const url = `http://${addr}/debug/api/block_status${params.toString() ? '?' + params : ''}`;
+    const response = await fetch(url);
     return await response.json();
 }
 

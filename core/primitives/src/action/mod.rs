@@ -194,6 +194,15 @@ impl From<GlobalContractCodeIdentifier> for GlobalContractIdentifier {
     }
 }
 
+impl GlobalContractIdentifier {
+    pub fn len(&self) -> usize {
+        match self {
+            GlobalContractIdentifier::CodeHash(_) => 32,
+            GlobalContractIdentifier::AccountId(account_id) => account_id.len(),
+        }
+    }
+}
+
 /// Use global contract action
 #[serde_as]
 #[derive(

@@ -1,0 +1,50 @@
+# Global contracts
+global_contract_storage_amount_per_byte: { old: 999_999_999_999_999_999_999_999_999, new: 100_000_000_000_000_000_000 }
+action_deploy_global_contract: {
+  old: {
+    send_sir: 999_999_999_999_999,
+    send_not_sir: 999_999_999_999_999,
+    execution: 999_999_999_999_999,
+  },
+  new: {
+    send_sir: 184_765_750_000,
+    send_not_sir: 184_765_750_000,
+    execution: 184_765_750_000,
+  }
+}
+action_deploy_global_contract_per_byte: {
+  old: {
+    send_sir: 999_999_999_999_999,
+    send_not_sir: 999_999_999_999_999,
+    execution: 999_999_999_999_999,
+  },
+  new: {
+    send_sir: 6_812_999,
+    send_not_sir: 47_683_715,
+    execution: 70_000_000,
+  }
+}
+action_use_global_contract: {
+  old: {
+    send_sir: 999_999_999_999_999,
+    send_not_sir: 999_999_999_999_999,
+    execution: 999_999_999_999_999,
+  },
+  new: {
+    send_sir: 184_765_750_000,
+    send_not_sir: 184_765_750_000,
+    execution: 184_765_750_000,
+  }
+}
+action_use_global_contract_per_identifier_byte: {
+  old: {
+    send_sir: 999_999_999_999_999,
+    send_not_sir: 999_999_999_999_999,
+    execution: 999_999_999_999_999,
+  },
+  new: {
+    send_sir: 6_812_999,
+    send_not_sir: 47_683_715,
+    execution: 64_572_944,
+  }
+}

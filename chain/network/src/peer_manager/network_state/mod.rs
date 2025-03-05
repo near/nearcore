@@ -17,9 +17,9 @@ use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
-use crate::routing::route_back_cache::RouteBackCache;
 #[cfg(feature = "distance_vector_routing")]
 use crate::routing::NetworkTopologyChange;
+use crate::routing::route_back_cache::RouteBackCache;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::state_witness::{
@@ -46,8 +46,8 @@ use near_primitives::types::AccountId;
 use parking_lot::{Mutex, RwLock};
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use tracing::Instrument as _;
 
 mod routing;
@@ -643,7 +643,7 @@ impl NetworkState {
         }
 
         let accounts_data = self.accounts_data.load();
-        if tcp::Tier::T1.is_allowed_routed(&msg) {
+        if tcp::Tier::T1.is_allowed_send(&msg) {
             for key in accounts_data.keys_by_id.get(account_id).iter().flat_map(|keys| keys.iter())
             {
                 let data = match accounts_data.data.get(key) {

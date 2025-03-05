@@ -3,8 +3,8 @@ use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::EpochId;
 use near_primitives::version::ProtocolFeature;
-use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::adapter::StoreAdapter;
+use near_store::adapter::chain_store::ChainStoreAdapter;
 use near_store::{DBCol, Store, StoreUpdate};
 
 use borsh::BorshDeserialize;

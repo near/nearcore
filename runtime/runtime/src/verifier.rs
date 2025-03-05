@@ -1,26 +1,26 @@
-use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
-use crate::near_primitives::account::Account;
 use crate::VerificationResult;
+use crate::config::{TransactionCost, total_prepaid_gas};
+use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::AccessKeyPermission;
-use near_primitives::action::delegate::SignedDelegateAction;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::DeployGlobalContractAction;
+use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
 use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
 };
+use near_primitives::transaction::{DeleteAccountAction, Transaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
-    get_access_key, get_account, set_access_key, set_account, StorageError, TrieUpdate,
+    StorageError, TrieUpdate, get_access_key, get_account, set_access_key, set_account,
 };
 use near_vm_runner::logic::LimitConfig;
 
@@ -88,22 +88,18 @@ fn is_zero_balance_account(account: &Account) -> bool {
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
 pub fn validate_transaction(
     config: &RuntimeConfig,
-    gas_price: Balance,
     signed_transaction: &SignedTransaction,
-    verify_signature: bool,
     current_protocol_version: ProtocolVersion,
-) -> Result<TransactionCost, InvalidTxError> {
+) -> Result<(), InvalidTxError> {
     // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
     if matches!(signed_transaction.transaction, near_primitives::transaction::Transaction::V1(_)) {
         return Err(InvalidTxError::InvalidTransactionVersion);
     }
     let transaction = &signed_transaction.transaction;
-    let signer_id = transaction.signer_id();
 
-    if verify_signature
-        && !signed_transaction
-            .signature
-            .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
+    if !signed_transaction
+        .signature
+        .verify(signed_transaction.get_hash().as_ref(), transaction.public_key())
     {
         return Err(InvalidTxError::InvalidSignature);
     }
@@ -123,19 +119,27 @@ pub fn validate_transaction(
         transaction.actions(),
         current_protocol_version,
     )
-    .map_err(InvalidTxError::ActionsValidation)?;
-
-    let sender_is_receiver = transaction.receiver_id() == signer_id;
-
-    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
-        .map_err(|_| InvalidTxError::CostOverflow.into())
+    .map_err(InvalidTxError::ActionsValidation)
 }
 
-/// Verifies the signed transaction on top of given state, charges transaction fees
-/// and balances, and updates the state for the used account and access keys.
-pub fn verify_and_charge_transaction(
-    config: &RuntimeConfig,
+pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
+    tx: &Transaction,
+    signer: &Account,
+    access_key: &AccessKey,
+) {
+    set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
+    set_account(state_update, tx.signer_id().clone(), &signer);
+}
+
+/// Verifies the signed transaction on top of the given state; looks up the
+/// signer account and access_key from the transaction; updates them to charge
+/// for the transaction processing; returns the updated signer and access_key to
+/// the caller.  The caller can use `commit_charging_for_tx()` to commit the
+/// actual charging.
+pub fn verify_and_charge_tx_ephemeral(
+    config: &RuntimeConfig,
+    state_update: &TrieUpdate,
     signed_transaction: &SignedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
@@ -222,7 +226,7 @@ pub fn verify_and_charge_transaction(
                 signer_id: signer_id.clone(),
                 amount,
             }
-            .into())
+            .into());
         }
         Err(StorageStakingError::StorageError(err)) => {
             return Err(StorageError::StorageInconsistentState(err).into());
@@ -236,7 +240,7 @@ pub fn verify_and_charge_transaction(
             )
             .into());
         }
-        if let Some(Action::FunctionCall(ref function_call)) = transaction.actions().get(0) {
+        if let Some(Action::FunctionCall(function_call)) = transaction.actions().get(0) {
             if function_call.deposit > 0 {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::DepositWithFunctionCall,
@@ -273,10 +277,14 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, signer_id.clone(), transaction.public_key().clone(), &access_key);
-    set_account(state_update, signer_id.clone(), &signer);
-
-    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        signer,
+        access_key,
+    })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -615,12 +623,14 @@ fn check_global_contracts_enabled(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use super::*;
+    use crate::config::tx_cost;
+    use crate::near_primitives::shard_layout::ShardUId;
+    use crate::near_primitives::trie_key::TrieKey;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -629,14 +639,10 @@ mod tests {
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
-
-    use crate::near_primitives::shard_layout::ShardUId;
-
-    use super::*;
-    use crate::near_primitives::trie_key::TrieKey;
-    use near_store::set;
+    use near_store::{set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
+    use std::sync::Arc;
+    use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     /// Initial balance used in tests.
     const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
@@ -747,30 +753,35 @@ mod tests {
 
     fn assert_err_both_validations(
         config: &RuntimeConfig,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         gas_price: Balance,
         signed_transaction: &SignedTransaction,
         expected_err: InvalidTxError,
     ) {
-        match validate_transaction(config, gas_price, signed_transaction, true, PROTOCOL_VERSION) {
-            Ok(cost) => {
-                // Validation passed, now verification should fail with expected_err
-                let err = verify_and_charge_transaction(
-                    config,
-                    state_update,
-                    signed_transaction,
-                    &cost,
-                    None,
-                    PROTOCOL_VERSION,
-                )
-                .expect_err("expected an error");
-                assert_eq!(err, expected_err);
-            }
-            Err(err) => {
-                // Validation itself returned an error
-                assert_eq!(err, expected_err);
-            }
+        if let Err(err) = validate_transaction(config, signed_transaction, PROTOCOL_VERSION) {
+            assert_eq!(err, expected_err);
+            return;
         }
+        let cost =
+            match tx_cost(config, &signed_transaction.transaction, gas_price, PROTOCOL_VERSION) {
+                Ok(c) => c,
+                Err(err) => {
+                    assert_eq!(InvalidTxError::from(err), expected_err);
+                    return;
+                }
+            };
+
+        // Validation passed, now verification should fail with expected_err
+        let err = verify_and_charge_tx_ephemeral(
+            config,
+            state_update,
+            signed_transaction,
+            &cost,
+            None,
+            PROTOCOL_VERSION,
+        )
+        .expect_err("expected an error");
+        assert_eq!(err, expected_err);
     }
 
     pub fn validate_verify_and_charge_transaction(
@@ -781,21 +792,24 @@ mod tests {
         block_height: Option<BlockHeight>,
         current_protocol_version: ProtocolVersion,
     ) -> Result<VerificationResult, InvalidTxError> {
-        let transaction_cost = validate_transaction(
-            config,
-            gas_price,
-            signed_transaction,
-            true,
-            current_protocol_version,
-        )?;
-        verify_and_charge_transaction(
+        validate_transaction(config, signed_transaction, current_protocol_version)?;
+        let transaction_cost =
+            tx_cost(config, &signed_transaction.transaction, gas_price, current_protocol_version)?;
+        let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
             signed_transaction,
             &transaction_cost,
             block_height,
             current_protocol_version,
-        )
+        )?;
+        commit_charging_for_tx(
+            state_update,
+            &signed_transaction.transaction,
+            &vr.signer,
+            &vr.access_key,
+        );
+        Ok(vr)
     }
 
     mod zero_balance_account_tests {
@@ -803,9 +817,9 @@ mod tests {
         use crate::near_primitives::account::{
             AccessKey, AccessKeyPermission, Account, FunctionCallPermission,
         };
-        use crate::verifier::tests::{setup_accounts, TESTING_INIT_BALANCE};
-        use crate::verifier::{is_zero_balance_account, ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT};
-        use near_store::{get_account, TrieUpdate};
+        use crate::verifier::tests::{TESTING_INIT_BALANCE, setup_accounts};
+        use crate::verifier::{ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, is_zero_balance_account};
+        use near_store::{TrieUpdate, get_account};
         use testlib::runtime_utils::{alice_account, bob_account};
 
         fn set_up_test_account(
@@ -1560,7 +1574,7 @@ mod tests {
             wasm_config.limit_config.max_transaction_size = transaction_size - 1;
         }
 
-        let err = validate_transaction(&config, gas_price, &transaction, false, PROTOCOL_VERSION)
+        let err = validate_transaction(&config, &transaction, PROTOCOL_VERSION)
             .expect_err("expected validation error - size exceeded");
         assert_eq!(
             err,
@@ -1948,10 +1962,10 @@ mod tests {
             delegate_action: DelegateAction {
                 sender_id: "bob.test.near".parse().unwrap(),
                 receiver_id: "token.test.near".parse().unwrap(),
-                actions: vec![NonDelegateAction::try_from(Action::CreateAccount(
-                    CreateAccountAction {},
-                ))
-                .unwrap()],
+                actions: vec![
+                    NonDelegateAction::try_from(Action::CreateAccount(CreateAccountAction {}))
+                        .unwrap(),
+                ],
                 nonce: 19000001,
                 max_block_height: 57,
                 public_key: PublicKey::empty(KeyType::ED25519),

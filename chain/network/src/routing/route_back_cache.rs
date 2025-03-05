@@ -2,7 +2,7 @@ use ::time::ext::InstantExt as _;
 use near_async::time;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, btree_map};
 
 /// default value for `capacity`
 const DEFAULT_CAPACITY: usize = 100_000;

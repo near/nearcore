@@ -234,6 +234,9 @@ pub enum Parameter {
     ActionDeployGlobalContract,
     ActionDeployGlobalContractPerByte,
     GlobalContractStorageAmountPerByte,
+
+    ActionUseGlobalContract,
+    ActionUseGlobalContractPerIdentifierByte,
 }
 
 #[derive(
@@ -268,6 +271,8 @@ pub enum FeeParameter {
     ActionDelegate,
     ActionDeployGlobalContract,
     ActionDeployGlobalContractPerByte,
+    ActionUseGlobalContract,
+    ActionUseGlobalContractPerIdentifierByte,
 }
 
 impl Parameter {
@@ -333,6 +338,8 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::new_data_receipt_byte => Self::DataReceiptCreationPerByte,
             ActionCosts::deploy_global_contract_base => Self::ActionDeployGlobalContract,
             ActionCosts::deploy_global_contract_byte => Self::ActionDeployGlobalContractPerByte,
+            ActionCosts::use_global_contract_base => Self::ActionUseGlobalContract,
+            ActionCosts::use_global_contract_byte => Self::ActionUseGlobalContractPerIdentifierByte,
         }
     }
 }

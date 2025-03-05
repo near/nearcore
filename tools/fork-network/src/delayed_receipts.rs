@@ -1,14 +1,12 @@
 use crate::storage_mutator::ShardUpdateState;
 
-use near_chain::types::RuntimeAdapter;
 use near_crypto::PublicKey;
 use near_primitives::borsh;
 use near_primitives::receipt::{Receipt, ReceiptOrStateStoredReceipt, TrieQueueIndices};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{ShardId, ShardIndex};
-use near_store::Trie;
-use nearcore::NightshadeRuntime;
+use near_primitives::types::{ShardIndex, StateRoot};
+use near_store::{ShardTries, Trie};
 
 use anyhow::Context;
 use std::borrow::Cow;
@@ -42,17 +40,24 @@ impl DelayedReceiptTracker {
     }
 }
 
-fn remove_source_receipt_index(trie_updates: &mut HashMap<Vec<u8>, Option<Vec<u8>>>, index: u64) {
-    let key = TrieKey::DelayedReceipt { index };
-
-    if let Entry::Vacant(e) = trie_updates.entry(key.to_vec()) {
+fn remove_source_receipt_index(
+    trie_updates: &mut [HashMap<u64, Option<Vec<u8>>>],
+    source_shard_uid: ShardUId,
+    target_shard_layout: &ShardLayout,
+    index: u64,
+) {
+    if !target_shard_layout.shard_uids().any(|s| s == source_shard_uid) {
+        return;
+    }
+    let shard_idx = target_shard_layout.get_shard_index(source_shard_uid.shard_id()).unwrap();
+    if let Entry::Vacant(e) = trie_updates[shard_idx].entry(index) {
         e.insert(None);
     }
 }
 
 fn read_delayed_receipt(
     trie: &Trie,
-    source_shard_id: ShardId,
+    source_shard_uid: ShardUId,
     index: u64,
 ) -> anyhow::Result<Option<Receipt>> {
     let key = TrieKey::DelayedReceipt { index };
@@ -60,7 +65,7 @@ fn read_delayed_receipt(
         near_store::get_pure::<ReceiptOrStateStoredReceipt>(trie, &key).with_context(|| {
             format!(
                 "failed reading delayed receipt idx {} from shard {} trie",
-                index, source_shard_id,
+                index, source_shard_uid,
             )
         })?;
     Ok(match value {
@@ -69,7 +74,7 @@ fn read_delayed_receipt(
             tracing::warn!(
                 "Expected delayed receipt with index {} in shard {} not found",
                 index,
-                source_shard_id,
+                source_shard_uid,
             );
             None
         }
@@ -77,48 +82,42 @@ fn read_delayed_receipt(
 }
 
 fn set_target_delayed_receipt(
-    trie_updates: &mut HashMap<Vec<u8>, Option<Vec<u8>>>,
+    trie_updates: &mut HashMap<u64, Option<Vec<u8>>>,
     target_index: &mut u64,
     mut receipt: Receipt,
     default_key: &PublicKey,
 ) {
-    let target_key = TrieKey::DelayedReceipt { index: *target_index };
-    let target_key = target_key.to_vec();
-    *target_index += 1;
-
     near_mirror::genesis::map_receipt(&mut receipt, None, default_key);
 
     let value = ReceiptOrStateStoredReceipt::Receipt(Cow::Owned(receipt));
     let value = borsh::to_vec(&value).unwrap();
-    trie_updates.insert(target_key, Some(value));
+    trie_updates.insert(*target_index, Some(value));
+    *target_index += 1;
 }
 
 // This should be called after push() has been called on each DelayedReceiptTracker in `trackers`
 // for each receipt in its shard. This reads and maps the accounts and keys in all the receipts and
 // writes them to the right shards.
 pub(crate) fn write_delayed_receipts(
-    runtime: &NightshadeRuntime,
+    shard_tries: &ShardTries,
     update_state: &[ShardUpdateState],
     trackers: Vec<DelayedReceiptTracker>,
-    shard_layout: &ShardLayout,
+    source_state_roots: &HashMap<ShardUId, StateRoot>,
+    target_shard_layout: &ShardLayout,
     default_key: &PublicKey,
 ) -> anyhow::Result<()> {
-    assert_eq!(update_state.len(), trackers.len());
     for t in trackers.iter() {
         assert_eq!(update_state.len(), t.indices.len());
     }
 
-    let shard_tries = runtime.get_tries();
-    let tries = update_state
+    let tries = trackers
         .iter()
-        .enumerate()
-        .map(|(shard_index, update)| {
-            let state_root = update.state_root();
-            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-            let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
-            shard_tries.get_trie_for_shard(shard_uid, state_root)
+        .map(|tracker| {
+            let state_root = source_state_roots.get(&tracker.source_shard_uid).unwrap();
+            let trie = shard_tries.get_trie_for_shard(tracker.source_shard_uid, *state_root);
+            (tracker.source_shard_uid, trie)
         })
-        .collect::<Vec<_>>();
+        .collect::<HashMap<_, _>>();
 
     // TODO: commit these updates periodically so we don't read everything to memory, which might be too much.
     let mut trie_updates = vec![HashMap::new(); update_state.len()];
@@ -128,19 +127,23 @@ pub(crate) fn write_delayed_receipts(
     // changing this to try to be somewhat fair and take from other shards
     // before taking twice from the same shard
 
-    for (source_shard_idx, target_shard_idx, index) in
-        trackers.into_iter().enumerate().flat_map(|(source_shard_idx, tracker)| {
-            tracker.indices.into_iter().enumerate().flat_map(move |(target_shard_idx, indices)| {
-                indices.into_iter().map(move |index| (source_shard_idx, target_shard_idx, index))
-            })
+    for (source_shard_uid, target_shard_idx, index) in trackers.into_iter().flat_map(|tracker| {
+        tracker.indices.into_iter().enumerate().flat_map(move |(target_shard_idx, indices)| {
+            indices
+                .into_iter()
+                .map(move |index| (tracker.source_shard_uid, target_shard_idx, index))
         })
-    {
-        let source_shard_id = shard_layout.get_shard_id(source_shard_idx).unwrap();
+    }) {
+        let trie = tries.get(&source_shard_uid).unwrap();
 
-        remove_source_receipt_index(&mut trie_updates[source_shard_idx], index);
+        remove_source_receipt_index(
+            &mut trie_updates,
+            source_shard_uid,
+            target_shard_layout,
+            index,
+        );
 
-        let Some(receipt) = read_delayed_receipt(&tries[source_shard_idx], source_shard_id, index)?
-        else {
+        let Some(receipt) = read_delayed_receipt(trie, source_shard_uid, index)? else {
             continue;
         };
 
@@ -157,16 +160,18 @@ pub(crate) fn write_delayed_receipts(
     for (shard_idx, (updates, update_state)) in
         trie_updates.into_iter().zip(update_state.iter()).enumerate()
     {
-        let shard_id = shard_layout.get_shard_id(shard_idx).unwrap();
-        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, shard_layout);
+        let shard_id = target_shard_layout.get_shard_id(shard_idx).unwrap();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, target_shard_layout);
 
-        let mut updates = updates.into_iter().collect::<Vec<_>>();
+        let mut updates = updates
+            .into_iter()
+            .map(|(index, value)| (TrieKey::DelayedReceipt { index }, value))
+            .collect::<Vec<_>>();
 
         let next_available_index = next_index[shard_idx];
-        let key = TrieKey::DelayedReceiptIndices.to_vec();
         let indices = TrieQueueIndices { first_index: 0, next_available_index };
         let value = borsh::to_vec(&indices).unwrap();
-        updates.push((key, Some(value)));
+        updates.push((TrieKey::DelayedReceiptIndices, Some(value)));
         crate::storage_mutator::commit_shard(shard_uid, &shard_tries, update_state, updates)
             .context("failed committing trie changes")?
     }

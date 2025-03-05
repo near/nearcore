@@ -119,11 +119,7 @@ fn get_trie_update_batch(
             break;
         }
     }
-    if entries.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(TrieUpdateBatch { entries }))
-    }
+    if entries.is_empty() { Ok(None) } else { Ok(Some(TrieUpdateBatch { entries })) }
 }
 
 fn apply_delayed_receipts<'a>(

@@ -2,10 +2,10 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use log::info;
 use reqwest::Client;
 use tokio::time;
 use tokio::time::Interval;
+use tracing::info;
 
 /// The response sent by a NEAR node for `/metrics` queries.
 ///

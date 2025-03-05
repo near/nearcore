@@ -1,8 +1,8 @@
 use crate::config::GasMetric;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
-use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
-use near_parameters::vm::VMKind;
+use crate::{REAL_CONTRACTS_SAMPLE, utils::read_resource};
 use near_parameters::RuntimeConfigStore;
+use near_parameters::vm::VMKind;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
