@@ -1665,7 +1665,7 @@ impl Trie {
             }
             None => {
                 let mut trie_update = TrieStorageUpdate::new(&self);
-                tracing::debug!(target: "trie", ?self.root, "Moving node to mutable");
+                tracing::debug!(target: "trie", root = ?self.root, "Moving node to mutable");
                 let root_node = self.move_node_to_mutable(&mut trie_update, &self.root)?;
                 for (key, value) in changes {
                     match value {

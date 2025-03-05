@@ -173,7 +173,7 @@ impl TrieStorageUpdate<'_> {
         let mut buffer: Vec<u8> = Vec::new();
         'outer: while let Some((node, position)) = stack.pop() {
             let node_with_size = self.get_node_ref(node);
-            tracing::trace!(target: "trie", ?node_with_size.node, "node_with_size");
+            tracing::trace!(target: "trie", node = ?node_with_size.node, "node_with_size");
             let memory_usage = node_with_size.memory_usage;
             let raw_node = match &node_with_size.node {
                 GenericUpdatedTrieNode::Empty => {
