@@ -17,7 +17,7 @@ use near_primitives::{
     },
 };
 use tokio::sync::mpsc::Receiver;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 pub fn new_request(
     transaction: Transaction,
