@@ -123,7 +123,7 @@ impl RpcResponseHandler {
                 }
             };
 
-            info!("Received {} responses; num_success={} num_rpc_error={}",
+            debug!("Received {} responses; num_success={} num_rpc_error={}",
                 num_received,
                 num_succeeded,
                 num_rpc_error
