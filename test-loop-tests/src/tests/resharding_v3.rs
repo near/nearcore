@@ -1127,8 +1127,13 @@ fn slow_test_resharding_v3_delayed_receipts_left_child() {
     test_resharding_v3_base(params);
 }
 
+// TODO(stedfn): remove "nightly_protocol" feature once we have a new protocol version.
+// Global contracts + resharding tests start with PROTOCOL_VERSION - 1 before the resharding
+// and then PROTOCOL_VERSION after the resharding. Currently, global contracts are enabled in
+// the latest PROTOCOL_VERSION, 77, so PROTOCOL_VERSION - 1 will not work until a new version
+// is released.
 #[test]
-#[cfg_attr(not(feature = "test_features"), ignore)]
+#[cfg_attr(not(all(feature = "test_features", feature = "nightly_protocol")), ignore)]
 fn slow_test_resharding_v3_global_contract_by_hash() {
     let code_hash = CryptoHash::hash_bytes(&near_test_contracts::rs_contract());
     test_resharding_v3_global_contract_base(
@@ -1137,8 +1142,9 @@ fn slow_test_resharding_v3_global_contract_by_hash() {
     );
 }
 
+// TODO(stedfn): remove "nightly_protocol" feature once we have a new protocol version (explanation above).
 #[test]
-#[cfg_attr(not(feature = "test_features"), ignore)]
+#[cfg_attr(not(all(feature = "test_features", feature = "nightly_protocol")), ignore)]
 fn slow_test_resharding_v3_global_contract_by_account_id() {
     test_resharding_v3_global_contract_base(
         GlobalContractIdentifier::AccountId("account4".parse().unwrap()),
