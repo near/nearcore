@@ -46,7 +46,7 @@ pub struct TxGenerator {
     pub params: TxGeneratorConfig,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-    runner: Option<(task::JoinHandle<()>, task::JoinHandle<()>, task::JoinHandle<()>)>,
+    runner: Vec<task::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -103,11 +103,11 @@ impl TxGenerator {
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
     ) -> anyhow::Result<Self> {
-        Ok(Self { params, client_sender, view_client_sender, runner: None })
+        Ok(Self { params, client_sender, view_client_sender, runner: Vec::new() })
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
-        if self.runner.is_some() {
+        if !self.runner.is_empty() {
             anyhow::bail!("attempt to (re)start the running transaction generator");
         }
         let client_sender = self.client_sender.clone();
@@ -127,18 +127,18 @@ impl TxGenerator {
             })),
         };
 
-        let transactions = Self::start_transactions_loop(
-            &self.params,
-            client_sender,
-            view_client_sender.clone(),
-            runner_state.clone(),
-        )?;
+        for _ in 0..2 {
+            self.runner.push( Self::start_transactions_loop(
+                &self.params,
+                client_sender.clone(),
+                view_client_sender.clone(),
+                runner_state.clone(),
+            )?);
+        };
+        
+        self.runner.push(Self::start_block_updates(view_client_sender, runner_state.clone()));
+        self.runner.push(Self::start_report_updates(runner_state));
 
-        let block_updates = Self::start_block_updates(view_client_sender, runner_state.clone());
-
-        let report_updates = Self::start_report_updates(runner_state);
-
-        self.runner = Some((transactions, block_updates, report_updates));
         Ok(())
     }
 
