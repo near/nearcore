@@ -110,8 +110,8 @@ fn total_postponed_receipts_cost(
     receipt_ids: &HashSet<(PostponedReceiptType, AccountId, crate::CryptoHash)>,
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
+        tracing::debug!(target: "trie", ?item);
         let (receipt_type, account_id, lookup_id) = item;
-
         let cost = match receipt_type {
             PostponedReceiptType::Action => {
                 match get_postponed_receipt(state, account_id, *lookup_id)? {
