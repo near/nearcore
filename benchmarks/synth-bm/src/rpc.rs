@@ -17,7 +17,7 @@ use near_primitives::{
     },
 };
 use tokio::sync::mpsc::Receiver;
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 
 pub fn new_request(
     transaction: Transaction,
@@ -127,7 +127,7 @@ impl RpcResponseHandler {
                 }
             };
 
-            info!(
+            debug!(
                 "Received {} responses; num_success={} num_rpc_error={}",
                 num_received, num_succeeded, num_rpc_error
             );
