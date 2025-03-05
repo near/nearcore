@@ -265,7 +265,7 @@ impl<'a> Iterator for ReceiptIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.indices.next()?;
         let key = self.trie_queue.trie_key(index);
-        tracing::debug!(target: "trie", index, key, "next");
+        tracing::debug!(target: "trie", index, ?key, "next");
         let value =
             if self.side_effects { get(self.trie, &key) } else { get_pure(self.trie, &key) };
         let result = match value {
