@@ -1006,7 +1006,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         _current_protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
-        Ok(ValidatedTransaction::new(transaction).unwrap())
+        match ValidatedTransaction::new(transaction) {
+            Ok(validated_tx) => Ok(validated_tx),
+            Err(signed_tx) => Err((InvalidTxError::InvalidSignature, signed_tx)),
+        }
     }
 
     fn can_verify_and_charge_tx(
