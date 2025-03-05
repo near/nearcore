@@ -89,12 +89,12 @@ pub struct TxRequestHandler {
 impl TxRequestHandler {
     pub fn new(
         clock: Clock,
-        config: ClientConfig, //
+        config: ClientConfig,                        //
         tx_pool: Arc<Mutex<ShardedTransactionPool>>, //
         epoch_manager: Arc<dyn EpochManagerAdapter>, //
-        shard_tracker: ShardTracker, //
-        validator_signer: MutableValidatorSigner, //
-        runtime: Arc<dyn RuntimeAdapter>, //
+        shard_tracker: ShardTracker,                 //
+        validator_signer: MutableValidatorSigner,    //
+        runtime: Arc<dyn RuntimeAdapter>,            //
         chain_genesis: ChainGenesis,
         network_adapter: PeerManagerAdapter, //
     ) -> Result<Self, near_client_primitives::types::Error> {

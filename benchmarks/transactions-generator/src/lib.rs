@@ -128,14 +128,14 @@ impl TxGenerator {
         };
 
         for _ in 0..2 {
-            self.runner.push( Self::start_transactions_loop(
+            self.runner.push(Self::start_transactions_loop(
                 &self.params,
                 client_sender.clone(),
                 view_client_sender.clone(),
                 runner_state.clone(),
             )?);
-        };
-        
+        }
+
         self.runner.push(Self::start_block_updates(view_client_sender, runner_state.clone()));
         self.runner.push(Self::start_report_updates(runner_state));
 
