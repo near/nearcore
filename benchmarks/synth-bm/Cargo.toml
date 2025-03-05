@@ -7,6 +7,10 @@ rust-version = "1.85.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
+[lib]
+name = "near_synth_bm"
+path = "src/lib.rs"
+
 [dependencies]
 anyhow = "1.0.89"
 clap = { version = "4.5.17", features = ["derive"] }
