@@ -1,8 +1,6 @@
-use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
-use crate::ephemeral_data::EphemeralAccount;
-use crate::near_primitives::account::Account;
 use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
+use crate::ephemeral_data::EphemeralAccount;
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
@@ -108,16 +106,18 @@ pub fn validate_transaction(
 /// For a single group, ephemeral-check each transaction in ascending nonce.
 /// Returns ephemeral final state, and a list of (SignedTransaction, VerificationResult).
 pub fn verify_ephemeral_group(
+    config: &near_parameters::RuntimeConfig,
+    state_update: &TrieUpdate,
     mut ephemeral: EphemeralAccount,
     group: &[(SignedTransaction, TransactionCost)],
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
-    config: &near_parameters::RuntimeConfig,
 ) -> Result<(EphemeralAccount, Vec<(SignedTransaction, VerificationResult)>), InvalidTxError> {
     let mut results = Vec::with_capacity(group.len());
     for (st, cost) in group {
         let vr = ephemeral.apply_transaction_ephemeral(
             config,
+            state_update,
             st,
             cost,
             block_height,
@@ -127,6 +127,7 @@ pub fn verify_ephemeral_group(
     }
     Ok((ephemeral, results))
 }
+
 pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
@@ -151,7 +152,7 @@ pub fn verify_and_charge_tx_ephemeral(
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
 ) -> Result<VerificationResult, InvalidTxError> {
-    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_transaction").entered();
+    let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_tx_ephemeral").entered();
 
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
@@ -634,8 +635,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, AccountContract, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
-    use near_primitives::errors::RuntimeError;
-    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::hash::{CryptoHash, hash};
     use near_primitives::receipt::ReceiptPriority;
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{
@@ -658,10 +658,6 @@ mod tests {
     fn test_limit_config() -> LimitConfig {
         let store = near_parameters::RuntimeConfigStore::test();
         store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
-    }
-
-    fn dummy_full_access() -> AccessKey {
-        AccessKey::full_access()
     }
 
     fn setup_common(
@@ -787,7 +783,11 @@ mod tests {
         let err = verify_and_charge_tx_ephemeral(
             config,
             state_update,
+<<<<<<< HEAD
             &validated_tx,
+=======
+            signed_transaction,
+>>>>>>> 3d37e1848 (wip)
             &cost,
             None,
             PROTOCOL_VERSION,
@@ -1329,14 +1329,11 @@ mod tests {
         .expect_err("expected an error");
         let account = get_account(&state_update, &account_id).unwrap().unwrap();
 
-        assert_eq!(
-            err,
-            InvalidTxError::LackBalanceForState {
-                signer_id: account_id,
-                amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
-                    - (initial_balance - transfer_amount)
-            }
-        );
+        assert_eq!(err, InvalidTxError::LackBalanceForState {
+            signer_id: account_id,
+            amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
+                - (initial_balance - transfer_amount)
+        });
     }
 
     #[test]
@@ -1592,13 +1589,10 @@ mod tests {
 
         let (err, _tx) = validate_transaction(&config, signed_tx.clone(), PROTOCOL_VERSION)
             .expect_err("expected validation error - size exceeded");
-        assert_eq!(
-            err,
-            InvalidTxError::TransactionSizeExceeded {
-                size: transaction_size,
-                limit: max_transaction_size
-            }
-        );
+        assert_eq!(err, InvalidTxError::TransactionSizeExceeded {
+            size: transaction_size,
+            limit: max_transaction_size
+        });
 
         {
             let wasm_config = Arc::make_mut(&mut config.wasm_config);
@@ -1660,16 +1654,16 @@ mod tests {
     #[test]
     fn test_validate_data_receipt_valid() {
         let limit_config = test_limit_config();
-        validate_data_receipt(
-            &limit_config,
-            &DataReceipt { data_id: CryptoHash::default(), data: None },
-        )
+        validate_data_receipt(&limit_config, &DataReceipt {
+            data_id: CryptoHash::default(),
+            data: None,
+        })
         .expect("valid data receipt");
         let data = b"hello".to_vec();
-        validate_data_receipt(
-            &limit_config,
-            &DataReceipt { data_id: CryptoHash::default(), data: Some(data) },
-        )
+        validate_data_receipt(&limit_config, &DataReceipt {
+            data_id: CryptoHash::default(),
+            data: Some(data),
+        })
         .expect("valid data receipt");
     }
 
@@ -1679,10 +1673,10 @@ mod tests {
         let data = b"hello".to_vec();
         limit_config.max_length_returned_data = data.len() as u64 - 1;
         assert_eq!(
-            validate_data_receipt(
-                &limit_config,
-                &DataReceipt { data_id: CryptoHash::default(), data: Some(data.clone()) }
-            )
+            validate_data_receipt(&limit_config, &DataReceipt {
+                data_id: CryptoHash::default(),
+                data: Some(data.clone())
+            })
             .expect_err("expected an error"),
             ReceiptValidationError::ReturnedValueLengthExceeded {
                 length: data.len() as u64,
@@ -2038,144 +2032,94 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_ephemeral_group_success() {
-        let signer_id: AccountId = "test.near".parse().unwrap();
-        let pk =
-            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed").public_key();
-        let account = crate::ephemeral_data::EphemeralAccount::new_for_test(
-            near_primitives::account::Account::new(
-                1000,
-                0,
-                near_primitives::account::AccountContract::None,
-                0,
-            ),
-            dummy_full_access(),
-            signer_id.clone(),
-            pk.clone(),
-        );
-        // Build two transactions with ascending nonce.
-        let st0 = SignedTransaction::from_actions(
-            10,
-            signer_id.clone(),
-            "bob.near".parse().unwrap(),
-            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
-            vec![Action::Transfer(TransferAction { deposit: 1 })],
-            CryptoHash::default(),
-            0,
-        );
-        let st1 = SignedTransaction::from_actions(
-            11,
-            signer_id.clone(),
-            "bob.near".parse().unwrap(),
-            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
-            vec![Action::Transfer(TransferAction { deposit: 1 })],
-            CryptoHash::default(),
-            0,
-        );
-        let group = vec![
-            (
-                st0.clone(),
-                TransactionCost {
-                    gas_burnt: 1,
-                    gas_remaining: 10,
-                    receipt_gas_price: 100,
-                    total_cost: 50,
-                    burnt_amount: 50,
-                },
-            ),
-            (
-                st1.clone(),
-                TransactionCost {
-                    gas_burnt: 2,
-                    gas_remaining: 8,
-                    receipt_gas_price: 100,
-                    total_cost: 60,
-                    burnt_amount: 60,
-                },
-            ),
-        ];
-        let (ephemeral_after, results) = verify_ephemeral_group(
+    fn test_ephemeral_account_creation_for_test() {
+        let (signer, state_update, _) = setup_common(1000, 0, Some(AccessKey::full_access()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let ephemeral = EphemeralAccount::new_for_test(
             account,
-            &group,
-            Some(100),
-            PROTOCOL_VERSION,
-            &RuntimeConfig::test(),
-        )
-        .expect("Group should verify successfully");
-        assert_eq!(results.len(), 2);
-        // Final balance should be 1000 - (50 + 60)
-        assert_eq!(ephemeral_after.ephemeral_account.amount(), 1000 - (50 + 60));
+            AccessKey::full_access(),
+            alice_account(),
+            signer.public_key(),
+        );
+        assert_eq!(ephemeral.ephemeral_account.amount(), 1000);
     }
 
     #[test]
-    fn test_verify_ephemeral_group_fail_nonce() {
-        let signer_id: AccountId = "test2.near".parse().unwrap();
-        let pk =
-            InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed").public_key();
-        let account = crate::ephemeral_data::EphemeralAccount::new_for_test(
-            near_primitives::account::Account::new(
-                1000,
-                0,
-                near_primitives::account::AccountContract::None,
-                0,
-            ),
-            dummy_full_access(),
-            signer_id.clone(),
-            pk.clone(),
+    fn test_apply_transaction_ephemeral_revert_insufficient_balance() {
+        let (signer, state_update, _) = setup_common(10, 0, Some(AccessKey::full_access()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let mut ephemeral = EphemeralAccount::new_for_test(
+            account,
+            AccessKey::full_access(),
+            alice_account(),
+            signer.public_key(),
         );
-        // Build a group where the first transaction has nonce 11 and second has 10.
-        let st0 = SignedTransaction::from_actions(
-            11,
-            signer_id.clone(),
-            "alice.near".parse().unwrap(),
-            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
+
+        let dummy_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
             vec![],
             CryptoHash::default(),
             0,
         );
-        let st1 = SignedTransaction::from_actions(
-            10,
-            signer_id.clone(),
-            "alice.near".parse().unwrap(),
-            &InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, "seed"),
+        let cost = TransactionCost {
+            gas_burnt: 1,
+            gas_remaining: 10,
+            receipt_gas_price: 100,
+            total_cost: 9999,
+            burnt_amount: 9999,
+        };
+
+        let res = ephemeral.apply_transaction_ephemeral(
+            &RuntimeConfig::test(),
+            &state_update,
+            &dummy_tx,
+            &cost,
+            Some(100),
+            PROTOCOL_VERSION,
+        );
+        assert!(res.is_err(), "should fail due to insufficient balance");
+        assert_eq!(ephemeral.ephemeral_account.amount(), 10);
+    }
+
+    #[test]
+    fn test_apply_transaction_ephemeral_ok() {
+        let (signer, state_update, _) = setup_common(500, 0, Some(AccessKey::full_access()));
+        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
+        let mut ephemeral = EphemeralAccount::new_for_test(
+            account,
+            AccessKey::full_access(),
+            alice_account(),
+            signer.public_key(),
+        );
+
+        let dummy_tx = SignedTransaction::from_actions(
+            1,
+            alice_account(),
+            bob_account(),
+            &*signer,
             vec![],
             CryptoHash::default(),
             0,
         );
-        let group = vec![
-            (
-                st0,
-                TransactionCost {
-                    gas_burnt: 1,
-                    gas_remaining: 10,
-                    receipt_gas_price: 100,
-                    total_cost: 10,
-                    burnt_amount: 10,
-                },
-            ),
-            (
-                st1,
-                TransactionCost {
-                    gas_burnt: 1,
-                    gas_remaining: 10,
-                    receipt_gas_price: 100,
-                    total_cost: 10,
-                    burnt_amount: 10,
-                },
-            ),
-        ];
-        let res =
-            verify_ephemeral_group(account, &group, None, PROTOCOL_VERSION, &RuntimeConfig::test());
-        match res {
-            Err(err) => {
-                if let InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } = err {
-                    assert_eq!(tx_nonce, 10);
-                    assert_eq!(ak_nonce, 11);
-                } else {
-                    panic!("Unexpected error: {:?}", err);
-                }
-            }
-            Ok(_) => panic!("Expected nonce error"),
-        }
+        let cost = TransactionCost {
+            gas_burnt: 10,
+            gas_remaining: 5,
+            receipt_gas_price: 100,
+            total_cost: 50,
+            burnt_amount: 50,
+        };
+        let res = ephemeral.apply_transaction_ephemeral(
+            &RuntimeConfig::test(),
+            &state_update,
+            &dummy_tx,
+            &cost,
+            None,
+            PROTOCOL_VERSION,
+        );
+        assert!(res.is_ok(), "ephemeral check should succeed");
+        assert_eq!(ephemeral.ephemeral_account.amount(), 450, "expected balance 500-50=450");
     }
 }
