@@ -765,35 +765,35 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let (verify_result, signed_tx) =
                     match validate_transaction(runtime_config, signed_tx, protocol_version) {
                         Err((err, signed_tx)) => (Err(err), signed_tx),
-                        Ok(validated_tx) => match tx_cost(
-                            runtime_config,
-                            &validated_tx,
-                            prev_block.next_gas_price,
-                            protocol_version,
-                        ) {
-                            Err(err) => {
-                                (Err(InvalidTxError::from(err)), validated_tx.into_signed_tx())
-                            }
-                            Ok(cost) => match verify_and_charge_tx_ephemeral(
+                        Ok(validated_tx) => {
+                            let res = tx_cost(
                                 runtime_config,
-                                &state_update,
                                 &validated_tx,
-                                &cost,
-                                Some(next_block_height),
+                                prev_block.next_gas_price,
                                 protocol_version,
-                            ) {
-                                Err(err) => (Err(err), validated_tx.into_signed_tx()),
-                                Ok(res) => {
-                                    commit_charging_for_tx(
-                                        &mut state_update,
-                                        validated_tx.to_tx(),
-                                        &res.signer,
-                                        &res.access_key,
-                                    );
-                                    (Ok(res), validated_tx.into_signed_tx())
-                                }
-                            },
-                        },
+                            )
+                            .map_err(InvalidTxError::from)
+                            .and_then(|cost| {
+                                verify_and_charge_tx_ephemeral(
+                                    runtime_config,
+                                    &state_update,
+                                    &validated_tx,
+                                    &cost,
+                                    Some(next_block_height),
+                                    protocol_version,
+                                )
+                            })
+                            .and_then(|vr| {
+                                commit_charging_for_tx(
+                                    &mut state_update,
+                                    validated_tx.to_tx(),
+                                    &vr.signer,
+                                    &vr.access_key,
+                                );
+                                Ok(vr)
+                            });
+                            (res, validated_tx.into_signed_tx())
+                        }
                     };
 
                 match verify_result {
