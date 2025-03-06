@@ -3,11 +3,12 @@ use std::sync::Arc;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::BlockHeader;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::state_sync::ReceiptProofResponse;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, BlockHeightDelta, ShardId};
 use near_store::adapter::chain_store::ChainStoreAdapter;
 
 use crate::byzantine_assert;
@@ -58,6 +59,65 @@ pub fn get_block_header_on_chain_by_height(
         return Err(Error::InvalidBlockHeight(header_height));
     }
     chain_store.get_block_header(&hash)
+}
+
+/// For a given transaction, it expires if the block that the chunk points to is more than `validity_period`
+/// ahead of the block that has `base_block_hash`.
+pub fn check_transaction_validity_period(
+    chain_store: &ChainStoreAdapter,
+    prev_block_header: &BlockHeader,
+    base_block_hash: &CryptoHash,
+    transaction_validity_period: BlockHeightDelta,
+) -> Result<(), InvalidTxError> {
+    // if both are on the canonical chain, comparing height is sufficient
+    // we special case this because it is expected that this scenario will happen in most cases.
+    let base_height = chain_store
+        .get_block_header(base_block_hash)
+        .map_err(|_| InvalidTxError::Expired)?
+        .height();
+    let prev_height = prev_block_header.height();
+    if let Ok(base_block_hash_by_height) = chain_store.get_block_hash_by_height(base_height) {
+        if &base_block_hash_by_height == base_block_hash {
+            if let Ok(prev_hash) = chain_store.get_block_hash_by_height(prev_height) {
+                if &prev_hash == prev_block_header.hash() {
+                    if prev_height <= base_height + transaction_validity_period {
+                        return Ok(());
+                    } else {
+                        return Err(InvalidTxError::Expired);
+                    }
+                }
+            }
+        }
+    }
+
+    // if the base block height is smaller than `last_final_height` we only need to check
+    // whether the base block is the same as the one with that height on the canonical fork.
+    // Otherwise we walk back the chain to check whether base block is on the same chain.
+    let last_final_height = chain_store
+        .get_block_height(prev_block_header.last_final_block())
+        .map_err(|_| InvalidTxError::InvalidChain)?;
+
+    if prev_height > base_height + transaction_validity_period {
+        Err(InvalidTxError::Expired)
+    } else if last_final_height >= base_height {
+        let base_block_hash_by_height = chain_store
+            .get_block_hash_by_height(base_height)
+            .map_err(|_| InvalidTxError::InvalidChain)?;
+        if &base_block_hash_by_height == base_block_hash {
+            if prev_height <= base_height + transaction_validity_period {
+                Ok(())
+            } else {
+                Err(InvalidTxError::Expired)
+            }
+        } else {
+            Err(InvalidTxError::InvalidChain)
+        }
+    } else {
+        let header =
+            get_block_header_on_chain_by_height(chain_store, prev_block_header.hash(), base_height)
+                .map_err(|_| InvalidTxError::InvalidChain)?;
+        if header.hash() == base_block_hash { Ok(()) } else { Err(InvalidTxError::InvalidChain) }
+    }
 }
 
 /// Collect incoming receipts for shard `shard_id` from
