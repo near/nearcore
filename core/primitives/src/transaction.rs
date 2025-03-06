@@ -215,6 +215,7 @@ impl BorshDeserialize for Transaction {
 pub struct ValidatedTransaction(SignedTransaction);
 
 impl ValidatedTransaction {
+    #[allow(clippy::result_large_err)]
     pub fn new(signed_tx: SignedTransaction) -> Result<Self, SignedTransaction> {
         if signed_tx
             .signature
