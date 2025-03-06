@@ -513,7 +513,7 @@ impl Handler<OptimisticBlockMessage> for ClientActorInner {
         let OptimisticBlockMessage { optimistic_block, from_peer } = msg;
         debug!(target: "client", block_height = optimistic_block.inner.block_height, prev_block_hash = ?optimistic_block.inner.prev_block_hash, ?from_peer, "OptimisticBlockMessage");
 
-        self.client.receive_optimistic_block(optimistic_block, from_peer);
+        self.client.receive_optimistic_block(optimistic_block, &from_peer);
     }
 }
 

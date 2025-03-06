@@ -1000,10 +1000,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         ShardLayout::multi_shard(self.num_shards, 0)
     }
 
-    fn validate_tx_metadata(
+    fn validate_tx(
         &self,
         _shard_layout: &ShardLayout,
-        _gas_price: Balance,
         _transaction: &SignedTransaction,
         _current_protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
@@ -1011,7 +1010,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn validate_tx_against_state(
+    fn can_verify_and_charge_tx(
         &self,
         _shard_layout: &ShardLayout,
         _gas_price: Balance,

@@ -7,6 +7,7 @@ use near_primitives::block::{Approval, ApprovalInner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use num_rational::Rational32;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use time::ext::InstantExt as _;
@@ -55,6 +56,7 @@ struct DoomslugTimer {
     min_delay: Duration,
     delay_step: Duration,
     max_delay: Duration,
+    chunk_wait_mult: Rational32,
 }
 
 struct DoomslugTip {
@@ -354,6 +356,7 @@ impl Doomslug {
         min_delay: Duration,
         delay_step: Duration,
         max_delay: Duration,
+        chunk_wait_mult: Rational32,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
         Doomslug {
@@ -382,6 +385,7 @@ impl Doomslug {
                 min_delay,
                 delay_step,
                 max_delay,
+                chunk_wait_mult,
             },
             threshold_mode,
             history: VecDeque::new(),
@@ -740,7 +744,8 @@ impl Doomslug {
 
         let delay =
             self.timer.get_delay(self.timer.height.saturating_sub(self.largest_final_height.get()))
-                / 6;
+                * *self.timer.chunk_wait_mult.numer()
+                / *self.timer.chunk_wait_mult.denom();
 
         let ready = now > when + delay;
         span.record("need_to_wait", !ready);
@@ -773,6 +778,7 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::types::ApprovalStake;
+    use num_rational::Rational32;
     use std::sync::Arc;
 
     #[test]
@@ -786,6 +792,7 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
+            Rational32::new(1, 3),
             DoomslugThresholdMode::TwoThirds,
         );
 
@@ -940,6 +947,7 @@ mod tests {
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             Duration::milliseconds(3000),
+            Rational32::new(1, 3),
             DoomslugThresholdMode::TwoThirds,
         );
 

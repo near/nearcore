@@ -17,6 +17,7 @@ use crate::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
     SetChainInfo, StateSyncEvent, Tier3Request,
 };
+use itertools::Itertools;
 use near_async::actix::ActixResult;
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{Actor, AsyncSender, CanSend, Handler, SendAsync, Sender};
@@ -85,7 +86,7 @@ impl TestLoopPeerManagerActor {
     pub fn new(
         clock: Clock,
         account_id: &AccountId,
-        shared_state: Arc<TestLoopNetworkSharedState>,
+        shared_state: &TestLoopNetworkSharedState,
         future_spawner: Arc<dyn FutureSpawner>,
     ) -> Self {
         let handlers = vec![
@@ -96,7 +97,7 @@ impl TestLoopPeerManagerActor {
                 future_spawner,
             ),
             network_message_to_partial_witness_handler(&account_id, shared_state.clone()),
-            network_message_to_shards_manager_handler(clock, &account_id, shared_state),
+            network_message_to_shards_manager_handler(clock, &account_id, shared_state.clone()),
             network_message_to_state_snapshot_handler(),
         ];
         Self { handlers }
@@ -113,10 +114,13 @@ impl TestLoopPeerManagerActor {
 /// Shared state across all the network actors. It handles the mapping between AccountId,
 /// PeerId, and the route back CryptoHash, so that individual network actors can do
 /// routing.
-pub struct TestLoopNetworkSharedState {
+#[derive(Clone)]
+pub struct TestLoopNetworkSharedState(Arc<Mutex<TestLoopNetworkSharedStateInner>>);
+
+struct TestLoopNetworkSharedStateInner {
     account_to_peer_id: HashMap<AccountId, PeerId>,
-    senders: HashMap<PeerId, OneClientSenders>,
-    route_back: Mutex<HashMap<CryptoHash, PeerId>>,
+    senders: HashMap<PeerId, Arc<OneClientSenders>>,
+    route_back: HashMap<CryptoHash, PeerId>,
 }
 
 /// Senders available for the networking layer, for one node in the test loop.
@@ -128,7 +132,16 @@ struct OneClientSenders {
 }
 
 impl TestLoopNetworkSharedState {
-    pub fn new<'a, D>(datas: &'a [D]) -> Self
+    pub fn new() -> Self {
+        let inner = TestLoopNetworkSharedStateInner {
+            account_to_peer_id: HashMap::new(),
+            senders: HashMap::new(),
+            route_back: HashMap::new(),
+        };
+        Self(Arc::new(Mutex::new(inner)))
+    }
+
+    pub fn add_client<'a, D>(&self, data: &'a D)
     where
         AccountId: From<&'a D>,
         PeerId: From<&'a D>,
@@ -137,53 +150,54 @@ impl TestLoopNetworkSharedState {
         PartialWitnessSenderForNetwork: From<&'a D>,
         Sender<ShardsManagerRequestFromNetwork>: From<&'a D>,
     {
-        let mut account_to_peer_id = HashMap::new();
-        let mut senders = HashMap::new();
-        for data in datas {
-            let account_id = AccountId::from(data);
-            let peer_id = PeerId::from(data);
-            let client_sender = ClientSenderForTestLoopNetwork::from(data);
-            let view_client_sender = ViewClientSenderForTestLoopNetwork::from(data);
-            let partial_witness_sender = PartialWitnessSenderForNetwork::from(data);
-            let shards_manager_sender = Sender::<ShardsManagerRequestFromNetwork>::from(data);
-            account_to_peer_id.insert(account_id.clone(), peer_id.clone());
-            senders.insert(
-                peer_id.clone(),
-                OneClientSenders {
-                    client_sender,
-                    view_client_sender,
-                    partial_witness_sender,
-                    shards_manager_sender,
-                },
-            );
-        }
+        let account_id = AccountId::from(data);
+        let peer_id = PeerId::from(data);
 
-        Self { account_to_peer_id, senders, route_back: Mutex::new(HashMap::new()) }
+        let mut guard = self.0.lock().unwrap();
+        guard.account_to_peer_id.insert(account_id, peer_id.clone());
+        guard.senders.insert(
+            peer_id,
+            Arc::new(OneClientSenders {
+                client_sender: ClientSenderForTestLoopNetwork::from(data),
+                view_client_sender: ViewClientSenderForTestLoopNetwork::from(data),
+                partial_witness_sender: PartialWitnessSenderForNetwork::from(data),
+                shards_manager_sender: Sender::<ShardsManagerRequestFromNetwork>::from(data),
+            }),
+        );
     }
 
-    fn senders_for_account(&self, account_id: &AccountId) -> &OneClientSenders {
-        self.senders.get(&self.account_to_peer_id[account_id]).unwrap()
+    fn account_to_peer_id(&self, account_id: &AccountId) -> PeerId {
+        let guard = self.0.lock().unwrap();
+        guard.account_to_peer_id.get(account_id).unwrap().clone()
     }
 
-    fn senders_for_peer(&self, peer_id: &PeerId) -> &OneClientSenders {
-        self.senders.get(peer_id).unwrap()
+    fn senders_for_account(&self, account_id: &AccountId) -> Arc<OneClientSenders> {
+        let guard = self.0.lock().unwrap();
+        guard.senders.get(&guard.account_to_peer_id[account_id]).unwrap().clone()
+    }
+
+    fn senders_for_peer(&self, peer_id: &PeerId) -> Arc<OneClientSenders> {
+        let guard = self.0.lock().unwrap();
+        guard.senders.get(peer_id).unwrap().clone()
     }
 
     fn generate_route_back(&self, peer_id: &PeerId) -> CryptoHash {
-        let mut guard = self.route_back.lock().unwrap();
-        let route_id = CryptoHash::hash_borsh(guard.len());
-        guard.insert(route_id, peer_id.clone());
+        let mut guard = self.0.lock().unwrap();
+        let route_id = CryptoHash::hash_borsh(guard.route_back.len());
+        guard.route_back.insert(route_id, peer_id.clone());
         route_id
     }
 
-    fn senders_for_route_back(&self, route_back: &CryptoHash) -> &OneClientSenders {
-        let lookup = self.route_back.lock().unwrap();
-        let peer_id = lookup.get(route_back).unwrap();
-        self.senders_for_peer(peer_id)
+    fn senders_for_route_back(&self, route_back: &CryptoHash) -> Arc<OneClientSenders> {
+        let guard = self.0.lock().unwrap();
+        let peer_id = guard.route_back.get(route_back).unwrap();
+        guard.senders.get(peer_id).unwrap().clone()
     }
 
-    fn accounts(&self) -> impl Iterator<Item = &AccountId> {
-        self.account_to_peer_id.keys()
+    fn accounts(&self) -> Vec<AccountId> {
+        let guard = self.0.lock().unwrap();
+        let account_ids = guard.account_to_peer_id.keys().cloned().collect_vec();
+        account_ids
     }
 }
 
@@ -222,16 +236,16 @@ impl Handler<PeerManagerMessageRequest> for TestLoopPeerManagerActor {
 
 fn network_message_to_client_handler(
     my_account_id: &AccountId,
-    shared_state: Arc<TestLoopNetworkSharedState>,
+    shared_state: TestLoopNetworkSharedState,
 ) -> NetworkRequestHandler {
     let my_account_id = my_account_id.clone();
     Box::new(move |request| match request {
         NetworkRequests::Block { block } => {
-            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             for account_id in shared_state.accounts() {
-                if account_id != &my_account_id {
+                if account_id != my_account_id {
                     let future = shared_state
-                        .senders_for_account(account_id)
+                        .senders_for_account(&account_id)
                         .client_sender
                         .send_async(BlockResponse {
                             block: block.clone(),
@@ -244,10 +258,10 @@ fn network_message_to_client_handler(
             None
         }
         NetworkRequests::OptimisticBlock { optimistic_block } => {
-            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             for account_id in shared_state.accounts() {
-                if account_id != &my_account_id {
-                    let _ = shared_state.senders_for_account(account_id).client_sender.send(
+                if account_id != my_account_id {
+                    let _ = shared_state.senders_for_account(&account_id).client_sender.send(
                         OptimisticBlockMessage {
                             optimistic_block: optimistic_block.clone(),
                             from_peer: my_peer_id.clone(),
@@ -286,20 +300,20 @@ fn network_message_to_client_handler(
             None
         }
         NetworkRequests::EpochSyncRequest { peer_id } => {
-            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
-            assert_ne!(&peer_id, my_peer_id, "Sending message to self not supported.");
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            assert_ne!(peer_id, my_peer_id, "Sending message to self not supported.");
             shared_state
                 .senders_for_peer(&peer_id)
                 .client_sender
-                .send(EpochSyncRequestMessage { from_peer: my_peer_id.clone() });
+                .send(EpochSyncRequestMessage { from_peer: my_peer_id });
             None
         }
         NetworkRequests::EpochSyncResponse { peer_id, proof } => {
-            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
             shared_state
                 .senders_for_peer(&peer_id)
                 .client_sender
-                .send(EpochSyncResponseMessage { from_peer: my_peer_id.clone(), proof });
+                .send(EpochSyncResponseMessage { from_peer: my_peer_id, proof });
             None
         }
         NetworkRequests::StateRequestPart { .. } => None,
@@ -310,7 +324,7 @@ fn network_message_to_client_handler(
 
 fn network_message_to_view_client_handler(
     my_account_id: AccountId,
-    shared_state: Arc<TestLoopNetworkSharedState>,
+    shared_state: TestLoopNetworkSharedState,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> NetworkRequestHandler {
     Box::new(move |request| match request {
@@ -350,7 +364,7 @@ fn network_message_to_view_client_handler(
 
 fn network_message_to_partial_witness_handler(
     my_account_id: &AccountId,
-    shared_state: Arc<TestLoopNetworkSharedState>,
+    shared_state: TestLoopNetworkSharedState,
 ) -> NetworkRequestHandler {
     let my_account_id = my_account_id.clone();
     Box::new(move |request| match request {
@@ -427,13 +441,13 @@ fn network_message_to_state_snapshot_handler() -> NetworkRequestHandler {
 fn network_message_to_shards_manager_handler(
     clock: Clock,
     my_account_id: &AccountId,
-    shared_state: Arc<TestLoopNetworkSharedState>,
+    shared_state: TestLoopNetworkSharedState,
 ) -> NetworkRequestHandler {
     let my_account_id = my_account_id.clone();
     Box::new(move |request| match request {
         NetworkRequests::PartialEncodedChunkRequest { target, request, .. } => {
-            let my_peer_id = shared_state.account_to_peer_id.get(&my_account_id).unwrap();
-            let route_back = shared_state.generate_route_back(my_peer_id);
+            let my_peer_id = shared_state.account_to_peer_id(&my_account_id);
+            let route_back = shared_state.generate_route_back(&my_peer_id);
             let target = target.account_id.unwrap();
             assert!(target != my_account_id, "Sending message to self not supported.");
             shared_state.senders_for_account(&target).shards_manager_sender.send(

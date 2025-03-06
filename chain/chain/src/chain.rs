@@ -110,6 +110,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use time::OffsetDateTime;
 use time::ext::InstantExt as _;
 use tracing::{Span, debug, debug_span, error, info, warn};
 
@@ -2038,11 +2039,16 @@ impl Chain {
         apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) {
         let sc = self.apply_chunks_sender.clone();
+        let clock = self.clock.clone();
         self.apply_chunks_spawner.spawn("apply_chunks", move || {
+            let apply_all_chunks_start_time = clock.now();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(block.clone(), block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
+            metrics::APPLY_ALL_CHUNKS_TIME.with_label_values(&[block.as_ref()]).observe(
+                (clock.now().signed_duration_since(apply_all_chunks_start_time)).as_seconds_f64(),
+            );
             sc.send((block, res)).unwrap();
             drop(apply_chunks_still_applying);
             if let Some(sender) = apply_chunks_done_sender {
@@ -2251,6 +2257,7 @@ impl Chain {
                 optimistic_block_hash
             )
         });
+        self.blocks_delay_tracker.record_optimistic_block_processed(optimistic_block.height());
 
         let prev_block_hash = optimistic_block.prev_block_hash();
         let block_height = optimistic_block.height();
@@ -2382,6 +2389,66 @@ impl Chain {
 
         let final_block_height = self.chain_store.get_block_header(final_block)?.height();
         self.optimistic_block_chunks.update_minimal_base_height(final_block_height);
+        Ok(())
+    }
+
+    /// Check if optimistic block is valid and relevant to the current chain.
+    pub fn check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
+        // Refuse blocks from the too distant future.
+        let ob_timestamp =
+            OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
+                .map_err(|e| Error::Other(e.to_string()))?;
+        let future_threshold: OffsetDateTime =
+            self.clock.now_utc() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE);
+        if ob_timestamp > future_threshold {
+            return Err(Error::InvalidBlockFutureTime(ob_timestamp));
+        };
+
+        let head = self.head()?;
+        if head.height >= block.height() {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
+        // overflow-related problems
+        if block.height() > head.height + self.epoch_length * 20 {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // Check source of the optimistic block.
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash())?;
+        let validator = self.epoch_manager.get_block_producer_info(&epoch_id, block.height())?;
+
+        // Check the signature.
+        if !block.signature.verify(block.hash().as_bytes(), validator.public_key()) {
+            return Err(Error::InvalidSignature);
+        }
+
+        let prev = self.get_block_header(&block.prev_block_hash())?;
+        let prev_random_value = *prev.random_value();
+        let prev_height = prev.height();
+
+        if prev_height + 1 != block.height() {
+            return Err(Error::InvalidBlockHeight(block.height()));
+        }
+
+        // Prevent time warp attacks and some timestamp manipulations by forcing strict
+        // time progression.
+        if ob_timestamp <= prev.timestamp() {
+            return Err(Error::InvalidBlockPastTime(prev.timestamp(), ob_timestamp));
+        }
+
+        verify_block_vrf(
+            validator,
+            &prev_random_value,
+            &block.inner.vrf_value,
+            &block.inner.vrf_proof,
+        )?;
+
+        if &block.inner.random_value != &hash(&block.inner.vrf_value.0.as_ref()) {
+            return Err(Error::InvalidRandomnessBeaconOutput);
+        }
+
         Ok(())
     }
 
@@ -3452,16 +3519,18 @@ impl Chain {
         let chunk_header = chunk_headers.get(shard_index).ok_or(Error::InvalidShardId(shard_id))?;
         let is_new_chunk = chunk_header.is_new_chunk(block_height);
 
-        if let Some(result) =
-            self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
-        {
-            debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
-            let result = result.clone();
-            return Ok(Some((
-                shard_id,
-                cached_shard_update_key,
-                Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
-            )));
+        if !cfg!(feature = "sandbox") {
+            if let Some(result) =
+                self.apply_chunk_results_cache.peek(&cached_shard_update_key, shard_id)
+            {
+                debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Using cached ShardUpdate result");
+                let result = result.clone();
+                return Ok(Some((
+                    shard_id,
+                    cached_shard_update_key,
+                    Box::new(move |_| -> Result<ShardUpdateResult, Error> { Ok(result) }),
+                )));
+            }
         }
         debug!(target: "chain", ?shard_id, ?cached_shard_update_key, "Creating ShardUpdate job");
 

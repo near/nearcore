@@ -5,6 +5,7 @@ use near_primitives::block::Approval;
 use near_primitives::hash::{CryptoHash, hash};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{ApprovalStake, BlockHeight};
+use num_rational::Rational32;
 use rand::{Rng, thread_rng};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -57,6 +58,7 @@ fn one_iter(
             Duration::milliseconds(1000),
             Duration::milliseconds(100),
             delta * 20, // some arbitrary number larger than delta * 6
+            Rational32::new(1, 3),
             DoomslugThresholdMode::TwoThirds,
         )
     })
