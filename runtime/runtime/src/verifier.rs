@@ -1,6 +1,5 @@
 use crate::VerificationResult;
 use crate::config::{TransactionCost, total_prepaid_gas};
-use crate::ephemeral_data::EphemeralAccount;
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
@@ -108,25 +107,28 @@ pub fn validate_transaction(
 pub fn verify_ephemeral_group(
     config: &near_parameters::RuntimeConfig,
     state_update: &TrieUpdate,
-    mut ephemeral: EphemeralAccount,
     group: &[(SignedTransaction, TransactionCost)],
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
-) -> Result<(EphemeralAccount, Vec<(SignedTransaction, VerificationResult)>), InvalidTxError> {
+) -> Result<Vec<(SignedTransaction, VerificationResult)>, InvalidTxError> {
     let mut results = Vec::with_capacity(group.len());
-    for (st, cost) in group {
-        let vr = ephemeral.apply_transaction_ephemeral(
+    let mut temp_state = None;
+    for (tx, cost) in group {
+        let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
-            st,
+            tx,
             cost,
             block_height,
             current_protocol_version,
+            temp_state,
         )?;
-        results.push((st.clone(), vr));
+        temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
+        results.push((tx.clone(), vr));
     }
-    Ok((ephemeral, results))
+    Ok(results)
 }
+
 
 pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
@@ -151,6 +153,7 @@ pub fn verify_and_charge_tx_ephemeral(
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
     current_protocol_version: ProtocolVersion,
+    ephemeral_state: Option<(Account, AccessKey)>,
 ) -> Result<VerificationResult, InvalidTxError> {
     let _span = tracing::debug_span!(target: "runtime", "verify_and_charge_tx_ephemeral").entered();
 
@@ -160,13 +163,10 @@ pub fn verify_and_charge_tx_ephemeral(
     let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
-    let mut signer = match get_account(state_update, signer_id)? {
-        Some(signer) => signer,
-        None => {
-            return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-        }
-    };
+    let mut signer;
+    let mut access_key;
 
+<<<<<<< HEAD
     let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
         Some(access_key) => access_key,
         None => {
@@ -179,6 +179,33 @@ pub fn verify_and_charge_tx_ephemeral(
             .into());
         }
     };
+=======
+    if ephemeral_state.is_none() {
+        signer = match get_account(state_update, signer_id)? {
+            Some(signer) => signer,
+            None => {
+                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
+            }
+        };
+
+        access_key = match get_access_key(state_update, signer_id, transaction.public_key())? {
+            Some(access_key) => access_key,
+            None => {
+                return Err(InvalidTxError::InvalidAccessKeyError(
+                    InvalidAccessKeyError::AccessKeyNotFound {
+                        account_id: signer_id.clone(),
+                        public_key: transaction.public_key().clone().into(),
+                    },
+                )
+                .into());
+            }
+        };
+    } else {
+        let (ephemeral_signer, ephemeral_access_key) = ephemeral_state.unwrap();
+        signer = ephemeral_signer;
+        access_key = ephemeral_access_key;
+    }
+>>>>>>> a579c4353 (wip reduced)
 
     if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
@@ -783,14 +810,11 @@ mod tests {
         let err = verify_and_charge_tx_ephemeral(
             config,
             state_update,
-<<<<<<< HEAD
             &validated_tx,
-=======
-            signed_transaction,
->>>>>>> 3d37e1848 (wip)
             &cost,
             None,
             PROTOCOL_VERSION,
+            None
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -823,6 +847,7 @@ mod tests {
             &transaction_cost,
             block_height,
             current_protocol_version,
+            None
         )?;
         commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
@@ -2029,97 +2054,5 @@ mod tests {
         check("hello", 10, "hello");
         // cspell:ignore привет
         check("привет", 3, "п");
-    }
-
-    #[test]
-    fn test_ephemeral_account_creation_for_test() {
-        let (signer, state_update, _) = setup_common(1000, 0, Some(AccessKey::full_access()));
-        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
-        let ephemeral = EphemeralAccount::new_for_test(
-            account,
-            AccessKey::full_access(),
-            alice_account(),
-            signer.public_key(),
-        );
-        assert_eq!(ephemeral.ephemeral_account.amount(), 1000);
-    }
-
-    #[test]
-    fn test_apply_transaction_ephemeral_revert_insufficient_balance() {
-        let (signer, state_update, _) = setup_common(10, 0, Some(AccessKey::full_access()));
-        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
-        let mut ephemeral = EphemeralAccount::new_for_test(
-            account,
-            AccessKey::full_access(),
-            alice_account(),
-            signer.public_key(),
-        );
-
-        let dummy_tx = SignedTransaction::from_actions(
-            1,
-            alice_account(),
-            bob_account(),
-            &*signer,
-            vec![],
-            CryptoHash::default(),
-            0,
-        );
-        let cost = TransactionCost {
-            gas_burnt: 1,
-            gas_remaining: 10,
-            receipt_gas_price: 100,
-            total_cost: 9999,
-            burnt_amount: 9999,
-        };
-
-        let res = ephemeral.apply_transaction_ephemeral(
-            &RuntimeConfig::test(),
-            &state_update,
-            &dummy_tx,
-            &cost,
-            Some(100),
-            PROTOCOL_VERSION,
-        );
-        assert!(res.is_err(), "should fail due to insufficient balance");
-        assert_eq!(ephemeral.ephemeral_account.amount(), 10);
-    }
-
-    #[test]
-    fn test_apply_transaction_ephemeral_ok() {
-        let (signer, state_update, _) = setup_common(500, 0, Some(AccessKey::full_access()));
-        let account = get_account(&state_update, &alice_account()).unwrap().unwrap();
-        let mut ephemeral = EphemeralAccount::new_for_test(
-            account,
-            AccessKey::full_access(),
-            alice_account(),
-            signer.public_key(),
-        );
-
-        let dummy_tx = SignedTransaction::from_actions(
-            1,
-            alice_account(),
-            bob_account(),
-            &*signer,
-            vec![],
-            CryptoHash::default(),
-            0,
-        );
-        let cost = TransactionCost {
-            gas_burnt: 10,
-            gas_remaining: 5,
-            receipt_gas_price: 100,
-            total_cost: 50,
-            burnt_amount: 50,
-        };
-        let res = ephemeral.apply_transaction_ephemeral(
-            &RuntimeConfig::test(),
-            &state_update,
-            &dummy_tx,
-            &cost,
-            None,
-            PROTOCOL_VERSION,
-        );
-        assert!(res.is_ok(), "ephemeral check should succeed");
-        assert_eq!(ephemeral.ephemeral_account.amount(), 450, "expected balance 500-50=450");
     }
 }
