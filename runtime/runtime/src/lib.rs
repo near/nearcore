@@ -326,7 +326,7 @@ impl Runtime {
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
     /// or a `StorageError` wrapped into `RuntimeError`.
     #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
-        tx_hash = %validated_tx.to_signed_transaction().get_hash(),
+        tx_hash = %validated_tx.to_signed_tx().get_hash(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
     ))]
@@ -353,17 +353,17 @@ impl Runtime {
                 metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                 commit_charging_for_tx(
                     state_update,
-                    validated_tx.to_transaction(),
+                    validated_tx.to_tx(),
                     &verification_result.signer,
                     &verification_result.access_key,
                 );
                 state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: validated_tx.to_signed_transaction().get_hash(),
+                    tx_hash: validated_tx.to_signed_tx().get_hash(),
                 });
-                let transaction = &validated_tx.to_signed_transaction().transaction;
+                let transaction = &validated_tx.to_signed_tx().transaction;
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
-                    validated_tx.to_signed_transaction(),
+                    validated_tx.to_signed_tx(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     apply_state.block_height,
@@ -389,7 +389,7 @@ impl Runtime {
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
-                    id: validated_tx.to_signed_transaction().get_hash(),
+                    id: validated_tx.to_signed_tx().get_hash(),
                     outcome: ExecutionOutcome {
                         status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
                         logs: vec![],
@@ -1742,7 +1742,7 @@ impl Runtime {
                             continue;
                         }
                     };
-                    if receipt.receiver_id() == validated_tx.to_transaction().signer_id() {
+                    if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
                         receipt_sink.forward_or_buffer_receipt(

@@ -151,7 +151,7 @@ pub fn verify_and_charge_tx_ephemeral(
     let TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount } =
         *transaction_cost;
 
-    let tx = validated_tx.to_transaction();
+    let tx = validated_tx.to_tx();
     let signer_id = tx.signer_id();
 
     let mut signer = match get_account(state_update, signer_id)? {
@@ -807,12 +807,7 @@ mod tests {
             block_height,
             current_protocol_version,
         )?;
-        commit_charging_for_tx(
-            state_update,
-            validated_tx.to_transaction(),
-            &vr.signer,
-            &vr.access_key,
-        );
+        commit_charging_for_tx(state_update, validated_tx.to_tx(), &vr.signer, &vr.access_key);
         Ok(vr)
     }
 

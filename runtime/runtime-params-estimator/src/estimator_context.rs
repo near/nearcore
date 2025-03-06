@@ -473,7 +473,7 @@ impl Testbed<'_> {
         .expect("tx verification should not fail in estimator");
         commit_charging_for_tx(
             &mut state_update,
-            &validated_tx.to_signed_transaction().transaction,
+            &validated_tx.to_signed_tx().transaction,
             &vr.signer,
             &vr.access_key,
         );

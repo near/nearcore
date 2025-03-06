@@ -2278,7 +2278,7 @@ impl Client {
                 match self
                     .chunk_producer
                     .sharded_tx_pool
-                    .insert_transaction(shard_uid, validated_tx.into_signed_transaction())
+                    .insert_transaction(shard_uid, validated_tx.into_signed_tx())
                 {
                     InsertTransactionResult::Success => {
                         trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Recorded a transaction.");

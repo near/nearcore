@@ -573,7 +573,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let cost = tx_cost(runtime_config, &validated_tx, gas_price, current_protocol_version)?;
         let shard_uid = shard_layout
-            .account_id_to_shard_uid(validated_tx.to_signed_transaction().transaction.signer_id());
+            .account_id_to_shard_uid(validated_tx.to_signed_tx().transaction.signer_id());
         let state_update = self.tries.new_trie_update(shard_uid, state_root);
 
         verify_and_charge_tx_ephemeral(
@@ -771,10 +771,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                             prev_block.next_gas_price,
                             protocol_version,
                         ) {
-                            Err(err) => (
-                                Err(InvalidTxError::from(err)),
-                                validated_tx.into_signed_transaction(),
-                            ),
+                            Err(err) => {
+                                (Err(InvalidTxError::from(err)), validated_tx.into_signed_tx())
+                            }
                             Ok(cost) => match verify_and_charge_tx_ephemeral(
                                 runtime_config,
                                 &state_update,
@@ -783,15 +782,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 Some(next_block_height),
                                 protocol_version,
                             ) {
-                                Err(err) => (Err(err), validated_tx.into_signed_transaction()),
+                                Err(err) => (Err(err), validated_tx.into_signed_tx()),
                                 Ok(res) => {
                                     commit_charging_for_tx(
                                         &mut state_update,
-                                        validated_tx.to_transaction(),
+                                        validated_tx.to_tx(),
                                         &res.signer,
                                         &res.access_key,
                                     );
-                                    (Ok(res), validated_tx.into_signed_transaction())
+                                    (Ok(res), validated_tx.into_signed_tx())
                                 }
                             },
                         },

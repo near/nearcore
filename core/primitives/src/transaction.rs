@@ -226,20 +226,16 @@ impl ValidatedTransaction {
         }
     }
 
-    pub fn to_signed_transaction(&self) -> &SignedTransaction {
+    pub fn to_signed_tx(&self) -> &SignedTransaction {
         &self.0
     }
 
-    pub fn into_signed_transaction(self) -> SignedTransaction {
+    pub fn into_signed_tx(self) -> SignedTransaction {
         self.0
     }
 
-    pub fn to_transaction(&self) -> &Transaction {
+    pub fn to_tx(&self) -> &Transaction {
         &self.0.transaction
-    }
-
-    pub fn into_transaction(self) -> Transaction {
-        self.0.transaction
     }
 }
 
