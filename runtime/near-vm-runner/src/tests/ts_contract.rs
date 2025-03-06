@@ -1,7 +1,7 @@
 use super::test_vm_config;
-use crate::logic::gas_counter::FreeGasCounter;
 use crate::ContractCode;
 use crate::logic::errors::{FunctionCallError, HostError};
+use crate::logic::gas_counter::FreeGasCounter;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::types::ReturnData;
 use crate::logic::{External, StorageGetMode};

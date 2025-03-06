@@ -148,7 +148,11 @@ impl External for MockedExternal {
             .map(|value| Box::new(MockedValuePtr { value: value.clone() }) as Box<_>))
     }
 
-    fn storage_remove(&mut self, _: &mut dyn StorageAccessTracker, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    fn storage_remove(
+        &mut self,
+        _: &mut dyn StorageAccessTracker,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
         let value = self.fake_trie.remove(key);
         Ok(value)
     }

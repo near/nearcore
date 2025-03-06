@@ -17,7 +17,6 @@ use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_store::trie::TrieNodesCount;
 
-
 fn process_transaction(
     env: &mut TestEnv,
     signer: &Signer,
