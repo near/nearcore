@@ -2219,12 +2219,13 @@ impl Client {
         }
         let gas_price = cur_block_header.next_gas_price();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
         let receiver_shard =
             shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id());
         let receiver_congestion_info =
             cur_block.block_congestion_info().get(&receiver_shard).copied();
-        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
         let validated_tx = match self.runtime_adapter.validate_tx(
             &shard_layout,

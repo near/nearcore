@@ -519,9 +519,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.tries.get_flat_storage_manager()
     }
 
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error> {
+    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout {
         let epoch_manager = self.epoch_manager.read();
-        Ok(epoch_manager.get_shard_layout(epoch_id)?)
+        epoch_manager.get_shard_layout_from_protocol_version(protocol_version)
     }
 
     fn validate_tx(
