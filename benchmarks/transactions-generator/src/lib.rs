@@ -18,17 +18,19 @@ use tokio::task;
 pub mod account;
 #[cfg(feature = "with_actix")]
 pub mod actix_actor;
+mod welford;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TxGeneratorConfig {
     tps: u64,
     volume: u64,
+    thread_count: u64,
     accounts_path: PathBuf,
 }
 
 impl Default for TxGeneratorConfig {
     fn default() -> Self {
-        Self { tps: 0, volume: 0, accounts_path: "".into() }
+        Self { tps: 0, volume: 0, thread_count: 1, accounts_path: "".into() }
     }
 }
 
@@ -46,7 +48,7 @@ pub struct TxGenerator {
     pub params: TxGeneratorConfig,
     client_sender: ClientSender,
     view_client_sender: ViewClientSender,
-    runner: Option<(task::JoinHandle<()>, task::JoinHandle<()>, task::JoinHandle<()>)>,
+    runner: Vec<task::JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -82,11 +84,11 @@ impl TxGenerator {
         client_sender: ClientSender,
         view_client_sender: ViewClientSender,
     ) -> anyhow::Result<Self> {
-        Ok(Self { params, client_sender, view_client_sender, runner: None })
+        Ok(Self { params, client_sender, view_client_sender, runner: Vec::new() })
     }
 
     pub fn start(self: &mut Self) -> anyhow::Result<()> {
-        if self.runner.is_some() {
+        if !self.runner.is_empty() {
             anyhow::bail!("attempt to (re)start the running transaction generator");
         }
         let client_sender = self.client_sender.clone();
@@ -106,18 +108,18 @@ impl TxGenerator {
             })),
         };
 
-        let transactions = Self::start_transactions_loop(
-            &self.params,
-            client_sender,
-            view_client_sender.clone(),
-            runner_state.clone(),
-        )?;
+        for _ in 0..self.params.thread_count {
+            self.runner.push(Self::start_transactions_loop(
+                &self.params,
+                client_sender.clone(),
+                view_client_sender.clone(),
+                runner_state.clone(),
+            )?);
+        }
 
-        let block_updates = Self::start_block_updates(view_client_sender, runner_state.clone());
+        self.runner.push(Self::start_block_updates(view_client_sender, runner_state.clone()));
+        self.runner.push(Self::start_report_updates(runner_state));
 
-        let report_updates = Self::start_report_updates(runner_state);
-
-        self.runner = Some((transactions, block_updates, report_updates));
         Ok(())
     }
 
@@ -174,7 +176,9 @@ impl TxGenerator {
         view_client_sender: ViewClientSender,
         runner_state: RunnerState,
     ) -> anyhow::Result<task::JoinHandle<()>> {
-        let mut tx_interval = tokio::time::interval(Duration::from_micros(1_000_000 / params.tps));
+        let mut tx_interval = tokio::time::interval(Duration::from_micros(
+            1_000_000 * params.thread_count / params.tps,
+        ));
         // TODO(slavas): generate accounts on the fly?
         let mut accounts = account::accounts_from_dir(&params.accounts_path)?;
         if accounts.is_empty() {
@@ -255,6 +259,7 @@ impl TxGenerator {
         let mut report_interval = tokio::time::interval(Duration::from_secs(1));
         tokio::spawn(async move {
             let mut stats_prev = runner_state.stats.lock().unwrap().clone();
+            let mut mean_diff = welford::Mean::<i64>::new();
             loop {
                 report_interval.tick().await;
                 let stats = {
@@ -266,10 +271,13 @@ impl TxGenerator {
                     stats.failed = failed;
                     stats.clone()
                 };
+                tracing::info!(target: "transaction-generator", total=format!("{stats:?}"),);
+                let diff = stats.clone() - stats_prev;
+                mean_diff.add_measurement(diff.processed as i64);
                 tracing::info!(target: "transaction-generator",
-                    total=format!("{stats:?}"),);
-                tracing::info!(target: "transaction-generator",
-                    diff=format!("{:?}", stats.clone() - stats_prev),);
+                    diff=format!("{:?}", diff),
+                    rate_processed=mean_diff.mean(),
+                );
                 stats_prev = stats.clone();
             }
         })
