@@ -10,7 +10,7 @@ from key import Key
 from argparse import ArgumentParser, Action
 from urllib.parse import urlparse
 from configured_logger import logger
-from transaction import sign_function_call_tx, sign_deploy_global_contract_transaction
+from transaction import sign_function_call_tx, sign_deploy_global_contract_tx
 from mocknet_helpers import get_latest_block_hash, get_nonce_for_key, json_rpc
 from messages.tx import GlobalContractDeployMode
 from utils import load_test_contract
@@ -54,7 +54,7 @@ if __name__ == '__main__':
         def send_tx(i, receiver):
             # sleeping here to make best-effort ordering of transactions so nonces are valid
             time.sleep(i / 20)
-            signed_tx = sign_deploy_global_contract_transaction(
+            signed_tx = sign_deploy_global_contract_tx(
                 signer_key,
                 code,
                 deploy_mode,
