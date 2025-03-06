@@ -32,7 +32,7 @@ create-accounts:
         --user-data-dir user-data
 
 enable-tx tps:
-    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}"}' {{near_config_file}} > tmp_config.json
+    jq '.tx_generator={"tps": {{tps}}, "volume": 0, "accounts_path": "{{near_accounts_path}}", "thread_count": 2}' {{near_config_file}} > tmp_config.json
     mv tmp_config.json {{near_config_file}}
 
 unlimit:
