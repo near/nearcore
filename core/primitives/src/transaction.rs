@@ -215,11 +215,14 @@ impl BorshDeserialize for Transaction {
 pub struct ValidatedTransaction(SignedTransaction);
 
 impl ValidatedTransaction {
-    pub fn new(tx: SignedTransaction) -> Result<Self, SignedTransaction> {
-        if tx.signature.verify(tx.get_hash().as_ref(), tx.transaction.public_key()) {
-            Ok(Self(tx))
+    pub fn new(signed_tx: SignedTransaction) -> Result<Self, SignedTransaction> {
+        if signed_tx
+            .signature
+            .verify(signed_tx.get_hash().as_ref(), signed_tx.transaction.public_key())
+        {
+            Ok(Self(signed_tx))
         } else {
-            Err(tx)
+            Err(signed_tx)
         }
     }
 
@@ -229,6 +232,14 @@ impl ValidatedTransaction {
 
     pub fn into_signed_transaction(self) -> SignedTransaction {
         self.0
+    }
+
+    pub fn to_transaction(&self) -> &Transaction {
+        &self.0.transaction
+    }
+
+    pub fn into_transaction(self) -> Transaction {
+        self.0.transaction
     }
 }
 

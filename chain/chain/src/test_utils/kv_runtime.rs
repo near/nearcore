@@ -1002,11 +1002,11 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_tx(
         &self,
         _shard_layout: &ShardLayout,
-        transaction: SignedTransaction,
+        signed_tx: SignedTransaction,
         _current_protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
-        match ValidatedTransaction::new(transaction) {
+        match ValidatedTransaction::new(signed_tx) {
             Ok(validated_tx) => Ok(validated_tx),
             Err(signed_tx) => Err((InvalidTxError::InvalidSignature, signed_tx)),
         }
@@ -1017,7 +1017,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_layout: &ShardLayout,
         _gas_price: Balance,
         _state_root: StateRoot,
-        _transaction: &ValidatedTransaction,
+        _validated_tx: &ValidatedTransaction,
         _current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError> {
         Ok(())

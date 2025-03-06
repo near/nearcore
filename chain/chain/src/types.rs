@@ -432,7 +432,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        transaction: SignedTransaction,
+        signed_tx: SignedTransaction,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)>;
@@ -442,7 +442,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_layout: &ShardLayout,
         gas_price: Balance,
         state_root: StateRoot,
-        transaction: &ValidatedTransaction,
+        validated_tx: &ValidatedTransaction,
         current_protocol_version: ProtocolVersion,
     ) -> Result<(), InvalidTxError>;
 

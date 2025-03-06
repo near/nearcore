@@ -284,15 +284,16 @@ impl Runtime {
     fn parallel_validate_transactions(
         config: &RuntimeConfig,
         gas_price: Balance,
-        transactions: impl IntoParallelIterator<Item = SignedTransaction>,
+        signed_txs: impl IntoParallelIterator<Item = SignedTransaction>,
         current_protocol_version: ProtocolVersion,
     ) -> Vec<(CryptoHash, Result<(ValidatedTransaction, TransactionCost), InvalidTxError>)> {
-        transactions
+        signed_txs
             .into_par_iter()
-            .map(|tx| {
+            .map(|signed_tx| {
                 (
-                    tx.get_hash(),
-                    match validate_transaction(config, tx.clone(), current_protocol_version) {
+                    signed_tx.get_hash(),
+                    match validate_transaction(config, signed_tx.clone(), current_protocol_version)
+                    {
                         Ok(validated_tx) => {
                             match tx_cost(
                                 config,
@@ -325,7 +326,7 @@ impl Runtime {
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
     /// or a `StorageError` wrapped into `RuntimeError`.
     #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
-        tx_hash = %tx.to_signed_transaction().get_hash(),
+        tx_hash = %validated_tx.to_signed_transaction().get_hash(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
     ))]
@@ -333,7 +334,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
-        tx: &ValidatedTransaction,
+        validated_tx: &ValidatedTransaction,
         transaction_cost: &TransactionCost,
         stats: &mut ChunkApplyStatsV0,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
@@ -343,7 +344,7 @@ impl Runtime {
         match verify_and_charge_tx_ephemeral(
             &apply_state.config,
             state_update,
-            tx,
+            validated_tx,
             transaction_cost,
             Some(apply_state.block_height),
             apply_state.current_protocol_version,
@@ -352,17 +353,17 @@ impl Runtime {
                 metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
                 commit_charging_for_tx(
                     state_update,
-                    &tx.to_signed_transaction().transaction,
+                    validated_tx.to_transaction(),
                     &verification_result.signer,
                     &verification_result.access_key,
                 );
                 state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: tx.to_signed_transaction().get_hash(),
+                    tx_hash: validated_tx.to_signed_transaction().get_hash(),
                 });
-                let transaction = &tx.to_signed_transaction().transaction;
+                let transaction = &validated_tx.to_signed_transaction().transaction;
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
-                    tx.to_signed_transaction(),
+                    validated_tx.to_signed_transaction(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     apply_state.block_height,
@@ -388,7 +389,7 @@ impl Runtime {
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
-                    id: tx.to_signed_transaction().get_hash(),
+                    id: validated_tx.to_signed_transaction().get_hash(),
                     outcome: ExecutionOutcome {
                         status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
                         logs: vec![],
@@ -1713,12 +1714,12 @@ impl Runtime {
         let apply_state = &mut processing_state.apply_state;
         let state_update = &mut processing_state.state_update;
 
-        let transactions =
+        let signed_txs =
             processing_state.transactions.transactions.into_iter().cloned().collect::<Vec<_>>();
         for (tx_hash, result) in Self::parallel_validate_transactions(
             &apply_state.config,
             apply_state.gas_price,
-            transactions,
+            signed_txs,
             apply_state.current_protocol_version,
         ) {
             match result {
@@ -1741,9 +1742,7 @@ impl Runtime {
                             continue;
                         }
                     };
-                    if receipt.receiver_id()
-                        == validated_tx.to_signed_transaction().transaction.signer_id()
-                    {
+                    if receipt.receiver_id() == validated_tx.to_transaction().signer_id() {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
                         receipt_sink.forward_or_buffer_receipt(

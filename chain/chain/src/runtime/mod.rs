@@ -527,7 +527,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
-        transaction: SignedTransaction,
+        signed_tx: SignedTransaction,
         current_protocol_version: ProtocolVersion,
         receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
@@ -542,9 +542,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             if let ShardAcceptsTransactions::No(reason) =
                 congestion_control.shard_accepts_transactions()
             {
-                let shard_id = shard_layout
-                    .account_id_to_shard_id(transaction.transaction.receiver_id())
-                    .into();
+                let shard_id =
+                    shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id()).into();
                 let err = match reason {
                     RejectTransactionReason::IncomingCongestion { congestion_level }
                     | RejectTransactionReason::OutgoingCongestion { congestion_level }
@@ -555,11 +554,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                         InvalidTxError::ShardStuck { shard_id, missed_chunks }
                     }
                 };
-                return Err((err, transaction));
+                return Err((err, signed_tx));
             }
         }
 
-        validate_transaction(runtime_config, transaction, current_protocol_version)
+        validate_transaction(runtime_config, signed_tx, current_protocol_version)
     }
 
     fn can_verify_and_charge_tx(
@@ -738,7 +737,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // the transaction may still be rejected in which case it will
                 // not be returned to the pool. Most notably this may happen
                 // under congestion.
-                let tx = transaction_group_iter
+                let signed_tx = transaction_group_iter
                     .next()
                     .expect("peek_next() returned Some, so next() should return Some as well");
                 num_checked_transactions += 1;
@@ -749,23 +748,23 @@ impl RuntimeAdapter for NightshadeRuntime {
                     &runtime_config,
                     &epoch_id,
                     &prev_block,
-                    &tx,
+                    &signed_tx,
                 )? {
-                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction due to congestion");
+                    tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), "discarding transaction due to congestion");
                     rejected_due_to_congestion += 1;
                     continue;
                 }
 
                 // Verifying the transaction is on the same chain and hasn't expired yet.
-                if !chain_validate(&tx) {
-                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                if !chain_validate(&signed_tx) {
+                    tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), "discarding transaction that failed chain validation");
                     rejected_invalid_for_chain += 1;
                     continue;
                 }
 
-                let (verify_result, tx) =
-                    match validate_transaction(runtime_config, tx, protocol_version) {
-                        Err((err, tx)) => (Err(err), tx),
+                let (verify_result, signed_tx) =
+                    match validate_transaction(runtime_config, signed_tx, protocol_version) {
+                        Err((err, signed_tx)) => (Err(err), signed_tx),
                         Ok(validated_tx) => match tx_cost(
                             runtime_config,
                             &validated_tx,
@@ -788,7 +787,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                                 Ok(res) => {
                                     commit_charging_for_tx(
                                         &mut state_update,
-                                        &validated_tx.to_signed_transaction().transaction,
+                                        validated_tx.to_transaction(),
                                         &res.signer,
                                         &res.access_key,
                                     );
@@ -800,16 +799,16 @@ impl RuntimeAdapter for NightshadeRuntime {
 
                 match verify_result {
                     Ok(cost) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation and verification");
+                        tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), "including transaction that passed validation and verification");
                         state_update.commit(StateChangeCause::NotWritableToDisk);
                         total_gas_burnt += cost.gas_burnt;
-                        total_size += tx.get_size();
-                        result.transactions.push(tx);
+                        total_size += signed_tx.get_size();
+                        result.transactions.push(signed_tx);
                         // Take one transaction from this group, no more.
                         break;
                     }
                     Err(err) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
+                        tracing::trace!(target: "runtime", tx=?signed_tx.get_hash(), ?err, "discarding transaction that failed verification or verification");
                         rejected_invalid_tx += 1;
                         state_update.rollback();
                     }
