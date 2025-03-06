@@ -1180,7 +1180,13 @@ fn test_resharding_v3_global_contract_base(
     deploy_mode: GlobalContractDeployMode,
 ) {
     let global_contract_deployer: AccountId = "account4".parse().unwrap();
-    let caller_accounts = vec!["account1".parse().unwrap(), "account2".parse().unwrap()];
+    let caller_accounts = vec![
+        "account0".parse().unwrap(),
+        "account1".parse().unwrap(),
+        "account3".parse().unwrap(),
+        "account5".parse().unwrap(),
+        "account2".parse().unwrap(),
+    ];
     let global_contract_user: AccountId = "account6".parse().unwrap();
     let params = TestReshardingParametersBuilder::default()
         .base_protocol_version(PROTOCOL_VERSION - 1)
