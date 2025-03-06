@@ -2,6 +2,7 @@ use crate::approval_verification::verify_approvals_and_threshold_orphan;
 use crate::block_processing_utils::BlockPreprocessInfo;
 use crate::chain::collect_receipts_from_response;
 use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
+use crate::store::utils::get_block_header_on_chain_by_height;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
@@ -497,10 +498,11 @@ impl<'a> ChainUpdate<'a> {
 
         // Note that block headers are already synced and can be taken
         // from store on disk.
-        let block_header = self
-            .chain_store_update
-            .chain_store()
-            .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
+        let block_header = get_block_header_on_chain_by_height(
+            &self.chain_store_update.chain_store(),
+            &sync_hash,
+            chunk.height_included(),
+        )?;
 
         // Getting actual incoming receipts.
         let mut receipt_proof_responses: Vec<ReceiptProofResponse> = vec![];
@@ -640,10 +642,11 @@ impl<'a> ChainUpdate<'a> {
                 .entered();
         // Note that block headers are already synced and can be taken
         // from store on disk.
-        let block_header_result = self
-            .chain_store_update
-            .chain_store()
-            .get_block_header_on_chain_by_height(&sync_hash, height);
+        let block_header_result = get_block_header_on_chain_by_height(
+            &self.chain_store_update.chain_store(),
+            &sync_hash,
+            height,
+        );
         if let Err(_) = block_header_result {
             // No such height, go ahead.
             return Ok(true);

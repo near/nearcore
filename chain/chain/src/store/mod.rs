@@ -47,6 +47,7 @@ use near_store::{
     KeyForStateChanges, LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, PartialStorage, Store,
     StoreUpdate, TAIL_KEY, WrappedTrieChanges,
 };
+use utils::check_transaction_validity_period;
 
 use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::{STATE_SYNC_DUMP_KEY, StoreStatistics};
@@ -491,7 +492,8 @@ impl ChainStore {
         prev_block_header: &BlockHeader,
         base_block_hash: &CryptoHash,
     ) -> Result<(), InvalidTxError> {
-        self.store.check_transaction_validity_period(
+        check_transaction_validity_period(
+            &self.store,
             prev_block_header,
             base_block_hash,
             self.transaction_validity_period,

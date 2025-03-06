@@ -1,5 +1,8 @@
 use super::state_request_tracker::StateRequestTracker;
-use crate::store::utils::{get_chunk_clone_from_header, get_incoming_receipts_for_shard};
+use crate::store::utils::{
+    get_block_header_on_chain_by_height, get_chunk_clone_from_header,
+    get_incoming_receipts_for_shard,
+};
 use crate::types::RuntimeAdapter;
 use crate::validate::validate_chunk_proofs;
 use crate::{ReceiptFilter, byzantine_assert, metrics};
@@ -110,9 +113,11 @@ impl ChainStateSyncAdapter {
         let chunk = get_chunk_clone_from_header(&self.chain_store, chunk_header)?;
         let chunk_proof =
             chunk_proofs.get(prev_shard_index).ok_or(Error::InvalidShardId(shard_id))?.clone();
-        let block_header = self
-            .chain_store
-            .get_block_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
+        let block_header = get_block_header_on_chain_by_height(
+            &self.chain_store,
+            &sync_hash,
+            chunk_header.height_included(),
+        )?;
 
         // Collecting the `prev` state.
         let (prev_chunk_header, prev_chunk_proof, prev_chunk_height_included) = match self
@@ -386,9 +391,11 @@ impl ChainStateSyncAdapter {
             ));
         }
 
-        let block_header = self
-            .chain_store
-            .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
+        let block_header = get_block_header_on_chain_by_height(
+            &self.chain_store,
+            &sync_hash,
+            chunk.height_included(),
+        )?;
         // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
         match (&prev_chunk_header, shard_state_header.prev_chunk_proof()) {
