@@ -91,30 +91,14 @@ pub fn validate_transaction(
     signed_tx: SignedTransaction,
     current_protocol_version: ProtocolVersion,
 ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
-    // Don't allow V1 currently. This will be changed when the new protocol version is introduced.
-    if matches!(signed_tx.transaction, near_primitives::transaction::Transaction::V1(_)) {
-        return Err((InvalidTxError::InvalidTransactionVersion, signed_tx));
-    }
-    let tx = &signed_tx.transaction;
-    let tx_size = signed_tx.get_size();
-    let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
-    if tx_size > max_tx_size {
-        return Err((
-            InvalidTxError::TransactionSizeExceeded { size: tx_size, limit: max_tx_size },
-            signed_tx,
-        ));
-    }
-
-    if let Err(err) =
-        validate_actions(&config.wasm_config.limit_config, tx.actions(), current_protocol_version)
-    {
+    if let Err(err) = validate_actions(
+        &config.wasm_config.limit_config,
+        signed_tx.transaction.actions(),
+        current_protocol_version,
+    ) {
         return Err((InvalidTxError::ActionsValidation(err), signed_tx));
     }
-
-    match ValidatedTransaction::new(signed_tx) {
-        Ok(validated_tx) => Ok(validated_tx),
-        Err(signed_tx) => Err((InvalidTxError::InvalidSignature, signed_tx)),
-    }
+    ValidatedTransaction::new(config, signed_tx)
 }
 
 pub fn commit_charging_for_tx(

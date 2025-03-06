@@ -48,7 +48,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
             );
             let signer = InMemorySigner::test_signer(&indexer_tx.transaction.signer_id);
             let signed_tx = tx.sign(&signer);
-            let validated_tx = ValidatedTransaction::new(signed_tx).unwrap();
+            let validated_tx = ValidatedTransaction::new(runtime_config, signed_tx).unwrap();
 
             let cost =
                 tx_cost(&runtime_config, &validated_tx, prev_block_gas_price, protocol_version)

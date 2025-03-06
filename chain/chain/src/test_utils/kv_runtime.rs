@@ -1004,13 +1004,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _shard_layout: &ShardLayout,
         signed_tx: SignedTransaction,
-        _current_protocol_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
         _receiver_congestion_info: Option<ExtendedCongestionInfo>,
     ) -> Result<ValidatedTransaction, (InvalidTxError, SignedTransaction)> {
-        match ValidatedTransaction::new(signed_tx) {
-            Ok(validated_tx) => Ok(validated_tx),
-            Err(signed_tx) => Err((InvalidTxError::InvalidSignature, signed_tx)),
-        }
+        let config = self.get_runtime_config(protocol_version).unwrap();
+        ValidatedTransaction::new(&config, signed_tx)
     }
 
     fn can_verify_and_charge_tx(
