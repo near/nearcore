@@ -298,6 +298,17 @@ impl RocksDB {
         Ok(())
     }
 
+    pub fn drop_column(&mut self, column_name: &str, col: Option<DBCol>) -> io::Result<()> {
+        tracing::info!(target: "store::db::rocksdb", name = column_name, col = ?col, "RocksDB::drop_column");
+        let column_name = if let Some(col) = col {
+            self.cf_handles[col] = None;
+            col_name(col)
+        } else {
+            column_name
+        };
+        self.db.drop_cf(column_name).map_err(io::Error::other)
+    }
+
     #[tracing::instrument(
         target = "store::db::rocksdb",
         level = "trace",
