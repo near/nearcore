@@ -380,10 +380,10 @@ impl PartialEncodedStateWitnessTracker {
             return Ok(());
         }
 
-        if create_if_not_exists {
-            self.maybe_insert_new_entry_in_parts_cache(&key);
-        }
         let mut parts_cache = self.parts_cache.lock().unwrap();
+        if create_if_not_exists {
+            Self::maybe_insert_new_entry_in_parts_cache(&mut parts_cache, &key);
+        }
         let Some(entry) = parts_cache.get_mut(&key) else {
             return Ok(());
         };
@@ -457,8 +457,10 @@ impl PartialEncodedStateWitnessTracker {
 
     // Function to insert a new entry into the cache for the chunk hash if it does not already exist
     // We additionally check if an evicted entry has been fully decoded and processed.
-    fn maybe_insert_new_entry_in_parts_cache(&self, key: &ChunkProductionKey) {
-        let mut parts_cache = self.parts_cache.lock().unwrap();
+    fn maybe_insert_new_entry_in_parts_cache(
+        parts_cache: &mut LruCache<ChunkProductionKey, CacheEntry>,
+        key: &ChunkProductionKey,
+    ) {
         if !parts_cache.contains(key) {
             if let Some((evicted_key, evicted_entry)) =
                 parts_cache.push(key.clone(), CacheEntry::new(key.shard_id))
