@@ -1574,7 +1574,7 @@ impl Chain {
         let block_height = block.height();
         match self.process_optimistic_block(me, block, chunks, apply_chunks_done_sender) {
             Ok(()) => {
-                info!(
+                debug!(
                     target: "chain", prev_block_hash = ?prev_block_hash,
                     hash = ?block_hash, height = block_height,
                     "Processed optimistic block"
