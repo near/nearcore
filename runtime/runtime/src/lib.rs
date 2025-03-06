@@ -338,7 +338,7 @@ impl Runtime {
         validated_tx: &ValidatedTransaction,
         transaction_cost: &TransactionCost,
         stats: &mut ChunkApplyStatsV0,
-        pre_verified: Option<VerificationResult>,
+        pre_verified: VerificationResult,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), InvalidTxError> {
         let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
@@ -1166,13 +1166,10 @@ impl Runtime {
                 // Check if there is already a receipt that was postponed and was awaiting for the
                 // given data_id.
                 // If we don't have a postponed receipt yet, we don't need to do anything for now.
-                if let Some(receipt_id) = get(
-                    state_update,
-                    &TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: data_receipt.data_id,
-                    },
-                )? {
+                if let Some(receipt_id) = get(state_update, &TrieKey::PostponedReceiptId {
+                    receiver_id: account_id.clone(),
+                    data_id: data_receipt.data_id,
+                })? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update.remove(TrieKey::PostponedReceiptId {
@@ -1180,10 +1177,10 @@ impl Runtime {
                         data_id: data_receipt.data_id,
                     });
                     // Checking how many input data items is pending for the receipt.
-                    let pending_data_count: u32 = get(
-                        state_update,
-                        &TrieKey::PendingDataCount { receiver_id: account_id.clone(), receipt_id },
-                    )?
+                    let pending_data_count: u32 = get(state_update, &TrieKey::PendingDataCount {
+                        receiver_id: account_id.clone(),
+                        receipt_id,
+                    })?
                     .ok_or_else(|| {
                         StorageError::StorageInconsistentState(
                             "pending data count should be in the state".to_string(),
@@ -1884,11 +1881,12 @@ impl Runtime {
             .into_par_iter()
             .map(|task| {
                 match verifier::verify_ephemeral_group(
+                    &apply_state.config,
+                    &state_update,
                     task.ephemeral,
                     &task.group,
                     Some(apply_state.block_height),
                     apply_state.current_protocol_version,
-                    &apply_state.config,
                 ) {
                     Ok((ephemeral, verified)) => Ok(GroupResult { ephemeral, verified }),
                     Err(e) => Err(e),
@@ -1906,6 +1904,8 @@ impl Runtime {
                     all_verified.extend(o.verified);
                 }
                 Err(e) => {
+                    // TODO: this only reports metric once per group, but it should be per tx
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     Self::handle_invalid_transaction(
                         e,
                         &near_primitives::hash::CryptoHash::default(),
@@ -1929,7 +1929,7 @@ impl Runtime {
                 &st,
                 &cost,
                 &mut processing_state.stats,
-                Some(vr.clone()),
+                vr,
             );
             match outcome {
                 Ok((receipt, outcome_with_id)) => {
