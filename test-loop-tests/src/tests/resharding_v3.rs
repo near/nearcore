@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use crate::builder::TestLoopBuilder;
+use crate::env::TestLoopEnv;
 use crate::utils::loop_action::{LoopAction, LoopActionStatus};
 use crate::utils::receipts::{
     ReceiptKind, check_receipts_presence_after_resharding_block,
@@ -354,6 +355,51 @@ fn get_base_shard_layout(version: u64) -> ShardLayout {
     }
 }
 
+fn setup_global_contracts(
+    env: &mut TestLoopEnv,
+    client_account_id: &AccountId,
+    deploy_test_global_contract: &[(AccountId, GlobalContractDeployMode)],
+    use_test_global_contract: &[(AccountId, GlobalContractIdentifier)],
+    test_setup_transactions: &mut Vec<CryptoHash>,
+) {
+    let mut nonce = 100;
+
+    // Deploy global contracts
+    for (deployer_id, deploy_mode) in deploy_test_global_contract {
+        let deploy_contract_tx = deploy_global_contract(
+            &mut env.test_loop,
+            &env.datas,
+            client_account_id,
+            deployer_id.clone(),
+            near_test_contracts::rs_contract().into(),
+            nonce,
+            deploy_mode.clone(),
+        );
+        nonce += 1;
+        test_setup_transactions.push(deploy_contract_tx);
+    }
+
+    // Make sure the global contract is deployed before the usage transactions.
+    env.test_loop.run_for(Duration::seconds(2));
+    check_txs(&env.test_loop.data, &env.datas, client_account_id, &test_setup_transactions);
+
+    *test_setup_transactions = vec![];
+
+    // Use global contracts
+    for (user_id, identifier) in use_test_global_contract {
+        let use_contract_tx = use_global_contract(
+            &mut env.test_loop,
+            &env.datas,
+            client_account_id,
+            user_id.clone(),
+            nonce,
+            identifier.clone(),
+        );
+        nonce += 1;
+        test_setup_transactions.push(use_contract_tx);
+    }
+}
+
 /// Base setup to check sanity of Resharding V3.
 fn test_resharding_v3_base(params: TestReshardingParameters) {
     if !ProtocolFeature::SimpleNightshadeV4.enabled(PROTOCOL_VERSION) {
@@ -477,36 +523,13 @@ fn test_resharding_v3_base(params: TestReshardingParameters) {
 
     let mut test_setup_transactions = vec![];
     if !params.deploy_test_global_contract.is_empty() {
-        let mut nonce = 100;
-        for (deployer_id, deploy_mode) in &params.deploy_test_global_contract {
-            let deploy_contract_tx = deploy_global_contract(
-                &mut env.test_loop,
-                &env.datas,
-                &client_account_id,
-                deployer_id.clone(),
-                near_test_contracts::rs_contract().into(),
-                nonce,
-                deploy_mode.clone(),
-            );
-            nonce += 1;
-            test_setup_transactions.push(deploy_contract_tx);
-        }
-        // Make sure the global contract is deployed before the usage transactions.
-        env.test_loop.run_for(Duration::seconds(2));
-        check_txs(&env.test_loop.data, &env.datas, &client_account_id, &test_setup_transactions);
-        test_setup_transactions = vec![];
-        for (user_id, identifier) in &params.use_test_global_contract {
-            let use_contract_tx = use_global_contract(
-                &mut env.test_loop,
-                &env.datas,
-                &client_account_id,
-                user_id.clone(),
-                nonce,
-                identifier.clone(),
-            );
-            nonce += 1;
-            test_setup_transactions.push(use_contract_tx);
-        }
+        setup_global_contracts(
+            &mut env,
+            &client_account_id,
+            &params.deploy_test_global_contract,
+            &params.use_test_global_contract,
+            &mut test_setup_transactions,
+        );
     }
     for contract_id in &params.deploy_test_contract {
         let deploy_contract_tx = deploy_contract(
