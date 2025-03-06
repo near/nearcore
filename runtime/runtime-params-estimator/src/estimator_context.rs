@@ -446,7 +446,7 @@ impl Testbed<'_> {
     /// Network costs for sending are not included.
     pub(crate) fn verify_transaction(
         &mut self,
-        tx: SignedTransaction,
+        signed_tx: SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
@@ -456,9 +456,12 @@ impl Testbed<'_> {
         let block_height = None;
 
         let clock = GasCost::measure(metric);
-        let validated_tx =
-            node_runtime::validate_transaction(&self.apply_state.config, tx, PROTOCOL_VERSION)
-                .expect("expected no validation error");
+        let validated_tx = node_runtime::validate_transaction(
+            &self.apply_state.config,
+            signed_tx,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected no validation error");
         let cost =
             tx_cost(&self.apply_state.config, &validated_tx, gas_price, PROTOCOL_VERSION).unwrap();
 

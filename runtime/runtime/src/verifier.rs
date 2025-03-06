@@ -95,30 +95,24 @@ pub fn validate_transaction(
     if matches!(signed_tx.transaction, near_primitives::transaction::Transaction::V1(_)) {
         return Err((InvalidTxError::InvalidTransactionVersion, signed_tx));
     }
-    let transaction = &signed_tx.transaction;
-
-    let transaction_size = signed_tx.get_size();
-    let max_transaction_size = config.wasm_config.limit_config.max_transaction_size;
-    if transaction_size > max_transaction_size {
+    let tx = &signed_tx.transaction;
+    let tx_size = signed_tx.get_size();
+    let max_tx_size = config.wasm_config.limit_config.max_transaction_size;
+    if tx_size > max_tx_size {
         return Err((
-            InvalidTxError::TransactionSizeExceeded {
-                size: transaction_size,
-                limit: max_transaction_size,
-            },
+            InvalidTxError::TransactionSizeExceeded { size: tx_size, limit: max_tx_size },
             signed_tx,
         ));
     }
 
-    if let Err(err) = validate_actions(
-        &config.wasm_config.limit_config,
-        transaction.actions(),
-        current_protocol_version,
-    ) {
+    if let Err(err) =
+        validate_actions(&config.wasm_config.limit_config, tx.actions(), current_protocol_version)
+    {
         return Err((InvalidTxError::ActionsValidation(err), signed_tx));
     }
 
     match ValidatedTransaction::new(signed_tx) {
-        Ok(v) => Ok(v),
+        Ok(validated_tx) => Ok(validated_tx),
         Err(signed_tx) => Err((InvalidTxError::InvalidSignature, signed_tx)),
     }
 }

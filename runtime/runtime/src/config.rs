@@ -253,27 +253,21 @@ pub fn tx_cost(
     gas_price: Balance,
     protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
-    let transaction = &validated_tx.to_signed_tx().transaction;
-    let sender_is_receiver = transaction.receiver_id() == transaction.signer_id();
+    let tx = validated_tx.to_tx();
+    let sender_is_receiver = tx.receiver_id() == tx.signer_id();
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
     gas_burnt = safe_add_gas(
         gas_burnt,
-        total_send_fees(
-            config,
-            sender_is_receiver,
-            transaction.actions(),
-            transaction.receiver_id(),
-        )?,
+        total_send_fees(config, sender_is_receiver, tx.actions(), tx.receiver_id())?,
     )?;
     let prepaid_gas = safe_add_gas(
-        total_prepaid_gas(&transaction.actions())?,
-        total_prepaid_send_fees(config, &transaction.actions())?,
+        total_prepaid_gas(&tx.actions())?,
+        total_prepaid_send_fees(config, &tx.actions())?,
     )?;
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
-    let initial_receipt_hop =
-        if transaction.signer_id() == transaction.receiver_id() { 0 } else { 1 };
+    let initial_receipt_hop = if tx.signer_id() == tx.receiver_id() { 0 } else { 1 };
     let minimum_new_receipt_gas = if protocol_version < FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION {
         fees.min_receipt_with_function_call_gas()
     } else {
@@ -302,12 +296,12 @@ pub fn tx_cost(
         safe_add_gas(prepaid_gas, fees.fee(ActionCosts::new_action_receipt).exec_fee())?;
     gas_remaining = safe_add_gas(
         gas_remaining,
-        total_prepaid_exec_fees(config, transaction.actions(), transaction.receiver_id())?,
+        total_prepaid_exec_fees(config, tx.actions(), tx.receiver_id())?,
     )?;
     let burnt_amount = safe_gas_to_balance(gas_price, gas_burnt)?;
     let remaining_gas_amount = safe_gas_to_balance(receipt_gas_price, gas_remaining)?;
     let mut total_cost = safe_add_balance(burnt_amount, remaining_gas_amount)?;
-    total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions())?)?;
+    total_cost = safe_add_balance(total_cost, total_deposit(&tx.actions())?)?;
     Ok(TransactionCost { gas_burnt, gas_remaining, receipt_gas_price, total_cost, burnt_amount })
 }
 
