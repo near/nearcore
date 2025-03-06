@@ -25,12 +25,6 @@ use std::sync::Arc;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
-#[cfg(feature = "io_trace")]
-fn base64(s: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(s)
-}
-
 /// Structure representing the results and outcomes of a contract execution.
 ///
 /// This is a subset of [`VMLogic`] that's strictly necessary to produce `VMOutcome`s.

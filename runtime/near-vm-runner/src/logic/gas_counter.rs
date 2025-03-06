@@ -366,7 +366,7 @@ impl StorageAccessTracker for GasCounter {
         self.pay_per(ExtCosts::read_cached_trie_node, count)
     }
 
-    fn deref_write_evicted_value_bytes(&mut self, bytes: u64) -> super::dependencies::Result<()> {
+    fn deref_write_evicted_value_bytes(&mut self, bytes: u64) -> Result<()> {
         self.pay_per(ExtCosts::storage_write_evicted_byte, bytes)
     }
     fn deref_removed_value_bytes(&mut self, bytes: u64) -> Result<()> {

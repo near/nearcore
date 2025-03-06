@@ -133,10 +133,6 @@ fn wrap_storage_error(error: StorageError) -> VMLogicError {
 
 type ExtResult<T> = ::std::result::Result<T, VMLogicError>;
 
-// fn trie_node_counter(&mut self) -> near_vm_runner::logic::TrieNodesCounter {
-//     Convert::convert(self.trie_update.trie().get_trie_nodes_count())
-// }
-
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set<'b>(
         &'b mut self,
@@ -173,10 +169,10 @@ impl<'a> External for RuntimeExt<'a> {
             target = "io_tracer",
             storage_op = "write",
             key = base64(&key),
-            size = value_len,
+            size = value.len(),
             evicted_len = evicted.as_ref().map(Vec::len),
-            tn_mem_reads = nodes_delta.mem_reads,
-            tn_db_reads = nodes_delta.db_reads,
+            tn_mem_reads = delta.mem_reads,
+            tn_db_reads = delta.db_reads,
         );
         Ok(evicted)
     }
@@ -193,11 +189,12 @@ impl<'a> External for RuntimeExt<'a> {
             StorageGetMode::FlatStorage => KeyLookupMode::FlatStorage,
             StorageGetMode::Trie => KeyLookupMode::Trie,
         };
-        let result = self
-            .trie_update
-            .get_ref(&storage_key, mode)
-            .map_err(wrap_storage_error)
-            .map(|option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<_>));
+        // SUBTLE: unlike `write` or `remove` which does not record TTN fees if the read operations
+        // fail for the evicted values, this will record the TTN fees unconditionally.
+        let result =
+            self.trie_update.get_ref(&storage_key, mode).map_err(wrap_storage_error).map(
+                |option| option.map(|ptr| Box::new(RuntimeExtValuePtr(ptr)) as Box<dyn ValuePtr>),
+            );
         let delta = self
             .trie_update
             .trie()
@@ -208,14 +205,16 @@ impl<'a> External for RuntimeExt<'a> {
         access_tracker.cached_trie_node_access(delta.mem_reads)?;
 
         #[cfg(feature = "io_trace")]
-        tracing::trace!(
-            target = "io_tracer",
-            storage_op = "read",
-            key = base64(&key),
-            size = read.as_ref().map(Vec::len),
-            tn_db_reads = nodes_delta.db_reads,
-            tn_mem_reads = nodes_delta.mem_reads,
-        );
+        if let Ok(read) = &result {
+            tracing::trace!(
+                target = "io_tracer",
+                storage_op = "read",
+                key = base64(&key),
+                size = read.as_ref().map(|v| v.len()),
+                tn_db_reads = delta.db_reads,
+                tn_mem_reads = delta.mem_reads,
+            );
+        }
         Ok(result?)
     }
 
@@ -552,4 +551,10 @@ impl<'a> Contract for RuntimeContractExt<'a> {
         }
         self.storage.get(self.code_hash).map(Arc::new)
     }
+}
+
+#[cfg(feature = "io_trace")]
+fn base64(s: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(s)
 }

@@ -172,7 +172,7 @@ sandbox = [
   "near-o11y/sandbox",
   "node-runtime/sandbox",
 ]
-io_trace = ["near-vm-runner/io_trace"]
+io_trace = ["node-runtime/io_trace"]
 
 calimero_zero_storage = ["near-primitives/calimero_zero_storage"]
 tx_generator = ["near-transactions-generator"]
