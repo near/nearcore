@@ -154,11 +154,12 @@ pub trait External {
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_runner::logic::External;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     ///
     /// # let mut external = MockedExternal::new();
-    /// assert_eq!(external.storage_set(b"key42", b"value1337"), Ok(()));
+    /// assert_eq!(external.storage_set(&mut FreeGasCounter, b"key42", b"value1337"), Ok(None));
     /// // Should return an old value if the key exists
-    /// assert_eq!(external.storage_set(b"key42", b"new_value"), Ok(()));
+    /// assert_eq!(external.storage_set(&mut FreeGasCounter, b"key42", b"new_value"), Ok(Some(b"value1337".to_vec())));
     /// ```
     fn storage_set<'a>(
         &'a mut self,
@@ -183,12 +184,14 @@ pub trait External {
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_runner::logic::{External, ValuePtr};
     /// # use near_parameters::vm::StorageGetMode;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key42", b"value1337").unwrap();
-    /// assert_eq!(external.storage_get(b"key42", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), Some(b"value1337".to_vec()));
+    /// let mut gas = FreeGasCounter;
+    /// external.storage_set(&mut gas, b"key42", b"value1337").unwrap();
+    /// assert_eq!(external.storage_get(&mut gas, b"key42", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref(&mut gas).unwrap()), Some(b"value1337".to_vec()));
     /// // Returns Ok(None) if there is no value for a key
-    /// assert_eq!(external.storage_get(b"no_key", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref().unwrap()), None);
+    /// assert_eq!(external.storage_get(&mut gas, b"no_key", StorageGetMode::Trie).unwrap().map(|ptr| ptr.deref(&mut gas).unwrap()), None);
     /// ```
     fn storage_get<'a>(
         &'a self,
@@ -209,13 +212,14 @@ pub trait External {
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
     /// # use near_vm_runner::logic::External;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key42", b"value1337").unwrap();
+    /// external.storage_set(&mut FreeGasCounter, b"key42", b"value1337").unwrap();
     /// // Returns Ok if exists
-    /// assert_eq!(external.storage_remove(b"key42"), Ok(()));
+    /// assert_eq!(external.storage_remove(&mut FreeGasCounter, b"key42"), Ok(Some(b"value1337".to_vec())));
     /// // Returns Ok if there was no value
-    /// assert_eq!(external.storage_remove(b"no_value_key"), Ok(()));
+    /// assert_eq!(external.storage_remove(&mut FreeGasCounter, b"no_value_key"), Ok(None));
     /// ```
     fn storage_remove(
         &mut self,
@@ -239,14 +243,15 @@ pub trait External {
     /// # Example
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     /// # use near_vm_runner::logic::{External, StorageGetMode};
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key1", b"value1337").unwrap();
-    /// external.storage_set(b"key2", b"value1337").unwrap();
-    /// assert_eq!(external.storage_remove_subtree(b"key"), Ok(()));
-    /// assert!(!external.storage_has_key(b"key1", StorageGetMode::Trie).unwrap());
-    /// assert!(!external.storage_has_key(b"key2", StorageGetMode::Trie).unwrap());
+    /// external.storage_set(&mut FreeGasCounter, b"key1", b"value1337").unwrap();
+    /// external.storage_set(&mut FreeGasCounter, b"key2", b"value1337").unwrap();
+    /// assert_eq!(external.storage_remove_subtree(&mut FreeGasCounter, b"key"), Ok(()));
+    /// assert!(!external.storage_has_key(&mut FreeGasCounter, b"key1", StorageGetMode::Trie).unwrap());
+    /// assert!(!external.storage_has_key(&mut FreeGasCounter, b"key2", StorageGetMode::Trie).unwrap());
     /// ```
     fn storage_remove_subtree(
         &mut self,
@@ -270,14 +275,15 @@ pub trait External {
     /// # Example
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
+    /// # use near_vm_runner::logic::gas_counter::FreeGasCounter;
     /// # use near_vm_runner::logic::{External, StorageGetMode};
     ///
     /// # let mut external = MockedExternal::new();
-    /// external.storage_set(b"key42", b"value1337").unwrap();
+    /// external.storage_set(&mut FreeGasCounter, b"key42", b"value1337").unwrap();
     /// // Returns value if exists
-    /// assert_eq!(external.storage_has_key(b"key42", StorageGetMode::Trie), Ok(true));
+    /// assert_eq!(external.storage_has_key(&mut FreeGasCounter, b"key42", StorageGetMode::Trie), Ok(true));
     /// // Returns None if there was no value
-    /// assert_eq!(external.storage_has_key(b"no_value_key", StorageGetMode::Trie), Ok(false));
+    /// assert_eq!(external.storage_has_key(&mut FreeGasCounter, b"no_value_key", StorageGetMode::Trie), Ok(false));
     /// ```
     fn storage_has_key(
         &mut self,
