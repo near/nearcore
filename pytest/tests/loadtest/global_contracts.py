@@ -31,13 +31,14 @@ if __name__ == '__main__':
         'Generates constant stream of global contract deployment transactions')
     parser.add_argument('--key-path', type=str, required=True)
     parser.add_argument('--node-url', type=str, required=True)
-    parser.add_argument('--shard-id', type=int, required=True)
+    parser.add_argument('--shard-id', type=int, required=False)
 
     args = parser.parse_args()
     signer_key = Key.from_json_file(args.key_path)
     url_parse_result = urlparse(args.node_url)
     rpc_addr, rpc_port = url_parse_result.hostname, url_parse_result.port
-    receivers = shard_receiver_accounts[args.shard_id]
+    receivers = [shard_receiver_accounts[args.shard_id]
+                ] if args.shard_id is not None else shard_receiver_accounts
 
     num_shards = len(receivers)
     executor = ThreadPoolExecutor(max_workers=num_shards)
@@ -54,6 +55,7 @@ if __name__ == '__main__':
         def send_tx(i, receiver):
             # sleeping here to make best-effort ordering of transactions so nonces are valid
             time.sleep(i / 20)
+            # start = time.time()
             signed_tx = sign_deploy_global_contract_tx(
                 signer_key,
                 code,
@@ -61,6 +63,8 @@ if __name__ == '__main__':
                 nonce + i,
                 latest_block_hash,
             )
+            # elapsed = time.time() - start
+            # logger.info(f"Time to sign tx: {elapsed:.2f} seconds")
             try:
                 resp = json_rpc('broadcast_tx_async',
                                 [base64.b64encode(signed_tx).decode('utf8')],
@@ -75,6 +79,6 @@ if __name__ == '__main__':
                          enumerate(receivers)))
         elapsed = time.time() - start
         logger.info(f"Sent global contract deployment transaction in {elapsed:.2f} seconds")
-        if elapsed < 0.5:
-            time.sleep(0.5 - elapsed)
+        if elapsed < 1:
+            time.sleep(1 - elapsed)
         nonce += 1
