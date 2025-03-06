@@ -9,13 +9,12 @@ use crate::prefetch::TriePrefetcher;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
-    verify_and_charge_tx_ephemeral,
+    verify_and_charge_tx_ephemeral, verify_ephemeral_group
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
 use congestion_control::ReceiptSink;
 pub use congestion_control::bootstrap_congestion_info;
-use ephemeral_data::EphemeralAccount;
 use itertools::Itertools;
 use metrics::ApplyMetrics;
 pub use near_crypto;
@@ -86,7 +85,6 @@ mod bandwidth_scheduler;
 pub mod config;
 mod congestion_control;
 mod conversions;
-mod ephemeral_data;
 pub mod ext;
 pub mod metrics;
 mod pipelining;
@@ -1835,94 +1833,78 @@ impl Runtime {
             }
         }
 
-        valid_txs.sort_by(|(tx_a, _), (tx_b, _)| {
-            (tx_a.transaction.signer_id(), tx_a.transaction.public_key(), tx_a.transaction.nonce())
-                .cmp(&(
-                    tx_b.transaction.signer_id(),
-                    tx_b.transaction.public_key(),
-                    tx_b.transaction.nonce(),
-                ))
-        });
-
-        let groups: Vec<(
-            (near_primitives::types::AccountId, near_crypto::PublicKey),
-            Vec<(SignedTransaction, TransactionCost)>,
-        )> = valid_txs
+        // tag each valid transaction with its original index
+        let valid_with_idx: Vec<(usize, (SignedTransaction, TransactionCost))> =
+            valid_txs.into_iter().enumerate().collect();
+        
+        // group by signer_id and public_key
+        let mut groups: Vec<(
+            (AccountId, near_crypto::PublicKey),
+            Vec<(usize, (SignedTransaction, TransactionCost))>,
+        )> = valid_with_idx
             .into_iter()
-            .group_by(|(st, _)| {
-                (st.transaction.signer_id().clone(), st.transaction.public_key().clone())
+            .group_by(|(_, (tx, _))| {
+                (
+                    tx.transaction.signer_id().clone(),
+                    tx.transaction.public_key().clone(),
+                )
             })
             .into_iter()
             .map(|(key, group)| (key, group.collect()))
             .collect();
-
-        #[derive(Debug)]
-        struct GroupTask {
-            ephemeral: EphemeralAccount,
-            group: Vec<(SignedTransaction, TransactionCost)>,
-        }
-
-        let mut tasks = Vec::new();
-        for ((signer_id, public_key), group_list) in groups {
-            let ephemeral = match EphemeralAccount::new(state_update, signer_id, public_key) {
-                Ok(e) => e,
-                Err(err) => return Err(err),
-            };
-            tasks.push(GroupTask { ephemeral, group: group_list });
-        }
+    
+        // sort groups by the minimum index in each group
+        groups.sort_by_key(|(_, group)| group.iter().map(|(i, _)| *i).min().unwrap());
+        // within each group, drop the index and sort transactions by nonce ascending
+        let groups: Vec<((AccountId, near_crypto::PublicKey), Vec<(SignedTransaction, TransactionCost)>)> =
+            groups
+                .into_iter()
+                .map(|(key, mut group)| {
+                    group.sort_by_key(|(_, (tx, _))| tx.transaction.nonce());
+                    (key, group.into_iter().map(|(_, pair)| pair).collect())
+                })
+                .collect();
 
         #[derive(Debug)]
         struct GroupResult {
-            ephemeral: EphemeralAccount,
             verified: Vec<(SignedTransaction, VerificationResult)>,
         }
+        
+        let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = groups
+        .into_par_iter()
+        .map(|((_, _), group_list)| {
+            let verified = verify_ephemeral_group(
+                &apply_state.config,
+                state_update,
+                &group_list,
+                Some(apply_state.block_height),
+                apply_state.current_protocol_version,
+            )?;
+            Ok(GroupResult { verified })
+        })
+        .collect();
 
-        let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = tasks
-            .into_par_iter()
-            .map(|task| {
-                match verifier::verify_ephemeral_group(
-                    &apply_state.config,
-                    &state_update,
-                    task.ephemeral,
-                    &task.group,
-                    Some(apply_state.block_height),
-                    apply_state.current_protocol_version,
-                ) {
-                    Ok((ephemeral, verified)) => Ok(GroupResult { ephemeral, verified }),
-                    Err(e) => Err(e),
-                }
-            })
-            .collect();
-
-        let mut ephemeral_accounts = Vec::new();
         let mut all_verified = Vec::new();
 
-        for outcome in group_outcomes {
-            match outcome {
-                Ok(o) => {
-                    ephemeral_accounts.push(o.ephemeral);
-                    all_verified.extend(o.verified);
-                }
+        for gr in group_outcomes {
+            match gr {
+                Ok(gr) => all_verified.extend(gr.verified),
                 Err(e) => {
-                    // TODO: this only reports metric once per group, but it should be per tx
-                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
                     Self::handle_invalid_transaction(
                         e,
-                        &near_primitives::hash::CryptoHash::default(),
+                        &CryptoHash::default(),
                         processing_state.protocol_version,
-                        "ephemeral group checks error",
+                        "final verify_ephemeral_group error",
                     )?;
                 }
             }
         }
 
-        for ephemeral in ephemeral_accounts {
-            ephemeral.commit(state_update);
-        }
-
         for (st, vr) in all_verified {
             let hash = st.get_hash();
             let cost = Self::convert_verification_to_cost(&vr);
+
+            commit_charging_for_tx(state_update, &st.transaction, &vr.signer, &vr.access_key);
             let outcome = self.process_transaction(
                 state_update,
                 apply_state,
