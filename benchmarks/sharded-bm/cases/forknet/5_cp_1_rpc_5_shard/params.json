@@ -1,18 +1,14 @@
 {
     "chunk_producers": 5,
     "rpcs": 1,
-    "base_config_patch": "../../base_config_patch.json",
-    "base_genesis_patch": "../../5_shards_genesis_patch.json",
     "num_accounts": 200,
     "channel_buffer_size": 30000,
-    "requests_per_second": 1000,
-    "num_transfers": 70000,
+    "requests_per_second": 500,
+    "num_transfers": 100000,
     "forknet": {
         "name": "tps5shards",
         "start_height": "138038233",
-        "chunk_producers": ["2467", "cd2b", "0d6a", "7953", "19cb"],
-        "rpc": "60b4",
-        "rpc_addr": "10.132.0.59:3030",
-        "boot_nodes": "ed25519:HJHeHmTGs9aj9oNtXbuZhgGq2aTCcr8it13DLRVp4eZw@10.132.0.59:24567"
+        "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard",
+        "rpc": "mocknet-mainnet-138038233-tps5shards-60b4"
     }
 }

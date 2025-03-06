@@ -32,14 +32,8 @@ Keep shared configuration overrides in the base directory, example `base_config_
         "start_height": "138038233",
         // neard binary url 
         "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard",
-        // name or suffix of all chunk producers
-        "chunk_producers": ["2467", "cd2b", "0d6a", "7953", "19cb"],
         // name or suffix of RPC node
         "rpc": "60b4",
-        // address of RPC node (use internal IP)
-        "rpc_addr": "10.132.0.59:3030",
-        // boot node string (I use key and internal IP of RPC node)
-        "boot_nodes": "ed25519:HJHeHmTGs9aj9oNtXbuZhgGq2aTCcr8it13DLRVp4eZw@10.132.0.59:24567"
     }
 }
 ```

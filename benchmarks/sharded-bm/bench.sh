@@ -59,17 +59,13 @@ fi
 if [ "${RUN_ON_FORKNET}" = true ]; then
     GEN_NODES_DIR="${GEN_NODES_DIR:-/home/ubuntu/bench}"
     FORKNET_NAME=$(jq -r '.forknet.name' ${BM_PARAMS})
-    FORKNET_RPC_ADDR=$(jq -r '.forknet.rpc_addr' ${BM_PARAMS})
     FORKNET_START_HEIGHT=$(jq -r '.forknet.start_height' ${BM_PARAMS})
-    FORKNET_BOOT_NODES=$(jq -r '.forknet.boot_nodes' ${BM_PARAMS})
     FORKNET_RPC_NODE_ID=$(jq -r ".forknet.rpc" ${BM_PARAMS})
-    RPC_ADDR=${FORKNET_RPC_ADDR}
-    VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
     NUM_SHARDS=$(jq '.shard_layout.V2.shard_ids | length' ${GENESIS} 2>/dev/null) || true 
     NODE_BINARY_URL=$(jq -r '.forknet.binary_url' ${BM_PARAMS})
+    VALIDATOR_KEY=${NEAR_HOME}/validator_key.json
     mirror="${VIRTUAL_ENV}/python3 tests/mocknet/mirror.py --chain-id mainnet --start-height ${FORKNET_START_HEIGHT} --unique-id ${FORKNET_NAME}"
     echo "Forknet name: ${FORKNET_NAME}"
-    echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
 else
     NEARD="${NEARD:-/home/ubuntu/neard}"
     echo "neard path: ${NEARD}"
@@ -80,7 +76,6 @@ RPC_URL="http://${RPC_ADDR}"
 
 start_nodes_forknet() {
     cd ${PYTEST_PATH}
-    # $mirror --host-type nodes start-nodes
     $mirror --host-type nodes run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh start-neard0 ${CASE}"
     cd -
 }
@@ -114,7 +109,6 @@ start_nodes() {
 
 stop_nodes_forknet() {
     cd ${PYTEST_PATH}
-    # $mirror --host-type nodes stop-nodes || true
     $mirror --host-type nodes run-cmd --cmd "killall --wait neard0 || true"
     cd -
 }
@@ -163,19 +157,25 @@ reset() {
     echo "=> Done"
 }
 
+fetch_forknet_details() {
+    # Retrieve the internal IP of the node using gcloud command
+    FORKNET_RPC_INTERNAL_IP=$(gcloud compute instances list --project=nearone-mocknet --filter="name=${FORKNET_RPC_NODE_ID}" --format="get(networkInterfaces[0].networkIP)")
+    # Extract the public key from the node_key.json file
+    NODE_PUBLIC_KEY=$(jq -r '.public_key' ${GEN_NODES_DIR}/node${NUM_CHUNK_PRODUCERS}/node_key.json)
+    FORKNET_BOOT_NODES="${NODE_PUBLIC_KEY}@${FORKNET_RPC_INTERNAL_IP}:24567"
+    # Retrieve the list of chunk producers by excluding the RPC node and the traffic node
+    FORKNET_CP_NODES=$(gcloud compute instances list --project=nearone-mocknet --filter="name~'${FORKNET_NAME}' AND -name~'${FORKNET_RPC_NODE_ID}' AND -name~'traffic'" --format="get(name)")
+    FORKNET_RPC_ADDR="${FORKNET_RPC_INTERNAL_IP}:3030"
+    RPC_ADDR=${FORKNET_RPC_ADDR}
+    RPC_URL="http://${RPC_ADDR}"
+    echo "Forknet RPC address: ${FORKNET_RPC_ADDR}"
+    echo "Forknet CP nodes: ${FORKNET_CP_NODES}"
+}
+
 init_forknet() {
-    # epoch_length=$(jq -r '.epoch_length' ${BASE_GENESIS_PATCH})
-    # protocol_version=$(jq -r '.protocol_version' ${GENESIS_PATCH})
     cd ${PYTEST_PATH}
-    $mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url none
-    # $mirror --host-type nodes new-test \
-    #     --epoch-length ${epoch_length} \
-    #     --genesis-protocol-version ${protocol_version} \
-    #     --num-validators ${NUM_CHUNK_PRODUCERS} \
-    #     --num-seats ${NUM_CHUNK_PRODUCERS} \
-    #     --stateless-setup \
-    #     --new-chain-id ${FORKNET_NAME} \
-    #     --yes
+    $mirror init-neard-runner --neard-binary-url ${NODE_BINARY_URL} --neard-upgrade-binary-url ""
+    $mirror --host-type nodes update-binaries
     $mirror --host-type nodes run-cmd --cmd "mkdir -p ${BENCHNET_DIR}"    
     $mirror --host-type nodes upload-file --src ${SYNTH_BM_BIN} --dst ${BENCHNET_DIR}
     $mirror --host-type nodes run-cmd --cmd "chmod +x ${BENCHNET_DIR}/near-synth-bm"
@@ -211,7 +211,7 @@ edit_genesis() {
     jq -s 'reduce .[] as $item ({}; . * $item)' \
         ${1} ${GENESIS_PATCH} > tmp.$$.json && mv tmp.$$.json ${1} || rm tmp.$$.json
     # remove quotes around "gas_limit" (workaround for jq 1.6 bigint bug)
-    sed -i 's/"gas_limit": "\(.*\)"/"gas_limit": \1/' ${1}
+    sed -i'.bak' -e 's/"gas_limit": "\(.*\)"/"gas_limit": \1/' ${1} && rm "${1}.bak"
 }
 
 edit_config() {
@@ -230,21 +230,23 @@ edit_log_config() {
 }
 
 tweak_config_forknet() {
+    fetch_forknet_details
     cwd=$(pwd)
     cd ${PYTEST_PATH}
     $mirror --host-type nodes upload-file --src ${cwd}/bench.sh --dst ${BENCHNET_DIR}
     $mirror --host-type nodes upload-file --src ${cwd}/cases --dst ${BENCHNET_DIR}
     $mirror --host-type nodes upload-file --src ${GEN_NODES_DIR} --dst ${BENCHNET_DIR}/nodes
     cd -
-    for i in $(seq 0 $((NUM_CHUNK_PRODUCERS-1))); do
-        node=$(jq -r ".forknet.chunk_producers[${i}]" ${BM_PARAMS})
+    node_index=0
+    for node in ${FORKNET_CP_NODES}; do
         cd ${PYTEST_PATH}
-        $mirror --host-filter ".*${node}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${i}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE} cp"
+        $mirror --host-filter ".*${node}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${node_index}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE} ${FORKNET_BOOT_NODES}"
         cd -
+        node_index=$((node_index + 1))
     done
 
     cd ${PYTEST_PATH}
-    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE} rpc"
+    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cp ${BENCHNET_DIR}/nodes/node${NUM_CHUNK_PRODUCERS}/* ${NEAR_HOME}/ && cd ${BENCHNET_DIR}; ./bench.sh tweak-config-forknet-node ${CASE}"
     cd -
 }
 
@@ -254,9 +256,10 @@ tweak_config_forknet_node() {
     jq --arg val "0.0.0.0:3030" \
         '.rpc.addr |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     node_type=$1
-    if [ "${node_type}" = "cp" ]; then
-        jq --arg val "${FORKNET_BOOT_NODES}" \
-        '.network.boot_nodes |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
+    boot_nodes=$2
+    if [ -n "$boot_nodes" ]; then
+        jq --arg val "${boot_nodes}" \
+            '.network.boot_nodes |= $val' ${CONFIG} > tmp.$$.json && mv tmp.$$.json ${CONFIG} || rm tmp.$$.json
     fi
 }
 
@@ -276,7 +279,7 @@ tweak_config_local() {
         done
         # set single node RPC port to known value
         jq --arg val "${RPC_ADDR}" \
-            '.rpc.addr |= $val' ${NEAR_HOMES[-1]}/config.json > tmp.$$.json && mv tmp.$$.json ${NEAR_HOMES[-1]}/config.json || rm tmp.$$.json
+            '.rpc.addr |= $val' ${NEAR_HOMES[NUM_NODES-1]}/config.json > tmp.$$.json && mv tmp.$$.json ${NEAR_HOMES[NUM_NODES-1]}/config.json || rm tmp.$$.json
     fi
 }
 
@@ -291,8 +294,9 @@ tweak_config() {
 }
 
 create_accounts_forknet() {
+    fetch_forknet_details
     cd ${PYTEST_PATH}
-    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-local ${CASE}"
+    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh create-accounts-local ${CASE} ${RPC_URL}"
     cd -
 }
 
@@ -302,11 +306,13 @@ create_accounts_local() {
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
+    url=$1
 
     mkdir -p ${USERS_DATA_DIR}
     num_accounts=$(jq '.num_accounts' ${BM_PARAMS})
     echo "Number of shards: ${NUM_SHARDS}"
     echo "Accounts per shard: ${num_accounts}"
+    echo "RPC: ${url}"
     for i in $(seq 0 $((NUM_SHARDS-1))); do
         prefix=$(printf "a%02d" ${i})
         data_dir="${USERS_DATA_DIR}/shard${i}"
@@ -314,7 +320,7 @@ create_accounts_local() {
         echo "Creating ${num_accounts} accounts for shard: ${i}, account prefix: ${prefix}, use data dir: ${data_dir}, nonce: ${nonce}"
         RUST_LOG=info \
         ${cmd} create-sub-accounts \
-            --rpc-url ${RPC_URL} \
+            --rpc-url ${url} \
             --signer-key-path ${VALIDATOR_KEY} \
             --nonce ${nonce} \
             --sub-account-prefix ${prefix} \
@@ -331,14 +337,15 @@ create_accounts() {
     if [ "${RUN_ON_FORKNET}" = true ]; then
         create_accounts_forknet
     else
-        create_accounts_local
+        create_accounts_local ${RPC_URL}
     fi
     echo "=> Done"
 }
 
 native_transfers_forknet() {
+    fetch_forknet_details
     cd ${PYTEST_PATH}
-    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh native-transfers-local ${CASE}"
+    $mirror --host-filter ".*${FORKNET_RPC_NODE_ID}" run-cmd --cmd "cd ${BENCHNET_DIR}; ./bench.sh native-transfers-local ${CASE} ${RPC_URL}"
     cd -
 }
 
@@ -348,8 +355,10 @@ native_transfers_local() {
     else
         cmd="cargo run --manifest-path ${SYNTH_BM_PATH} --release --"
     fi
+    url=$1
 
     echo "Number of shards: ${NUM_SHARDS}"
+    echo "RPC: ${url}"
     num_transfers=$(jq '.num_transfers' ${BM_PARAMS})
     buffer_size=$(jq '.channel_buffer_size' ${BM_PARAMS})
     rps=$(jq '.requests_per_second' ${BM_PARAMS})
@@ -363,7 +372,7 @@ native_transfers_local() {
         echo "Running benchmark for shard: ${i}, log file: ${log}, data dir: ${data_dir}"
         RUST_LOG=info \
         ${cmd} benchmark-native-transfers \
-            --rpc-url ${RPC_URL} \
+            --rpc-url ${url} \
             --user-data-dir ${data_dir}/ \
             --num-transfers ${num_transfers} \
             --channel-buffer-size ${buffer_size} \
@@ -378,7 +387,7 @@ native_transfers() {
     if [ "${RUN_ON_FORKNET}" = true ]; then
         native_transfers_forknet
     else
-        native_transfers_local
+        native_transfers_local ${RPC_URL}
     fi
     echo "=> Done"
 }
@@ -450,7 +459,7 @@ case "$1" in
 
     # Forknet specific methods, not part of user API.
     tweak-config-forknet-node)
-        tweak_config_forknet_node $3
+        tweak_config_forknet_node $2 $3
         ;;
 
     start-neard0)
@@ -458,11 +467,11 @@ case "$1" in
         ;;
 
     create-accounts-local)
-        create_accounts_local
+        create_accounts_local $3
         ;;
 
     native-transfers-local)
-        native_transfers_local
+        native_transfers_local $3
         ;;
 
     *)

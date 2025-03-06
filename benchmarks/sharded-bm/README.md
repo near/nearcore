@@ -7,6 +7,9 @@ The main objective is to make the benchmarks easy to run and reproducible.
 ## Requirements
 
 - `cargo` to build synthetic benchmark tools
+- `gcloud`, `python` for forknet benchmarks
+
+I advice running localnet benchmarks on a linux machine.
 
 ## Benchmark cases definition
 
@@ -118,7 +121,9 @@ export SYNTH_BM_BIN=<absolute path to near-synth-bm>
 
 # either run this command or export an env variable (GEN_NODES_DIR) with the path to its output, 
 # which is a directory containing config for node0, node1, etc 
-./bench.sh init cases/forknet/5_cp_1_rpc_5_shard/local
+./bench.sh init cases/forknet/5_cp_1_rpc_5_shard/config
+# or on macOS
+NEARD=<path-to-neard> BENCHNET_DIR=$GEN_NODES_DIR ./bench.sh init cases/forknet/5_cp_1_rpc_5_shard/config
 
 ./bench.sh init
 ./bench.sh start-nodes
@@ -132,6 +137,4 @@ Grafana mostly, [Blockchain utilization dashboard](https://grafana.nearone.org/g
 
 ### Known issues
 
-- updating `param.json` is tedious
-- the `start-node` command hangs sometimes (it works, but it must be manually interrupted)
 - generating nodes config and keys beforehand with another `init` is suboptimal
