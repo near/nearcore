@@ -426,7 +426,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
-    fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, Error>;
+    fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout;
 
     fn validate_tx(
         &self,
