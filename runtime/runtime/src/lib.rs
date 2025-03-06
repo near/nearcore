@@ -1871,16 +1871,18 @@ impl Runtime {
         }
         
         let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = groups
-        .into_par_iter()
-        .map(|((_, _), group_list)| {
-            let verified = verify_ephemeral_group(
-                &apply_state.config,
-                state_update,
-                &group_list,
-                Some(apply_state.block_height),
-                apply_state.current_protocol_version,
-            )?;
-            Ok(GroupResult { verified })
+        .par_chunks(512)
+        .flat_map(|chunk| {
+            chunk.iter().map(|((_, _), group_list)| {
+                let verified = verify_ephemeral_group(
+                    &apply_state.config,
+                    state_update,
+                    group_list,
+                    Some(apply_state.block_height),
+                    apply_state.current_protocol_version,
+                )?;
+                Ok(GroupResult { verified })
+            }).collect::<Vec<_>>()
         })
         .collect();
 
