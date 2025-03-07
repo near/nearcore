@@ -1076,8 +1076,8 @@ impl ForkNetworkCommand {
         // This is based on the assumption that epoch length is part of genesis config and not epoch config.
         near_config.genesis.config.epoch_length = epoch_length;
 
-        let epoch_config =
-            self.override_epoch_configs(genesis_protocol_version, num_seats, home_dir)?;
+        // let original_config =
+        //     self.override_epoch_configs(genesis_protocol_version, num_seats, home_dir)?;
 
         let original_config = near_config.genesis.config.clone();
 
@@ -1101,24 +1101,25 @@ impl ForkNetworkCommand {
             genesis_height: height,
             genesis_time,
             epoch_length,
-            num_block_producer_seats: epoch_config.num_block_producer_seats,
+            num_block_producer_seats: original_config.num_block_producer_seats,
             num_block_producer_seats_per_shard,
             avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
             chunk_producer_kickout_threshold: 0,
             chunk_validator_only_kickout_threshold: 0,
-            target_validator_mandates_per_shard: epoch_config.target_validator_mandates_per_shard,
+            target_validator_mandates_per_shard: original_config
+                .target_validator_mandates_per_shard,
             max_kickout_stake_perc: 0,
-            online_min_threshold: epoch_config.online_min_threshold,
-            online_max_threshold: epoch_config.online_max_threshold,
-            fishermen_threshold: epoch_config.fishermen_threshold,
-            minimum_stake_divisor: epoch_config.minimum_stake_divisor,
-            protocol_upgrade_stake_threshold: epoch_config.protocol_upgrade_stake_threshold,
+            online_min_threshold: original_config.online_min_threshold,
+            online_max_threshold: original_config.online_max_threshold,
+            fishermen_threshold: original_config.fishermen_threshold,
+            minimum_stake_divisor: original_config.minimum_stake_divisor,
+            protocol_upgrade_stake_threshold: original_config.protocol_upgrade_stake_threshold,
             shard_layout,
-            num_chunk_only_producer_seats: epoch_config.num_chunk_only_producer_seats,
-            minimum_validators_per_shard: epoch_config.minimum_validators_per_shard,
-            minimum_stake_ratio: epoch_config.minimum_stake_ratio,
-            shuffle_shard_assignment_for_chunk_producers: epoch_config
+            num_chunk_only_producer_seats: original_config.num_chunk_only_producer_seats,
+            minimum_validators_per_shard: original_config.minimum_validators_per_shard,
+            minimum_stake_ratio: original_config.minimum_stake_ratio,
+            shuffle_shard_assignment_for_chunk_producers: original_config
                 .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
             protocol_version: genesis_protocol_version,
@@ -1134,9 +1135,9 @@ impl ForkNetworkCommand {
             total_supply: original_config.total_supply,
             transaction_validity_period: original_config.transaction_validity_period,
             use_production_config: original_config.use_production_config,
-            num_chunk_producer_seats: epoch_config.num_chunk_producer_seats,
-            num_chunk_validator_seats: epoch_config.num_chunk_validator_seats,
-            chunk_producer_assignment_changes_limit: epoch_config
+            num_chunk_producer_seats: original_config.num_chunk_producer_seats,
+            num_chunk_validator_seats: original_config.num_chunk_validator_seats,
+            chunk_producer_assignment_changes_limit: original_config
                 .chunk_producer_assignment_changes_limit,
         };
 
