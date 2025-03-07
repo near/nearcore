@@ -259,6 +259,10 @@ impl ValidatedTransaction {
     pub fn to_tx(&self) -> &Transaction {
         &self.0.transaction
     }
+
+    pub fn new_for_test(signed_tx: SignedTransaction) -> Self {
+        Self(signed_tx)
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone, ProtocolSchema)]
