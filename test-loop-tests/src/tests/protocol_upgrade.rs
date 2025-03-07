@@ -17,8 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 
 /// Test upgrading the blockchain to another protocol version.
@@ -107,13 +107,14 @@ pub(crate) fn test_protocol_upgrade(
     // Immediately start voting for the new protocol version
     let protocol_upgrade_schedule = ProtocolUpgradeVotingSchedule::new_immediate(new_protocol);
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
         .drop_protocol_upgrade_chunks(new_protocol, chunk_ranges_to_drop.clone())
         .clients(clients)
-        .build();
+        .build()
+        .warmup();
 
     let client_handle = node_datas[0].client_sender.actor_handle();
     let epoch_ids_with_old_protocol = RefCell::new(BTreeSet::new());
@@ -191,7 +192,7 @@ pub(crate) fn test_protocol_upgrade(
     }
     assert_eq!(&*observed_missing_chunks.borrow(), &expected_missing_chunks);
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

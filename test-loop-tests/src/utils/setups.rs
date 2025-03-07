@@ -9,8 +9,8 @@ use near_primitives::types::AccountId;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_vm_runner::logic::ProtocolVersion;
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 
 /// 2 producers, 2 validators, 1 rpc node, 4 shards, 20 accounts (account{i}) with 10k NEAR each.
@@ -53,6 +53,7 @@ pub fn standard_setup_1() -> TestLoopEnv {
         .epoch_config_store(epoch_config_store)
         .clients(clients)
         .build()
+        .warmup()
 }
 
 pub fn derive_new_epoch_config_from_boundary(

@@ -1,4 +1,4 @@
-use crate::env::TestLoopEnv;
+use crate::setup::env::TestLoopEnv;
 use itertools::Itertools;
 use near_async::{test_loop::data::TestLoopData, time::Duration};
 use near_chain::ChainStoreAccess;
@@ -10,8 +10,8 @@ use near_vm_runner::get_contract_cache_key;
 pub(crate) fn run_until_caches_contain_contract(env: &mut TestLoopEnv, code_hash: &CryptoHash) {
     env.test_loop.run_until(
         |test_loop_data: &mut TestLoopData| -> bool {
-            for i in 0..env.datas.len() {
-                let client_handle = env.datas[i].client_sender.actor_handle();
+            for i in 0..env.node_datas.len() {
+                let client_handle = env.node_datas[i].client_sender.actor_handle();
                 let client = &test_loop_data.get(&client_handle).client;
                 let runtime_config =
                     client.runtime_adapter.get_runtime_config(PROTOCOL_VERSION).unwrap();
@@ -35,7 +35,7 @@ pub(crate) fn assert_all_chunk_endorsements_received(
     start_height: u64,
     end_height: u64,
 ) {
-    let client_handle = env.datas[0].client_sender.actor_handle();
+    let client_handle = env.node_datas[0].client_sender.actor_handle();
     let client = &env.test_loop.data.get(&client_handle).client;
     let chain_store = client.chain.chain_store();
     let epoch_manager = &client.epoch_manager;
@@ -70,17 +70,12 @@ pub(crate) fn assert_all_chunk_endorsements_received(
 }
 
 /// Clears the compiled contract caches for all the clients.
-pub(crate) fn clear_compiled_contract_caches(_env: &mut TestLoopEnv) {
+pub(crate) fn clear_compiled_contract_caches(env: &mut TestLoopEnv) {
     #[cfg(feature = "test_features")]
-    for i in 0.._env.datas.len() {
-        let client_handle = _env.datas[i].client_sender.actor_handle();
-        let contract_cache_handle = _env
-            .test_loop
-            .data
-            .get(&client_handle)
-            .client
-            .runtime_adapter
-            .compiled_contract_cache();
+    for i in 0..env.node_datas.len() {
+        let client_handle = env.node_datas[i].client_sender.actor_handle();
+        let contract_cache_handle =
+            env.test_loop.data.get(&client_handle).client.runtime_adapter.compiled_contract_cache();
         contract_cache_handle.test_only_clear().unwrap();
     }
 }

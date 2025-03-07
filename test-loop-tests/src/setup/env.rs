@@ -1,33 +1,23 @@
-use near_async::messaging::{CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::TestLoopV2;
-use near_async::test_loop::data::{TestLoopData, TestLoopDataHandle};
+use near_async::test_loop::data::TestLoopData;
 use near_async::test_loop::sender::TestLoopSender;
 use near_async::time::Duration;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::shards_manager_actor::ShardsManagerActor;
-use near_client::client_actor::ClientActorInner;
-use near_client::{PartialWitnessActor, ViewClientActorInner};
-use near_jsonrpc::ViewClientSenderForRpc;
-use near_network::shards_manager::ShardsManagerRequestFromNetwork;
-use near_network::state_witness::PartialWitnessSenderForNetwork;
-use near_network::test_loop::{
-    ClientSenderForTestLoopNetwork, TestLoopPeerManagerActor, ViewClientSenderForTestLoopNetwork,
-};
-use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::types::AccountId;
 use near_primitives_core::types::BlockHeight;
-use nearcore::state_sync::StateSyncDumper;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
-const NETWORK_DELAY: Duration = Duration::milliseconds(10);
+use super::state::{SharedState, TestData};
 
 pub struct TestLoopEnv {
     pub test_loop: TestLoopV2,
-    pub datas: Vec<TestData>,
-    pub tempdir: TempDir,
+    pub node_datas: Vec<TestData>,
+    pub shared_state: SharedState,
 }
 
 impl TestLoopEnv {
@@ -37,7 +27,11 @@ impl TestLoopEnv {
     /// Needed because for smaller heights blocks may not get all chunks and/or
     /// approvals.
     pub fn warmup(self) -> Self {
-        let Self { mut test_loop, datas, tempdir } = self;
+        let Self { mut test_loop, node_datas: datas, shared_state } = self;
+
+        // This may happen if you're calling warmup twice or have set skip_warmup in builder.
+        assert!(shared_state.warmup_pending.load(Ordering::Relaxed), "warmup already done");
+        shared_state.warmup_pending.store(false, Ordering::Relaxed);
 
         let client_handle = datas[0].client_sender.actor_handle();
         let genesis_height = test_loop.data.get(&client_handle).client.chain.genesis().height();
@@ -60,8 +54,7 @@ impl TestLoopEnv {
             test_loop.send_adhoc_event("assertions".to_owned(), Box::new(event));
         }
         test_loop.run_instant();
-
-        Self { test_loop, datas, tempdir }
+        Self { test_loop, node_datas: datas, shared_state }
     }
 
     pub fn kill_node(&mut self, identifier: &str) {
@@ -76,12 +69,12 @@ impl TestLoopEnv {
     /// Returns the test loop data dir, if the caller wishes to reuse it for another test loop.
     pub fn shutdown_and_drain_remaining_events(mut self, timeout: Duration) -> TempDir {
         // State sync dumper is not an Actor, handle stopping separately.
-        for node_data in self.datas {
+        for node_data in self.node_datas {
             self.test_loop.data.get_mut(&node_data.state_sync_dumper_handle).stop();
         }
 
         self.test_loop.shutdown_and_drain_remaining_events(timeout);
-        self.tempdir
+        self.shared_state.tempdir
     }
 }
 
@@ -140,59 +133,5 @@ impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
         }
         // After maybe storing the chunk, send the message as usual.
         self.sender.send(message);
-    }
-}
-
-#[derive(Clone)]
-pub struct TestData {
-    pub account_id: AccountId,
-    pub peer_id: PeerId,
-    pub client_sender: TestLoopSender<ClientActorInner>,
-    pub view_client_sender: TestLoopSender<ViewClientActorInner>,
-    pub shards_manager_sender: TestLoopSender<ShardsManagerActor>,
-    pub partial_witness_sender: TestLoopSender<PartialWitnessActor>,
-    pub peer_manager_sender: TestLoopSender<TestLoopPeerManagerActor>,
-    pub state_sync_dumper_handle: TestLoopDataHandle<StateSyncDumper>,
-}
-
-impl From<&TestData> for AccountId {
-    fn from(data: &TestData) -> AccountId {
-        data.account_id.clone()
-    }
-}
-
-impl From<&TestData> for PeerId {
-    fn from(data: &TestData) -> PeerId {
-        data.peer_id.clone()
-    }
-}
-
-impl From<&TestData> for ClientSenderForTestLoopNetwork {
-    fn from(data: &TestData) -> ClientSenderForTestLoopNetwork {
-        data.client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&TestData> for ViewClientSenderForRpc {
-    fn from(data: &TestData) -> ViewClientSenderForRpc {
-        data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&TestData> for ViewClientSenderForTestLoopNetwork {
-    fn from(data: &TestData) -> ViewClientSenderForTestLoopNetwork {
-        data.view_client_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&TestData> for PartialWitnessSenderForNetwork {
-    fn from(data: &TestData) -> PartialWitnessSenderForNetwork {
-        data.partial_witness_sender.clone().with_delay(NETWORK_DELAY).into_multi_sender()
-    }
-}
-
-impl From<&TestData> for Sender<ShardsManagerRequestFromNetwork> {
-    fn from(data: &TestData) -> Sender<ShardsManagerRequestFromNetwork> {
-        data.shards_manager_sender.clone().with_delay(NETWORK_DELAY).into_sender()
     }
 }

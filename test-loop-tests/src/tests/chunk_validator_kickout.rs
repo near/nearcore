@@ -1,5 +1,5 @@
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
 use itertools::Itertools;
@@ -87,8 +87,12 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         .target_validator_mandates_per_shard(num_validator_mandates_per_shard)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup();
 
     // Run chain until our targeted chunk validator is (not) kicked out.
     let client_handle = node_datas[0].client_sender.actor_handle();
@@ -136,7 +140,7 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         Duration::seconds((5 * epoch_length) as i64),
     );
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 
