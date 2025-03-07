@@ -1567,8 +1567,14 @@ impl EpochManager {
 
     pub fn get_shard_layout(&self, epoch_id: &EpochId) -> Result<ShardLayout, EpochError> {
         let protocol_version = self.get_epoch_info(epoch_id)?.protocol_version();
-        let shard_layout = self.config.for_protocol_version(protocol_version).shard_layout;
-        Ok(shard_layout)
+        Ok(self.get_shard_layout_from_protocol_version(protocol_version))
+    }
+
+    pub fn get_shard_layout_from_protocol_version(
+        &self,
+        protocol_version: ProtocolVersion,
+    ) -> ShardLayout {
+        self.config.for_protocol_version(protocol_version).shard_layout
     }
 
     pub fn get_epoch_info(&self, epoch_id: &EpochId) -> Result<Arc<EpochInfo>, EpochError> {
