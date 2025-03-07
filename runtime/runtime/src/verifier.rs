@@ -1,4 +1,4 @@
-use crate::VerificationResult;
+use crate::{metrics, VerificationResult};
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
@@ -114,17 +114,29 @@ pub fn verify_ephemeral_group(
     let mut results = Vec::with_capacity(group.len());
     let mut temp_state = None;
     for (tx, cost) in group {
-        let vr = verify_and_charge_tx_ephemeral(
+        let current_state = temp_state.take();
+        match verify_and_charge_tx_ephemeral(
             config,
             state_update,
             tx,
             cost,
             block_height,
             current_protocol_version,
-            temp_state,
-        )?;
-        temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
-        results.push((tx.clone(), vr));
+            current_state,
+        ) {
+            Ok(vr) => {
+                temp_state = Some((vr.signer.clone(), vr.access_key.clone()));
+                results.push((tx.clone(), vr));
+            }
+            Err(e) => {
+                if checked_feature!("stable", RelaxedChunkValidation, current_protocol_version) {
+                    metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
+                    continue;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
     }
     Ok(results)
 }
