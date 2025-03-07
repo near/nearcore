@@ -2485,12 +2485,6 @@ impl Chain {
 
         let prev = self.get_block_header(&block.prev_block_hash())?;
         let prev_random_value = *prev.random_value();
-        let prev_height = prev.height();
-
-        /* TODO: this trashes the OB if there is a skipped block */
-        if prev_height + 1 != block.height() {
-            return Err(Error::InvalidBlockHeight(block.height()));
-        }
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
