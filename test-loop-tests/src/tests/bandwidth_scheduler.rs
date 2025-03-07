@@ -57,6 +57,7 @@ use testlib::bandwidth_scheduler::{
 };
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::TestData;
 use crate::utils::transactions::{TransactionRunner, run_txs_parallel};
@@ -167,8 +168,8 @@ fn run_bandwidth_scheduler_test(scenario: TestScenario, tx_concurrency: usize) -
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(vec![node_account])
-        .drop_chunks_by_height(missing_chunks_map)
         .build()
+        .drop(DropCondition::ChunksProducedByHeight(missing_chunks_map))
         .warmup();
 
     // Initialize the workload generator.

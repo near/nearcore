@@ -1,8 +1,8 @@
 use itertools::Itertools;
 use near_chain_configs::test_genesis::TestGenesisBuilder;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender, noop};
@@ -23,15 +23,14 @@ use near_client::client_actor::ClientActorInner;
 use near_client::gc_actor::GCActor;
 use near_client::sync_jobs_actor::SyncJobsActor;
 use near_client::{Client, PartialWitnessActor, ViewClientActorInner};
+use near_epoch_manager::EpochManager;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::test_loop::{TestLoopNetworkSharedState, TestLoopPeerManagerActor};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::epoch_manager::EpochConfigStore;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
 use near_primitives::version::PROTOCOL_UPGRADE_SCHEDULE;
 use near_store::adapter::StoreAdapter;
@@ -39,36 +38,13 @@ use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::{create_test_split_store, create_test_store};
 use near_store::{Store, StoreConfig, TrieConfig};
-use near_vm_runner::logic::ProtocolVersion;
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
-use crate::utils::network::{
-    block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
-};
-
-use super::env::{ClientToShardsManagerSender, TestLoopChunksStorage, TestLoopEnv};
+use super::drop_condition::ClientToShardsManagerSender;
+use super::env::TestLoopEnv;
 use super::state::{NodeState, SharedState, TestData};
 use near_chain::resharding::resharding_actor::ReshardingActor;
-
-pub enum DropConditionKind {
-    /// Whether test loop should drop all chunks validated by the given account.
-    /// Works if number of nodes is significant enough (at least three?).
-    ChunksValidatedBy(AccountId),
-    /// Whether test loop should drop all endorsements from the given account.
-    EndorsementsFrom(AccountId),
-    /// Whether test loop should drop all chunks in the given range of heights
-    /// relative to first block height where protocol version changes.
-    ProtocolUpgradeChunkRange((ProtocolVersion, HashMap<ShardIndex, std::ops::Range<i64>>)),
-    /// Specifies the chunks that should be produced by their appearance in the
-    /// chain with respect to the start of an epoch. That is, a given chunk at height
-    /// `height_created` for shard `shard_id` will be produced if
-    /// self.0[`shard_id`][`height_created` - `epoch_start`] is true, or if
-    /// `height_created` - `epoch_start` > self.0[`shard_id`].len()
-    ChunksProducedByHeight(HashMap<ShardId, Vec<bool>>),
-    // Drops Block broadcast messages with height in `self.0`
-    BlocksByHeight(HashSet<BlockHeight>),
-}
 
 pub(crate) struct TestLoopBuilder {
     test_loop: TestLoopV2,
@@ -86,8 +62,6 @@ pub(crate) struct TestLoopBuilder {
     /// Accounts whose clients should be configured as an archival node.
     /// This should be a subset of the accounts in the `clients` list.
     archival_clients: HashSet<AccountId>,
-    /// Conditions under which chunks/endorsements/blocks are dropped.
-    drop_condition_kinds: Vec<DropConditionKind>,
     /// Number of latest epochs to keep before garbage collecting associated data.
     gc_num_epochs_to_keep: Option<u64>,
     /// The store of runtime configurations to be passed into runtime adapters.
@@ -104,188 +78,6 @@ pub(crate) struct TestLoopBuilder {
     upgrade_schedule: ProtocolUpgradeVotingSchedule,
 }
 
-/// Checks whether chunk is validated by the given account.
-fn is_chunk_validated_by(
-    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    chunk: ShardChunkHeader,
-    account_id: AccountId,
-) -> bool {
-    let prev_block_hash = chunk.prev_block_hash();
-    let shard_id = chunk.shard_id();
-    let height_created = chunk.height_created();
-    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
-
-    let chunk_validators = epoch_manager_adapter
-        .get_chunk_validator_assignments(&epoch_id, shard_id, height_created)
-        .unwrap();
-    return chunk_validators.contains(&account_id);
-}
-
-/// returns !chunks_produced[shard_id][height_created - epoch_start].
-fn should_drop_chunk_by_height(
-    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    chunk: ShardChunkHeader,
-    chunks_produced: HashMap<ShardId, Vec<bool>>,
-) -> bool {
-    let prev_block_hash = chunk.prev_block_hash();
-    let shard_id = chunk.shard_id();
-    let height_created = chunk.height_created();
-
-    let height_in_epoch =
-        if epoch_manager_adapter.is_next_block_epoch_start(prev_block_hash).unwrap() {
-            0
-        } else {
-            let epoch_start =
-                epoch_manager_adapter.get_epoch_start_height(prev_block_hash).unwrap();
-            height_created - epoch_start
-        };
-    let Some(chunks_produced) = chunks_produced.get(&shard_id) else {
-        return false;
-    };
-    let Some(should_produce) = chunks_produced.get(height_in_epoch as usize) else {
-        return false;
-    };
-    !*should_produce
-}
-
-/// Returns true if the chunk should be dropped based on the
-/// `DropCondition::ProtocolUpgradeChunkRange`.
-fn should_drop_chunk_for_protocol_upgrade(
-    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    chunk: ShardChunkHeader,
-    version_of_protocol_upgrade: ProtocolVersion,
-    chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
-) -> bool {
-    let prev_block_hash = chunk.prev_block_hash();
-    let shard_id = chunk.shard_id();
-    let height_created = chunk.height_created();
-    let epoch_id = epoch_manager_adapter.get_epoch_id_from_prev_block(prev_block_hash).unwrap();
-    let shard_layout = epoch_manager_adapter.get_shard_layout(&epoch_id).unwrap();
-    let shard_index = shard_layout.get_shard_index(shard_id).unwrap();
-    // If there is no condition for the shard, all chunks
-    // pass through.
-    let Some(range) = chunk_ranges.get(&shard_index) else {
-        return false;
-    };
-
-    let epoch_protocol_version =
-        epoch_manager_adapter.get_epoch_protocol_version(&epoch_id).unwrap();
-    // Drop condition for the first epoch with new protocol version.
-    if epoch_protocol_version >= version_of_protocol_upgrade {
-        let prev_epoch_id =
-            epoch_manager_adapter.get_prev_epoch_id_from_prev_block(prev_block_hash).unwrap();
-        let prev_epoch_protocol_version =
-            epoch_manager_adapter.get_epoch_protocol_version(&prev_epoch_id).unwrap();
-        // If this is not the first epoch with new protocol version,
-        // all chunks go through.
-        if prev_epoch_protocol_version >= version_of_protocol_upgrade {
-            return false;
-        }
-
-        // Check the first block height in the epoch separately,
-        // because the block itself is not created yet.
-        // Its relative height is 0.
-        if epoch_manager_adapter.is_next_block_epoch_start(prev_block_hash).unwrap() {
-            return range.contains(&0);
-        }
-
-        // Otherwise we can get start height of the epoch by
-        // the previous hash.
-        let epoch_start_height =
-            epoch_manager_adapter.get_epoch_start_height(&prev_block_hash).unwrap();
-        range.contains(&(height_created as i64 - epoch_start_height as i64))
-    } else if epoch_protocol_version < version_of_protocol_upgrade {
-        // Drop condition for the last epoch with old protocol version.
-        let maybe_upgrade_height = epoch_manager_adapter
-            .get_estimated_protocol_upgrade_block_height(*prev_block_hash)
-            .unwrap();
-
-        // The protocol upgrade height is known if and only if
-        // protocol upgrade happens in the next epoch.
-        let Some(upgrade_height) = maybe_upgrade_height else {
-            return false;
-        };
-        let next_epoch_id =
-            epoch_manager_adapter.get_next_epoch_id_from_prev_block(prev_block_hash).unwrap();
-        let next_epoch_protocol_version =
-            epoch_manager_adapter.get_epoch_protocol_version(&next_epoch_id).unwrap();
-        assert!(epoch_protocol_version < next_epoch_protocol_version);
-        range.contains(&(height_created as i64 - upgrade_height as i64))
-    } else {
-        false
-    }
-}
-
-/// Registers condition to drop certain message received by the peer manager actor.
-fn register_drop_condition(
-    peer_manager_actor: &mut TestLoopPeerManagerActor,
-    chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
-    epoch_manager_adapter: Arc<dyn EpochManagerAdapter>,
-    condition: &DropConditionKind,
-) {
-    match condition {
-        DropConditionKind::ChunksValidatedBy(account_id) => {
-            let inner_epoch_manager_adapter = epoch_manager_adapter.clone();
-            let account_id = account_id.clone();
-            let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-                is_chunk_validated_by(
-                    inner_epoch_manager_adapter.clone(),
-                    chunk,
-                    account_id.clone(),
-                )
-            });
-
-            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
-                chunks_storage,
-                epoch_manager_adapter.clone(),
-                drop_chunks_condition,
-            ));
-        }
-        DropConditionKind::EndorsementsFrom(account_id) => {
-            peer_manager_actor
-                .register_override_handler(chunk_endorsement_dropper(account_id.clone()));
-        }
-        DropConditionKind::ProtocolUpgradeChunkRange((protocol_version, chunk_ranges)) => {
-            let inner_epoch_manager_adapter = epoch_manager_adapter.clone();
-            let protocol_version = *protocol_version;
-            let chunk_ranges = chunk_ranges.clone();
-
-            let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-                should_drop_chunk_for_protocol_upgrade(
-                    inner_epoch_manager_adapter.clone(),
-                    chunk,
-                    protocol_version,
-                    chunk_ranges.clone(),
-                )
-            });
-            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
-                chunks_storage,
-                epoch_manager_adapter.clone(),
-                drop_chunks_condition,
-            ));
-        }
-        DropConditionKind::ChunksProducedByHeight(chunks_produced) => {
-            let inner_epoch_manager_adapter = epoch_manager_adapter.clone();
-            let chunks_produced = chunks_produced.clone();
-            let drop_chunks_condition = Box::new(move |chunk: ShardChunkHeader| -> bool {
-                should_drop_chunk_by_height(
-                    inner_epoch_manager_adapter.clone(),
-                    chunk,
-                    chunks_produced.clone(),
-                )
-            });
-            peer_manager_actor.register_override_handler(chunk_endorsement_dropper_by_hash(
-                chunks_storage,
-                epoch_manager_adapter.clone(),
-                drop_chunks_condition,
-            ));
-        }
-        DropConditionKind::BlocksByHeight(heights) => {
-            peer_manager_actor.register_override_handler(block_dropper_by_height(heights.clone()));
-        }
-    }
-}
-
 impl TestLoopBuilder {
     pub(crate) fn new() -> Self {
         Self {
@@ -296,7 +88,6 @@ impl TestLoopBuilder {
             stores_override: None,
             test_loop_data_dir: None,
             archival_clients: HashSet::new(),
-            drop_condition_kinds: vec![],
             gc_num_epochs_to_keep: None,
             runtime_config_store: None,
             config_modifier: None,
@@ -357,50 +148,6 @@ impl TestLoopBuilder {
     /// These accounts should be a subset of the accounts provided to the `clients` method.
     pub(crate) fn archival_clients(mut self, clients: HashSet<AccountId>) -> Self {
         self.archival_clients = clients;
-        self
-    }
-
-    pub(crate) fn drop_chunks_validated_by(mut self, account_id: &str) -> Self {
-        self.drop_condition_kinds
-            .push(DropConditionKind::ChunksValidatedBy(account_id.parse().unwrap()));
-        self
-    }
-
-    pub(crate) fn drop_endorsements_from(mut self, account_id: &str) -> Self {
-        self.drop_condition_kinds
-            .push(DropConditionKind::EndorsementsFrom(account_id.parse().unwrap()));
-        self
-    }
-
-    pub(crate) fn drop_protocol_upgrade_chunks(
-        mut self,
-        protocol_version: ProtocolVersion,
-        chunk_ranges: HashMap<ShardIndex, std::ops::Range<i64>>,
-    ) -> Self {
-        if !chunk_ranges.is_empty() {
-            self.drop_condition_kinds.push(DropConditionKind::ProtocolUpgradeChunkRange((
-                protocol_version,
-                chunk_ranges,
-            )));
-        }
-        self
-    }
-
-    pub(crate) fn drop_chunks_by_height(
-        mut self,
-        chunks_produced: HashMap<ShardId, Vec<bool>>,
-    ) -> Self {
-        if !chunks_produced.is_empty() {
-            self.drop_condition_kinds
-                .push(DropConditionKind::ChunksProducedByHeight(chunks_produced));
-        }
-        self
-    }
-
-    pub(crate) fn drop_blocks_by_height(mut self, heights: HashSet<BlockHeight>) -> Self {
-        if !heights.is_empty() {
-            self.drop_condition_kinds.push(DropConditionKind::BlocksByHeight(heights));
-        }
         self
     }
 
@@ -514,7 +261,7 @@ impl TestLoopBuilder {
             network_shared_state: TestLoopNetworkSharedState::new(),
             upgrade_schedule: self.upgrade_schedule,
             chunks_storage: Default::default(),
-            drop_condition_kinds: self.drop_condition_kinds,
+            drop_conditions: Default::default(),
             load_memtries_for_tracked_shards: self.load_memtries_for_tracked_shards,
             warmup_pending: self.warmup_pending,
         };
@@ -603,7 +350,7 @@ impl TestLoopBuilder {
     }
 }
 
-fn setup_client(
+pub fn setup_client(
     identifier: &str,
     test_loop: &mut TestLoopV2,
     node_handle: NodeState,
@@ -618,7 +365,7 @@ fn setup_client(
         network_shared_state,
         upgrade_schedule,
         chunks_storage,
-        drop_condition_kinds,
+        drop_conditions,
         load_memtries_for_tracked_shards,
         ..
     } = shared_state;
@@ -793,7 +540,7 @@ fn setup_client(
         Arc::new(test_loop.async_computation_spawner(identifier, |_| Duration::milliseconds(80))),
     );
 
-    let mut peer_manager_actor = TestLoopPeerManagerActor::new(
+    let peer_manager_actor = TestLoopPeerManagerActor::new(
         test_loop.clock(),
         &account_id,
         network_shared_state,
@@ -819,7 +566,7 @@ fn setup_client(
         clock: test_loop.clock(),
         client_config,
         chain_genesis,
-        epoch_manager: epoch_manager.clone(),
+        epoch_manager,
         shard_tracker,
         runtime: runtime_adapter,
         validator: validator_signer,
@@ -848,15 +595,6 @@ fn setup_client(
         test_loop_data.get_mut(&state_sync_dumper_handle_clone).start().unwrap();
     });
 
-    for condition in drop_condition_kinds {
-        register_drop_condition(
-            &mut peer_manager_actor,
-            chunks_storage.clone(),
-            epoch_manager.clone(),
-            condition,
-        );
-    }
-
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
@@ -873,5 +611,11 @@ fn setup_client(
 
     // Add the client to the network shared state before returning data
     network_shared_state.add_client(&data);
+
+    // Register all accumulated drop conditions
+    for condition in drop_conditions {
+        data.register_drop_condition(&mut test_loop.data, chunks_storage.clone(), condition);
+    }
+
     data
 }

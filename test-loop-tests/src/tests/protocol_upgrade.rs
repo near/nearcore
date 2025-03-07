@@ -18,6 +18,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 
@@ -111,9 +112,9 @@ pub(crate) fn test_protocol_upgrade(
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .protocol_upgrade_schedule(protocol_upgrade_schedule)
-        .drop_protocol_upgrade_chunks(new_protocol, chunk_ranges_to_drop.clone())
         .clients(clients)
         .build()
+        .drop(DropCondition::ProtocolUpgradeChunkRange(new_protocol, chunk_ranges_to_drop.clone()))
         .warmup();
 
     let client_handle = node_datas[0].client_sender.actor_handle();

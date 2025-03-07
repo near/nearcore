@@ -25,8 +25,7 @@ use near_store::Store;
 use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
-use super::builder::DropConditionKind;
-use super::env::TestLoopChunksStorage;
+use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
@@ -45,7 +44,7 @@ pub struct SharedState {
     /// Stores all chunks ever observed on chain. Used by drop conditions to simulate network drops.
     pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
     /// List of drop conditions that apply to all nodes in the network.
-    pub drop_condition_kinds: Vec<DropConditionKind>,
+    pub drop_conditions: Vec<DropCondition>,
     pub load_memtries_for_tracked_shards: bool,
     /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,

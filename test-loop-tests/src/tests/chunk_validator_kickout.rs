@@ -1,4 +1,5 @@
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 use crate::utils::validators::get_epoch_all_validators;
@@ -41,17 +42,6 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
     let (block_and_chunk_producers, chunk_validators_only) =
         accounts_str.split_at(NUM_PRODUCER_ACCOUNTS);
 
-    let builder = match &test_case {
-        TestCase::DropChunksValidatedBy(account_id) => TestLoopBuilder::new()
-            // Drop only chunks validated by `account_id`.
-            // By how our endorsement stats are computed, this will count as this
-            // validator validating zero chunks.
-            .drop_chunks_validated_by(account_id.as_str()),
-        TestCase::DropEndorsementsFrom(account_id) => TestLoopBuilder::new()
-            // Drop only endorsements for chunks validated by `account_id`.
-            .drop_endorsements_from(account_id.as_str()),
-    };
-
     let num_validator_mandates_per_shard = match &test_case {
         // Target giving one mandate to each chunk validator, which results in
         // every chunk validator validating only one shard in most cases.
@@ -87,12 +77,25 @@ fn run_test_chunk_validator_kickout(accounts: Vec<AccountId>, test_case: TestCas
         .target_validator_mandates_per_shard(num_validator_mandates_per_shard)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
+    let env = TestLoopBuilder::new()
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients)
-        .build()
-        .warmup();
+        .build();
+
+    let env = match &test_case {
+        // Drop only chunks validated by `account_id`.
+        // By how our endorsement stats are computed, this will count as this
+        // validator validating zero chunks.
+        TestCase::DropChunksValidatedBy(account_id) => {
+            env.drop(DropCondition::ChunksValidatedBy(account_id.clone()))
+        }
+        // Drop only endorsements for chunks validated by `account_id`.
+        TestCase::DropEndorsementsFrom(account_id) => {
+            env.drop(DropCondition::EndorsementsFrom(account_id.clone()))
+        }
+    };
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = env.warmup();
 
     // Run chain until our targeted chunk validator is (not) kicked out.
     let client_handle = node_datas[0].client_sender.actor_handle();

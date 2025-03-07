@@ -18,6 +18,7 @@ use near_primitives::types::{
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
 use crate::setup::builder::TestLoopBuilder;
+use crate::setup::drop_condition::DropCondition;
 use crate::setup::env::TestLoopEnv;
 use crate::setup::state::TestData;
 use crate::utils::ONE_NEAR;
@@ -159,6 +160,9 @@ fn setup_initial_blockchain(
     let epoch_config_store =
         EpochConfigStore::test(BTreeMap::from([(PROTOCOL_VERSION, Arc::new(epoch_config))]));
 
+    let mut env =
+        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+
     let skip_block_height = if let Some(delta) = skip_block_sync_height_delta {
         // It would probably be better not to rely on this height calculation, since that makes
         // some assumptions about the state sync protocol that ideally tests wouldn't make. In the future
@@ -175,19 +179,13 @@ fn setup_initial_blockchain(
         } else {
             sync_height.saturating_sub(-delta as BlockHeight)
         };
-        builder = builder.drop_blocks_by_height([height].into_iter().collect());
+        env = env.drop(DropCondition::BlocksByHeight([height].into_iter().collect()));
         Some(height)
     } else {
         None
     };
-    let env = builder
-        .genesis(genesis)
-        .epoch_config_store(epoch_config_store)
-        .clients(clients)
-        .drop_chunks_by_height(chunks_produced)
-        .build()
-        .warmup();
 
+    let env = env.drop(DropCondition::ChunksProducedByHeight(chunks_produced)).warmup();
     TestState { env, accounts, skip_block_height }
 }
 
