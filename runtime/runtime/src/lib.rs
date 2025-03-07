@@ -1731,6 +1731,7 @@ impl Runtime {
         protocol_version: ProtocolVersion,
         reason: &str,
     ) -> Result<(), RuntimeError> {
+        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
         if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
             tracing::debug!(
                 target: "runtime",
@@ -1742,16 +1743,6 @@ impl Runtime {
             Ok(())
         } else {
             Err(e.into())
-        }
-    }
-
-    fn convert_verification_to_cost(vr: &VerificationResult) -> TransactionCost {
-        TransactionCost {
-            gas_burnt: vr.gas_burnt,
-            gas_remaining: vr.gas_remaining,
-            receipt_gas_price: vr.receipt_gas_price,
-            total_cost: vr.burnt_amount,
-            burnt_amount: vr.burnt_amount,
         }
     }
 
@@ -1871,18 +1862,17 @@ impl Runtime {
         }
         
         let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = groups
-        .par_chunks(512)
-        .flat_map(|chunk| {
-            chunk.iter().map(|((_, _), group_list)| {
-                let verified = verify_ephemeral_group(
-                    &apply_state.config,
-                    state_update,
-                    group_list,
-                    Some(apply_state.block_height),
-                    apply_state.current_protocol_version,
-                )?;
-                Ok(GroupResult { verified })
-            }).collect::<Vec<_>>()
+        .into_par_iter()
+        .with_min_len(512)
+        .map(|((_, _), group_list)| {
+            let verified = verify_ephemeral_group(
+                &apply_state.config,
+                state_update,
+                &group_list,
+                Some(apply_state.block_height),
+                apply_state.current_protocol_version,
+            )?;
+            Ok(GroupResult { verified })
         })
         .collect();
 
@@ -1904,14 +1894,13 @@ impl Runtime {
 
         for (st, vr) in all_verified {
             let hash = st.get_hash();
-            let cost = Self::convert_verification_to_cost(&vr);
-
+            
+            metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             commit_charging_for_tx(state_update, &st.transaction, &vr.signer, &vr.access_key);
             let outcome = self.process_transaction(
                 state_update,
                 apply_state,
                 &st,
-                &cost,
                 &mut processing_state.stats,
                 vr,
             );
@@ -1929,6 +1918,9 @@ impl Runtime {
                     }
                     let compute = outcome_with_id.outcome.compute_usage.unwrap_or(0);
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
+                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
+                        assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
+                    }
                     processing_state.outcomes.push(outcome_with_id);
                 }
                 Err(e) => {
