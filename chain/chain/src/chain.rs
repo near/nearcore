@@ -2487,6 +2487,7 @@ impl Chain {
         let prev_random_value = *prev.random_value();
         let prev_height = prev.height();
 
+        /* TODO: this trashes the OB if there is a skipped block */
         if prev_height + 1 != block.height() {
             return Err(Error::InvalidBlockHeight(block.height()));
         }
