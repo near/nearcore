@@ -1,0 +1,14 @@
+{
+    "chunk_producers": 5,
+    "rpcs": 1,
+    "num_accounts": 200,
+    "channel_buffer_size": 30000,
+    "requests_per_second": 500,
+    "num_transfers": 100000,
+    "forknet": {
+        "name": "tps5shards",
+        "start_height": "138038233",
+        "binary_url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/master/neard",
+        "rpc": "mocknet-mainnet-138038233-tps5shards-60b4"
+    }
+}
