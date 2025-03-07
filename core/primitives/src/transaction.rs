@@ -260,6 +260,8 @@ impl ValidatedTransaction {
         &self.0.transaction
     }
 
+    /// This method should only be used for test purposes.  This is because
+    /// kv_runtime is not designed to do proper signature verification.
     pub fn new_for_test(signed_tx: SignedTransaction) -> Self {
         Self(signed_tx)
     }
