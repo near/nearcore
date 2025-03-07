@@ -41,7 +41,8 @@ use near_store::{Store, StoreConfig, TrieConfig};
 use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use nearcore::state_sync::StateSyncDumper;
 
-use super::env::{ClientToShardsManagerSender, TestLoopEnv};
+use super::drop_condition::ClientToShardsManagerSender;
+use super::env::TestLoopEnv;
 use super::state::{NodeState, SharedState, TestData};
 use near_chain::resharding::resharding_actor::ReshardingActor;
 
@@ -597,7 +598,7 @@ pub fn setup_client(
     let peer_manager_sender =
         test_loop.data.register_actor(identifier, peer_manager_actor, Some(network_adapter));
 
-    let mut data = TestData {
+    let data = TestData {
         account_id,
         peer_id,
         client_sender,

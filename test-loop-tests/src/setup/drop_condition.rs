@@ -2,9 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
+use near_async::messaging::{CanSend, LateBoundSender};
 use near_async::test_loop::data::TestLoopData;
+use near_async::test_loop::sender::TestLoopSender;
+use near_chunks::adapter::ShardsManagerRequestFromClient;
+use near_chunks::shards_manager_actor::ShardsManagerActor;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockHeight, ShardId, ShardIndex};
 use near_vm_runner::logic::ProtocolVersion;
 
@@ -12,7 +16,6 @@ use crate::utils::network::{
     block_dropper_by_height, chunk_endorsement_dropper, chunk_endorsement_dropper_by_hash,
 };
 
-use super::env::TestLoopChunksStorage;
 use super::state::TestData;
 
 pub enum DropCondition {
@@ -34,9 +37,67 @@ pub enum DropCondition {
     BlocksByHeight(HashSet<BlockHeight>),
 }
 
+/// Stores all chunks ever observed on chain. Determines if a chunk can be
+/// dropped within a test loop.
+///
+/// Needed to intercept network messages storing chunk hash only, while
+/// interception requires more detailed information like shard id.
+#[derive(Default)]
+pub struct TestLoopChunksStorage {
+    /// Mapping from chunk hashes to headers.
+    storage: HashMap<ChunkHash, ShardChunkHeader>,
+    /// Minimal chunk height ever observed.
+    min_chunk_height: Option<BlockHeight>,
+}
+
+impl TestLoopChunksStorage {
+    pub fn insert(&mut self, chunk_header: ShardChunkHeader) {
+        let chunk_height = chunk_header.height_created();
+        self.min_chunk_height = Some(
+            self.min_chunk_height
+                .map_or(chunk_height, |current_height| current_height.min(chunk_height)),
+        );
+        self.storage.insert(chunk_header.chunk_hash(), chunk_header);
+    }
+
+    pub fn get(&self, chunk_hash: &ChunkHash) -> Option<&ShardChunkHeader> {
+        self.storage.get(chunk_hash)
+    }
+
+    /// If chunk height is too low, don't drop chunk, allow the chain to warm
+    /// up.
+    pub fn can_drop_chunk(&self, chunk_header: &ShardChunkHeader) -> bool {
+        self.min_chunk_height
+            .is_some_and(|min_height| chunk_header.height_created() >= min_height + 3)
+    }
+}
+
+/// Custom implementation of `Sender` for messages from `Client` to
+/// `ShardsManagerActor` that allows to intercept all messages indicating
+/// any chunk production and storing all chunks.
+pub struct ClientToShardsManagerSender {
+    pub sender: Arc<LateBoundSender<TestLoopSender<ShardsManagerActor>>>,
+    /// Storage of chunks shared between all test loop nodes.
+    pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+}
+
+impl CanSend<ShardsManagerRequestFromClient> for ClientToShardsManagerSender {
+    fn send(&self, message: ShardsManagerRequestFromClient) {
+        // `DistributeEncodedChunk` indicates that a certain chunk was produced.
+        if let ShardsManagerRequestFromClient::DistributeEncodedChunk { partial_chunk, .. } =
+            &message
+        {
+            let mut chunks_storage = self.chunks_storage.lock().unwrap();
+            chunks_storage.insert(partial_chunk.cloned_header());
+        }
+        // After maybe storing the chunk, send the message as usual.
+        self.sender.send(message);
+    }
+}
+
 impl TestData {
     pub fn register_drop_condition(
-        &mut self,
+        &self,
         test_loop_data: &mut TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         drop_condition: &DropCondition,
@@ -70,7 +131,7 @@ impl TestData {
     }
 
     fn register_drop_chunks_validated_by(
-        &mut self,
+        &self,
         test_loop_data: &mut TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         account_id: &AccountId,
@@ -93,7 +154,7 @@ impl TestData {
     }
 
     fn register_drop_endorsements_from(
-        &mut self,
+        &self,
         test_loop_data: &mut TestLoopData,
         account_id: &AccountId,
     ) {
@@ -102,7 +163,7 @@ impl TestData {
     }
 
     fn register_drop_protocol_upgrade_chunks(
-        &mut self,
+        &self,
         test_loop_data: &mut TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         protocol_version: ProtocolVersion,
@@ -130,7 +191,7 @@ impl TestData {
     }
 
     fn register_drop_chunks_by_height(
-        &mut self,
+        &self,
         test_loop_data: &mut TestLoopData,
         chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
         chunks_produced: HashMap<ShardId, Vec<bool>>,
@@ -156,7 +217,7 @@ impl TestData {
     }
 
     fn register_drop_blocks_by_height(
-        &mut self,
+        &self,
         test_loop_data: &mut TestLoopData,
         heights: &HashSet<BlockHeight>,
     ) {

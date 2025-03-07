@@ -25,8 +25,7 @@ use near_store::Store;
 use nearcore::state_sync::StateSyncDumper;
 use tempfile::TempDir;
 
-use super::drop_condition::DropCondition;
-use super::env::TestLoopChunksStorage;
+use super::drop_condition::{DropCondition, TestLoopChunksStorage};
 
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
