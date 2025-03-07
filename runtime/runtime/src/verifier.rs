@@ -1,6 +1,6 @@
-use crate::{metrics, VerificationResult};
 use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
+use crate::{VerificationResult, metrics};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
@@ -1336,12 +1336,14 @@ mod tests {
         )
         .expect_err("expected an error");
         let account = get_account(&state_update, &account_id).unwrap().unwrap();
-
-        assert_eq!(err, InvalidTxError::LackBalanceForState {
-            signer_id: account_id,
-            amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
-                - (initial_balance - transfer_amount)
-        });
+        assert_eq!(
+            err,
+            InvalidTxError::LackBalanceForState {
+                signer_id: account_id,
+                amount: Balance::from(account.storage_usage()) * config.storage_amount_per_byte()
+                    - (initial_balance - transfer_amount)
+            }
+        );
     }
 
     #[test]
@@ -1597,10 +1599,13 @@ mod tests {
 
         let (err, _tx) = validate_transaction(&config, signed_tx.clone(), PROTOCOL_VERSION)
             .expect_err("expected validation error - size exceeded");
-        assert_eq!(err, InvalidTxError::TransactionSizeExceeded {
-            size: transaction_size,
-            limit: max_transaction_size
-        });
+        assert_eq!(
+            err,
+            InvalidTxError::TransactionSizeExceeded {
+                size: transaction_size,
+                limit: max_transaction_size
+            }
+        );
 
         {
             let wasm_config = Arc::make_mut(&mut config.wasm_config);
@@ -1662,16 +1667,16 @@ mod tests {
     #[test]
     fn test_validate_data_receipt_valid() {
         let limit_config = test_limit_config();
-        validate_data_receipt(&limit_config, &DataReceipt {
-            data_id: CryptoHash::default(),
-            data: None,
-        })
+        validate_data_receipt(
+            &limit_config,
+            &DataReceipt { data_id: CryptoHash::default(), data: None },
+        )
         .expect("valid data receipt");
         let data = b"hello".to_vec();
-        validate_data_receipt(&limit_config, &DataReceipt {
-            data_id: CryptoHash::default(),
-            data: Some(data),
-        })
+        validate_data_receipt(
+            &limit_config,
+            &DataReceipt { data_id: CryptoHash::default(), data: Some(data) },
+        )
         .expect("valid data receipt");
     }
 
@@ -1681,10 +1686,10 @@ mod tests {
         let data = b"hello".to_vec();
         limit_config.max_length_returned_data = data.len() as u64 - 1;
         assert_eq!(
-            validate_data_receipt(&limit_config, &DataReceipt {
-                data_id: CryptoHash::default(),
-                data: Some(data.clone())
-            })
+            validate_data_receipt(
+                &limit_config,
+                &DataReceipt { data_id: CryptoHash::default(), data: Some(data.clone()) }
+            )
             .expect_err("expected an error"),
             ReceiptValidationError::ReturnedValueLengthExceeded {
                 length: data.len() as u64,
