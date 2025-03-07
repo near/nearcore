@@ -55,6 +55,7 @@ use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::validate::validate_optimistic_block_relevant;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip, genesis_chunks};
 use near_primitives::block_header::BlockHeader;
@@ -1539,12 +1540,64 @@ impl Chain {
         res
     }
 
+    /// Preprocess an optimistic block.
+    pub fn preprocess_optimistic_block(
+        &mut self,
+        block: OptimisticBlock,
+        me: &Option<AccountId>,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+    ) {
+        // Validate the optimistic block.
+        // Discard the block if it is old or not created by the right producer.
+        if let Err(e) = self.check_optimistic_block(&block) {
+            metrics::NUM_INVALID_OPTIMISTIC_BLOCKS.inc();
+            debug!(target: "client", ?e, "Optimistic block is invalid");
+            return;
+        }
+
+        self.optimistic_block_chunks.add_block(block);
+        self.maybe_process_optimistic_block(me, apply_chunks_done_sender);
+    }
+
+    pub fn maybe_process_optimistic_block(
+        &mut self,
+        me: &Option<AccountId>,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
+    ) {
+        let Some((block, chunks)) = self.optimistic_block_chunks.take_latest_ready_block() else {
+            return;
+        };
+
+        self.blocks_delay_tracker.record_optimistic_block_ready(block.height());
+
+        let prev_block_hash = *block.prev_block_hash();
+        let block_hash = *block.hash();
+        let block_height = block.height();
+        match self.process_optimistic_block(me, block, chunks, apply_chunks_done_sender) {
+            Ok(()) => {
+                debug!(
+                    target: "chain", prev_block_hash = ?prev_block_hash,
+                    hash = ?block_hash, height = block_height,
+                    "Processed optimistic block"
+                );
+            }
+            Err(err) => {
+                warn!(
+                    target: "chain", err = ?err,
+                    prev_block_hash = ?prev_block_hash,
+                    hash = ?block_hash, height = block_height,
+                    "Failed to process optimistic block"
+                );
+            }
+        }
+    }
+
     pub fn process_optimistic_block(
         &mut self,
         me: &Option<AccountId>,
         block: OptimisticBlock,
         chunk_headers: Vec<ShardChunkHeader>,
-        apply_chunks_done_sender: near_async::messaging::Sender<ApplyChunksDoneMessage>,
+        apply_chunks_done_sender: Option<near_async::messaging::Sender<ApplyChunksDoneMessage>>,
     ) -> Result<(), Error> {
         let _span = debug_span!(
             target: "chain",
@@ -1647,7 +1700,7 @@ impl Chain {
             block_height,
             jobs,
             apply_chunks_still_applying,
-            Some(apply_chunks_done_sender),
+            apply_chunks_done_sender,
         );
 
         Ok(())
@@ -2392,8 +2445,7 @@ impl Chain {
         Ok(())
     }
 
-    /// Check if optimistic block is valid and relevant to the current chain.
-    pub fn check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
+    pub fn pre_check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         let ob_timestamp =
             OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
@@ -2404,16 +2456,23 @@ impl Chain {
             return Err(Error::InvalidBlockFutureTime(ob_timestamp));
         };
 
-        let head = self.head()?;
-        if head.height >= block.height() {
-            return Err(Error::InvalidBlockHeight(block.height()));
+        if !validate_optimistic_block_relevant(
+            self.epoch_manager.as_ref(),
+            block,
+            &self.chain_store.store(),
+        )? {
+            return Err(Error::InvalidSignature);
         }
 
-        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-        // overflow-related problems
-        if block.height() > head.height + self.epoch_length * 20 {
-            return Err(Error::InvalidBlockHeight(block.height()));
-        }
+        Ok(())
+    }
+
+    /// Check if optimistic block is valid and relevant to the current chain.
+    pub fn check_optimistic_block(&self, block: &OptimisticBlock) -> Result<(), Error> {
+        // Refuse blocks from the too distant future.
+        let ob_timestamp =
+            OffsetDateTime::from_unix_timestamp_nanos(block.block_timestamp().into())
+                .map_err(|e| Error::Other(e.to_string()))?;
 
         // Check source of the optimistic block.
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash())?;
@@ -3970,7 +4029,7 @@ impl Chain {
     /// Get previous block header.
     #[inline]
     pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
-        self.chain_store.get_previous_header(header).map_err(|e| match e {
+        self.chain_store.get_previous_header(header).map_err(|e: Error| match e {
             Error::DBNotFoundErr(_) => Error::Orphan,
             other => other,
         })
