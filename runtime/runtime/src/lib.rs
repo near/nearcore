@@ -2181,6 +2181,7 @@ impl Runtime {
         let epoch_info_provider = processing_state.epoch_info_provider;
         let mut stats = processing_state.stats;
         let mut state_update = processing_state.state_update;
+        let protocol_version = apply_state.current_protocol_version;
         let pending_delayed_receipts = processing_state.delayed_receipts;
         let processed_delayed_receipts = process_receipts_result.processed_delayed_receipts;
         let promise_yield_result = process_receipts_result.promise_yield_result;
@@ -2202,7 +2203,6 @@ impl Runtime {
         let mut own_congestion_info = receipt_sink.own_congestion_info();
         if let Some(congestion_info) = &mut own_congestion_info {
             pending_delayed_receipts.apply_congestion_changes(congestion_info)?;
-            let protocol_version = apply_state.current_protocol_version;
 
             let (all_shards, shard_seed) =
                 if ProtocolFeature::SimpleNightshadeV4.enabled(protocol_version) {
@@ -2233,8 +2233,8 @@ impl Runtime {
             &mut stats,
         )?;
 
-        if cfg!(debug_assertions) {
-            if let Err(err) = check_balance(
+        if !ProtocolFeature::RemoveCheckBalance.enabled(protocol_version) {
+            check_balance(
                 &apply_state.config,
                 &state_update,
                 validator_accounts_update,
@@ -2244,16 +2244,7 @@ impl Runtime {
                 processing_state.transactions,
                 &receipt_sink.outgoing_receipts(),
                 &stats.balance,
-            ) {
-                panic!(
-                    "The runtime's balance_checker failed for shard {} at height {} with block hash {} and protocol version {}: {}",
-                    apply_state.shard_id,
-                    apply_state.block_height,
-                    apply_state.block_hash,
-                    apply_state.current_protocol_version,
-                    err
-                );
-            }
+            )?;
         }
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);

@@ -7,8 +7,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::AccountId;
 use near_primitives::version::{PROTOCOL_VERSION, ProtocolFeature};
 
-use crate::builder::TestLoopBuilder;
-use crate::env::TestLoopEnv;
+use crate::setup::builder::TestLoopBuilder;
+use crate::setup::env::TestLoopEnv;
 use crate::utils::ONE_NEAR;
 
 const NUM_SHARDS: usize = 4;
@@ -43,11 +43,12 @@ fn test_congestion_control_genesis_bootstrap() {
         .minimum_validators_per_shard(1)
         .build_store_for_genesis_protocol_version();
 
-    let TestLoopEnv { mut test_loop, datas: node_datas, tempdir } = builder
+    let TestLoopEnv { mut test_loop, node_datas, shared_state } = builder
         .genesis(genesis)
         .epoch_config_store(epoch_config_store)
         .clients(clients.clone())
-        .build();
+        .build()
+        .warmup();
 
     test_loop.run_for(Duration::seconds(5));
 
@@ -57,7 +58,7 @@ fn test_congestion_control_genesis_bootstrap() {
         );
     }
 
-    TestLoopEnv { test_loop, datas: node_datas, tempdir }
+    TestLoopEnv { test_loop, node_datas, shared_state }
         .shutdown_and_drain_remaining_events(Duration::seconds(20));
 }
 

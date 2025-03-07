@@ -1,4 +1,4 @@
-use crate::env::TestLoopChunksStorage;
+use crate::setup::env::TestLoopChunksStorage;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_primitives::sharding::ShardChunkHeader;

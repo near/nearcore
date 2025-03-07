@@ -1,4 +1,5 @@
-use crate::env::{TestData, TestLoopEnv};
+use crate::setup::env::TestLoopEnv;
+use crate::setup::state::TestData;
 use assert_matches::assert_matches;
 use itertools::Itertools;
 use near_async::messaging::{AsyncSendError, CanSend, SendAsync};
@@ -169,10 +170,10 @@ pub fn do_create_account(
     amount: u128,
 ) {
     tracing::info!(target: "test", "Creating account.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, originator);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, originator);
     let tx = create_account(env, rpc_id, originator, new_account_id, amount, nonce);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_delete_account(
@@ -182,9 +183,10 @@ pub fn do_delete_account(
     beneficiary_id: &AccountId,
 ) {
     tracing::info!(target: "test", "Deleting account.");
-    let tx = delete_account(&env.test_loop.data, &env.datas, rpc_id, account_id, beneficiary_id);
+    let tx =
+        delete_account(&env.test_loop.data, &env.node_datas, rpc_id, account_id, beneficiary_id);
     env.test_loop.run_for(Duration::seconds(5));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_deploy_contract(
@@ -194,10 +196,10 @@ pub fn do_deploy_contract(
     code: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Deploying contract.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
-    let tx = deploy_contract(&mut env.test_loop, &env.datas, rpc_id, contract_id, code, nonce);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
+    let tx = deploy_contract(&mut env.test_loop, &env.node_datas, rpc_id, contract_id, code, nonce);
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn do_call_contract(
@@ -209,10 +211,10 @@ pub fn do_call_contract(
     args: Vec<u8>,
 ) {
     tracing::info!(target: "test", "Calling contract.");
-    let nonce = get_next_nonce(&env.test_loop.data, &env.datas, contract_id);
+    let nonce = get_next_nonce(&env.test_loop.data, &env.node_datas, contract_id);
     let tx = call_contract(
         &mut env.test_loop,
-        &env.datas,
+        &env.node_datas,
         rpc_id,
         sender_id,
         contract_id,
@@ -221,7 +223,7 @@ pub fn do_call_contract(
         nonce,
     );
     env.test_loop.run_for(Duration::seconds(2));
-    check_txs(&env.test_loop.data, &env.datas, rpc_id, &[tx]);
+    check_txs(&env.test_loop.data, &env.node_datas, rpc_id, &[tx]);
 }
 
 pub fn create_account(
@@ -232,7 +234,7 @@ pub fn create_account(
     amount: u128,
     nonce: u64,
 ) -> CryptoHash {
-    let block_hash = get_shared_block_hash(&env.datas, &env.test_loop.data);
+    let block_hash = get_shared_block_hash(&env.node_datas, &env.test_loop.data);
     let signer = create_user_test_signer(&originator);
     let new_signer: Signer = create_user_test_signer(&new_account_id);
 
@@ -247,7 +249,7 @@ pub fn create_account(
     );
 
     let tx_hash = tx.get_hash();
-    submit_tx(&env.datas, rpc_id, tx);
+    submit_tx(&env.node_datas, rpc_id, tx);
     tracing::debug!(target: "test", ?originator, ?new_account_id, ?tx_hash, "created account");
     tx_hash
 }
