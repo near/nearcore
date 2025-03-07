@@ -1,4 +1,4 @@
-use crate::client::{ClientSenderForNetwork, ProcessTxSenderForNetwork, SetNetworkInfo, StateRequestPart};
+use crate::client::{ClientSenderForNetwork, SetNetworkInfo, StateRequestPart};
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol;
@@ -214,7 +214,6 @@ impl PeerManagerActor {
         store: Arc<dyn near_store::db::Database>,
         config: config::NetworkConfig,
         client: ClientSenderForNetwork,
-        tx_processor: ProcessTxSenderForNetwork,
         peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
@@ -247,7 +246,6 @@ impl PeerManagerActor {
             config,
             genesis_id,
             client,
-            tx_processor,
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,

@@ -1,7 +1,7 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
 use crate::client::{
-    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest, ProcessTxSenderForNetwork, TxStatusRequest, TxStatusResponse
+    BlockApproval, ChunkEndorsementMessage, ClientSenderForNetwork, ProcessTxRequest, TxStatusRequest, TxStatusResponse
 };
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
@@ -107,7 +107,6 @@ pub(crate) struct NetworkState {
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
     pub client: ClientSenderForNetwork,
-    pub tx_processor: ProcessTxSenderForNetwork,
     pub peer_manager_adapter: PeerManagerSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
     pub partial_witness_adapter: PartialWitnessSenderForNetwork,
@@ -183,7 +182,6 @@ impl NetworkState {
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
         client: ClientSenderForNetwork,
-        tx_processor: ProcessTxSenderForNetwork,
         peer_manager_adapter: PeerManagerSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         partial_witness_adapter: PartialWitnessSenderForNetwork,
@@ -203,7 +201,6 @@ impl NetworkState {
             })),
             genesis_id,
             client,
-            tx_processor,
             peer_manager_adapter,
             shards_manager_adapter,
             partial_witness_adapter,
@@ -733,7 +730,7 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::ForwardTx(transaction) => {
-                self.tx_processor
+                self.client
                     .send_async(ProcessTxRequest {
                         transaction,
                         is_forwarded: true,

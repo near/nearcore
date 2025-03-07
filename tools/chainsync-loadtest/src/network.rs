@@ -5,7 +5,6 @@ use near_async::messaging::IntoSender;
 use near_async::messaging::Sender;
 use near_async::messaging::noop;
 use near_async::time;
-use near_network::client::ProcessTxSenderForNetwork;
 use near_network::client::{
     AnnounceAccountRequest, BlockHeadersResponse, BlockResponse, ClientSenderForNetwork,
     SetNetworkInfo,
@@ -224,12 +223,6 @@ impl Network {
         })
     }
     
-    pub fn as_tx_processor_adapter(&self) -> ProcessTxSenderForNetwork {
-        ProcessTxSenderForNetwork {
-            transaction: noop().into_sender(),
-        }
-    }
-
     pub fn as_client_adapter(&self) -> ClientSenderForNetwork {
         let blocks = self.blocks.clone();
         let block_headers = self.block_headers.clone();
@@ -238,6 +231,7 @@ impl Network {
         ClientSenderForNetwork {
             tx_status_request: Sender::from_async_fn(|_| None),
             tx_status_response: noop().into_sender(),
+            transaction: noop().into_sender(),
             state_request_header: Sender::from_async_fn(|_| None),
             state_request_part: Sender::from_async_fn(|_| None),
             state_response: noop().into_sender(),
