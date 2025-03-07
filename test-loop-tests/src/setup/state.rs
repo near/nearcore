@@ -31,19 +31,28 @@ use super::env::TestLoopChunksStorage;
 const NETWORK_DELAY: Duration = Duration::milliseconds(10);
 
 /// This is the state associate with the test loop environment.
+/// This state is shared across all nodes and none of it belongs to a specific node.
 pub struct SharedState {
     pub genesis: Genesis,
+    /// Directory of the current test. This is automatically deleted once tempdir goes out of scope.
     pub tempdir: TempDir,
     pub epoch_config_store: EpochConfigStore,
     pub runtime_config_store: Option<RuntimeConfigStore>,
+    /// Shared state across all the network actors. It handles the mapping between AccountId,
+    /// PeerId, and the route back CryptoHash, so that individual network actors can do routing.
     pub network_shared_state: TestLoopNetworkSharedState,
     pub upgrade_schedule: ProtocolUpgradeVotingSchedule,
+    /// Stores all chunks ever observed on chain. Used by drop conditions to simulate network drops.
     pub chunks_storage: Arc<Mutex<TestLoopChunksStorage>>,
+    /// List of drop conditions that apply to all nodes in the network.
     pub drop_conditions: Vec<DropCondition>,
     pub load_memtries_for_tracked_shards: bool,
+    /// Flag to indicate if warmup is pending. This is used to ensure that warmup is only done once.
     pub warmup_pending: Arc<AtomicBool>,
 }
 
+/// This is the state associated with each node in the test loop environment before being built.
+/// The setup_client function will be called for each node to build the node and return TestData
 pub struct NodeState {
     pub account_id: AccountId,
     pub client_config: ClientConfig,
@@ -51,6 +60,9 @@ pub struct NodeState {
     pub split_store: Option<Store>,
 }
 
+/// This is the state associated with each node in the test loop environment after being built.
+/// This state is specific to each node and is not shared across nodes.
+/// We can access each of the individual actors and senders from this state.
 #[derive(Clone)]
 pub struct TestData {
     pub account_id: AccountId,

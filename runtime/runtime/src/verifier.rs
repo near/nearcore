@@ -3,7 +3,7 @@ use crate::config::{TransactionCost, total_prepaid_gas};
 use crate::near_primitives::account::Account;
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_parameters::RuntimeConfig;
-use near_primitives::account::AccessKeyPermission;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::action::DeployGlobalContractAction;
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
@@ -11,10 +11,10 @@ use near_primitives::errors::{
     ActionsValidationError, InvalidAccessKeyError, InvalidTxError, ReceiptValidationError,
 };
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
 };
+use near_primitives::transaction::{DeleteAccountAction, Transaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::types::{BlockHeight, StorageUsage};
 use near_primitives::version::ProtocolFeature;
@@ -122,11 +122,24 @@ pub fn validate_transaction(
     .map_err(InvalidTxError::ActionsValidation)
 }
 
-/// Verifies the signed transaction on top of given state, charges transaction fees
-/// and balances, and updates the state for the used account and access keys.
-pub fn verify_and_charge_transaction(
-    config: &RuntimeConfig,
+pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
+    tx: &Transaction,
+    signer: &Account,
+    access_key: &AccessKey,
+) {
+    set_access_key(state_update, tx.signer_id().clone(), tx.public_key().clone(), &access_key);
+    set_account(state_update, tx.signer_id().clone(), &signer);
+}
+
+/// Verifies the signed transaction on top of the given state; looks up the
+/// signer account and access_key from the transaction; updates them to charge
+/// for the transaction processing; returns the updated signer and access_key to
+/// the caller.  The caller can use `commit_charging_for_tx()` to commit the
+/// actual charging.
+pub fn verify_and_charge_tx_ephemeral(
+    config: &RuntimeConfig,
+    state_update: &TrieUpdate,
     signed_transaction: &SignedTransaction,
     transaction_cost: &TransactionCost,
     block_height: Option<BlockHeight>,
@@ -264,10 +277,14 @@ pub fn verify_and_charge_transaction(
         }
     };
 
-    set_access_key(state_update, signer_id.clone(), transaction.public_key().clone(), &access_key);
-    set_account(state_update, signer_id.clone(), &signer);
-
-    Ok(VerificationResult { gas_burnt, gas_remaining, receipt_gas_price, burnt_amount })
+    Ok(VerificationResult {
+        gas_burnt,
+        gas_remaining,
+        receipt_gas_price,
+        burnt_amount,
+        signer,
+        access_key,
+    })
 }
 
 /// Validates a given receipt. Checks validity of the Action or Data receipt.
@@ -621,8 +638,8 @@ mod tests {
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::set;
     use near_store::test_utils::TestTriesBuilder;
+    use near_store::{set, set_access_key, set_account};
     use near_vm_runner::ContractCode;
     use std::sync::Arc;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
@@ -736,7 +753,7 @@ mod tests {
 
     fn assert_err_both_validations(
         config: &RuntimeConfig,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         gas_price: Balance,
         signed_transaction: &SignedTransaction,
         expected_err: InvalidTxError,
@@ -755,7 +772,7 @@ mod tests {
             };
 
         // Validation passed, now verification should fail with expected_err
-        let err = verify_and_charge_transaction(
+        let err = verify_and_charge_tx_ephemeral(
             config,
             state_update,
             signed_transaction,
@@ -778,14 +795,21 @@ mod tests {
         validate_transaction(config, signed_transaction, current_protocol_version)?;
         let transaction_cost =
             tx_cost(config, &signed_transaction.transaction, gas_price, current_protocol_version)?;
-        verify_and_charge_transaction(
+        let vr = verify_and_charge_tx_ephemeral(
             config,
             state_update,
             signed_transaction,
             &transaction_cost,
             block_height,
             current_protocol_version,
-        )
+        )?;
+        commit_charging_for_tx(
+            state_update,
+            &signed_transaction.transaction,
+            &vr.signer,
+            &vr.access_key,
+        );
+        Ok(vr)
     }
 
     mod zero_balance_account_tests {
