@@ -110,13 +110,13 @@ impl ChunkValidator {
         let last_header =
             Chain::get_prev_chunk_header(epoch_manager.as_ref(), &prev_block, shard_id)?;
 
-        let chunk_producer_name = epoch_manager
-            .get_chunk_producer_info(&ChunkProductionKey {
-                shard_id,
-                epoch_id,
-                height_created: chunk_header.height_created(),
-            })?
-            .take_account_id();
+        let chunk_production_key = ChunkProductionKey {
+            shard_id,
+            epoch_id,
+            height_created: chunk_header.height_created(),
+        };
+        let chunk_producer_name =
+            epoch_manager.get_chunk_producer_info(&chunk_production_key)?.take_account_id();
 
         if let Ok(prev_chunk_extra) = chain.get_chunk_extra(prev_block_hash, &shard_uid) {
             match validate_chunk_with_chunk_extra(
@@ -141,10 +141,7 @@ impl ChunkValidator {
                         target: "client",
                         ?err,
                         ?chunk_producer_name,
-                        height_created = chunk_header.height_created(),
-                        height_included = chunk_header.height_included(),
-                        ?shard_id,
-                        ?epoch_id,
+                        ?chunk_production_key,
                         "Failed to validate chunk using existing chunk extra",
                     );
                     near_chain::stateless_validation::metrics::CHUNK_WITNESS_VALIDATION_FAILED_TOTAL
@@ -186,10 +183,7 @@ impl ChunkValidator {
                         target: "client",
                         ?err,
                         ?chunk_producer_name,
-                        height_created = chunk_header.height_created(),
-                        height_included = chunk_header.height_included(),
-                        ?shard_id,
-                        ?epoch_id,
+                        ?chunk_production_key,
                         "Failed to validate chunk"
                     );
                 }
