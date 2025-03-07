@@ -166,7 +166,6 @@ pub fn verify_and_charge_tx_ephemeral(
     let mut signer;
     let mut access_key;
 
-<<<<<<< HEAD
     let mut access_key = match get_access_key(state_update, signer_id, tx.public_key())? {
         Some(access_key) => access_key,
         None => {
@@ -179,33 +178,6 @@ pub fn verify_and_charge_tx_ephemeral(
             .into());
         }
     };
-=======
-    if ephemeral_state.is_none() {
-        signer = match get_account(state_update, signer_id)? {
-            Some(signer) => signer,
-            None => {
-                return Err(InvalidTxError::SignerDoesNotExist { signer_id: signer_id.clone() });
-            }
-        };
-
-        access_key = match get_access_key(state_update, signer_id, transaction.public_key())? {
-            Some(access_key) => access_key,
-            None => {
-                return Err(InvalidTxError::InvalidAccessKeyError(
-                    InvalidAccessKeyError::AccessKeyNotFound {
-                        account_id: signer_id.clone(),
-                        public_key: transaction.public_key().clone().into(),
-                    },
-                )
-                .into());
-            }
-        };
-    } else {
-        let (ephemeral_signer, ephemeral_access_key) = ephemeral_state.unwrap();
-        signer = ephemeral_signer;
-        access_key = ephemeral_access_key;
-    }
->>>>>>> a579c4353 (wip reduced)
 
     if tx.nonce() <= access_key.nonce {
         return Err(InvalidTxError::InvalidNonce {
