@@ -55,6 +55,7 @@ use near_chain_primitives::error::{BlockKnownError, Error};
 use near_epoch_manager::EpochManagerAdapter;
 use near_epoch_manager::shard_assignment::shard_id_to_uid;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::validate::validate_optimistic_block_relevant;
 use near_primitives::bandwidth_scheduler::BandwidthRequests;
 use near_primitives::block::{Block, BlockValidityError, Chunks, MaybeNew, Tip, genesis_chunks};
 use near_primitives::block_header::BlockHeader;
@@ -2455,36 +2456,15 @@ impl Chain {
             return Err(Error::InvalidBlockFutureTime(ob_timestamp));
         };
 
-        let head = self.head()?;
-        if block.height() <= head.height {
-            return Err(Error::InvalidBlockHeight(block.height()));
+        if !validate_optimistic_block_relevant(
+            self.epoch_manager.as_ref(),
+            block,
+            &self.chain_store.store(),
+        )? {
+            return Err(Error::InvalidSignature);
         }
 
-        // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-        // overflow-related problems
-        if block.height() > head.height + self.epoch_length * 20 {
-            return Err(Error::InvalidBlockHeight(block.height()));
-        }
-
-        // A heuristic to check signature of the block even if prev block hash is not saved yet
-        let epoch_ids =
-            match self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash()) {
-                Ok(epoch_id) => vec![epoch_id],
-                Err(EpochError::MissingBlock(_)) => self
-                    .epoch_manager
-                    .possible_epochs_of_height_around_tip(&head, block.height())?,
-                Err(err) => return Err(err.into()),
-            };
-
-        for epoch_id in epoch_ids {
-            let validator =
-                self.epoch_manager.get_block_producer_info(&epoch_id, block.height())?;
-            if block.signature.verify(block.hash().as_bytes(), validator.public_key()) {
-                return Ok(());
-            }
-        }
-
-        Err(Error::InvalidSignature)
+        Ok(())
     }
 
     /// Check if optimistic block is valid and relevant to the current chain.
