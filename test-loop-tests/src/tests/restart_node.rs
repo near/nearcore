@@ -33,8 +33,12 @@ fn test_restart_node() {
         .shuffle_shard_assignment_for_chunk_producers(true)
         .build_store_for_genesis_protocol_version();
 
-    let mut env =
-        builder.genesis(genesis).epoch_config_store(epoch_config_store).clients(clients).build();
+    let mut env = builder
+        .genesis(genesis)
+        .epoch_config_store(epoch_config_store)
+        .clients(clients)
+        .build()
+        .warmup();
 
     env.test_loop.run_for(Duration::seconds(5));
 
