@@ -401,7 +401,7 @@ async fn stun_self_discovery() {
         stun_server2.addr().to_string(),
     ]);
 
-    tracing::info!(target:"test", "spawn a node and advertize AccountData.");
+    tracing::info!(target:"test", "spawn a node and advertise AccountData.");
     let pm = start_pm(clock.clock(), TestDB::new(), cfg, chain.clone()).await;
     let chain_info = peer_manager::testonly::make_chain_info(&chain, &[&pm.cfg]);
     pm.set_chain_info(chain_info).await;

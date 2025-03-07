@@ -368,7 +368,7 @@ impl ChainStore {
         // TODO(current_epoch_state_sync): fix this when syncing to the current epoch's state
         // The congestion control added a dependency on the prev block when
         // applying chunks in a block. This means that we need to keep the
-        // blocks at sync hash, prev hash and prev prev hash. The heigh of that
+        // blocks at sync hash, prev hash and prev prev hash. The height of that
         // block is sync_height - 2.
         let mut gc_height = std::cmp::min(head.height + 1, sync_height - 2);
 
