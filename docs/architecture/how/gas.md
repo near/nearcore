@@ -16,7 +16,7 @@ The topic is split into several sections.
     - [Buying Gas](#buying-gas-for-a-transaction): How are NEAR tokens converted to gas?
     - [Burning Gas](#burning-gas): Who receives burnt tokens?
     - [Gas in Contract Calls](#gas-in-contract-calls): How is gas attached to calls?
-    - [Contract Reward](#contract-reward): How smart contract earn a reward.
+    - [Contract Reward](#contract-reward): How smart contracts earn a reward.
 2. [Gas Price](#gas-price):
     - [Block-Level Gas Price](#block-level-gas-price): How the block-level gas price is determined.
     - [Pessimistic Gas Price](#pessimistic-gas-price): How worst-case gas pricing is estimated.
@@ -27,7 +27,7 @@ The topic is split into several sections.
 
 On the highest level, gas is bought by the signer, burnt during execution, and
 contracts receive a part of the burnt gas as a reward. We will discuss each step
-in more details.
+in more detail.
 
 ### Buying Gas for a Transaction
 
