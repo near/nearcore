@@ -1731,7 +1731,6 @@ impl Runtime {
         protocol_version: ProtocolVersion,
         reason: &str,
     ) -> Result<(), RuntimeError> {
-        metrics::TRANSACTION_PROCESSED_FAILED_TOTAL.inc();
         if checked_feature!("stable", RelaxedChunkValidation, protocol_version) {
             tracing::debug!(
                 target: "runtime",
