@@ -95,11 +95,11 @@ impl TestLoopEnv {
         let account_id = node_data.account_id.clone();
         let client_actor = self.test_loop.data.get(&node_data.client_sender.actor_handle());
         let client_config = client_actor.client.config.clone();
-        let store = client_actor.client.chain.chain_store.store().clone();
+        let store = client_actor.client.chain.chain_store.store();
         let split_store = if client_config.archive {
             let view_client_actor =
                 self.test_loop.data.get(&node_data.view_client_sender.actor_handle());
-            Some(view_client_actor.chain.chain_store.store().clone())
+            Some(view_client_actor.chain.chain_store.store())
         } else {
             None
         };
