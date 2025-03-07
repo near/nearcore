@@ -9,7 +9,7 @@ use crate::prefetch::TriePrefetcher;
 use crate::verifier::{StorageStakingError, check_storage_stake, validate_receipt};
 pub use crate::verifier::{
     ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT, commit_charging_for_tx, validate_transaction,
-    verify_and_charge_tx_ephemeral, verify_ephemeral_group
+    verify_and_charge_tx_ephemeral, verify_ephemeral_group,
 };
 use bandwidth_scheduler::{BandwidthSchedulerOutput, run_bandwidth_scheduler};
 use config::{TransactionCost, total_prepaid_send_fees, tx_cost};
@@ -1827,7 +1827,7 @@ impl Runtime {
         // tag each valid transaction with its original index
         let valid_with_idx: Vec<(usize, (SignedTransaction, TransactionCost))> =
             valid_txs.into_iter().enumerate().collect();
-        
+
         // group by signer_id and public_key
         let mut groups: Vec<(
             (AccountId, near_crypto::PublicKey),
@@ -1835,46 +1835,45 @@ impl Runtime {
         )> = valid_with_idx
             .into_iter()
             .group_by(|(_, (tx, _))| {
-                (
-                    tx.transaction.signer_id().clone(),
-                    tx.transaction.public_key().clone(),
-                )
+                (tx.transaction.signer_id().clone(), tx.transaction.public_key().clone())
             })
             .into_iter()
             .map(|(key, group)| (key, group.collect()))
             .collect();
-    
+
         // sort groups by the minimum index in each group
         groups.sort_by_key(|(_, group)| group.iter().map(|(i, _)| *i).min().unwrap());
         // within each group, drop the index and sort transactions by nonce ascending
-        let groups: Vec<((AccountId, near_crypto::PublicKey), Vec<(SignedTransaction, TransactionCost)>)> =
-            groups
-                .into_iter()
-                .map(|(key, mut group)| {
-                    group.sort_by_key(|(_, (tx, _))| tx.transaction.nonce());
-                    (key, group.into_iter().map(|(_, pair)| pair).collect())
-                })
-                .collect();
+        let groups: Vec<(
+            (AccountId, near_crypto::PublicKey),
+            Vec<(SignedTransaction, TransactionCost)>,
+        )> = groups
+            .into_iter()
+            .map(|(key, mut group)| {
+                group.sort_by_key(|(_, (tx, _))| tx.transaction.nonce());
+                (key, group.into_iter().map(|(_, pair)| pair).collect())
+            })
+            .collect();
 
         #[derive(Debug)]
         struct GroupResult {
             verified: Vec<(SignedTransaction, VerificationResult)>,
         }
-        
+
         let group_outcomes: Vec<Result<GroupResult, InvalidTxError>> = groups
-        .into_par_iter()
-        .with_min_len(512)
-        .map(|((_, _), group_list)| {
-            let verified = verify_ephemeral_group(
-                &apply_state.config,
-                state_update,
-                &group_list,
-                Some(apply_state.block_height),
-                apply_state.current_protocol_version,
-            )?;
-            Ok(GroupResult { verified })
-        })
-        .collect();
+            .into_par_iter()
+            .with_min_len(512)
+            .map(|((_, _), group_list)| {
+                let verified = verify_ephemeral_group(
+                    &apply_state.config,
+                    state_update,
+                    &group_list,
+                    Some(apply_state.block_height),
+                    apply_state.current_protocol_version,
+                )?;
+                Ok(GroupResult { verified })
+            })
+            .collect();
 
         let mut all_verified = Vec::new();
 
@@ -1894,7 +1893,7 @@ impl Runtime {
 
         for (st, vr) in all_verified {
             let hash = st.get_hash();
-            
+
             metrics::TRANSACTION_PROCESSED_SUCCESSFULLY_TOTAL.inc();
             commit_charging_for_tx(state_update, &st.transaction, &vr.signer, &vr.access_key);
             let outcome = self.process_transaction(
@@ -1918,7 +1917,8 @@ impl Runtime {
                     }
                     let compute = outcome_with_id.outcome.compute_usage.unwrap_or(0);
                     total.add(outcome_with_id.outcome.gas_burnt, compute)?;
-                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version) {
+                    if !checked_feature!("stable", ComputeCosts, processing_state.protocol_version)
+                    {
                         assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
                     }
                     processing_state.outcomes.push(outcome_with_id);
