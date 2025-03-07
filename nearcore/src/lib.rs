@@ -28,8 +28,7 @@ use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::gc_actor::GCActor;
 use near_client::{
-    ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult, ViewClientActor,
-    ViewClientActorInner, spawn_tx_request_handler_actor, start_client, TxRequestHandlerConfig, 
+    spawn_tx_request_handler_actor, start_client, ClientActor, ConfigUpdater, PartialWitnessActor, StartClientResult, TxRequestHandlerActor, TxRequestHandlerConfig, ViewClientActor, ViewClientActorInner 
 };
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -214,6 +213,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
 pub struct NearNode {
     pub client: Addr<ClientActor>,
     pub view_client: Addr<ViewClientActor>,
+    pub tx_processor: Addr<TxRequestHandlerActor>,
     #[cfg(feature = "tx_generator")]
     pub tx_generator: Addr<TxGeneratorActor>,
     pub arbiters: Vec<ArbiterHandle>,
@@ -440,7 +440,7 @@ pub fn start_with_config_and_synchronization(
         epoch_length: config.client_config.epoch_length,
         transaction_validity_period: config.genesis.config.transaction_validity_period,
     };
-    let tx_processor_addr = spawn_tx_request_handler_actor(
+    let tx_processor = spawn_tx_request_handler_actor(
         tx_processor_config,
         tx_pool,
         view_epoch_manager.clone(),
@@ -472,7 +472,7 @@ pub fn start_with_config_and_synchronization(
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
         client_sender_for_network(client_actor.clone(), view_client_addr.clone()),
-        tx_processor_addr.clone().with_auto_span_context().into_multi_sender(),
+        tx_processor.clone().with_auto_span_context().into_multi_sender(),
         network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         partial_witness_actor.with_auto_span_context().into_multi_sender(),
@@ -493,7 +493,7 @@ pub fn start_with_config_and_synchronization(
             config.genesis.config.clone(),
             client_actor.clone().with_auto_span_context().into_multi_sender(),
             view_client_addr.clone().with_auto_span_context().into_multi_sender(),
-            tx_processor_addr.clone().with_auto_span_context().into_multi_sender(),
+            tx_processor.clone().with_auto_span_context().into_multi_sender(),
             network_actor.into_multi_sender(),
             #[cfg(feature = "test_features")]
             _gc_actor.with_auto_span_context().into_multi_sender(),
@@ -542,6 +542,7 @@ pub fn start_with_config_and_synchronization(
     Ok(NearNode {
         client: client_actor,
         view_client: view_client_addr,
+        tx_processor,
         #[cfg(feature = "tx_generator")]
         tx_generator,
         rpc_servers,

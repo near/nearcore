@@ -1758,7 +1758,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tx_block_queue: Arc<Mutex<VecDeque<MappedBlock>>>,
         home_dir: PathBuf,
         db: Arc<DB>,
-        clients_tx: tokio::sync::oneshot::Sender<(Addr<ClientActor>, Addr<ViewClientActor>)>,
+        clients_tx: tokio::sync::oneshot::Sender<(Addr<ClientActor>, Addr<ViewClientActor>, Addr<TxRequestHandlerActor>)>,
         accounts_to_unstake: mpsc::Sender<HashMap<(AccountId, PublicKey), AccountId>>,
         target_height: Arc<RwLock<BlockHeight>>,
         target_head: Arc<RwLock<CryptoHash>>,
@@ -1771,7 +1771,7 @@ impl<T: ChainAccess> TxMirror<T> {
             validate_genesis: false,
         })
         .context("failed to start target chain indexer")?;
-        let (target_view_client, target_client) = target_indexer.client_actors();
+        let (target_view_client, target_client, tx_processor) = target_indexer.client_actors();
         let mut target_stream = target_indexer.streamer();
         let (first_target_height, first_target_head) = Self::index_target_chain(
             &tracker,
@@ -1784,7 +1784,7 @@ impl<T: ChainAccess> TxMirror<T> {
         .await?;
         *target_height.write().unwrap() = first_target_height;
         *target_head.write().unwrap() = first_target_head;
-        clients_tx.send((target_client.clone(), target_view_client.clone())).unwrap();
+        clients_tx.send((target_client.clone(), target_view_client.clone(), tx_processor.clone())).unwrap();
 
         loop {
             let msg = target_stream.recv().await.unwrap();
@@ -2008,7 +2008,7 @@ impl<T: ChainAccess> TxMirror<T> {
         });
 
         // wait til we set the values in target_height and target_head after receiving a message from the indexer
-        let (target_client, target_view_client) = clients_rx.await.unwrap();
+        let (_target_client, target_view_client, tx_processor) = clients_rx.await.unwrap();
 
         // Wait at least 15 seconds before sending any transactions because for
         // a few seconds after the node starts, transaction routing requests
@@ -2056,7 +2056,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     let mut tx_block_queue = tx_block_queue.lock().unwrap();
                     TxBatch::from(&tx_block_queue.pop_front().unwrap())
                 };
-                Self::send_transactions(&target_client, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
+                Self::send_transactions(&tx_processor, b.txs.iter_mut().map(|(_tx_ref, tx)| tx))
                     .await?;
                 let mut tracker = tracker.lock().unwrap();
                 send_delay = tracker.on_txs_sent(
@@ -2080,7 +2080,7 @@ impl<T: ChainAccess> TxMirror<T> {
         let send_delay2 = send_delay.clone();
         let (blocks_sent_tx, blocks_sent_rx) = mpsc::channel(10);
         let tx_block_queue2 = tx_block_queue.clone();
-        let target_client2 = target_client.clone();
+        let tx_processor2 = tx_processor.clone();
         let db = self.db.clone();
         let send_txs_thread = actix::Arbiter::new();
         let (send_txs_done_tx, send_txs_done_rx) =
@@ -2092,14 +2092,14 @@ impl<T: ChainAccess> TxMirror<T> {
                 tx_block_queue2,
                 send_time,
                 send_delay2,
-                target_client2,
+                tx_processor2,
             )
             .await;
             send_txs_done_tx.send(res).unwrap();
         });
         tokio::select! {
             res = self.queue_txs_loop(
-                tracker, tx_block_queue, target_client, target_view_client,
+                tracker, tx_block_queue, tx_processor, target_view_client,
                 blocks_sent_rx, unstake_rx, send_delay, target_height, target_head,
                 source_hash, stop_height.is_some(),
             ) => {
