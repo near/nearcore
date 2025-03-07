@@ -1164,10 +1164,13 @@ impl Runtime {
                 // Check if there is already a receipt that was postponed and was awaiting for the
                 // given data_id.
                 // If we don't have a postponed receipt yet, we don't need to do anything for now.
-                if let Some(receipt_id) = get(state_update, &TrieKey::PostponedReceiptId {
-                    receiver_id: account_id.clone(),
-                    data_id: data_receipt.data_id,
-                })? {
+                if let Some(receipt_id) = get(
+                    state_update,
+                    &TrieKey::PostponedReceiptId {
+                        receiver_id: account_id.clone(),
+                        data_id: data_receipt.data_id,
+                    },
+                )? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update.remove(TrieKey::PostponedReceiptId {
@@ -1175,10 +1178,10 @@ impl Runtime {
                         data_id: data_receipt.data_id,
                     });
                     // Checking how many input data items is pending for the receipt.
-                    let pending_data_count: u32 = get(state_update, &TrieKey::PendingDataCount {
-                        receiver_id: account_id.clone(),
-                        receipt_id,
-                    })?
+                    let pending_data_count: u32 = get(
+                        state_update,
+                        &TrieKey::PendingDataCount { receiver_id: account_id.clone(), receipt_id },
+                    )?
                     .ok_or_else(|| {
                         StorageError::StorageInconsistentState(
                             "pending data count should be in the state".to_string(),
