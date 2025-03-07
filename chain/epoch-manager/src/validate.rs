@@ -33,6 +33,7 @@ pub fn validate_optimistic_block_relevant(
     if !epoch_manager_adapter.should_validate_signatures() {
         return Ok(true);
     }
+
     // A heuristic to check signature of the block even if prev block hash is not saved yet
     let epoch_ids =
         match epoch_manager_adapter.get_epoch_id_from_prev_block(&block.prev_block_hash()) {
