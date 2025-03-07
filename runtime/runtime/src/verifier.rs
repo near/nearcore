@@ -86,6 +86,7 @@ fn is_zero_balance_account(account: &Account) -> bool {
 
 /// Validates the transaction without using the state. It allows any node to validate a
 /// transaction before forwarding it to the node that tracks the `signer_id` account.
+#[allow(clippy::result_large_err)]
 pub fn validate_transaction(
     config: &RuntimeConfig,
     signed_tx: SignedTransaction,

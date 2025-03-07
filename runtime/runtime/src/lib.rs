@@ -292,8 +292,7 @@ impl Runtime {
             .map(|signed_tx| {
                 (
                     signed_tx.get_hash(),
-                    match validate_transaction(config, signed_tx.clone(), current_protocol_version)
-                    {
+                    match validate_transaction(config, signed_tx, current_protocol_version) {
                         Ok(validated_tx) => {
                             match tx_cost(
                                 config,

@@ -429,6 +429,7 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_shard_layout(&self, protocol_version: ProtocolVersion) -> ShardLayout;
 
+    #[allow(clippy::result_large_err)]
     fn validate_tx(
         &self,
         shard_layout: &ShardLayout,
