@@ -53,6 +53,8 @@ mod reward_calculator;
 pub mod shard_assignment;
 pub mod shard_tracker;
 pub mod test_utils;
+pub mod validate;
+
 #[cfg(test)]
 mod tests;
 mod validator_selection;

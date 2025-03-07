@@ -6,14 +6,6 @@ use near_o11y::metrics::{
 };
 use std::sync::LazyLock;
 
-pub(crate) static NUM_INVALID_OPTIMISTIC_BLOCKS: LazyLock<IntCounter> = LazyLock::new(|| {
-    try_create_int_counter(
-        "near_num_invalid_optimistic_blocks",
-        "Number of invalid optimistic blocks",
-    )
-    .unwrap()
-});
-
 pub(crate) static BLOCK_PRODUCED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     try_create_int_counter(
         "near_block_produced_total",
