@@ -129,7 +129,6 @@ pub fn verify_ephemeral_group(
     Ok(results)
 }
 
-
 pub fn commit_charging_for_tx(
     state_update: &mut TrieUpdate,
     validated_tx: &ValidatedTransaction,
@@ -786,7 +785,7 @@ mod tests {
             &cost,
             None,
             PROTOCOL_VERSION,
-            None
+            None,
         )
         .expect_err("expected an error");
         assert_eq!(err, expected_err);
@@ -819,7 +818,7 @@ mod tests {
             &transaction_cost,
             block_height,
             current_protocol_version,
-            None
+            None,
         )?;
         commit_charging_for_tx(state_update, &validated_tx, &vr.signer, &vr.access_key);
         Ok(vr)
