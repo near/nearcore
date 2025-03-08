@@ -739,7 +739,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 // under congestion.
                 let signed_tx = transaction_group_iter
                     .next()
-                    .expect("peek_next() returned Some, so next() should return Some as well");
+                    .expect("peek_next() returned Some, so next() should return Some as well")
+                    .into_signed_tx();
                 num_checked_transactions += 1;
 
                 if !congestion_control_accepts_transaction(

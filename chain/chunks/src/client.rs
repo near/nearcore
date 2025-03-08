@@ -6,6 +6,7 @@ use itertools::Itertools;
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::{
     epoch_info::RngSeed,
     sharding::{EncodedShardChunk, PartialEncodedChunk, ShardChunk, ShardChunkHeader},
@@ -59,9 +60,9 @@ impl ShardedTransactionPool {
     pub fn insert_transaction(
         &mut self,
         shard_uid: ShardUId,
-        tx: SignedTransaction,
+        validated_tx: ValidatedTransaction,
     ) -> InsertTransactionResult {
-        self.pool_for_shard(shard_uid).insert_transaction(tx)
+        self.pool_for_shard(shard_uid).insert_transaction(validated_tx)
     }
 
     pub fn remove_transactions(&mut self, shard_uid: ShardUId, transactions: &[SignedTransaction]) {

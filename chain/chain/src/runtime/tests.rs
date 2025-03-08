@@ -1567,10 +1567,10 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
     let mut rng = StdRng::from_seed(TEST_SEED);
     let signer_count = signers.len();
 
-    let mut transactions = vec![];
+    let mut validated_txs = vec![];
     for round in 1..signer_count {
         for i in 0..signer_count {
-            let transaction = SignedTransaction::send_money(
+            let signed_tx = SignedTransaction::send_money(
                 round.try_into().unwrap(),
                 signers[i].get_account_id(),
                 signers[(i + round) % signer_count].get_account_id(),
@@ -1578,14 +1578,15 @@ fn generate_transaction_pool(signers: &Vec<Signer>, block_hash: CryptoHash) -> T
                 round.try_into().unwrap(),
                 block_hash,
             );
-            transactions.push(transaction);
+            let validated_tx = ValidatedTransaction::new_for_test(signed_tx);
+            validated_txs.push(validated_tx);
         }
     }
-    transactions.shuffle(&mut rng);
+    validated_txs.shuffle(&mut rng);
 
     let mut pool = TransactionPool::new(TEST_SEED, None, "");
-    for transaction in transactions {
-        assert_eq!(pool.insert_transaction(transaction), InsertTransactionResult::Success);
+    for validated_tx in validated_txs {
+        assert_eq!(pool.insert_transaction(validated_tx), InsertTransactionResult::Success);
     }
     pool
 }

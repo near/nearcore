@@ -7,7 +7,7 @@ use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
 use near_primitives::epoch_info::RngSeed;
 use near_primitives::hash::{CryptoHash, hash};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::AccountId;
 use std::ops::Bound;
 
@@ -29,7 +29,7 @@ pub struct TransactionPool {
     /// Transactions are grouped by a pair of (account ID, signer public key).
     /// NOTE: It's more efficient on average to keep transactions unsorted and with potentially
     /// conflicting nonce than to create a BTreeMap for every transaction.
-    transactions: BTreeMap<PoolKey, Vec<SignedTransaction>>,
+    transactions: BTreeMap<PoolKey, Vec<ValidatedTransaction>>,
     /// Set of all hashes to quickly check if the given transaction is in the pool.
     unique_transactions: HashSet<CryptoHash>,
     /// A uniquely generated key seed to randomize PoolKey order.
@@ -82,9 +82,9 @@ impl TransactionPool {
     #[must_use]
     pub fn insert_transaction(
         &mut self,
-        signed_transaction: SignedTransaction,
+        validated_tx: ValidatedTransaction,
     ) -> InsertTransactionResult {
-        if !self.unique_transactions.insert(signed_transaction.get_hash()) {
+        if !self.unique_transactions.insert(validated_tx.get_hash()) {
             // The hash of this transaction was already seen, skip it.
             return InsertTransactionResult::Duplicate;
         }
@@ -93,7 +93,7 @@ impl TransactionPool {
         // to catch a logic error in estimation of transaction size.
         let new_total_transaction_size = self
             .total_transaction_size
-            .checked_add(signed_transaction.get_size())
+            .checked_add(validated_tx.to_signed_tx().get_size())
             .expect("Total transaction size is too large");
         if let Some(limit) = self.total_transaction_size_limit {
             if new_total_transaction_size > limit {
@@ -103,12 +103,12 @@ impl TransactionPool {
 
         // At this point transaction is accepted to the pool.
         self.total_transaction_size = new_total_transaction_size;
-        let signer_id = signed_transaction.transaction.signer_id();
-        let signer_public_key = signed_transaction.transaction.public_key();
+        let signer_id = validated_tx.to_tx().signer_id();
+        let signer_public_key = validated_tx.to_tx().public_key();
         self.transactions
             .entry(self.key(signer_id, signer_public_key))
             .or_insert_with(Vec::new)
-            .push(signed_transaction);
+            .push(validated_tx);
 
         self.transaction_pool_count_metric.inc();
         self.transaction_pool_size_metric.set(self.total_transaction_size as i64);
@@ -143,15 +143,15 @@ impl TransactionPool {
         }
         for (key, hashes) in grouped_transactions {
             if let Entry::Occupied(mut entry) = self.transactions.entry(key) {
-                entry.get_mut().retain(|tx| {
-                    if !hashes.contains(&tx.get_hash()) {
+                entry.get_mut().retain(|validated_tx| {
+                    if !hashes.contains(&validated_tx.get_hash()) {
                         return true;
                     }
                     // See the comment above where we increase the size for reasoning why panicking
                     // here catches a logic error.
                     self.total_transaction_size = self
                         .total_transaction_size
-                        .checked_sub(tx.get_size())
+                        .checked_sub(validated_tx.get_size())
                         .expect("Total transaction size dropped below zero");
                     false
                 });
@@ -228,19 +228,20 @@ impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
                         .expect("we've just checked that the map is not empty")
                 });
             self.pool.last_used_key = key;
-            let mut transactions =
+            let mut validated_txs =
                 self.pool.transactions.remove(&key).expect("just checked existence");
-            transactions.sort_by_key(|st| std::cmp::Reverse(st.transaction.nonce()));
+            validated_txs
+                .sort_by_key(|validated_tx| std::cmp::Reverse(validated_tx.to_tx().nonce()));
             self.sorted_groups.push_back(TransactionGroup {
                 key,
-                transactions,
+                validated_txs,
                 removed_transaction_hashes: vec![],
                 removed_transaction_size: 0,
             });
             Some(self.sorted_groups.back_mut().expect("just pushed"))
         } else {
             while let Some(sorted_group) = self.sorted_groups.pop_front() {
-                if sorted_group.transactions.is_empty() {
+                if sorted_group.validated_txs.is_empty() {
                     for hash in sorted_group.removed_transaction_hashes {
                         self.pool.unique_transactions.remove(&hash);
                     }
@@ -283,8 +284,8 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
                 .checked_sub(group.removed_transaction_size)
                 .expect("Total transaction size dropped below zero");
 
-            if !group.transactions.is_empty() {
-                self.pool.transactions.insert(group.key, group.transactions);
+            if !group.validated_txs.is_empty() {
+                self.pool.transactions.insert(group.key, group.validated_txs);
             }
         }
         // We can update metrics only once for the whole batch of transactions.
@@ -302,12 +303,12 @@ pub struct TransactionGroupIteratorWrapper {
 }
 
 impl TransactionGroupIteratorWrapper {
-    pub fn new(transactions: &[SignedTransaction]) -> Self {
-        let groups = transactions
-            .iter()
-            .map(|transaction| TransactionGroup {
+    pub fn new(validated_txs: &[ValidatedTransaction]) -> Self {
+        let groups = validated_txs
+            .into_iter()
+            .map(|validated_tx| TransactionGroup {
                 key: PoolKey::default(),
-                transactions: vec![transaction.clone()],
+                validated_txs: vec![validated_tx.clone()],
                 removed_transaction_hashes: vec![],
                 removed_transaction_size: 0,
             })
