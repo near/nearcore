@@ -325,7 +325,7 @@ impl Runtime {
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
     /// or a `StorageError` wrapped into `RuntimeError`.
     #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
-        tx_hash = %validated_tx.to_signed_tx().get_hash(),
+        tx_hash = %validated_tx.get_hash(),
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
     ))]
@@ -357,7 +357,7 @@ impl Runtime {
                     &verification_result.access_key,
                 );
                 state_update.commit(StateChangeCause::TransactionProcessing {
-                    tx_hash: validated_tx.to_signed_tx().get_hash(),
+                    tx_hash: validated_tx.get_hash(),
                 });
                 let transaction = validated_tx.to_tx();
                 let receipt_id = create_receipt_id_from_transaction(
@@ -388,7 +388,7 @@ impl Runtime {
                 let gas_burnt = verification_result.gas_burnt;
                 let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
-                    id: validated_tx.to_signed_tx().get_hash(),
+                    id: validated_tx.get_hash(),
                     outcome: ExecutionOutcome {
                         status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
                         logs: vec![],

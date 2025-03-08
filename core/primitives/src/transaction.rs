@@ -265,6 +265,10 @@ impl ValidatedTransaction {
     pub fn to_tx(&self) -> &Transaction {
         &self.0.transaction
     }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.0.get_hash()
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone, ProtocolSchema)]
