@@ -31,7 +31,7 @@ use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::state_witness::{
     ChunkStateWitness, EncodedChunkStateWitness,
 };
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ProtocolVersion, ShardId, ShardIndex};
 use near_primitives::utils::compression::CompressedData;
@@ -93,7 +93,7 @@ pub fn validate_prepared_transactions(
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
-    transactions: &[SignedTransaction],
+    validated_txs: &[ValidatedTransaction],
     last_chunk_transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let parent_block = chain.chain_store().get_block(chunk_header.prev_block_hash())?;
@@ -106,7 +106,7 @@ pub fn validate_prepared_transactions(
             last_chunk_transactions_size,
         },
         (&parent_block).into(),
-        &mut TransactionGroupIteratorWrapper::new(transactions),
+        &mut TransactionGroupIteratorWrapper::new(validated_txs),
         &mut chain.transaction_validity_check(parent_block.header().clone()),
         None,
     )
@@ -413,12 +413,29 @@ pub fn pre_validate_chunk_state_witness(
                     state_patch: Default::default(),
                 };
 
+                // This code exists to support an older protocol version so we
+                // do not care about performance as much here and thereby it is
+                // ok to use a potentially expensive `clone()`.  We also assume
+                // that any transaction that got included in the state witness
+                // is valid and thereby will pass signature verification, hence
+                // the `unwrap`.
+                let validated_txs = new_transactions
+                    .into_iter()
+                    .cloned()
+                    .map(|st| {
+                        ValidatedTransaction::new(
+                            &runtime_adapter.get_runtime_config(protocol_version).unwrap(),
+                            st,
+                        )
+                        .unwrap()
+                    })
+                    .collect::<Vec<_>>();
                 match validate_prepared_transactions(
                     chain,
                     runtime_adapter,
                     &state_witness.chunk_header,
                     transactions_validation_storage_config,
-                    &new_transactions,
+                    &validated_txs,
                     &state_witness.transactions,
                 ) {
                     Ok(result) => {
