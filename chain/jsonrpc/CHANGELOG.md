@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.2
+
+* Removed a status code for a missing block - 422 Unprocessable Content that was introduced in 2.4.0
+
 ## 2.4.0
 
 * Introduced a new status code for a missing block - 422 Unprocessable Content
