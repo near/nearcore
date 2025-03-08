@@ -216,7 +216,7 @@ impl BorshDeserialize for Transaction {
 /// guaranteed to have various checks performed on it.  In particular, ensure
 /// that the signature is verified and the max transaction size checks have been
 /// conducted.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedTransaction(SignedTransaction);
 
 impl ValidatedTransaction {
@@ -268,6 +268,26 @@ impl ValidatedTransaction {
 
     pub fn get_hash(&self) -> CryptoHash {
         self.0.get_hash()
+    }
+
+    pub fn get_size(&self) -> u64 {
+        self.0.get_size()
+    }
+
+    pub fn signer_id(&self) -> &AccountId {
+        self.to_tx().signer_id()
+    }
+
+    pub fn receiver_id(&self) -> &AccountId {
+        self.to_tx().receiver_id()
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        self.to_tx().nonce()
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        self.to_tx().public_key()
     }
 }
 
