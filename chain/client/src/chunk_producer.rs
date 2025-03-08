@@ -288,7 +288,14 @@ impl ChunkProducer {
             self.produce_invalid_tx_in_chunks,
         );
         let num_filtered_transactions = prepared_transactions.transactions.len();
-        let (tx_root, _) = merklize(&prepared_transactions.transactions);
+        let (tx_root, _) = merklize(
+            &prepared_transactions
+                .transactions
+                .iter()
+                .cloned()
+                .map(|vt| vt.into_signed_tx())
+                .collect::<Vec<_>>(),
+        );
         let outgoing_receipts = ChainStore::get_outgoing_receipts_for_shard_from_store(
             &self.chain,
             self.epoch_manager.as_ref(),
@@ -314,7 +321,11 @@ impl ChunkProducer {
             chunk_extra.gas_limit(),
             chunk_extra.balance_burnt(),
             chunk_extra.validator_proposals().collect(),
-            prepared_transactions.transactions,
+            prepared_transactions
+                .transactions
+                .into_iter()
+                .map(|vt| vt.into_signed_tx())
+                .collect::<Vec<_>>(),
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,

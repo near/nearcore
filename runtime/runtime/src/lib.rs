@@ -1741,7 +1741,7 @@ impl Runtime {
                             continue;
                         }
                     };
-                    if receipt.receiver_id() == validated_tx.to_tx().signer_id() {
+                    if receipt.receiver_id() == validated_tx.signer_id() {
                         processing_state.local_receipts.push_back(receipt);
                     } else {
                         receipt_sink.forward_or_buffer_receipt(
