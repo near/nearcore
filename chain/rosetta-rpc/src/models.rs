@@ -544,9 +544,6 @@ impl Error {
             crate::errors::ErrorKind::NotFound(message) => {
                 Self { code: 404, message: format!("Not Found: {}", message), retryable: false }
             }
-            crate::errors::ErrorKind::MissingBlock(message) => {
-                Self { code: 422, message: format!("Missing Block: {}", message), retryable: false }
-            }
             crate::errors::ErrorKind::WrongNetwork(message) => {
                 Self { code: 403, message: format!("Wrong Network: {}", message), retryable: false }
             }
