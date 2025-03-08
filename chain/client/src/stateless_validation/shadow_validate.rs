@@ -6,6 +6,7 @@ use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::transaction::ValidatedTransaction;
 
 impl Client {
     // Temporary feature to make node produce state witness for every chunk in every processed block
@@ -67,7 +68,12 @@ impl Client {
             self.runtime_adapter.as_ref(),
             &chunk_header,
             transactions_validation_storage_config,
-            chunk.transactions(),
+            &chunk
+                .transactions()
+                .into_iter()
+                .cloned()
+                .map(|st| ValidatedTransaction::new_for_test(st))
+                .collect::<Vec<_>>(),
             last_chunk.transactions(),
         ) else {
             return Err(Error::Other(
