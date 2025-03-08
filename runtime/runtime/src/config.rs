@@ -267,7 +267,7 @@ pub fn tx_cost(
     )?;
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
-    let initial_receipt_hop = if tx.signer_id() == tx.receiver_id() { 0 } else { 1 };
+    let initial_receipt_hop = if sender_is_receiver { 0 } else { 1 };
     let minimum_new_receipt_gas = if protocol_version < FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION {
         fees.min_receipt_with_function_call_gas()
     } else {
