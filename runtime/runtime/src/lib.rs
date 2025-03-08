@@ -359,7 +359,7 @@ impl Runtime {
                 state_update.commit(StateChangeCause::TransactionProcessing {
                     tx_hash: validated_tx.to_signed_tx().get_hash(),
                 });
-                let transaction = &validated_tx.to_signed_tx().transaction;
+                let transaction = validated_tx.to_tx();
                 let receipt_id = create_receipt_id_from_transaction(
                     apply_state.current_protocol_version,
                     validated_tx.to_signed_tx(),
