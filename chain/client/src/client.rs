@@ -63,7 +63,7 @@ use near_primitives::sharding::{
     StateSyncInfoV1,
 };
 use near_primitives::stateless_validation::ChunkProductionKey;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, ValidatedTransaction};
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::upgrade_schedule::ProtocolUpgradeVotingSchedule;
@@ -394,7 +394,9 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
             let shard_id = shard_id.map_err(Into::<EpochError>::into)?;
@@ -427,7 +429,10 @@ impl Client {
         block: &Block,
     ) -> Result<(), Error> {
         let epoch_id = self.epoch_manager.get_epoch_id(block.hash())?;
-        let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_layout =
+            self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
+        let config = self.runtime_adapter.get_runtime_config(protocol_version)?;
 
         for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
             let shard_id = shard_layout.get_shard_id(shard_index);
@@ -443,10 +448,23 @@ impl Client {
                 ) {
                     // By now the chunk must be in store, otherwise the block would have been orphaned
                     let chunk = self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap();
+
+                    let mut validated_txs = vec![];
+                    for signed_tx in chunk.transactions() {
+                        match ValidatedTransaction::new(&config, signed_tx.clone()) {
+                            Ok(validated_tx) => validated_txs.push(validated_tx),
+                            Err((err, signed_tx)) => {
+                                return Err(Error::Other(format!(
+                                    "Validating Signed tx ({:?}) in new_transactions failed with {:?}",
+                                    signed_tx, err
+                                )));
+                            }
+                        }
+                    }
                     let reintroduced_count = self
                         .chunk_producer
                         .sharded_tx_pool
-                        .reintroduce_transactions(shard_uid, chunk.transactions().to_vec());
+                        .reintroduce_transactions(shard_uid, validated_txs);
                     if reintroduced_count < chunk.transactions().len() {
                         debug!(target: "client",
                             reintroduced_count,
@@ -2258,7 +2276,7 @@ impl Client {
                 match self
                     .chunk_producer
                     .sharded_tx_pool
-                    .insert_transaction(shard_uid, validated_tx.into_signed_tx())
+                    .insert_transaction(shard_uid, validated_tx)
                 {
                     InsertTransactionResult::Success => {
                         trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Recorded a transaction.");
