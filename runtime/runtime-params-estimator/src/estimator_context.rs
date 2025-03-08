@@ -446,7 +446,7 @@ impl Testbed<'_> {
     /// Network costs for sending are not included.
     pub(crate) fn verify_transaction(
         &mut self,
-        tx: &SignedTransaction,
+        signed_tx: SignedTransaction,
         metric: GasMetric,
     ) -> GasCost {
         let mut state_update = TrieUpdate::new(self.trie());
@@ -456,21 +456,30 @@ impl Testbed<'_> {
         let block_height = None;
 
         let clock = GasCost::measure(metric);
-        node_runtime::validate_transaction(&self.apply_state.config, tx, PROTOCOL_VERSION)
-            .expect("expected no validation error");
-        let cost = tx_cost(&self.apply_state.config, &tx.transaction, gas_price, PROTOCOL_VERSION)
-            .unwrap();
+        let validated_tx = node_runtime::validate_transaction(
+            &self.apply_state.config,
+            signed_tx,
+            PROTOCOL_VERSION,
+        )
+        .expect("expected no validation error");
+        let cost =
+            tx_cost(&self.apply_state.config, &validated_tx, gas_price, PROTOCOL_VERSION).unwrap();
 
         let vr = verify_and_charge_tx_ephemeral(
             &self.apply_state.config,
             &state_update,
-            tx,
+            &validated_tx,
             &cost,
             block_height,
             PROTOCOL_VERSION,
         )
         .expect("tx verification should not fail in estimator");
-        commit_charging_for_tx(&mut state_update, &tx.transaction, &vr.signer, &vr.access_key);
+        commit_charging_for_tx(
+            &mut state_update,
+            &validated_tx.to_signed_tx().transaction,
+            &vr.signer,
+            &vr.access_key,
+        );
         clock.elapsed()
     }
 

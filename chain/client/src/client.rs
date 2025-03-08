@@ -2177,7 +2177,7 @@ impl Client {
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
     fn process_tx_internal(
         &mut self,
-        tx: &SignedTransaction,
+        signed_tx: &SignedTransaction,
         is_forwarded: bool,
         check_only: bool,
         signer: &Option<Arc<ValidatorSigner>>,
@@ -2189,12 +2189,11 @@ impl Client {
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
-        if let Err(e) = self
-            .chain
-            .chain_store()
-            .check_transaction_validity_period(&cur_block_header, tx.transaction.block_hash())
-        {
-            debug!(target: "client", ?tx, "Invalid tx: expired or from a different fork");
+        if let Err(e) = self.chain.chain_store().check_transaction_validity_period(
+            &cur_block_header,
+            signed_tx.transaction.block_hash(),
+        ) {
+            debug!(target: "client", ?signed_tx, "Invalid tx: expired or from a different fork");
             return Ok(ProcessTxResponse::InvalidTx(e));
         }
         let gas_price = cur_block_header.next_gas_price();
@@ -2202,21 +2201,25 @@ impl Client {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let shard_layout =
             self.epoch_manager.get_shard_layout_from_protocol_version(protocol_version);
-        let receiver_shard = shard_layout.account_id_to_shard_id(tx.transaction.receiver_id());
+        let receiver_shard =
+            shard_layout.account_id_to_shard_id(signed_tx.transaction.receiver_id());
         let receiver_congestion_info =
             cur_block.block_congestion_info().get(&receiver_shard).copied();
 
-        if let Err(err) = self.runtime_adapter.validate_tx(
+        let validated_tx = match self.runtime_adapter.validate_tx(
             &shard_layout,
-            tx,
+            signed_tx.clone(),
             protocol_version,
             receiver_congestion_info,
         ) {
-            debug!(target: "client", tx_hash = ?tx.get_hash(), ?err, "Invalid tx during basic validation");
-            return Ok(ProcessTxResponse::InvalidTx(err));
-        }
+            Ok(validated_tx) => validated_tx,
+            Err((err, signed_tx)) => {
+                debug!(target: "client", tx_hash = ?signed_tx.get_hash(), ?err, "Invalid tx during basic validation");
+                return Ok(ProcessTxResponse::InvalidTx(err));
+            }
+        };
 
-        let shard_uid = shard_layout.account_id_to_shard_uid(tx.transaction.signer_id());
+        let shard_uid = shard_layout.account_id_to_shard_uid(signed_tx.transaction.signer_id());
         let shard_id = shard_uid.shard_id();
         let cares_about_shard =
             self.shard_tracker.cares_about_shard(me, &head.last_block_hash, shard_id, true);
@@ -2232,7 +2235,7 @@ impl Client {
                     if is_forwarded {
                         return Err(Error::Other("Node has not caught up yet".to_string()));
                     } else {
-                        self.forward_tx(&epoch_id, tx, signer)?;
+                        self.forward_tx(&epoch_id, signed_tx, signer)?;
                         return Ok(ProcessTxResponse::RequestRouted);
                     }
                 }
@@ -2241,7 +2244,7 @@ impl Client {
                 &shard_layout,
                 gas_price,
                 state_root,
-                tx,
+                &validated_tx,
                 protocol_version,
             ) {
                 debug!(target: "client", ?err, "Invalid tx");
@@ -2252,20 +2255,23 @@ impl Client {
             }
             // Transactions only need to be recorded if the node is a validator.
             if me.is_some() {
-                match self.chunk_producer.sharded_tx_pool.insert_transaction(shard_uid, tx.clone())
+                match self
+                    .chunk_producer
+                    .sharded_tx_pool
+                    .insert_transaction(shard_uid, validated_tx.into_signed_tx())
                 {
                     InsertTransactionResult::Success => {
-                        trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
+                        trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Recorded a transaction.");
                     }
                     InsertTransactionResult::Duplicate => {
-                        trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Duplicate transaction, not forwarding it.");
+                        trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Duplicate transaction, not forwarding it.");
                         return Ok(ProcessTxResponse::ValidTx);
                     }
                     InsertTransactionResult::NoSpaceLeft => {
                         if is_forwarded {
-                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
+                            trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Transaction pool is full, dropping the transaction.");
                         } else {
-                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
+                            trace!(target: "client", ?shard_uid, tx_hash = ?signed_tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
                         }
                     }
                 }
@@ -2277,21 +2283,21 @@ impl Client {
             //   forward to current epoch validators,
             //   possibly forward to next epoch validators
             if self.active_validator(shard_id, signer)? {
-                trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
+                trace!(target: "client", account = ?me, ?shard_id, tx_hash = ?signed_tx.get_hash(), is_forwarded, "Recording a transaction.");
                 metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                 if !is_forwarded {
-                    self.possibly_forward_tx_to_next_epoch(tx, signer)?;
+                    self.possibly_forward_tx_to_next_epoch(signed_tx, signer)?;
                 }
                 return Ok(ProcessTxResponse::ValidTx);
             }
             if !is_forwarded {
-                trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
+                trace!(target: "client", ?shard_id, tx_hash = ?signed_tx.get_hash(), "Forwarding a transaction.");
                 metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
-                self.forward_tx(&epoch_id, tx, signer)?;
+                self.forward_tx(&epoch_id, signed_tx, signer)?;
                 return Ok(ProcessTxResponse::RequestRouted);
             }
-            trace!(target: "client", ?shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
+            trace!(target: "client", ?shard_id, tx_hash = ?signed_tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
             metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
             return Ok(ProcessTxResponse::NoResponse);
         }
@@ -2301,11 +2307,11 @@ impl Client {
         }
         if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
-            debug!(target: "client", ?me, ?shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
+            debug!(target: "client", ?me, ?shard_id, tx_hash = ?signed_tx.get_hash(), "Received forwarded transaction but no tracking shard");
             return Ok(ProcessTxResponse::NoResponse);
         }
         // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
-        self.forward_tx(&epoch_id, tx, signer).map(|()| ProcessTxResponse::RequestRouted)
+        self.forward_tx(&epoch_id, signed_tx, signer).map(|()| ProcessTxResponse::RequestRouted)
     }
 
     /// Determine if I am a validator in next few blocks for specified shard, assuming epoch doesn't change.

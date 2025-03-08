@@ -1,7 +1,9 @@
 use actix::Addr;
 
+use near_crypto::InMemorySigner;
 use near_indexer_primitives::IndexerTransactionWithOutcome;
 use near_parameters::RuntimeConfig;
+use near_primitives::transaction::ValidatedTransaction;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views;
 use node_runtime::config::tx_cost;
@@ -22,53 +24,58 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
     let prev_block = fetch_block(&client, block.header.prev_hash).await?;
     let prev_block_gas_price = prev_block.header.gas_price;
 
-    let local_receipts: Vec<views::ReceiptView> =
-        txs.into_iter()
-            .map(|tx| {
-                assert_eq!(tx.transaction.signer_id, tx.transaction.receiver_id);
-                let cost = tx_cost(
-                    &runtime_config,
-                    &near_primitives::transaction::Transaction::V0(
-                        near_primitives::transaction::TransactionV0 {
-                            signer_id: tx.transaction.signer_id.clone(),
-                            public_key: tx.transaction.public_key.clone(),
-                            nonce: tx.transaction.nonce,
-                            receiver_id: tx.transaction.receiver_id.clone(),
-                            block_hash: block.header.hash,
-                            actions: tx
-                                .transaction
-                                .actions
-                                .clone()
-                                .into_iter()
-                                .map(|action| {
-                                    near_primitives::transaction::Action::try_from(action).unwrap()
-                                })
-                                .collect(),
-                        },
-                    ),
-                    prev_block_gas_price,
-                    protocol_version,
-                )
-                .expect("TransactionCost returned IntegerOverflowError");
-                views::ReceiptView {
-                    predecessor_id: tx.transaction.signer_id.clone(),
-                    receiver_id: tx.transaction.receiver_id.clone(),
-                    receipt_id: *tx.outcome.execution_outcome.outcome.receipt_ids.first().expect(
-                        "The transaction ExecutionOutcome should have one receipt id in vec",
-                    ),
-                    receipt: views::ReceiptEnumView::Action {
-                        signer_id: tx.transaction.signer_id.clone(),
-                        signer_public_key: tx.transaction.public_key.clone(),
-                        gas_price: cost.receipt_gas_price,
-                        output_data_receivers: vec![],
-                        input_data_ids: vec![],
-                        actions: tx.transaction.actions.clone(),
-                        is_promise_yield: false,
-                    },
-                    priority: 0,
-                }
-            })
-            .collect();
+    let local_receipts: Vec<views::ReceiptView> = txs
+        .into_iter()
+        .map(|indexer_tx| {
+            assert_eq!(indexer_tx.transaction.signer_id, indexer_tx.transaction.receiver_id);
+            let tx = near_primitives::transaction::Transaction::V0(
+                near_primitives::transaction::TransactionV0 {
+                    signer_id: indexer_tx.transaction.signer_id.clone(),
+                    public_key: indexer_tx.transaction.public_key.clone(),
+                    nonce: indexer_tx.transaction.nonce,
+                    receiver_id: indexer_tx.transaction.receiver_id.clone(),
+                    block_hash: block.header.hash,
+                    actions: indexer_tx
+                        .transaction
+                        .actions
+                        .clone()
+                        .into_iter()
+                        .map(|action| {
+                            near_primitives::transaction::Action::try_from(action).unwrap()
+                        })
+                        .collect(),
+                },
+            );
+            let signer = InMemorySigner::test_signer(&indexer_tx.transaction.signer_id);
+            let signed_tx = tx.sign(&signer);
+            let validated_tx = ValidatedTransaction::new(runtime_config, signed_tx).unwrap();
+
+            let cost =
+                tx_cost(&runtime_config, &validated_tx, prev_block_gas_price, protocol_version)
+                    .unwrap();
+            views::ReceiptView {
+                predecessor_id: indexer_tx.transaction.signer_id.clone(),
+                receiver_id: indexer_tx.transaction.receiver_id.clone(),
+                receipt_id: *indexer_tx
+                    .outcome
+                    .execution_outcome
+                    .outcome
+                    .receipt_ids
+                    .first()
+                    .expect("The transaction ExecutionOutcome should have one receipt id in vec"),
+                receipt: views::ReceiptEnumView::Action {
+                    signer_id: indexer_tx.transaction.signer_id.clone(),
+                    signer_public_key: indexer_tx.transaction.public_key.clone(),
+                    gas_price: cost.receipt_gas_price,
+                    output_data_receivers: vec![],
+                    input_data_ids: vec![],
+                    actions: indexer_tx.transaction.actions.clone(),
+                    is_promise_yield: false,
+                },
+                priority: 0,
+            }
+        })
+        .collect();
 
     Ok(local_receipts)
 }
