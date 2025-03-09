@@ -105,12 +105,12 @@ impl ShardedTransactionPool {
     pub fn reintroduce_transactions(
         &mut self,
         shard_uid: ShardUId,
-        transactions: &[SignedTransaction],
+        signed_txs: impl IntoIterator<Item = SignedTransaction>,
     ) -> usize {
         let mut reintroduced_count = 0;
         let pool = self.pool_for_shard(shard_uid);
-        for tx in transactions {
-            reintroduced_count += match pool.insert_transaction(tx.clone()) {
+        for signed_tx in signed_txs {
+            reintroduced_count += match pool.insert_transaction(signed_tx) {
                 InsertTransactionResult::Success | InsertTransactionResult::Duplicate => 1,
                 InsertTransactionResult::NoSpaceLeft => 0,
             }
