@@ -1,6 +1,7 @@
 use super::test_vm_config;
 use crate::ContractCode;
 use crate::logic::errors::{FunctionCallError, HostError};
+use crate::logic::gas_counter::FreeGasCounter;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::types::ReturnData;
 use crate::logic::{External, StorageGetMode};
@@ -45,9 +46,9 @@ pub fn test_ts_contract() {
             .expect("bad failure");
         // Verify by looking directly into the storage of the host.
         {
-            let res = fake_external.storage_get(b"foo", StorageGetMode::Trie);
+            let res = fake_external.storage_get(&mut FreeGasCounter, b"foo", StorageGetMode::Trie);
             let value_ptr = res.unwrap().unwrap();
-            let value = value_ptr.deref().unwrap();
+            let value = value_ptr.deref(&mut FreeGasCounter).unwrap();
             let value = String::from_utf8(value).unwrap();
             assert_eq!(value.as_str(), "bar");
         }

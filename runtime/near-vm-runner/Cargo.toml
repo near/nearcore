@@ -14,7 +14,6 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-base64 = { workspace = true, optional = true }
 blst.workspace = true
 bn.workspace = true
 borsh.workspace = true
@@ -146,7 +145,6 @@ nightly = [
   "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = ["near-o11y/sandbox"]
-io_trace = ["base64"]
 test_features = []
 protocol_schema = [
   "near-crypto/protocol_schema",

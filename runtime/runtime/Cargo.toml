@@ -12,6 +12,7 @@ publish = false
 workspace = true
 
 [dependencies]
+base64 = { workspace = true, optional = true }
 borsh.workspace = true
 itertools.workspace = true
 num-bigint.workspace = true
@@ -37,6 +38,7 @@ near-wallet-contract.workspace = true
 [features]
 default = []
 estimator = ["near-primitives/test_utils"]
+io_trace = ["base64"]
 nightly = [
   "near-chain-configs/nightly",
   "near-o11y/nightly",
